@@ -25,13 +25,25 @@ async function loadSpriteMap() {
 }
 
 // --- Map setup ---
-const MAP_WIDTH = 100;  // in tiles
-const MAP_HEIGHT = 20;  // in tiles
+type MapBlock = {
+    x: number; // tile x
+    y: number; // tile y
+    type: 'floor_grass' | 'floor_plain_half';
+    collision: boolean;
+    palette?: string;
+    rotation?: 1 | 2 | 3 | 4;
+};
+let mapBlocks: MapBlock[] = [];
+let mapLoaded = false;
+
+// --- Map size in pixels (constant) ---
+const MAP_WIDTH = 10000;  // pixels
+const MAP_HEIGHT = 10000; // pixels
 let mapTiles: { type: 'floor_grass' | 'floor_plain_half' }[][] = [];
 
 // --- Astronaut world position ---
 let astronaut: Astronaut = {
-    position: { x: MAP_WIDTH * 32 / 2, y: (MAP_HEIGHT - 2) * 32 }, // world coordinates, start above ground
+    position: { x: 400, y: 778 }, // start at 0,0
     velocity: { x: 0, y: 0 },
     isFlying: false,
     isLanded: true,
@@ -53,11 +65,12 @@ if (!canvas || !ctx) {
     throw new Error('Canvas or 2D context not found');
 }
 
-let gameState: GameState = {
+let gameState: GameState & { debugMode: boolean } = {
     astronaut,
     gravity: 0.09, // slightly weaker gravity
     trail: [],
     isRunning: true,
+    debugMode: true
 };
 
 let spriteSheet: HTMLImageElement;
@@ -230,41 +243,48 @@ function updateAndDrawStars(ctx: CanvasRenderingContext2D, camera: { x: number, 
 
 // --- Draw map tiles ---
 function drawMap(ctx: CanvasRenderingContext2D, camera: { x: number, y: number }) {
-    if (!floorGrassRect || !floorPlainHalfRect) return;
+    if (!floorGrassRect || !floorPlainHalfRect || !mapLoaded) return;
     const tileW = floorGrassRect.w * SPRITE_SCALE * (4 / 3) * 3;
     const tileH = floorGrassRect.h * SPRITE_SCALE * (2 / 3) * 3;
-    // Only draw tiles that are visible on screen
-    const startCol = Math.floor(camera.x / tileW);
-    const endCol = Math.ceil((camera.x + canvas.width) / tileW);
-    const startRow = Math.floor(camera.y / tileH);
-    const endRow = Math.ceil((camera.y + canvas.height) / tileH);
 
-    for (let y = startRow; y < endRow; y++) {
-        if (y < 0 || y >= MAP_HEIGHT) continue;
-        for (let x = startCol; x < endCol; x++) {
-            if (x < 0 || x >= MAP_WIDTH) continue;
-            const tile = mapTiles[y][x];
-            if (!tile) continue;
-            let rect = tile.type === 'floor_grass' ? floorGrassRect : floorPlainHalfRect;
-            ctx.save();
-            // Draw at screen position
-            const drawX = x * tileW - camera.x;
-            const drawY = y * tileH - camera.y;
-            ctx.translate(drawX + tileW / 2, drawY + tileH / 2);
-            ctx.scale(1, -1); // flip vertically for both tile types
-            ctx.drawImage(
-                spriteSheet,
-                rect.x, rect.y, rect.w, rect.h,
-                -tileW / 2, -tileH / 2, tileW, tileH
-            );
-            ctx.restore();
-        }
+    for (const block of mapBlocks) {
+        // Treat block.x and block.y as pixel coordinates
+        const drawX = block.x - camera.x;
+        const drawY = block.y - camera.y;
+        if (
+            drawX + tileW < 0 || drawX > canvas.width ||
+            drawY + tileH < 0 || drawY > canvas.height
+        ) continue;
+
+        let rect = block.type === 'floor_grass' ? floorGrassRect : floorPlainHalfRect;
+        ctx.save();
+        ctx.translate(drawX + tileW / 2, drawY + tileH / 2);
+        if (block.rotation) ctx.rotate(((block.rotation - 1) * Math.PI) / 2);
+        ctx.scale(1, -1);
+        ctx.drawImage(
+            spriteSheet,
+            rect.x, rect.y, rect.w, rect.h,
+            -tileW / 2, -tileH / 2, tileW, tileH
+        );
+        ctx.restore();
     }
+}
+
+// --- Collision detection with blocks ---
+function getBlockAtWorld(x: number, y: number): MapBlock | undefined {
+    const tileW = floorGrassRect ? floorGrassRect.w * SPRITE_SCALE * (4 / 3) * 3 : 32;
+    const tileH = floorGrassRect ? floorGrassRect.h * SPRITE_SCALE * (2 / 3) * 3 : 32;
+    // Find block whose pixel rect contains (x, y)
+    return mapBlocks.find(b =>
+        x >= b.x && x < b.x + tileW &&
+        y >= b.y && y < b.y + tileH &&
+        b.collision
+    );
 }
 
 // When drawing the sprite, ensure the canvas is cleared with a transparent background
 function gameLoop() {
-    if (!gameState.isRunning) return;
+    if (!gameState.isRunning || !mapLoaded) return;
 
     ctx!.imageSmoothingEnabled = false;
     ctx!.clearRect(0, 0, canvas.width, canvas.height);
@@ -274,9 +294,22 @@ function gameLoop() {
     // --- Draw twinkling stars ---
     updateAndDrawStars(ctx!, camera);
 
-    // --- Draw map tiles ---
+    // --- Draw map blocks ---
     if (spriteSheet && spriteSheet.complete && floorGrassRect && floorPlainHalfRect) {
         drawMap(ctx!, camera);
+    }
+
+    // --- Debug: astronaut coordinates ---
+    if (gameState.debugMode) {
+        ctx!.save();
+        ctx!.font = '16px monospace';
+        ctx!.fillStyle = '#fff';
+        ctx!.strokeStyle = '#000';
+        ctx!.lineWidth = 3;
+        const coordText = `x: ${astronaut.position.x.toFixed(2)}  y: ${astronaut.position.y.toFixed(2)}`;
+        ctx!.strokeText(coordText, 10, 22);
+        ctx!.fillText(coordText, 10, 22);
+        ctx!.restore();
     }
 
     // --- Controls: Upward and horizontal movement ---
@@ -425,7 +458,7 @@ function gameLoop() {
         dot.y += dot.vy;
         dot.alpha -= 0.025;
     });
-    jetpackDots = jetpackDots.filter(dot => dot.y < MAP_HEIGHT * 100 && dot.alpha > 0);
+    jetpackDots = jetpackDots.filter(dot => dot.y < MAP_HEIGHT && dot.alpha > 0);
 
     jetpackDots.forEach(dot => {
         ctx!.save();
@@ -530,29 +563,17 @@ function gameLoop() {
     const SPRITE_H = spriteRect.h;
 
     // --- Ground collision and landing logic ---
-    // Use the top of the ground tiles as the ground Y
-    // Find which tile astronaut is over
+    // Fix: Use blockBelow.y directly (it's already in pixels)
     const tileW = floorGrassRect ? floorGrassRect.w * SPRITE_SCALE * (4 / 3) * 3 : 32;
     const tileH = floorGrassRect ? floorGrassRect.h * SPRITE_SCALE * (2 / 3) * 3 : 32;
-    const astronautTileX = Math.floor(astronaut.position.x / tileW);
-    const astronautTileY = Math.floor((astronaut.position.y + tileH / 2) / tileH);
+    const astronautFeetY = astronaut.position.y + tileH / 2;
+    const blockBelow = getBlockAtWorld(astronaut.position.x, astronautFeetY);
 
-    let groundY = null;
-    if (
-        astronautTileY >= 0 && astronautTileY < MAP_HEIGHT &&
-        astronautTileX >= 0 && astronautTileX < MAP_WIDTH &&
-        mapTiles[astronautTileY][astronautTileX]
-    ) {
-        groundY = astronautTileY * tileH;
-    }
-
-    // Astronaut's feet Y (centered sprite, so adjust for sprite height)
-    const drawH = floorGrassRect ? floorGrassRect.h * SPRITE_SCALE * (2 / 3) * 3 : 32;
-    const astronautFeetY = astronaut.position.y + drawH / 2;
-
-    if (groundY !== null && astronautFeetY >= groundY) {
-        astronaut.position.y = groundY - drawH / 2;
+    if (blockBelow) {
+        const groundY = blockBelow.y;
+        astronaut.position.y = groundY - tileH / 2;
         astronaut.velocity.y = 0;
+        astronaut.velocity.x = 0; // zero horizontal velocity on landing
         astronaut.isLanded = true;
     } else {
         astronaut.isLanded = false;
@@ -565,8 +586,8 @@ function gameLoop() {
     }
     // Prevent moving off the left/right/top/bottom edges of the map
     if (astronaut.position.x < 0) astronaut.position.x = 0;
-    if (astronaut.position.x > MAP_WIDTH * tileW) astronaut.position.x = MAP_WIDTH * tileW;
-    if (astronaut.position.y > MAP_HEIGHT * tileH) astronaut.position.y = MAP_HEIGHT * tileH;
+    if (astronaut.position.x > MAP_WIDTH) astronaut.position.x = MAP_WIDTH;
+    if (astronaut.position.y > MAP_HEIGHT) astronaut.position.y = MAP_HEIGHT;
 
     // --- Render astronaut at center of screen with correct animation ---
     if (spriteSheet && spriteSheet.complete) {
@@ -625,6 +646,7 @@ function makeBlackTransparent(img: HTMLImageElement, callback: (result: HTMLCanv
 }
 
 // --- Map generation ---
+/*
 function generateMap() {
     mapTiles = [];
     for (let y = 0; y < MAP_HEIGHT; y++) {
@@ -642,11 +664,19 @@ function generateMap() {
         mapTiles.push(row);
     }
 }
+*/
+
+// --- Load map from JSON file ---
+async function loadMapBlocks() {
+    const res = await fetch('./src/assets/world_map.json');
+    mapBlocks = await res.json();
+    mapLoaded = true;
+}
 
 // Initialize the game
 async function init() {
     await loadSpriteMap();
-    generateMap();
+    await loadMapBlocks();
     initStars();
     const img = new Image();
     img.src = './src/assets/exile_sprites.png';

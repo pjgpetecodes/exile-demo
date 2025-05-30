@@ -63,10 +63,10 @@
     { "name": "", "x": 0,  "y": 5, "w": 12, "h": 22 },
     { "name": "", "x": 0,  "y": 5, "w": 12, "h": 22 },
     { "name": "", "x": 0,  "y": 5, "w": 12, "h": 22 },
-    { "name": "floor_plain_half", "x": 244,  "y": 80, "w": 12, "h": 18 },
-    { "name": "floor_plain_third", "x": 256,  "y": 80, "w": 12, "h": 18 },
-    { "name": "", "x": 0,  "y": 5, "w": 12, "h": 22 },
-    { "name": "floor_grass", "x": 296,  "y": 80, "w": 12, "h": 18 }
+    { "name": "floor_plain_half", "x": 236,  "y": 80, "w": 16, "h": 18 },
+    { "name": "floor_plain_third", "x": 256,  "y": 80, "w": 16, "h": 18 },
+    { "name": "floor_plain_quarter", "x": 276,  "y": 80, "w": 16, "h": 18 },
+    { "name": "floor_grass", "x": 296,  "y": 80, "w": 16, "h": 18 }
 
 
 ]
