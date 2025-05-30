@@ -111,6 +111,11 @@ const STAR_COLORS = [
 ];
 const STAR_COUNT = 40;
 let stars = [];
+// Random star move interval: Move every 2-6 seconds (120-360 frames)
+function randomStarMoveInterval() {
+    return 120 + Math.floor(Math.random() * 240);
+}
+// Initialize stars randomly across the sky
 function initStars() {
     stars = [];
     for (let i = 0; i < STAR_COUNT; i++) {
@@ -119,11 +124,27 @@ function initStars() {
             y: Math.random() * (canvas.height - 80),
             colorIndex: Math.floor(Math.random() * STAR_COLORS.length),
             twinkleTimer: Math.random() * 2,
-            twinkleSpeed: 0.5 + Math.random() * 1.5
+            twinkleSpeed: 0.5 + Math.random() * 1.5,
+            moveTimer: 0,
+            moveInterval: randomStarMoveInterval()
         });
     }
 }
+// Each star moves independently at its own random interval
+function maybeMoveStarsToNewLocations() {
+    for (let star of stars) {
+        star.moveTimer++;
+        if (star.moveTimer > star.moveInterval) {
+            star.x = Math.random() * canvas.width;
+            star.y = Math.random() * (canvas.height - 80);
+            star.twinkleTimer = Math.random() * 2;
+            star.moveTimer = 0;
+            star.moveInterval = randomStarMoveInterval();
+        }
+    }
+}
 function updateAndDrawStars(ctx) {
+    maybeMoveStarsToNewLocations();
     for (let star of stars) {
         star.twinkleTimer += star.twinkleSpeed / 60;
         if (star.twinkleTimer > 1.5) {
