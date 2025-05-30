@@ -3,6 +3,9 @@ import { Astronaut, GameState } from './types/index.js';
 import { applyGravity } from './gravity.js';
 import { handleControls } from './controls.js';
 import { createTrail } from './trail.js';
+import { mapBlocks, mapLoaded, loadMapBlocks, drawMap, getBlockAtWorld } from './map.js';
+import { initStars, updateAndDrawStars } from './stars.js';
+import { emitJetpackDots, updateAndDrawJetpackDots, resetJetpackDotEmitTimer } from './jetpack.js';
 
 // Instead of dynamic import, fetch the JSON file at runtime for browser compatibility
 let spriteMap: any;
@@ -25,16 +28,9 @@ async function loadSpriteMap() {
 }
 
 // --- Map setup ---
-type MapBlock = {
-    x: number; // tile x
-    y: number; // tile y
-    type: 'floor_grass' | 'floor_plain_half';
-    collision: boolean;
-    palette?: string;
-    rotation?: 1 | 2 | 3 | 4;
-};
-let mapBlocks: MapBlock[] = [];
-let mapLoaded = false;
+// type MapBlock = { ... } // Move to types/index.js if not already there
+// let mapBlocks: MapBlock[] = [];
+// let mapLoaded = false;
 
 // --- Map size in pixels (constant) ---
 const MAP_WIDTH = 10000;  // pixels
@@ -67,7 +63,7 @@ if (!canvas || !ctx) {
 
 let gameState: GameState & { debugMode: boolean } = {
     astronaut,
-    gravity: 0.09, // slightly weaker gravity
+    gravity: 0.04, // reduced gravity from 0.09 to 0.04 for gentler fall
     trail: [],
     isRunning: true,
     debugMode: true
@@ -103,183 +99,80 @@ let flySwitching = false;
 let flySwitchStep = 0;
 let flySwitchTimer = 0;
 
-// Jetpack dots
-type JetpackDot = { x: number; y: number; vy: number; alpha: number }
-let jetpackDots: JetpackDot[] = [];
-let jetpackDotEmitTimer = 0;
-
+// Move all control and movement state variables back above gameLoop so they are in scope
 let upPressed = false;
 let downPressed = false;
-const UP_ACCEL = -0.3; // stronger upward acceleration per frame (must be > gravity)
-const DOWN_ACCEL = 0.3; // downward acceleration per frame (should be > gravity)
-const MAX_UP_SPEED = -4; // max upward velocity
-const MAX_DOWN_SPEED = 4; // max downward velocity
-
-// Walking speed parameters
-const WALK_ACCEL = 0.3;      // acceleration per frame when walking
-const WALK_MAX_SPEED = 4;    // max walking speed
-const WALK_START_SPEED = 1;  // initial walking speed
-
+let leftPressed = false;
+let rightPressed = false;
 let walkSpeed = 0;
-
-// Track multiple key states
-const keys: Record<string, boolean> = {};
-
-window.addEventListener('keydown', (event) => {
-    keys[event.key] = true;
-});
-
-window.addEventListener('keyup', (event) => {
-    keys[event.key] = false;
-});
-
 let facingLeft = false;
+const keys: Record<string, boolean> = {};
+const UP_ACCEL = -0.3;
+const DOWN_ACCEL = 0.3;
+const MAX_UP_SPEED = -4;
+const MAX_DOWN_SPEED = 4;
+const WALK_ACCEL = 0.3;
+const WALK_MAX_SPEED = 4;
+const WALK_START_SPEED = 1;
 
-// --- Twinkling stars background ---
-type Star = {
-    x: number; // screen coordinates (relative to camera)
-    y: number;
-    colorIndex: number;
-    twinkleTimer: number;
-    twinkleSpeed: number;
-    moveTimer: number;
-    moveInterval: number;
-    worldX: number; // world coordinates for parallax
-    worldY: number;
-};
-const STAR_COLORS = [
-    '#ffffff', // pure white
-    '#ffeedd', // warm white
-    '#ffd700', // bright gold
-    '#ffb3fa', // magenta-pink
-    '#00eaff', // bright cyan
-    '#00ffea', // aqua
-    '#ff6b6b', // bright red
-    '#fffb00', // yellow
-    '#00ff00', // lime
-    '#00aaff', // bright blue
-    '#ff9900', // orange
-    '#e0e0ff', // pale blue-white
-    '#ff00ff', // magenta
-    '#00ffff', // cyan
-    '#fffacd', // lemon
-    '#f8f8ff', // ghost white
-];
-const STAR_COUNT = 40;
-let stars: Star[] = [];
+// Reduce flying acceleration and max speeds further for more control
+const FLY_ACCEL = 0.12; // was 0.22
+const FLY_MAX_SPEED = 1.5; // was 2.5
 
-// Random star move interval: Move every 2-6 seconds (120-360 frames)
-function randomStarMoveInterval() {
-    return 120 + Math.floor(Math.random() * 240);
-}
-
-// Initialize stars randomly across the sky
-function initStars() {
-    stars = [];
-    for (let i = 0; i < STAR_COUNT; i++) {
-        // Place stars in world coordinates, covering a large area
-        const worldX = astronaut.position.x - canvas.width / 2 + Math.random() * canvas.width;
-        const worldY = astronaut.position.y - canvas.height / 2 + Math.random() * (canvas.height - 80);
-        stars.push({
-            x: 0, y: 0, // will be set each frame
-            colorIndex: Math.floor(Math.random() * STAR_COLORS.length),
-            twinkleTimer: Math.random() * 2,
-            twinkleSpeed: 0.5 + Math.random() * 1.5,
-            moveTimer: 0,
-            moveInterval: randomStarMoveInterval(),
-            worldX,
-            worldY
-        });
-    }
-}
-
-// Each star moves independently at its own random interval
-function maybeMoveStarsToNewLocations() {
-    for (let star of stars) {
-        star.moveTimer++;
-        if (star.moveTimer > star.moveInterval) {
-            // Move to a new world location within the visible area
-            star.worldX = astronaut.position.x - canvas.width / 2 + Math.random() * canvas.width;
-            star.worldY = astronaut.position.y - canvas.height / 2 + Math.random() * (canvas.height - 80);
-            star.twinkleTimer = Math.random() * 2;
-            star.moveTimer = 0;
-            star.moveInterval = randomStarMoveInterval();
-        }
-    }
-}
-
-function updateAndDrawStars(ctx: CanvasRenderingContext2D, camera: { x: number, y: number }) {
-    maybeMoveStarsToNewLocations();
-    // Calculate the ground Y in world coordinates (top of the ground row)
-    const tileH = floorGrassRect ? floorGrassRect.h * SPRITE_SCALE * (2 / 3) * 3 : 32;
-    const groundYWorld = (MAP_HEIGHT - 1) * tileH;
-
-    for (let star of stars) {
-        // Parallax: move stars at 0.7x camera speed for depth
-        star.x = star.worldX - camera.x * 0.7;
-        star.y = star.worldY - camera.y * 0.7;
-        star.twinkleTimer += star.twinkleSpeed / 60;
-        if (star.twinkleTimer > 1.5) {
-            let prev = star.colorIndex;
-            while (star.colorIndex === prev) {
-                star.colorIndex = Math.floor(Math.random() * STAR_COLORS.length);
+// --- Map generation ---
+/*
+function generateMap() {
+    mapTiles = [];
+    for (let y = 0; y < MAP_HEIGHT; y++) {
+        const row: { type: 'floor_grass' | 'floor_plain_half' }[] = [];
+        for (let x = 0; x < MAP_WIDTH; x++) {
+            // Only fill bottom row with ground, rest empty for now
+            if (y === MAP_HEIGHT - 1) {
+                row.push({
+                    type: Math.random() < 0.5 ? 'floor_grass' : 'floor_plain_half'
+                });
+            } else {
+                row.push(null as any); // empty space
             }
-            star.twinkleTimer = 0;
         }
-        // Only draw if on screen and above the ground blocks
-        if (
-            star.x >= 0 && star.x < canvas.width &&
-            star.y >= 0 && star.y < canvas.height &&
-            star.worldY < groundYWorld
-        ) {
-            ctx.save();
-            ctx.fillStyle = STAR_COLORS[star.colorIndex];
-            ctx.globalAlpha = 0.7 + 0.3 * Math.sin(star.twinkleTimer * Math.PI);
-            ctx.fillRect(Math.round(star.x), Math.round(star.y), 4, 4);
-            ctx.restore();
-        }
+        mapTiles.push(row);
     }
 }
+*/
 
-// --- Draw map tiles ---
-function drawMap(ctx: CanvasRenderingContext2D, camera: { x: number, y: number }) {
-    if (!floorGrassRect || !floorPlainHalfRect || !mapLoaded) return;
-    const tileW = floorGrassRect.w * SPRITE_SCALE * (4 / 3) * 3;
-    const tileH = floorGrassRect.h * SPRITE_SCALE * (2 / 3) * 3;
+// --- Load map from JSON file ---
+// (REMOVE the following local function if still present)
+// async function loadMapBlocks() {
+//     const res = await fetch('./src/assets/world_map.json');
+//     mapBlocks = await res.json();
+//     mapLoaded = true;
+// }
 
-    for (const block of mapBlocks) {
-        // Treat block.x and block.y as pixel coordinates
-        const drawX = block.x - camera.x;
-        const drawY = block.y - camera.y;
-        if (
-            drawX + tileW < 0 || drawX > canvas.width ||
-            drawY + tileH < 0 || drawY > canvas.height
-        ) continue;
-
-        let rect = block.type === 'floor_grass' ? floorGrassRect : floorPlainHalfRect;
-        ctx.save();
-        ctx.translate(drawX + tileW / 2, drawY + tileH / 2);
-        if (block.rotation) ctx.rotate(((block.rotation - 1) * Math.PI) / 2);
-        ctx.scale(1, -1);
-        ctx.drawImage(
-            spriteSheet,
-            rect.x, rect.y, rect.w, rect.h,
-            -tileW / 2, -tileH / 2, tileW, tileH
-        );
-        ctx.restore();
-    }
+// Initialize the game
+async function init() {
+    await loadSpriteMap();
+    await loadMapBlocks();
+    initStars(() => astronaut.position, canvas);
+    const img = new Image();
+    img.src = './src/assets/exile_sprites.png';
+    img.onload = () => {
+        makeBlackTransparent(img, (canvasWithTransparency) => {
+            spriteSheet = new Image();
+            spriteSheet.src = canvasWithTransparency.toDataURL();
+            spriteSheet.onload = () => {
+                gameLoop();
+            };
+        });
+    };
+    img.onerror = () => {
+        alert('Sprite sheet not found at ./src/assets/exile_sprites.png');
+    };
 }
 
-// --- Collision detection with blocks ---
-function getBlockAtWorld(x: number, y: number): MapBlock | undefined {
-    const tileW = floorGrassRect ? floorGrassRect.w * SPRITE_SCALE * (4 / 3) * 3 : 32;
-    const tileH = floorGrassRect ? floorGrassRect.h * SPRITE_SCALE * (2 / 3) * 3 : 32;
-    // Find block whose pixel rect contains (x, y)
-    return mapBlocks.find(b =>
-        x >= b.x && x < b.x + tileW &&
-        y >= b.y && y < b.y + tileH &&
-        b.collision
-    );
+init();
+
+function getSpriteRectFromMap(row: number, col: number) {
+    return spriteMap[row][col];
 }
 
 // When drawing the sprite, ensure the canvas is cleared with a transparent background
@@ -292,11 +185,19 @@ function gameLoop() {
     const camera = getCameraOffset();
 
     // --- Draw twinkling stars ---
-    updateAndDrawStars(ctx!, camera);
+    updateAndDrawStars(
+        ctx!,
+        camera,
+        () => astronaut.position,
+        canvas,
+        floorGrassRect,
+        SPRITE_SCALE,
+        MAP_HEIGHT
+    );
 
     // --- Draw map blocks ---
     if (spriteSheet && spriteSheet.complete && floorGrassRect && floorPlainHalfRect) {
-        drawMap(ctx!, camera);
+        drawMap(ctx!, camera, floorGrassRect, floorPlainHalfRect, spriteSheet, SPRITE_SCALE);
     }
 
     // --- Debug: astronaut coordinates ---
@@ -306,7 +207,7 @@ function gameLoop() {
         ctx!.fillStyle = '#fff';
         ctx!.strokeStyle = '#000';
         ctx!.lineWidth = 3;
-        const coordText = `x: ${astronaut.position.x.toFixed(2)}  y: ${astronaut.position.y.toFixed(2)}`;
+        const coordText = `x: ${astronaut.position.x.toFixed(2)}  y: ${astronaut.position.y.toFixed(2)}  Is Landed: ${astronaut.isLanded ? 'YES' : 'NO'}`;
         ctx!.strokeText(coordText, 10, 22);
         ctx!.fillText(coordText, 10, 22);
         ctx!.restore();
@@ -332,38 +233,38 @@ function gameLoop() {
     }
 
     // Left (Q)
-    let leftPressed = false;
+    leftPressed = false;
     if (keys['q']) {
         leftPressed = true;
         if (astronaut.isLanded) {
-            // Accelerate walk speed up to max
+            // Only update position directly for walking, do NOT touch velocity
             if (walkSpeed === 0) walkSpeed = WALK_START_SPEED;
             walkSpeed += WALK_ACCEL;
             if (walkSpeed > WALK_MAX_SPEED) walkSpeed = WALK_MAX_SPEED;
             astronaut.position.x -= walkSpeed;
-            astronaut.velocity.x = 0;
+            // Do NOT set astronaut.velocity.x here!
             facingLeft = true;
         } else {
-            astronaut.velocity.x -= 0.35; // increased from 0.18 for faster flying
-            if (astronaut.velocity.x < -4) astronaut.velocity.x = -4; // increased max speed
+            astronaut.velocity.x -= FLY_ACCEL;
+            if (astronaut.velocity.x < -FLY_MAX_SPEED) astronaut.velocity.x = -FLY_MAX_SPEED;
             facingLeft = true;
         }
     }
     // Right (W)
-    let rightPressed = false;
+    rightPressed = false;
     if (keys['w']) {
         rightPressed = true;
         if (astronaut.isLanded) {
-            // Accelerate walk speed up to max
+            // Only update position directly for walking, do NOT touch velocity
             if (walkSpeed === 0) walkSpeed = WALK_START_SPEED;
             walkSpeed += WALK_ACCEL;
             if (walkSpeed > WALK_MAX_SPEED) walkSpeed = WALK_MAX_SPEED;
             astronaut.position.x += walkSpeed;
-            astronaut.velocity.x = 0;
+            // Do NOT set astronaut.velocity.x here!
             facingLeft = false;
         } else {
-            astronaut.velocity.x += 0.35; // increased from 0.18 for faster flying
-            if (astronaut.velocity.x > 4) astronaut.velocity.x = 4; // increased max speed
+            astronaut.velocity.x += FLY_ACCEL;
+            if (astronaut.velocity.x > FLY_MAX_SPEED) astronaut.velocity.x = FLY_MAX_SPEED;
             facingLeft = false;
         }
     }
@@ -375,112 +276,144 @@ function gameLoop() {
 
     // --- Upward/downward acceleration if up or down is held and astronaut is not landed ---
     if ((keys['p'] || keys['ArrowUp']) && !astronaut.isLanded) {
-        astronaut.velocity.y += UP_ACCEL;
+        astronaut.velocity.y += UP_ACCEL * 0.25; // reduce upward flying acceleration further
         if (astronaut.velocity.y < MAX_UP_SPEED) {
             astronaut.velocity.y = MAX_UP_SPEED;
         }
     }
     if (downPressed && !astronaut.isLanded) {
-        astronaut.velocity.y += DOWN_ACCEL;
+        astronaut.velocity.y += DOWN_ACCEL * 0.5; // reduce downward flying acceleration further
         if (astronaut.velocity.y > MAX_DOWN_SPEED) {
             astronaut.velocity.y = MAX_DOWN_SPEED;
         }
     }
 
-    // --- Jetpack dots emission (world coordinates) ---
-    jetpackDotEmitTimer++;
-    if (
-        (upPressed || downPressed || leftPressed || rightPressed) &&
-        jetpackDotEmitTimer % 4 === 0 &&
-        spriteSheet && spriteSheet.complete
-    ) {
-        const spriteRect = getSpriteRectFromMap(SPRITE_ROW, SPRITE_COL_STAND);
-        const SPRITE_W = spriteRect.w;
-        const SPRITE_H = spriteRect.h;
-        const drawW = SPRITE_W * SPRITE_SCALE * (4 / 3) * 3;
-        const drawH = SPRITE_H * SPRITE_SCALE * (2 / 3) * 3;
-        const offset = 10;
-        let jetpackX = facingLeft
-            ? astronaut.position.x + drawW / 2 - offset
-            : astronaut.position.x - drawW / 2 + offset;
-        let jetpackY = astronaut.position.y;
+    // --- Gravity ---
+    applyGravity(astronaut, gameState.gravity);
 
-        if (!astronaut.isLanded && ((upPressed && (leftPressed || rightPressed)) || (downPressed && (leftPressed || rightPressed)))) {
-            let vy = 0;
-            if (upPressed) vy = 3 + Math.random() * 2;
-            else if (downPressed) vy = -(3 + Math.random() * 2);
+    // --- Move astronaut by velocity with collision detection ---
+    // Only apply velocity if NOT landed
+    let nextX = astronaut.position.x;
+    let nextY = astronaut.position.y;
+    if (!astronaut.isLanded) {
+        nextX += astronaut.velocity.x;
+        nextY += astronaut.velocity.y;
+    }
 
-            jetpackDots.push({
-                x: jetpackX,
-                y: jetpackY,
-                vy,
-                alpha: 1
-            });
-        } else if (upPressed && !astronaut.isLanded) {
-            jetpackDots.push({
-                x: jetpackX,
-                y: jetpackY,
-                vy: 3 + Math.random() * 2,
-                alpha: 1
-            });
-        } else if (downPressed && !astronaut.isLanded) {
-            jetpackDots.push({
-                x: jetpackX,
-                y: jetpackY,
-                vy: -(3 + Math.random() * 2),
-                alpha: 1
-            });
-        } else if (leftPressed && !astronaut.isLanded) {
-            jetpackDots.push({
-                x: astronaut.position.x - offset,
-                y: astronaut.position.y + drawH / 2 - offset,
-                vy: 3 + Math.random() * 2,
-                alpha: 1
-            });
-        } else if (rightPressed && !astronaut.isLanded) {
-            jetpackDots.push({
-                x: astronaut.position.x + offset,
-                y: astronaut.position.y - drawH / 2 + offset,
-                vy: 3 + Math.random() * 2,
-                alpha: 1
-            });
+    // Use unique variable names for collision bounding box
+    const tileWCol = floorGrassRect ? floorGrassRect.w * SPRITE_SCALE * (4 / 3) * 3 : 32;
+    const tileHCol = floorGrassRect ? floorGrassRect.h * SPRITE_SCALE * (2 / 3) * 3 : 32;
+    const halfW = tileWCol / 2;
+    const halfH = tileHCol / 2;
+
+    // Check for collision at next position (feet, head, left, right)
+    let blockedX = false;
+    let blockedY = false;
+
+    // Check vertical movement (feet and head)
+    if (astronaut.velocity.y > 0) {
+        // Moving down: check feet
+        const blockBelow = getBlockAtWorld(nextX, nextY + halfH, floorGrassRect, SPRITE_SCALE);
+        if (blockBelow) {
+            nextY = blockBelow.y - halfH;
+            astronaut.velocity.y = 0;
+            astronaut.isLanded = true;
+            blockedY = true;
+        }
+    } else if (astronaut.velocity.y < 0) {
+        // Moving up: check head
+        const blockAbove = getBlockAtWorld(nextX, nextY - halfH, floorGrassRect, SPRITE_SCALE);
+        if (blockAbove) {
+            nextY = blockAbove.y + tileHCol + halfH;
+            astronaut.velocity.y = 0;
+            blockedY = true;
         }
     }
-    if (!(upPressed || downPressed || leftPressed || rightPressed)) {
-        jetpackDotEmitTimer = 0;
+
+    // Check horizontal movement (left/right sides)
+    if (astronaut.velocity.x !== 0) {
+        // Check both top and bottom corners for side collision
+        const sideY1 = nextY - halfH + 2;
+        const sideY2 = nextY + halfH - 2;
+        let blockSide = null;
+        if (astronaut.velocity.x > 0) {
+            // Moving right
+            blockSide = getBlockAtWorld(nextX + halfW, sideY1, floorGrassRect, SPRITE_SCALE) ||
+                        getBlockAtWorld(nextX + halfW, sideY2, floorGrassRect, SPRITE_SCALE);
+            if (blockSide) {
+                nextX = blockSide.x - halfW;
+                astronaut.velocity.x = 0;
+                blockedX = true;
+            }
+        } else {
+            // Moving left
+            blockSide = getBlockAtWorld(nextX - halfW, sideY1, floorGrassRect, SPRITE_SCALE) ||
+                        getBlockAtWorld(nextX - halfW, sideY2, floorGrassRect, SPRITE_SCALE);
+            if (blockSide) {
+                nextX = blockSide.x + tileWCol + halfW;
+                astronaut.velocity.x = 0;
+                blockedX = true;
+            }
+        }
     }
 
-    applyGravity(astronaut, gameState.gravity);
-    createTrail(astronaut, gameState.trail);
+    // If not blocked vertically, not landed
+    if (!blockedY) astronaut.isLanded = false;
+
+    astronaut.position.x = nextX;
+    astronaut.position.y = nextY;
+
+    // --- Jetpack dots emission (world coordinates) ---
+    emitJetpackDots({
+        upPressed,
+        downPressed,
+        leftPressed,
+        rightPressed,
+        facingLeft,
+        astronaut,
+        spriteSheet,
+        spriteMap,
+        SPRITE_ROW,
+        SPRITE_COL_STAND,
+        SPRITE_SCALE,
+        floorGrassRect,
+        floorPlainHalfRect,
+        walkAnimFrame,
+        walkAnimTimer,
+        canvas
+    });
 
     // --- Jetpack dots update and render (draw relative to camera) ---
-    jetpackDots.forEach(dot => {
-        dot.y += dot.vy;
-        dot.alpha -= 0.025;
-    });
-    jetpackDots = jetpackDots.filter(dot => dot.y < MAP_HEIGHT && dot.alpha > 0);
-
-    jetpackDots.forEach(dot => {
-        ctx!.save();
-        ctx!.globalAlpha = dot.alpha;
-        ctx!.fillStyle = '#fff'; // brighter white for jetpack trails
-        ctx!.fillRect(dot.x - camera.x, dot.y - camera.y, 4, 4);
-        ctx!.restore();
-    });
+    updateAndDrawJetpackDots(ctx!, camera, MAP_HEIGHT);
 
     // --- Sprite selection logic (animation, flipping, flying, walking) ---
     let spriteCol = SPRITE_COL_STAND;
     let flipSprite = facingLeft;
 
-    // Walking animation (cycle columns 5,6,7 when walking right on ground, not flying)
-    if (astronaut.isLanded && !keys['p'] && !keys['ArrowUp'] && (keys['q'] || keys['w'])) {
+    // Walking animation (cycle walk_right1, walk_right2, walk_right3 when walking left/right on ground)
+    if (
+        astronaut.isLanded &&
+        !keys['p'] && !keys['ArrowUp'] &&
+        (leftPressed || rightPressed) &&
+        walkSpeed > 0
+    ) {
         walkAnimTimer += 1 / 60;
-        if (walkAnimTimer > 0.05) {
+        if (walkAnimTimer > 0.08) {
             walkAnimFrame++;
             if (walkAnimFrame > SPRITE_COL_WALK_END) walkAnimFrame = SPRITE_COL_WALK_START;
             walkAnimTimer = 0;
         }
         spriteCol = walkAnimFrame;
+        flyHoldTimer = 0;
+        flyDir = null;
+        flySwitching = false;
+        flySwitchStep = 0;
+        flySwitchTimer = 0;
+    } else if (astronaut.isLanded) {
+        // Standing still on ground
+        spriteCol = SPRITE_COL_STAND;
+        walkAnimFrame = SPRITE_COL_WALK_START;
+        walkAnimTimer = 0;
         flyHoldTimer = 0;
         flyDir = null;
         flySwitching = false;
@@ -563,18 +496,23 @@ function gameLoop() {
     const SPRITE_H = spriteRect.h;
 
     // --- Ground collision and landing logic ---
-    // Fix: Use blockBelow.y directly (it's already in pixels)
-    const tileW = floorGrassRect ? floorGrassRect.w * SPRITE_SCALE * (4 / 3) * 3 : 32;
-    const tileH = floorGrassRect ? floorGrassRect.h * SPRITE_SCALE * (2 / 3) * 3 : 32;
-    const astronautFeetY = astronaut.position.y + tileH / 2;
-    const blockBelow = getBlockAtWorld(astronaut.position.x, astronautFeetY);
+    // Determine "landed" state by checking if the astronaut's feet are touching any block
+    const tileWDraw = floorGrassRect ? floorGrassRect.w * SPRITE_SCALE * (4 / 3) * 3 : 32;
+    const tileHDraw = floorGrassRect ? floorGrassRect.h * SPRITE_SCALE * (2 / 3) * 3 : 32;
+    const astronautFeetY = astronaut.position.y + tileHDraw / 2;
+    const blockTouchingFeet = getBlockAtWorld(
+        astronaut.position.x,
+        astronautFeetY + 1, // +1 to ensure overlap
+        floorGrassRect,
+        SPRITE_SCALE
+    );
 
-    if (blockBelow) {
-        const groundY = blockBelow.y;
-        astronaut.position.y = groundY - tileH / 2;
+    if (blockTouchingFeet) {
+        astronaut.isLanded = true;
+        // Snap to top of block if slightly inside
+        astronaut.position.y = blockTouchingFeet.y - tileHDraw / 2;
         astronaut.velocity.y = 0;
         astronaut.velocity.x = 0; // zero horizontal velocity on landing
-        astronaut.isLanded = true;
     } else {
         astronaut.isLanded = false;
     }
@@ -645,57 +583,10 @@ function makeBlackTransparent(img: HTMLImageElement, callback: (result: HTMLCanv
     callback(tempCanvas);
 }
 
-// --- Map generation ---
-/*
-function generateMap() {
-    mapTiles = [];
-    for (let y = 0; y < MAP_HEIGHT; y++) {
-        const row: { type: 'floor_grass' | 'floor_plain_half' }[] = [];
-        for (let x = 0; x < MAP_WIDTH; x++) {
-            // Only fill bottom row with ground, rest empty for now
-            if (y === MAP_HEIGHT - 1) {
-                row.push({
-                    type: Math.random() < 0.5 ? 'floor_grass' : 'floor_plain_half'
-                });
-            } else {
-                row.push(null as any); // empty space
-            }
-        }
-        mapTiles.push(row);
-    }
-}
-*/
+window.addEventListener('keydown', (event) => {
+    keys[event.key] = true;
+});
 
-// --- Load map from JSON file ---
-async function loadMapBlocks() {
-    const res = await fetch('./src/assets/world_map.json');
-    mapBlocks = await res.json();
-    mapLoaded = true;
-}
-
-// Initialize the game
-async function init() {
-    await loadSpriteMap();
-    await loadMapBlocks();
-    initStars();
-    const img = new Image();
-    img.src = './src/assets/exile_sprites.png';
-    img.onload = () => {
-        makeBlackTransparent(img, (canvasWithTransparency) => {
-            spriteSheet = new Image();
-            spriteSheet.src = canvasWithTransparency.toDataURL();
-            spriteSheet.onload = () => {
-                gameLoop();
-            };
-        });
-    };
-    img.onerror = () => {
-        alert('Sprite sheet not found at ./src/assets/exile_sprites.png');
-    };
-}
-
-init();
-
-function getSpriteRectFromMap(row: number, col: number) {
-    return spriteMap[row][col];
-}
+window.addEventListener('keyup', (event) => {
+    keys[event.key] = false;
+});
