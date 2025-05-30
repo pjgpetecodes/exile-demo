@@ -15,31 +15,43 @@ function loadSpriteMap() {
     return __awaiter(this, void 0, void 0, function* () {
         const res = yield fetch('./src/assets/exile_sprites_map.json');
         spriteMap = yield res.json();
-        // Find the floor_grass sprite in the map (by name)
-        // Assume spriteMap is an array of arrays of objects with a "name" property
+        // Find the floor_grass and floor_plain_half sprites in the map (by name)
         for (let row = 0; row < spriteMap.length; row++) {
             for (let col = 0; col < spriteMap[row].length; col++) {
                 if (spriteMap[row][col].name === 'floor_grass') {
-                    groundTileRect = spriteMap[row][col];
-                    break;
+                    floorGrassRect = spriteMap[row][col];
+                }
+                if (spriteMap[row][col].name === 'floor_plain_half') {
+                    floorPlainHalfRect = spriteMap[row][col];
                 }
             }
-            if (groundTileRect)
-                break;
         }
     });
+}
+// --- Map setup ---
+const MAP_WIDTH = 100; // in tiles
+const MAP_HEIGHT = 20; // in tiles
+let mapTiles = [];
+// --- Astronaut world position ---
+let astronaut = {
+    position: { x: MAP_WIDTH * 32 / 2, y: (MAP_HEIGHT - 2) * 32 },
+    velocity: { x: 0, y: 0 },
+    isFlying: false,
+    isLanded: true,
+};
+// --- Camera ---
+function getCameraOffset() {
+    // Center astronaut on screen
+    return {
+        x: astronaut.position.x - canvas.width / 2,
+        y: astronaut.position.y - canvas.height / 2
+    };
 }
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 if (!canvas || !ctx) {
     throw new Error('Canvas or 2D context not found');
 }
-let astronaut = {
-    position: { x: canvas.width / 2, y: canvas.height - 50 },
-    velocity: { x: 0, y: 0 },
-    isFlying: false,
-    isLanded: true,
-};
 let gameState = {
     astronaut,
     gravity: 0.09,
@@ -48,7 +60,8 @@ let gameState = {
 };
 let spriteSheet;
 // Store ground tile info after loading sprite map
-let groundTileRect = null;
+let floorGrassRect = null;
+let floorPlainHalfRect = null;
 let groundTiles = [];
 // Sprite scaling factor (adjust as needed)
 const SPRITE_SCALE = 1.2;
@@ -119,14 +132,18 @@ function randomStarMoveInterval() {
 function initStars() {
     stars = [];
     for (let i = 0; i < STAR_COUNT; i++) {
+        // Place stars in world coordinates, covering a large area
+        const worldX = astronaut.position.x - canvas.width / 2 + Math.random() * canvas.width;
+        const worldY = astronaut.position.y - canvas.height / 2 + Math.random() * (canvas.height - 80);
         stars.push({
-            x: Math.random() * canvas.width,
-            y: Math.random() * (canvas.height - 80),
+            x: 0, y: 0,
             colorIndex: Math.floor(Math.random() * STAR_COLORS.length),
             twinkleTimer: Math.random() * 2,
             twinkleSpeed: 0.5 + Math.random() * 1.5,
             moveTimer: 0,
-            moveInterval: randomStarMoveInterval()
+            moveInterval: randomStarMoveInterval(),
+            worldX,
+            worldY
         });
     }
 }
@@ -135,31 +152,74 @@ function maybeMoveStarsToNewLocations() {
     for (let star of stars) {
         star.moveTimer++;
         if (star.moveTimer > star.moveInterval) {
-            star.x = Math.random() * canvas.width;
-            star.y = Math.random() * (canvas.height - 80);
+            // Move to a new world location within the visible area
+            star.worldX = astronaut.position.x - canvas.width / 2 + Math.random() * canvas.width;
+            star.worldY = astronaut.position.y - canvas.height / 2 + Math.random() * (canvas.height - 80);
             star.twinkleTimer = Math.random() * 2;
             star.moveTimer = 0;
             star.moveInterval = randomStarMoveInterval();
         }
     }
 }
-function updateAndDrawStars(ctx) {
+function updateAndDrawStars(ctx, camera) {
     maybeMoveStarsToNewLocations();
+    // Calculate the ground Y in world coordinates (top of the ground row)
+    const tileH = floorGrassRect ? floorGrassRect.h * SPRITE_SCALE * (2 / 3) * 3 : 32;
+    const groundYWorld = (MAP_HEIGHT - 1) * tileH;
     for (let star of stars) {
+        // Parallax: move stars at 0.7x camera speed for depth
+        star.x = star.worldX - camera.x * 0.7;
+        star.y = star.worldY - camera.y * 0.7;
         star.twinkleTimer += star.twinkleSpeed / 60;
         if (star.twinkleTimer > 1.5) {
-            // Change color and reset timer
             let prev = star.colorIndex;
             while (star.colorIndex === prev) {
                 star.colorIndex = Math.floor(Math.random() * STAR_COLORS.length);
             }
             star.twinkleTimer = 0;
         }
-        ctx.save();
-        ctx.fillStyle = STAR_COLORS[star.colorIndex];
-        ctx.globalAlpha = 0.7 + 0.3 * Math.sin(star.twinkleTimer * Math.PI); // subtle twinkle
-        ctx.fillRect(Math.round(star.x), Math.round(star.y), 4, 4);
-        ctx.restore();
+        // Only draw if on screen and above the ground blocks
+        if (star.x >= 0 && star.x < canvas.width &&
+            star.y >= 0 && star.y < canvas.height &&
+            star.worldY < groundYWorld) {
+            ctx.save();
+            ctx.fillStyle = STAR_COLORS[star.colorIndex];
+            ctx.globalAlpha = 0.7 + 0.3 * Math.sin(star.twinkleTimer * Math.PI);
+            ctx.fillRect(Math.round(star.x), Math.round(star.y), 4, 4);
+            ctx.restore();
+        }
+    }
+}
+// --- Draw map tiles ---
+function drawMap(ctx, camera) {
+    if (!floorGrassRect || !floorPlainHalfRect)
+        return;
+    const tileW = floorGrassRect.w * SPRITE_SCALE * (4 / 3) * 3;
+    const tileH = floorGrassRect.h * SPRITE_SCALE * (2 / 3) * 3;
+    // Only draw tiles that are visible on screen
+    const startCol = Math.floor(camera.x / tileW);
+    const endCol = Math.ceil((camera.x + canvas.width) / tileW);
+    const startRow = Math.floor(camera.y / tileH);
+    const endRow = Math.ceil((camera.y + canvas.height) / tileH);
+    for (let y = startRow; y < endRow; y++) {
+        if (y < 0 || y >= MAP_HEIGHT)
+            continue;
+        for (let x = startCol; x < endCol; x++) {
+            if (x < 0 || x >= MAP_WIDTH)
+                continue;
+            const tile = mapTiles[y][x];
+            if (!tile)
+                continue;
+            let rect = tile.type === 'floor_grass' ? floorGrassRect : floorPlainHalfRect;
+            ctx.save();
+            // Draw at screen position
+            const drawX = x * tileW - camera.x;
+            const drawY = y * tileH - camera.y;
+            ctx.translate(drawX + tileW / 2, drawY + tileH / 2);
+            ctx.scale(1, -1); // flip vertically for both tile types
+            ctx.drawImage(spriteSheet, rect.x, rect.y, rect.w, rect.h, -tileW / 2, -tileH / 2, tileW, tileH);
+            ctx.restore();
+        }
     }
 }
 // When drawing the sprite, ensure the canvas is cleared with a transparent background
@@ -168,23 +228,12 @@ function gameLoop() {
         return;
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const camera = getCameraOffset();
     // --- Draw twinkling stars ---
-    updateAndDrawStars(ctx);
-    // --- Draw ground tiles (flipped vertically) ---
-    if (spriteSheet && spriteSheet.complete && groundTileRect) {
-        // Match astronaut scaling/aspect for ground
-        const tileW = groundTileRect.w * SPRITE_SCALE * (4 / 3) * 3;
-        const tileH = groundTileRect.h * SPRITE_SCALE * (2 / 3) * 3;
-        const y = canvas.height - tileH;
-        groundTiles = [];
-        for (let x = 0; x < canvas.width; x += tileW) {
-            ctx.save();
-            ctx.translate(x + tileW / 2, y + tileH / 2);
-            ctx.scale(1, -1); // flip vertically
-            ctx.drawImage(spriteSheet, groundTileRect.x, groundTileRect.y, groundTileRect.w, groundTileRect.h, -tileW / 2, -tileH / 2, tileW, tileH);
-            ctx.restore();
-            groundTiles.push({ x, y });
-        }
+    updateAndDrawStars(ctx, camera);
+    // --- Draw map tiles ---
+    if (spriteSheet && spriteSheet.complete && floorGrassRect && floorPlainHalfRect) {
+        drawMap(ctx, camera);
     }
     // --- Controls: Upward and horizontal movement ---
     // Upward (P or ArrowUp)
@@ -221,9 +270,9 @@ function gameLoop() {
             facingLeft = true;
         }
         else {
-            astronaut.velocity.x -= 0.18;
-            if (astronaut.velocity.x < -2)
-                astronaut.velocity.x = -2;
+            astronaut.velocity.x -= 0.35; // increased from 0.18 for faster flying
+            if (astronaut.velocity.x < -4)
+                astronaut.velocity.x = -4; // increased max speed
             facingLeft = true;
         }
     }
@@ -243,9 +292,9 @@ function gameLoop() {
             facingLeft = false;
         }
         else {
-            astronaut.velocity.x += 0.18;
-            if (astronaut.velocity.x > 2)
-                astronaut.velocity.x = 2;
+            astronaut.velocity.x += 0.35; // increased from 0.18 for faster flying
+            if (astronaut.velocity.x > 4)
+                astronaut.velocity.x = 4; // increased max speed
             facingLeft = false;
         }
     }
@@ -266,27 +315,22 @@ function gameLoop() {
             astronaut.velocity.y = MAX_DOWN_SPEED;
         }
     }
-    // Emit jetpack dots for up, down, left, right
+    // --- Jetpack dots emission (world coordinates) ---
     jetpackDotEmitTimer++;
     if ((upPressed || downPressed || leftPressed || rightPressed) &&
         jetpackDotEmitTimer % 4 === 0 &&
         spriteSheet && spriteSheet.complete) {
-        // Get sprite rect from JSON map for accurate width/height
         const spriteRect = getSpriteRectFromMap(SPRITE_ROW, SPRITE_COL_STAND);
         const SPRITE_W = spriteRect.w;
         const SPRITE_H = spriteRect.h;
         const drawW = SPRITE_W * SPRITE_SCALE * (4 / 3) * 3;
         const drawH = SPRITE_H * SPRITE_SCALE * (2 / 3) * 3;
         const offset = 10;
-        // Jetpack dot emission point: middle back of the sprite depending on facing
         let jetpackX = facingLeft
             ? astronaut.position.x + drawW / 2 - offset
             : astronaut.position.x - drawW / 2 + offset;
         let jetpackY = astronaut.position.y;
-        // Only one jetpack trail for diagonal or single direction
         if (!astronaut.isLanded && ((upPressed && (leftPressed || rightPressed)) || (downPressed && (leftPressed || rightPressed)))) {
-            // Diagonal thrust: up+left, up+right, down+left, down+right
-            // Use up/down for vy, and only one dot
             let vy = 0;
             if (upPressed)
                 vy = 3 + Math.random() * 2;
@@ -337,21 +381,20 @@ function gameLoop() {
     }
     applyGravity(astronaut, gameState.gravity);
     createTrail(astronaut, gameState.trail);
-    // Jetpack dots update and render
+    // --- Jetpack dots update and render (draw relative to camera) ---
     jetpackDots.forEach(dot => {
         dot.y += dot.vy;
         dot.alpha -= 0.025;
     });
-    jetpackDots = jetpackDots.filter(dot => dot.y < canvas.height && dot.alpha > 0);
-    // Render jetpack dots as small white squares (pixel art look) with fade
+    jetpackDots = jetpackDots.filter(dot => dot.y < MAP_HEIGHT * 100 && dot.alpha > 0);
     jetpackDots.forEach(dot => {
         ctx.save();
         ctx.globalAlpha = dot.alpha;
-        ctx.fillStyle = 'white';
-        ctx.fillRect(dot.x, dot.y, 4, 4);
+        ctx.fillStyle = '#fff'; // brighter white for jetpack trails
+        ctx.fillRect(dot.x - camera.x, dot.y - camera.y, 4, 4);
         ctx.restore();
     });
-    // --- Sprite selection logic ---
+    // --- Sprite selection logic (animation, flipping, flying, walking) ---
     let spriteCol = SPRITE_COL_STAND;
     let flipSprite = facingLeft;
     // Walking animation (cycle columns 5,6,7 when walking right on ground, not flying)
@@ -447,15 +490,21 @@ function gameLoop() {
     const SPRITE_H = spriteRect.h;
     // --- Ground collision and landing logic ---
     // Use the top of the ground tiles as the ground Y
-    let groundY = canvas.height;
-    if (groundTileRect) {
-        const tileH = groundTileRect.h * SPRITE_SCALE * (2 / 3) * 3;
-        groundY = canvas.height - tileH;
+    // Find which tile astronaut is over
+    const tileW = floorGrassRect ? floorGrassRect.w * SPRITE_SCALE * (4 / 3) * 3 : 32;
+    const tileH = floorGrassRect ? floorGrassRect.h * SPRITE_SCALE * (2 / 3) * 3 : 32;
+    const astronautTileX = Math.floor(astronaut.position.x / tileW);
+    const astronautTileY = Math.floor((astronaut.position.y + tileH / 2) / tileH);
+    let groundY = null;
+    if (astronautTileY >= 0 && astronautTileY < MAP_HEIGHT &&
+        astronautTileX >= 0 && astronautTileX < MAP_WIDTH &&
+        mapTiles[astronautTileY][astronautTileX]) {
+        groundY = astronautTileY * tileH;
     }
     // Astronaut's feet Y (centered sprite, so adjust for sprite height)
-    const drawH = SPRITE_H * SPRITE_SCALE * (2 / 3) * 3;
+    const drawH = floorGrassRect ? floorGrassRect.h * SPRITE_SCALE * (2 / 3) * 3 : 32;
     const astronautFeetY = astronaut.position.y + drawH / 2;
-    if (astronautFeetY >= groundY) {
+    if (groundY !== null && astronautFeetY >= groundY) {
         astronaut.position.y = groundY - drawH / 2;
         astronaut.velocity.y = 0;
         astronaut.isLanded = true;
@@ -463,48 +512,40 @@ function gameLoop() {
     else {
         astronaut.isLanded = false;
     }
-    // Prevent flying above the top of the canvas
+    // Prevent flying above the top of the map
     if (astronaut.position.y < 0) {
         astronaut.position.y = 0;
         astronaut.velocity.y = 0;
     }
-    // Apply horizontal velocity if in air
-    if (!astronaut.isLanded) {
-        astronaut.position.x += astronaut.velocity.x;
-        // Apply friction in air for gradual slow down
-        astronaut.velocity.x *= 0.98;
-        if (Math.abs(astronaut.velocity.x) < 0.05)
-            astronaut.velocity.x = 0;
-    }
-    else {
-        astronaut.velocity.x = 0; // stop horizontal movement when landed
-    }
-    // Prevent moving off the left/right edges
+    // Prevent moving off the left/right/top/bottom edges of the map
     if (astronaut.position.x < 0)
         astronaut.position.x = 0;
-    if (astronaut.position.x > canvas.width)
-        astronaut.position.x = canvas.width;
-    // --- Render astronaut ---
-    // Render astronaut (center image on position), flip if facing left
+    if (astronaut.position.x > MAP_WIDTH * tileW)
+        astronaut.position.x = MAP_WIDTH * tileW;
+    if (astronaut.position.y > MAP_HEIGHT * tileH)
+        astronaut.position.y = MAP_HEIGHT * tileH;
+    // --- Render astronaut at center of screen with correct animation ---
     if (spriteSheet && spriteSheet.complete) {
-        // Use SPRITE_W and SPRITE_H from the JSON, apply scaling and aspect ratio fix
+        const spriteRect = getSpriteRectFromMap(SPRITE_ROW, spriteCol);
+        const SPRITE_W = spriteRect.w;
+        const SPRITE_H = spriteRect.h;
         const drawW = SPRITE_W * SPRITE_SCALE * (4 / 3) * 3;
         const drawH = SPRITE_H * SPRITE_SCALE * (2 / 3) * 3;
         ctx.save();
-        if (facingLeft) {
-            ctx.translate(astronaut.position.x, astronaut.position.y);
+        if (flipSprite) {
+            ctx.translate(canvas.width / 2, canvas.height / 2);
             ctx.scale(-1, 1);
-            ctx.drawImage(spriteSheet, SPRITE_X, SPRITE_Y, SPRITE_W, SPRITE_H, -drawW / 2, -drawH / 2, drawW, drawH);
+            ctx.drawImage(spriteSheet, spriteRect.x, spriteRect.y, SPRITE_W, SPRITE_H, -drawW / 2, -drawH / 2, drawW, drawH);
         }
         else {
-            ctx.drawImage(spriteSheet, SPRITE_X, SPRITE_Y, SPRITE_W, SPRITE_H, astronaut.position.x - drawW / 2, astronaut.position.y - drawH / 2, drawW, drawH);
+            ctx.drawImage(spriteSheet, spriteRect.x, spriteRect.y, SPRITE_W, SPRITE_H, canvas.width / 2 - drawW / 2, canvas.height / 2 - drawH / 2, drawW, drawH);
         }
         ctx.restore();
     }
-    // Render trail
+    // --- Render trail (draw relative to camera) ---
     gameState.trail.forEach((dot) => {
         ctx.fillStyle = 'black';
-        ctx.fillRect(dot.x, dot.y, 2, 2);
+        ctx.fillRect(dot.x - camera.x, dot.y - camera.y, 2, 2);
     });
     requestAnimationFrame(gameLoop);
 }
@@ -526,10 +567,30 @@ function makeBlackTransparent(img, callback) {
     tempCtx.putImageData(imageData, 0, 0);
     callback(tempCanvas);
 }
+// --- Map generation ---
+function generateMap() {
+    mapTiles = [];
+    for (let y = 0; y < MAP_HEIGHT; y++) {
+        const row = [];
+        for (let x = 0; x < MAP_WIDTH; x++) {
+            // Only fill bottom row with ground, rest empty for now
+            if (y === MAP_HEIGHT - 1) {
+                row.push({
+                    type: Math.random() < 0.5 ? 'floor_grass' : 'floor_plain_half'
+                });
+            }
+            else {
+                row.push(null); // empty space
+            }
+        }
+        mapTiles.push(row);
+    }
+}
 // Initialize the game
 function init() {
     return __awaiter(this, void 0, void 0, function* () {
         yield loadSpriteMap();
+        generateMap();
         initStars();
         const img = new Image();
         img.src = './src/assets/exile_sprites.png';
