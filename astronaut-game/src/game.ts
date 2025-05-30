@@ -10,6 +10,18 @@ let spriteMap: any;
 async function loadSpriteMap() {
     const res = await fetch('./src/assets/exile_sprites_map.json');
     spriteMap = await res.json();
+
+    // Find the floor_grass sprite in the map (by name)
+    // Assume spriteMap is an array of arrays of objects with a "name" property
+    for (let row = 0; row < spriteMap.length; row++) {
+        for (let col = 0; col < spriteMap[row].length; col++) {
+            if (spriteMap[row][col].name === 'floor_grass') {
+                groundTileRect = spriteMap[row][col];
+                break;
+            }
+        }
+        if (groundTileRect) break;
+    }
 }
 
 const canvas = document.getElementById('gameCanvas') as HTMLCanvasElement;
@@ -28,15 +40,19 @@ let astronaut: Astronaut = {
 
 let gameState: GameState = {
     astronaut,
-    gravity: 0.12, // weaker gravity
+    gravity: 0.09, // slightly weaker gravity
     trail: [],
     isRunning: true,
 };
 
 let spriteSheet: HTMLImageElement;
 
+// Store ground tile info after loading sprite map
+let groundTileRect: { x: number, y: number, w: number, h: number } | null = null;
+let groundTiles: { x: number, y: number }[] = [];
+
 // Sprite scaling factor (adjust as needed)
-const SPRITE_SCALE = 2;
+const SPRITE_SCALE = 1.2;
 
 // Sprite columns
 const SPRITE_ROW = 0; // top row
@@ -64,8 +80,11 @@ let jetpackDots: JetpackDot[] = [];
 let jetpackDotEmitTimer = 0;
 
 let upPressed = false;
+let downPressed = false;
 const UP_ACCEL = -0.3; // stronger upward acceleration per frame (must be > gravity)
+const DOWN_ACCEL = 0.3; // downward acceleration per frame (should be > gravity)
 const MAX_UP_SPEED = -4; // max upward velocity
+const MAX_DOWN_SPEED = 4; // max downward velocity
 
 // Walking speed parameters
 const WALK_ACCEL = 0.3;      // acceleration per frame when walking
@@ -87,12 +106,97 @@ window.addEventListener('keyup', (event) => {
 
 let facingLeft = false;
 
+// --- Twinkling stars background ---
+type Star = {
+    x: number;
+    y: number;
+    colorIndex: number;
+    twinkleTimer: number;
+    twinkleSpeed: number;
+};
+const STAR_COLORS = [
+    '#ffffff', // pure white
+    '#ffeedd', // warm white
+    '#ffd700', // bright gold
+    '#ffb3fa', // magenta-pink
+    '#00eaff', // bright cyan
+    '#00ffea', // aqua
+    '#ff6b6b', // bright red
+    '#fffb00', // yellow
+    '#00ff00', // lime
+    '#00aaff', // bright blue
+    '#ff9900', // orange
+    '#e0e0ff', // pale blue-white
+    '#ff00ff', // magenta
+    '#00ffff', // cyan
+    '#fffacd', // lemon
+    '#f8f8ff', // ghost white
+];
+const STAR_COUNT = 40;
+let stars: Star[] = [];
+
+function initStars() {
+    stars = [];
+    for (let i = 0; i < STAR_COUNT; i++) {
+        stars.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * (canvas.height - 80),
+            colorIndex: Math.floor(Math.random() * STAR_COLORS.length),
+            twinkleTimer: Math.random() * 2,
+            twinkleSpeed: 0.5 + Math.random() * 1.5
+        });
+    }
+}
+
+function updateAndDrawStars(ctx: CanvasRenderingContext2D) {
+    for (let star of stars) {
+        star.twinkleTimer += star.twinkleSpeed / 60;
+        if (star.twinkleTimer > 1.5) {
+            // Change color and reset timer
+            let prev = star.colorIndex;
+            while (star.colorIndex === prev) {
+                star.colorIndex = Math.floor(Math.random() * STAR_COLORS.length);
+            }
+            star.twinkleTimer = 0;
+        }
+        ctx.save();
+        ctx.fillStyle = STAR_COLORS[star.colorIndex];
+        ctx.globalAlpha = 0.7 + 0.3 * Math.sin(star.twinkleTimer * Math.PI); // subtle twinkle
+        ctx.fillRect(Math.round(star.x), Math.round(star.y), 4, 4);
+        ctx.restore();
+    }
+}
+
 // When drawing the sprite, ensure the canvas is cleared with a transparent background
 function gameLoop() {
     if (!gameState.isRunning) return;
 
     ctx!.imageSmoothingEnabled = false;
     ctx!.clearRect(0, 0, canvas.width, canvas.height);
+
+    // --- Draw twinkling stars ---
+    updateAndDrawStars(ctx!);
+
+    // --- Draw ground tiles (flipped vertically) ---
+    if (spriteSheet && spriteSheet.complete && groundTileRect) {
+        // Match astronaut scaling/aspect for ground
+        const tileW = groundTileRect.w * SPRITE_SCALE * (4 / 3) * 3;
+        const tileH = groundTileRect.h * SPRITE_SCALE * (2 / 3) * 3;
+        const y = canvas.height - tileH;
+        groundTiles = [];
+        for (let x = 0; x < canvas.width; x += tileW) {
+            ctx!.save();
+            ctx!.translate(x + tileW / 2, y + tileH / 2);
+            ctx!.scale(1, -1); // flip vertically
+            ctx!.drawImage(
+                spriteSheet,
+                groundTileRect.x, groundTileRect.y, groundTileRect.w, groundTileRect.h,
+                -tileW / 2, -tileH / 2, tileW, tileH
+            );
+            ctx!.restore();
+            groundTiles.push({ x, y });
+        }
+    }
 
     // --- Controls: Upward and horizontal movement ---
     // Upward (P or ArrowUp)
@@ -104,6 +208,13 @@ function gameLoop() {
         upPressed = true;
     } else {
         upPressed = false;
+    }
+
+    // Downward (L)
+    if (keys['l']) {
+        downPressed = true;
+    } else {
+        downPressed = false;
     }
 
     // Left (Q)
@@ -148,18 +259,24 @@ function gameLoop() {
         walkSpeed = 0;
     }
 
-    // --- Upward acceleration if up is held and astronaut is not landed ---
+    // --- Upward/downward acceleration if up or down is held and astronaut is not landed ---
     if ((keys['p'] || keys['ArrowUp']) && !astronaut.isLanded) {
         astronaut.velocity.y += UP_ACCEL;
         if (astronaut.velocity.y < MAX_UP_SPEED) {
             astronaut.velocity.y = MAX_UP_SPEED;
         }
     }
+    if (downPressed && !astronaut.isLanded) {
+        astronaut.velocity.y += DOWN_ACCEL;
+        if (astronaut.velocity.y > MAX_DOWN_SPEED) {
+            astronaut.velocity.y = MAX_DOWN_SPEED;
+        }
+    }
 
-    // Emit jetpack dots for up, left, right
+    // Emit jetpack dots for up, down, left, right
     jetpackDotEmitTimer++;
     if (
-        (upPressed || leftPressed || rightPressed) &&
+        (upPressed || downPressed || leftPressed || rightPressed) &&
         jetpackDotEmitTimer % 4 === 0 &&
         spriteSheet && spriteSheet.complete
     ) {
@@ -167,37 +284,51 @@ function gameLoop() {
         const spriteRect = getSpriteRectFromMap(SPRITE_ROW, SPRITE_COL_STAND);
         const SPRITE_W = spriteRect.w;
         const SPRITE_H = spriteRect.h;
-        // Use the actual drawn sprite size and position for accurate jetpack dot emission
         const drawW = SPRITE_W * SPRITE_SCALE * (4 / 3) * 3;
         const drawH = SPRITE_H * SPRITE_SCALE * (2 / 3) * 3;
-        // For flipping, calculate leftX based on facingLeft
-        // Move jetpack dots 4px closer to the sprite
         const offset = 10;
-        const leftX = facingLeft
+        // Jetpack dot emission point: middle back of the sprite depending on facing
+        let jetpackX = facingLeft
             ? astronaut.position.x + drawW / 2 - offset
             : astronaut.position.x - drawW / 2 + offset;
-        const midY = astronaut.position.y;
+        let jetpackY = astronaut.position.y;
 
-        // Up
-        if (upPressed && !astronaut.isLanded) {
+        // Only one jetpack trail for diagonal or single direction
+        if (!astronaut.isLanded && ((upPressed && (leftPressed || rightPressed)) || (downPressed && (leftPressed || rightPressed)))) {
+            // Diagonal thrust: up+left, up+right, down+left, down+right
+            // Use up/down for vy, and only one dot
+            let vy = 0;
+            if (upPressed) vy = 3 + Math.random() * 2;
+            else if (downPressed) vy = -(3 + Math.random() * 2);
+
             jetpackDots.push({
-                x: leftX,
-                y: midY,
+                x: jetpackX,
+                y: jetpackY,
+                vy,
+                alpha: 1
+            });
+        } else if (upPressed && !astronaut.isLanded) {
+            jetpackDots.push({
+                x: jetpackX,
+                y: jetpackY,
                 vy: 3 + Math.random() * 2,
                 alpha: 1
             });
-        }
-        // Left
-        if (leftPressed && !astronaut.isLanded) {
+        } else if (downPressed && !astronaut.isLanded) {
+            jetpackDots.push({
+                x: jetpackX,
+                y: jetpackY,
+                vy: -(3 + Math.random() * 2),
+                alpha: 1
+            });
+        } else if (leftPressed && !astronaut.isLanded) {
             jetpackDots.push({
                 x: astronaut.position.x - offset,
                 y: astronaut.position.y + drawH / 2 - offset,
                 vy: 3 + Math.random() * 2,
                 alpha: 1
             });
-        }
-        // Right
-        if (rightPressed && !astronaut.isLanded) {
+        } else if (rightPressed && !astronaut.isLanded) {
             jetpackDots.push({
                 x: astronaut.position.x + offset,
                 y: astronaut.position.y - drawH / 2 + offset,
@@ -206,7 +337,7 @@ function gameLoop() {
             });
         }
     }
-    if (!(upPressed || leftPressed || rightPressed)) {
+    if (!(upPressed || downPressed || leftPressed || rightPressed)) {
         jetpackDotEmitTimer = 0;
     }
 
@@ -228,36 +359,6 @@ function gameLoop() {
         ctx!.fillRect(dot.x, dot.y, 4, 4);
         ctx!.restore();
     });
-
-    // --- Ground collision and landing logic ---
-    const groundY = canvas.height - 80; // 80px above bottom, adjust for astronaut image
-    if (astronaut.position.y >= groundY) {
-        astronaut.position.y = groundY;
-        astronaut.velocity.y = 0;
-        astronaut.isLanded = true;
-    } else {
-        astronaut.isLanded = false;
-    }
-
-    // Prevent flying above the top of the canvas
-    if (astronaut.position.y < 0) {
-        astronaut.position.y = 0;
-        astronaut.velocity.y = 0;
-    }
-
-    // Apply horizontal velocity if in air
-    if (!astronaut.isLanded) {
-        astronaut.position.x += astronaut.velocity.x;
-        // Apply friction in air for gradual slow down
-        astronaut.velocity.x *= 0.98;
-        if (Math.abs(astronaut.velocity.x) < 0.05) astronaut.velocity.x = 0;
-    } else {
-        astronaut.velocity.x = 0; // stop horizontal movement when landed
-    }
-
-    // Prevent moving off the left/right edges
-    if (astronaut.position.x < 0) astronaut.position.x = 0;
-    if (astronaut.position.x > canvas.width) astronaut.position.x = canvas.width;
 
     // --- Sprite selection logic ---
     let spriteCol = SPRITE_COL_STAND;
@@ -353,6 +454,46 @@ function gameLoop() {
     const SPRITE_W = spriteRect.w;
     const SPRITE_H = spriteRect.h;
 
+    // --- Ground collision and landing logic ---
+    // Use the top of the ground tiles as the ground Y
+    let groundY = canvas.height;
+    if (groundTileRect) {
+        const tileH = groundTileRect.h * SPRITE_SCALE * (2 / 3) * 3;
+        groundY = canvas.height - tileH;
+    }
+    // Astronaut's feet Y (centered sprite, so adjust for sprite height)
+    const drawH = SPRITE_H * SPRITE_SCALE * (2 / 3) * 3;
+    const astronautFeetY = astronaut.position.y + drawH / 2;
+
+    if (astronautFeetY >= groundY) {
+        astronaut.position.y = groundY - drawH / 2;
+        astronaut.velocity.y = 0;
+        astronaut.isLanded = true;
+    } else {
+        astronaut.isLanded = false;
+    }
+
+    // Prevent flying above the top of the canvas
+    if (astronaut.position.y < 0) {
+        astronaut.position.y = 0;
+        astronaut.velocity.y = 0;
+    }
+
+    // Apply horizontal velocity if in air
+    if (!astronaut.isLanded) {
+        astronaut.position.x += astronaut.velocity.x;
+        // Apply friction in air for gradual slow down
+        astronaut.velocity.x *= 0.98;
+        if (Math.abs(astronaut.velocity.x) < 0.05) astronaut.velocity.x = 0;
+    } else {
+        astronaut.velocity.x = 0; // stop horizontal movement when landed
+    }
+
+    // Prevent moving off the left/right edges
+    if (astronaut.position.x < 0) astronaut.position.x = 0;
+    if (astronaut.position.x > canvas.width) astronaut.position.x = canvas.width;
+
+    // --- Render astronaut ---
     // Render astronaut (center image on position), flip if facing left
     if (spriteSheet && spriteSheet.complete) {
         // Use SPRITE_W and SPRITE_H from the JSON, apply scaling and aspect ratio fix
@@ -410,6 +551,7 @@ function makeBlackTransparent(img: HTMLImageElement, callback: (result: HTMLCanv
 // Initialize the game
 async function init() {
     await loadSpriteMap();
+    initStars();
     const img = new Image();
     img.src = './src/assets/exile_sprites.png';
     img.onload = () => {
