@@ -1,0 +1,33 @@
+{
+  "name": "astronaut-game",
+  "version": "1.0.0",
+  "description": "A simple 2D game featuring an astronaut character with flying mechanics and weak gravity.",
+  "main": "src/game.ts",
+  "scripts": {
+    "start": "serve .",
+    "build": "tsc",
+    "dev": "concurrently \"tsc --watch\" \"lite-server\""
+  },
+  "dependencies": {
+    "typescript": "^4.5.4",
+    "ts-node": "^10.4.0"
+  },
+  "devDependencies": {
+    "eslint": "^7.32.0",
+    "eslint-config-airbnb-typescript": "^14.0.1",
+    "eslint-plugin-import": "^2.24.2",
+    "eslint-plugin-react": "^7.28.0",
+    "eslint-plugin-react-hooks": "^4.3.0",
+    "serve": "^14.2.0",
+    "lite-server": "^2.6.1",
+    "concurrently": "^8.2.0"
+  },
+  "keywords": [
+    "game",
+    "typescript",
+    "2d",
+    "astronaut"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+}
