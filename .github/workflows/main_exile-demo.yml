@@ -60,7 +60,6 @@ jobs:
       - name: Unzip artifact for deployment
         run: |
           unzip release.zip
-          cd astronaut-game
 
       - name: Login to Azure
         uses: azure/login@v2
