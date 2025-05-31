@@ -25,12 +25,15 @@ jobs:
 
       - name: npm install, build, and test
         run: |
+          cd astronaut-game
           npm install
           npm run build --if-present
           npm run test --if-present
 
       - name: Zip artifact for deployment
-        run: zip release.zip ./* -r
+        run: |
+          cd astronaut-game
+          zip ../release.zip ./* -r
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
@@ -55,8 +58,10 @@ jobs:
           name: node-app
 
       - name: Unzip artifact for deployment
-        run: unzip release.zip
-      
+        run: |
+          unzip release.zip
+          cd astronaut-game
+
       - name: Login to Azure
         uses: azure/login@v2
         with:
@@ -70,5 +75,4 @@ jobs:
         with:
           app-name: 'exile-demo'
           slot-name: 'Production'
-          package: .
-          
+          package: ./astronaut-game
