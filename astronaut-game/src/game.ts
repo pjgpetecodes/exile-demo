@@ -225,6 +225,25 @@ async function gameLoop() {
     // --- Controls: Upward and horizontal movement ---
     handleAstronautMovement(keys);
 
+    // Clear all velocities if landed and not walking
+    if (
+        gameState.astronaut.isLanded &&
+        walkSpeed === 0
+    ) {
+        astronaut.velocity.x = 0;
+        astronaut.velocity.y = 0;
+    }
+
+    // Prevent diagonal takeoff: if landed and only up is pressed, clear horizontal velocity
+    if (
+        gameState.astronaut.isLanded &&
+        upPressed &&
+        !leftPressed &&
+        !rightPressed
+    ) {
+        astronaut.velocity.x = 0;
+    }
+
     // --- Gravity ---
     applyGravity(astronaut, gameState.gravity);
 
