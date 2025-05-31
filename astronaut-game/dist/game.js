@@ -216,8 +216,27 @@ function gameLoop() {
                 facingLeft = false;
             }
         }
-        // Reset walk speed if not walking or not landed
-        if ((!leftPressed && !rightPressed) || !gameState.astronaut.isLanded) {
+        // --- Walking momentum/friction after landing ---
+        // Only reset walkSpeed if landed and not moving due to momentum or keys
+        if (gameState.astronaut.isLanded &&
+            !leftPressed && !rightPressed &&
+            walkSpeed > 0) {
+            // Continue walking out momentum
+            if (facingLeft) {
+                gameState.astronaut.position.x -= walkSpeed;
+            }
+            else {
+                gameState.astronaut.position.x += walkSpeed;
+            }
+            // Apply friction
+            walkSpeed -= WALK_ACCEL * 0.5;
+            if (walkSpeed < 0)
+                walkSpeed = 0;
+        }
+        // Only reset walkSpeed if landed and no keys and walkSpeed is 0 (prevents instant cancel)
+        if (gameState.astronaut.isLanded &&
+            !leftPressed && !rightPressed &&
+            walkSpeed <= 0) {
             walkSpeed = 0;
         }
         // --- Upward/downward acceleration if up or down is held and astronaut is not landed ---
@@ -412,19 +431,19 @@ function gameLoop() {
             lastFlySpriteCol = spriteCol;
         }
         // --- Walking animation ---
+        // Show walking animation if landed and walkSpeed > 0 (even if no keys are pressed)
         else if (gameState.astronaut.isLanded &&
-            (leftPressed || rightPressed) &&
             walkSpeed > 0) {
-            // Debug: Show walking branch taken
+            // Debug: Show walking branch taken (momentum or key)
             if (gameState.debugMode) {
-                console.log('WALKING: isLanded && (leftPressed || rightPressed) && walkSpeed > 0');
+                console.log('WALKING: isLanded && walkSpeed > 0');
             }
             walkAnimTimer += 1 / 60;
             if (walkAnimTimer > 0.16) { // slower frame rate
                 walkAnimFrame++;
                 if (walkAnimFrame > SPRITE_COL_WALK_END)
                     walkAnimFrame = SPRITE_COL_WALK_START;
-                walkAnimTimer = 0; // <-- reset timer after advancing frame
+                walkAnimTimer = 0;
             }
             spriteCol = walkAnimFrame;
             flyHoldTimer = 0;
@@ -563,6 +582,14 @@ function gameLoop() {
             // Snap to top of block if slightly inside
             gameState.astronaut.position.y = blockTouchingFeet.y - tileHDraw / 2;
             gameState.astronaut.velocity.y = 0;
+            // --- Carry over horizontal momentum into walking ---
+            if (Math.abs(gameState.astronaut.velocity.x) > 0.01) {
+                walkSpeed = Math.abs(gameState.astronaut.velocity.x);
+                if (walkSpeed > WALK_MAX_SPEED)
+                    walkSpeed = WALK_MAX_SPEED;
+                facingLeft = gameState.astronaut.velocity.x < 0;
+                // Do NOT move astronaut.x here; let walking logic handle it
+            }
             gameState.astronaut.velocity.x = 0; // zero horizontal velocity on landing
         }
         else {
