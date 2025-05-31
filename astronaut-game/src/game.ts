@@ -1,7 +1,10 @@
 // Main entry point for the astronaut game
 import { Astronaut, GameState } from './types/index.js';
+import {
+    astronaut, resetAstronaut, handleAstronautMovement,
+    walkSpeed, facingLeft, upPressed, downPressed, leftPressed, rightPressed
+} from './astronaut.js';
 import { applyGravity } from './gravity.js';
-import { handleControls } from './controls.js';
 import { createTrail } from './trail.js';
 import { mapBlocks, mapLoaded, loadMapBlocks, drawMap, getBlockAtWorld } from './map.js';
 import { initStars, updateAndDrawStars } from './stars.js';
@@ -27,23 +30,10 @@ async function loadSpriteMap() {
     }
 }
 
-// --- Map setup ---
-// type MapBlock = { ... } // Move to types/index.js if not already there
-// let mapBlocks: MapBlock[] = [];
-// let mapLoaded = false;
-
 // --- Map size in pixels (constant) ---
 const MAP_WIDTH = 10000;  // pixels
 const MAP_HEIGHT = 10000; // pixels
 let mapTiles: { type: 'floor_grass' | 'floor_plain_half' }[][] = [];
-
-// --- Astronaut world position ---
-let astronaut: Astronaut = {
-    position: { x: 400, y: 778 }, // start at 0,0
-    velocity: { x: 0, y: 0 },
-    isFlying: false,
-    isLanded: true,
-};
 
 // --- Camera ---
 function getCameraOffset() {
@@ -105,27 +95,24 @@ let flyDownTransitionStep = 0;
 let flyDownTransitionTimer = 0;
 let lastFlySpriteCol = SPRITE_COL_FLY_RIGHT; // Track last flying sprite col
 
-// Move all control and movement state variables back above gameLoop so they are in scope
-let upPressed = false;
-let downPressed = false;
-let leftPressed = false;
-let rightPressed = false;
-let walkSpeed = 0;
-let facingLeft = false;
+// --- Teleport memory ---
+type TeleportLocation = { x: number, y: number };
+const teleportLocations: TeleportLocation[] = [];
+let teleportSlot = 0;
+let teleporting = false;
+let teleportAnimFrame = 0;
+const TELEPORT_ANIM_FRAMES = 30; // 0.5 seconds at 60fps
+let teleportPhase: 'none' | 'out' | 'in' = 'none';
+let teleportTarget: TeleportLocation | null = null;
+let teleportSpriteCol = SPRITE_COL_STAND;
+let teleportFlipSprite = false;
+let teleportFlipVertical = false;
+
+// --- Input state ---
 const keys: Record<string, boolean> = {};
-const UP_ACCEL = -0.3;
-const DOWN_ACCEL = 0.3;
-const MAX_UP_SPEED = -4;
-const MAX_DOWN_SPEED = 4;
-const WALK_ACCEL = 0.3;
-const WALK_MAX_SPEED = 4;
-const WALK_START_SPEED = 1;
+let prevKeys: Record<string, boolean> = {}
 
-// Reduce flying acceleration and max speeds further for more control
-const FLY_ACCEL = 0.28; // was 0.12, increased for faster horizontal flying
-const FLY_MAX_SPEED = 2.8; // was 1.5, increased for faster horizontal flying
-
-// Initialize the game
+// --- Map rendering and update logic ---
 async function init() {
     await loadSpriteMap();
     await loadMapBlocks();
@@ -161,6 +148,44 @@ async function gameLoop() {
 
     const camera = getCameraOffset();
 
+    // --- Sprite selection logic (animation, flipping, flying, walking) ---
+    // Declare spriteCol/flipSprite/flipVertical only ONCE at the top of gameLoop
+    let spriteCol = SPRITE_COL_STAND;
+    let flipSprite = facingLeft;
+    let flipVertical = false;
+
+    // --- Teleport memory logic ---
+    if (keys['r'] && !prevKeys['r']) {
+        // Save up to 6 locations, overwrite oldest if full
+        if (teleportLocations.length < 6) {
+            teleportLocations.push({ x: astronaut.position.x, y: astronaut.position.y });
+        } else {
+            teleportLocations[teleportSlot] = { x: astronaut.position.x, y: astronaut.position.y };
+        }
+        teleportSlot = (teleportSlot + 1) % 6;
+    }
+    if (keys['t'] && !prevKeys['t']) {
+        let loc: TeleportLocation | null = null;
+        if (teleportLocations.length > 0) {
+            // Use the most recent (last) location
+            loc = teleportLocations.pop()!;
+            // Adjust teleportSlot if needed
+            if (teleportSlot > teleportLocations.length) teleportSlot = teleportLocations.length;
+        } else {
+            // Default location if none saved
+            loc = { x: 691, y: 778 };
+        }
+        if (loc && !teleporting) {
+            teleporting = true;
+            teleportPhase = 'out';
+            teleportAnimFrame = 0;
+            teleportTarget = loc;
+            teleportSpriteCol = spriteCol;
+            teleportFlipSprite = flipSprite;
+            teleportFlipVertical = flipVertical;
+        }
+    }
+
     // --- Draw twinkling stars ---
     updateAndDrawStars(
         ctx!,
@@ -178,103 +203,7 @@ async function gameLoop() {
     }
 
     // --- Controls: Upward and horizontal movement ---
-    // Upward (P or ArrowUp)
-    if ((keys['p'] || keys['ArrowUp'])) {
-        if (gameState.astronaut.isLanded) {
-            // Move astronaut up by 1 pixel and start flying
-            gameState.astronaut.position.y -= 1;
-            gameState.astronaut.isLanded = false;
-        }
-        upPressed = true;
-    } else {
-        upPressed = false;
-    }
-
-    // Downward (L)
-    if (keys['l']) {
-        downPressed = true;
-    } else {
-        downPressed = false;
-    }
-
-    // Left (Q)
-    leftPressed = false;
-    if (keys['q']) {
-        leftPressed = true;
-        if (gameState.astronaut.isLanded) {
-            // Only update position directly for walking, do NOT touch velocity
-            if (walkSpeed === 0) walkSpeed = WALK_START_SPEED;
-            walkSpeed += WALK_ACCEL;
-            if (walkSpeed > WALK_MAX_SPEED) walkSpeed = WALK_MAX_SPEED;
-            gameState.astronaut.position.x -= walkSpeed;
-            // Do NOT set astronaut.velocity.x here!
-            facingLeft = true;
-        } else {
-            gameState.astronaut.velocity.x -= FLY_ACCEL;
-            if (gameState.astronaut.velocity.x < -FLY_MAX_SPEED) gameState.astronaut.velocity.x = -FLY_MAX_SPEED;
-            facingLeft = true;
-        }
-    }
-    // Right (W)
-    rightPressed = false;
-    if (keys['w']) {
-        rightPressed = true;
-        if (gameState.astronaut.isLanded) {
-            // Only update position directly for walking, do NOT touch velocity
-            if (walkSpeed === 0) walkSpeed = WALK_START_SPEED;
-            walkSpeed += WALK_ACCEL;
-            if (walkSpeed > WALK_MAX_SPEED) walkSpeed = WALK_MAX_SPEED;
-            gameState.astronaut.position.x += walkSpeed;
-            // Do NOT set astronaut.velocity.x here!
-            facingLeft = false;
-        } else {
-            gameState.astronaut.velocity.x += FLY_ACCEL;
-            if (gameState.astronaut.velocity.x > FLY_MAX_SPEED) gameState.astronaut.velocity.x = FLY_MAX_SPEED;
-            facingLeft = false;
-        }
-    }
-
-    // --- Walking momentum/friction after landing ---
-    // Only reset walkSpeed if landed and not moving due to momentum or keys
-    if (
-        gameState.astronaut.isLanded &&
-        !leftPressed && !rightPressed &&
-        walkSpeed > 0
-    ) {
-        // Continue walking out momentum
-        if (facingLeft) {
-            gameState.astronaut.position.x -= walkSpeed;
-        } else {
-            gameState.astronaut.position.x += walkSpeed;
-        }
-        // Apply friction
-        walkSpeed -= WALK_ACCEL * 0.5;
-        if (walkSpeed < 0) walkSpeed = 0;
-    }
-
-    // Only reset walkSpeed if landed and no keys and walkSpeed is 0 (prevents instant cancel)
-    if (
-        gameState.astronaut.isLanded &&
-        !leftPressed && !rightPressed &&
-        walkSpeed <= 0
-    ) {
-        walkSpeed = 0;
-    }
-
-    // --- Upward/downward acceleration if up or down is held and astronaut is not landed ---
-    if ((keys['p'] || keys['ArrowUp']) && !gameState.astronaut.isLanded) {
-        // Gradual upward acceleration (like flying)
-        gameState.astronaut.velocity.y += UP_ACCEL * 0.25;
-        if (gameState.astronaut.velocity.y < MAX_UP_SPEED) {
-            gameState.astronaut.velocity.y = MAX_UP_SPEED;
-        }
-    }
-    if (downPressed && !gameState.astronaut.isLanded) {
-        gameState.astronaut.velocity.y += DOWN_ACCEL * 0.5; // reduce downward flying acceleration further
-        if (gameState.astronaut.velocity.y > MAX_DOWN_SPEED) {
-            gameState.astronaut.velocity.y = MAX_DOWN_SPEED;
-        }
-    }
+    handleAstronautMovement(keys);
 
     // --- Gravity ---
     applyGravity(astronaut, gameState.gravity);
@@ -375,9 +304,10 @@ async function gameLoop() {
     updateAndDrawJetpackDots(ctx!, camera, MAP_HEIGHT);
 
     // --- Sprite selection logic (animation, flipping, flying, walking) ---
-    let spriteCol = SPRITE_COL_STAND;
-    let flipSprite = facingLeft;
-    let flipVertical = false; // <-- add this
+    // REMOVE this duplicate declaration:
+    // let spriteCol = SPRITE_COL_STAND;
+    // let flipSprite = facingLeft;
+    // let flipVertical = false; // <-- add this
 
     // Debug: Log key and state info for animation selection
     if (gameState.debugMode) {
@@ -391,12 +321,12 @@ async function gameLoop() {
         )
         debugY += 16;
         ctx!.fillText(
-            `isLanded: ${gameState.astronaut.isLanded} | leftPressed: ${leftPressed} | rightPressed: ${rightPressed} | walkSpeed: ${walkSpeed.toFixed(2)}`,
+            `leftPressed: ${leftPressed} | rightPressed: ${rightPressed} | upPressed: ${upPressed} | downPressed: ${downPressed}`,
             10, debugY
         );
         debugY += 16;
         ctx!.fillText(
-            `upPressed: ${upPressed} | keys[q]: ${!!keys['q']} | keys[w]: ${!!keys['w']} | spriteCol: ${spriteCol}`,
+            `isLanded: ${gameState.astronaut.isLanded} | walkSpeed: ${walkSpeed.toFixed(2)} | spriteCol: ${spriteCol}`,
             10, debugY
         );
         debugY += 16;
@@ -620,52 +550,77 @@ async function gameLoop() {
         flySwitchTimer = 0;
     }
 
-    // Get sprite rect from JSON map
-    const spriteRect = getSpriteRectFromMap(SPRITE_ROW, spriteCol);
-    const SPRITE_X = spriteRect.x;
-    const SPRITE_Y = spriteRect.y;
-    const SPRITE_W = spriteRect.w;
-    const SPRITE_H = spriteRect.h;
+    // --- Teleport animation rendering ---
+    if (teleporting && spriteSheet && spriteSheet.complete) {
+        const spriteRect = getSpriteRectFromMap(SPRITE_ROW, teleportSpriteCol);
+        const SPRITE_W = spriteRect.w;
+        const SPRITE_H = spriteRect.h;
+        const drawW = SPRITE_W * SPRITE_SCALE * (4 / 3) * 3;
+        const drawH = SPRITE_H * SPRITE_SCALE * (2 / 3) * 3;
+        ctx!.save();
+        ctx!.translate(canvas.width / 2, canvas.height / 2);
+        if (teleportFlipSprite) ctx!.scale(-1, 1);
+        if (teleportFlipVertical) ctx!.scale(1, -1);
 
-    // --- Ground collision and landing logic ---
-    // Determine "landed" state by checking if the astronaut's feet are touching any block
-    const tileWDraw = floorGrassRect ? floorGrassRect.w * SPRITE_SCALE * (4 / 3) * 3 : 32;
-    const tileHDraw = floorGrassRect ? floorGrassRect.h * SPRITE_SCALE * (2 / 3) * 3 : 32;
-    const astronautFeetY = astronaut.position.y + tileHDraw / 2;
-    const blockTouchingFeet = getBlockAtWorld(
-        astronaut.position.x,
-        astronautFeetY + 1, // +1 to ensure overlap
-        floorGrassRect,
-        SPRITE_SCALE
-    );
-
-    if (blockTouchingFeet) {
-        gameState.astronaut.isLanded = true;
-        // Snap to top of block if slightly inside
-        gameState.astronaut.position.y = blockTouchingFeet.y - tileHDraw / 2;
-        gameState.astronaut.velocity.y = 0;
-
-        // --- Carry over horizontal momentum into walking ---
-        if (Math.abs(gameState.astronaut.velocity.x) > 0.01) {
-            walkSpeed = Math.abs(gameState.astronaut.velocity.x);
-            if (walkSpeed > WALK_MAX_SPEED) walkSpeed = WALK_MAX_SPEED;
-            facingLeft = gameState.astronaut.velocity.x < 0;
-            // Do NOT move astronaut.x here; let walking logic handle it
+        // Render random bits of the sprite for a more "teleport" effect
+        const totalBits = 32; // number of random bits per frame
+        let visibleBits = totalBits;
+        if (teleportPhase === 'out') {
+            visibleBits = Math.max(2, Math.floor(totalBits * (1 - teleportAnimFrame / TELEPORT_ANIM_FRAMES)));
+        } else if (teleportPhase === 'in') {
+            visibleBits = Math.max(2, Math.floor(totalBits * (teleportAnimFrame / TELEPORT_ANIM_FRAMES)));
         }
-        gameState.astronaut.velocity.x = 0; // zero horizontal velocity on landing
-    } else {
-        gameState.astronaut.isLanded = false;
-    }
+        for (let i = 0; i < visibleBits; ++i) {
+            // Randomly pick a region of the sprite
+            const bitW = SPRITE_W / 8;
+            const bitH = SPRITE_H / 8;
+            const sx = spriteRect.x + Math.floor(Math.random() * (SPRITE_W - bitW));
+            const sy = spriteRect.y + Math.floor(Math.random() * (SPRITE_H - bitH));
+            const dx = -drawW / 2 + ((sx - spriteRect.x) / SPRITE_W) * drawW;
+            const dy = -drawH / 2 + ((sy - spriteRect.y) / SPRITE_H) * drawH;
+            ctx!.drawImage(
+                spriteSheet,
+                sx, sy, bitW, bitH,
+                dx, dy, bitW * SPRITE_SCALE * (4 / 3) * 3, bitH * SPRITE_SCALE * (2 / 3) * 3
+            );
+        }
+        ctx!.restore();
+        teleportAnimFrame++;
 
-    // Prevent flying above the top of the map
-    if (gameState.astronaut.position.y < 0) {
-        gameState.astronaut.position.y = 0;
-        gameState.astronaut.velocity.y = 0;
+        if (teleportPhase === 'out' && teleportAnimFrame >= TELEPORT_ANIM_FRAMES) {
+            // Move astronaut after 0.5 second
+            if (teleportTarget) {
+                astronaut.position.x = teleportTarget.x;
+                astronaut.position.y = teleportTarget.y;
+                astronaut.velocity.x = 0; // Clear velocity on teleport
+                astronaut.velocity.y = 0; // Clear velocity on teleport
+                // If teleporting into the air (not on ground), set isFlying so gravity applies
+                // We'll check for ground below the feet
+                const tileHDraw = floorGrassRect ? floorGrassRect.h * SPRITE_SCALE * (2 / 3) * 3 : 32;
+                const feetY = teleportTarget.y + tileHDraw / 2;
+                const blockBelow = getBlockAtWorld(
+                    teleportTarget.x,
+                    feetY + 1,
+                    floorGrassRect,
+                    SPRITE_SCALE
+                );
+                if (!blockBelow) {
+                    astronaut.isLanded = false;
+                    astronaut.isFlying = true;
+                }
+            }
+            teleportPhase = 'in';
+            teleportAnimFrame = 0;
+        } else if (teleportPhase === 'in' && teleportAnimFrame >= TELEPORT_ANIM_FRAMES) {
+            teleporting = false;
+            teleportPhase = 'none';
+            teleportTarget = null;
+        }
+
+        prevKeys = { ...keys };
+        requestAnimationFrame(gameLoop);
+        return;
     }
-    // Prevent moving off the left/right/top/bottom edges of the map
-    if (gameState.astronaut.position.x < 0) gameState.astronaut.position.x = 0;
-    if (gameState.astronaut.position.x > MAP_WIDTH) gameState.astronaut.position.x = MAP_WIDTH;
-    if (gameState.astronaut.position.y > MAP_HEIGHT) gameState.astronaut.position.y = MAP_HEIGHT;
 
     // --- Render astronaut at center of screen with correct animation ---
     if (spriteSheet && spriteSheet.complete) {
@@ -694,6 +649,7 @@ async function gameLoop() {
         ctx!.fillRect(dot.x - camera.x, dot.y - camera.y, 2, 2);
     });
 
+    prevKeys = { ...keys };
     requestAnimationFrame(gameLoop);
 }
 
