@@ -372,10 +372,11 @@ function gameLoop() {
             console.log('WALKING: isLanded && (leftPressed || rightPressed) && walkSpeed > 0');
         }
         walkAnimTimer += 1 / 60;
-        if (walkAnimTimer > 0.20) {
+        if (walkAnimTimer > 0.16) { // slower frame rate
             walkAnimFrame++;
             if (walkAnimFrame > SPRITE_COL_WALK_END)
                 walkAnimFrame = SPRITE_COL_WALK_START;
+            walkAnimTimer = 0; // <-- reset timer after advancing frame
         }
         spriteCol = walkAnimFrame;
         flyHoldTimer = 0;
@@ -385,10 +386,6 @@ function gameLoop() {
         flySwitchTimer = 0;
     }
     else if (gameState.astronaut.isLanded) {
-        // Debug: Show standing branch taken
-        if (gameState.debugMode) {
-            console.log('STANDING: gameState.astronaut.isLanded');
-        }
         spriteCol = SPRITE_COL_STAND;
         walkAnimFrame = SPRITE_COL_WALK_START;
         walkAnimTimer = 0;
@@ -461,6 +458,20 @@ function gameLoop() {
                 walkAnimTimer = 0;
             }
         }
+    }
+    else if (!gameState.astronaut.isLanded &&
+        !keys['q'] && !keys['w'] &&
+        Math.abs(gameState.astronaut.velocity.x) > 0.01) {
+        // Show fly_float sprite if flying with sideways momentum and no q/w pressed
+        spriteCol = SPRITE_COL_FLY_FLOAT;
+        flipSprite = facingLeft; // use last direction key pressed
+        walkAnimFrame = SPRITE_COL_WALK_START;
+        walkAnimTimer = 0;
+        flyHoldTimer = 0;
+        flyDir = null;
+        flySwitching = false;
+        flySwitchStep = 0;
+        flySwitchTimer = 0;
     }
     else {
         // Debug: Show fallback branch taken
