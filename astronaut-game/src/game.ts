@@ -60,6 +60,7 @@ let gameState: GameState & { debugMode: boolean } = {
 };
 
 let spriteSheet: HTMLImageElement;
+let astronautSpriteSource: CanvasImageSource; // Use this for astronaut rendering
 
 // Store ground tile info after loading sprite map
 let floorGrassRect: { x: number, y: number, w: number, h: number } | null = null;
@@ -132,6 +133,15 @@ async function init() {
             spriteSheet = new Image();
             spriteSheet.src = canvasWithTransparency.toDataURL();
             spriteSheet.onload = () => {
+                // Remap astronaut palette after transparency is set
+                astronautSpriteSource = remapSpritePalette(
+                    spriteSheet,
+                    [
+                        { from: [255, 255, 255], to: [255, 255, 0] },    // red -> violet
+                        { from: [255, 0, 0], to: [255, 0, 255] },    // red -> violet
+                        { from: [0, 255, 0], to: [255, 255, 255] }   // green -> white
+                    ]
+                );
                 gameLoop();
             };
         });
@@ -670,7 +680,7 @@ async function gameLoop() {
     }
 
     // --- Render astronaut at center of screen with correct animation ---
-    if (spriteSheet && spriteSheet.complete) {
+    if ((astronautSpriteSource || spriteSheet) && (spriteSheet && spriteSheet.complete)) {
         const spriteRect = getSpriteRectFromMap(SPRITE_ROW, spriteCol);
         const SPRITE_W = spriteRect.w;
         const SPRITE_H = spriteRect.h;
@@ -681,7 +691,7 @@ async function gameLoop() {
         if (flipSprite) ctx!.scale(-1, 1);
         if (flipVertical) ctx!.scale(1, -1);
         ctx!.drawImage(
-            spriteSheet,
+            astronautSpriteSource || spriteSheet,
             spriteRect.x, spriteRect.y, SPRITE_W, SPRITE_H,
             (flipSprite ? -drawW / 2 : -drawW / 2),
             (flipVertical ? -drawH / 2 : -drawH / 2),
@@ -770,6 +780,48 @@ async function isSolidAtWorld(
     // Check if the pixel is transparent
     return !(await isSpritePixelTransparent(spriteSheet, spriteRect, spriteRect.x + localX, spriteRect.y + localY));
 }
+
+/**
+ * Remap the palette of a sprite image.
+ * @param img The source image.
+ * @param colorMap An array of {from: [r,g,b], to: [r,g,b]} mappings.
+ * @returns A new HTMLCanvasElement with remapped colors.
+ */
+function remapSpritePalette(
+    img: HTMLImageElement,
+    colorMap: { from: [number, number, number], to: [number, number, number] }[]
+): HTMLCanvasElement {
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(img, 0, 0);
+    const imageData = ctx.getImageData(0, 0, img.width, img.height);
+    const data = imageData.data;
+    for (let i = 0; i < data.length; i += 4) {
+        for (const { from, to } of colorMap) {
+            if (
+                data[i] === from[0] &&
+                data[i + 1] === from[1] &&
+                data[i + 2] === from[2]
+            ) {
+                data[i] = to[0];
+                data[i + 1] = to[1];
+                data[i + 2] = to[2];
+            }
+        }
+    }
+    ctx.putImageData(imageData, 0, 0);
+    return canvas;
+}
+
+// Example usage after loading the sprite sheet:
+// Replace pure red (255,0,0) with violet (143,0,255), and pure green (0,255,0) with white (255,255,255)
+// const remappedCanvas = remapSpritePalette(spriteSheet, [
+//     { from: [255, 0, 0], to: [143, 0, 255] },    // red -> violet
+//     { from: [0, 255, 0], to: [255, 255, 255] }   // green -> white
+// ]);
+// Use remappedCanvas as your sprite source
 
 window.addEventListener('keydown', (event) => {
     keys[event.key] = true;
