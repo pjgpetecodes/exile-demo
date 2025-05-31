@@ -27,7 +27,8 @@ export function getBlockAtWorld(x, y, floorGrassRect, SPRITE_SCALE) {
         b.collision);
 }
 // Draw map blocks
-export function drawMap(ctx, camera, floorGrassRect, floorPlainHalfRect, spriteSheet, SPRITE_SCALE) {
+export function drawMap(ctx, camera, floorGrassRect, floorPlainHalfRect, spriteSheets, // <-- now expects array of remapped sheets
+SPRITE_SCALE) {
     if (!floorGrassRect || !floorPlainHalfRect || !mapLoaded)
         return;
     const tileW = floorGrassRect.w * SPRITE_SCALE * (4 / 3) * 3;
@@ -39,12 +40,18 @@ export function drawMap(ctx, camera, floorGrassRect, floorPlainHalfRect, spriteS
             drawY + tileH < 0 || drawY > ctx.canvas.height)
             continue;
         let rect = block.type === 'floor_grass' ? floorGrassRect : floorPlainHalfRect;
+        // Use block.palette (number) if present, else 0
+        let paletteIdx = 0;
+        if (typeof block.palette === "number" && block.palette >= 0 && block.palette < spriteSheets.length) {
+            paletteIdx = block.palette;
+        }
+        const sheet = spriteSheets[paletteIdx] || spriteSheets[0];
         ctx.save();
         ctx.translate(drawX + tileW / 2, drawY + tileH / 2);
         if (block.rotation)
             ctx.rotate(((block.rotation - 1) * Math.PI) / 2);
         ctx.scale(1, -1);
-        ctx.drawImage(spriteSheet, rect.x, rect.y, rect.w, rect.h, -tileW / 2, -tileH / 2, tileW, tileH);
+        ctx.drawImage(sheet, rect.x, rect.y, rect.w, rect.h, -tileW / 2, -tileH / 2, tileW, tileH);
         ctx.restore();
     }
 }

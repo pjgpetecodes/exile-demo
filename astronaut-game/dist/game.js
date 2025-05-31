@@ -31,6 +31,14 @@ function loadSpriteMap() {
         }
     });
 }
+let palettes = [];
+let remappedSpriteSheets = [];
+function loadPalettes() {
+    return __awaiter(this, void 0, void 0, function* () {
+        const res = yield fetch('./src/assets/palettes.json');
+        palettes = yield res.json();
+    });
+}
 // --- Map size in pixels (constant) ---
 const MAP_WIDTH = 10000; // pixels
 const MAP_HEIGHT = 10000; // pixels
@@ -109,6 +117,7 @@ let prevKeys = {};
 function init() {
     return __awaiter(this, void 0, void 0, function* () {
         yield loadSpriteMap();
+        yield loadPalettes();
         yield loadMapBlocks();
         initStars(() => astronaut.position, canvas);
         const img = new Image();
@@ -118,12 +127,10 @@ function init() {
                 spriteSheet = new Image();
                 spriteSheet.src = canvasWithTransparency.toDataURL();
                 spriteSheet.onload = () => {
-                    // Remap astronaut palette after transparency is set
-                    astronautSpriteSource = remapSpritePalette(spriteSheet, [
-                        { from: [255, 255, 255], to: [255, 255, 0] },
-                        { from: [255, 0, 0], to: [255, 0, 255] },
-                        { from: [0, 255, 0], to: [255, 255, 255] } // green -> white
-                    ]);
+                    // Generate remapped sprite sheets for each palette
+                    remappedSpriteSheets = palettes.map((palette) => remapSpritePalette(spriteSheet, palette));
+                    // Use palettes[1] for astronaut, fallback to original if not present
+                    astronautSpriteSource = remappedSpriteSheets[1] || spriteSheet;
                     gameLoop();
                 };
             });
@@ -197,8 +204,9 @@ function gameLoop() {
         // --- Draw twinkling stars ---
         updateAndDrawStars(ctx, camera, () => astronaut.position, canvas, floorGrassRect, SPRITE_SCALE, MAP_HEIGHT);
         // --- Draw map blocks ---
+        // Replace the drawMap call with a version that uses palette switching
         if (spriteSheet && spriteSheet.complete && floorGrassRect && floorPlainHalfRect) {
-            drawMap(ctx, camera, floorGrassRect, floorPlainHalfRect, spriteSheet, SPRITE_SCALE);
+            drawMap(ctx, camera, floorGrassRect, floorPlainHalfRect, remappedSpriteSheets, SPRITE_SCALE);
         }
         // --- Controls: Upward and horizontal movement ---
         handleAstronautMovement(keys);
@@ -713,6 +721,8 @@ function isSolidAtWorld(worldX, worldY, spriteSheet, spriteMap, floorRect, scale
  * @returns A new HTMLCanvasElement with remapped colors.
  */
 function remapSpritePalette(img, colorMap) {
+    // This function allows for any number of color mappings.
+    // Each entry in colorMap will be applied to the image.
     const canvas = document.createElement('canvas');
     canvas.width = img.width;
     canvas.height = img.height;

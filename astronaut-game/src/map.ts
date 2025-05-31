@@ -39,7 +39,7 @@ export function drawMap(
     camera: { x: number, y: number },
     floorGrassRect: any,
     floorPlainHalfRect: any,
-    spriteSheet: HTMLImageElement,
+    spriteSheets: CanvasImageSource[], // <-- now expects array of remapped sheets
     SPRITE_SCALE: number
 ) {
     if (!floorGrassRect || !floorPlainHalfRect || !mapLoaded) return;
@@ -55,12 +55,19 @@ export function drawMap(
         ) continue;
 
         let rect = block.type === 'floor_grass' ? floorGrassRect : floorPlainHalfRect;
+        // Use block.palette (number) if present, else 0
+        let paletteIdx = 0;
+        if (typeof block.palette === "number" && block.palette >= 0 && block.palette < spriteSheets.length) {
+            paletteIdx = block.palette;
+        }
+        const sheet = spriteSheets[paletteIdx] || spriteSheets[0];
+
         ctx.save();
         ctx.translate(drawX + tileW / 2, drawY + tileH / 2);
         if (block.rotation) ctx.rotate(((block.rotation - 1) * Math.PI) / 2);
         ctx.scale(1, -1);
         ctx.drawImage(
-            spriteSheet,
+            sheet,
             rect.x, rect.y, rect.w, rect.h,
             -tileW / 2, -tileH / 2, tileW, tileH
         );
