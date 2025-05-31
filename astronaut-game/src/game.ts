@@ -122,37 +122,8 @@ const WALK_MAX_SPEED = 4;
 const WALK_START_SPEED = 1;
 
 // Reduce flying acceleration and max speeds further for more control
-const FLY_ACCEL = 0.12; // was 0.22
-const FLY_MAX_SPEED = 1.5; // was 2.5
-
-// --- Map generation ---
-/*
-function generateMap() {
-    mapTiles = [];
-    for (let y = 0; y < MAP_HEIGHT; y++) {
-        const row: { type: 'floor_grass' | 'floor_plain_half' }[] = [];
-        for (let x = 0; x < MAP_WIDTH; x++) {
-            // Only fill bottom row with ground, rest empty for now
-            if (y === MAP_HEIGHT - 1) {
-                row.push({
-                    type: Math.random() < 0.5 ? 'floor_grass' : 'floor_plain_half'
-                });
-            } else {
-                row.push(null as any); // empty space
-            }
-        }
-        mapTiles.push(row);
-    }
-}
-*/
-
-// --- Load map from JSON file ---
-// (REMOVE the following local function if still present)
-// async function loadMapBlocks() {
-//     const res = await fetch('./src/assets/world_map.json');
-//     mapBlocks = await res.json();
-//     mapLoaded = true;
-// }
+const FLY_ACCEL = 0.28; // was 0.12, increased for faster horizontal flying
+const FLY_MAX_SPEED = 2.8; // was 1.5, increased for faster horizontal flying
 
 // Initialize the game
 async function init() {
@@ -210,7 +181,8 @@ async function gameLoop() {
     // Upward (P or ArrowUp)
     if ((keys['p'] || keys['ArrowUp'])) {
         if (gameState.astronaut.isLanded) {
-            gameState.astronaut.velocity.y = -2;
+            // Move astronaut up by 1 pixel and start flying
+            gameState.astronaut.position.y -= 1;
             gameState.astronaut.isLanded = false;
         }
         upPressed = true;
@@ -269,7 +241,8 @@ async function gameLoop() {
 
     // --- Upward/downward acceleration if up or down is held and astronaut is not landed ---
     if ((keys['p'] || keys['ArrowUp']) && !gameState.astronaut.isLanded) {
-        gameState.astronaut.velocity.y += UP_ACCEL * 0.25; // reduce upward flying acceleration further
+        // Gradual upward acceleration (like flying)
+        gameState.astronaut.velocity.y += UP_ACCEL * 0.25;
         if (gameState.astronaut.velocity.y < MAX_UP_SPEED) {
             gameState.astronaut.velocity.y = MAX_UP_SPEED;
         }
@@ -382,6 +355,40 @@ async function gameLoop() {
     // --- Sprite selection logic (animation, flipping, flying, walking) ---
     let spriteCol = SPRITE_COL_STAND;
     let flipSprite = facingLeft;
+    let flipVertical = false; // <-- add this
+
+    // Debug: Log key and state info for animation selection
+    if (gameState.debugMode) {
+        ctx!.save();
+        ctx!.font = '12px monospace';
+        ctx!.fillStyle = '#ff0';
+        let debugY = 16;
+        ctx!.fillText(
+            `Astronaut position: (${gameState.astronaut.position.x.toFixed(2)}, ${gameState.astronaut.position.y.toFixed(2)})`,
+            10, debugY
+        )
+        debugY += 16;
+        ctx!.fillText(
+            `isLanded: ${gameState.astronaut.isLanded} | leftPressed: ${leftPressed} | rightPressed: ${rightPressed} | walkSpeed: ${walkSpeed.toFixed(2)}`,
+            10, debugY
+        );
+        debugY += 16;
+        ctx!.fillText(
+            `upPressed: ${upPressed} | keys[q]: ${!!keys['q']} | keys[w]: ${!!keys['w']} | spriteCol: ${spriteCol}`,
+            10, debugY
+        );
+        debugY += 16;
+        ctx!.fillText(
+            `walkAnimFrame: ${walkAnimFrame} | walkAnimTimer: ${walkAnimTimer.toFixed(2)} | flyHoldTimer: ${flyHoldTimer.toFixed(2)}`,
+            10, debugY
+        );
+        debugY += 16;
+        ctx!.fillText(
+            `flyDir: ${flyDir} | flySwitching: ${flySwitching} | flySwitchStep: ${flySwitchStep}`,
+            10, debugY
+        );
+        ctx!.restore();
+    }
 
     // --- Animate transition to fly_down if flying and down + (q or w) pressed ---
     if (
@@ -427,6 +434,25 @@ async function gameLoop() {
             flyDownTransitioning = true;
         }
 
+        // Reset all other flying animation state
+        walkAnimFrame = SPRITE_COL_WALK_START;
+        walkAnimTimer = 0;
+        flyHoldTimer = 0;
+        flyDir = null;
+        flySwitching = false;
+        flySwitchStep = 0;
+        flySwitchTimer = 0;
+        lastFlySpriteCol = spriteCol;
+    }
+    // --- Fly down with no left/right: show stand sprite vertically flipped ---
+    else if (
+        !gameState.astronaut.isLanded &&
+        downPressed &&
+        !keys['q'] && !keys['w']
+    ) {
+        spriteCol = SPRITE_COL_STAND;
+        flipSprite = facingLeft;
+        flipVertical = true; // flip vertically for "down"
         // Reset all other flying animation state
         walkAnimFrame = SPRITE_COL_WALK_START;
         walkAnimTimer = 0;
@@ -618,23 +644,16 @@ async function gameLoop() {
         const drawW = SPRITE_W * SPRITE_SCALE * (4 / 3) * 3;
         const drawH = SPRITE_H * SPRITE_SCALE * (2 / 3) * 3;
         ctx!.save();
-        if (flipSprite) {
-            ctx!.translate(canvas.width / 2, canvas.height / 2);
-            ctx!.scale(-1, 1);
-            ctx!.drawImage(
-                spriteSheet,
-                spriteRect.x, spriteRect.y, SPRITE_W, SPRITE_H,
-                -drawW / 2, -drawH / 2, drawW, drawH
-            );
-        } else {
-            ctx!.drawImage(
-                spriteSheet,
-                spriteRect.x, spriteRect.y, SPRITE_W, SPRITE_H,
-                canvas.width / 2 - drawW / 2,
-                canvas.height / 2 - drawH / 2,
-                drawW, drawH
-            );
-        }
+        ctx!.translate(canvas.width / 2, canvas.height / 2);
+        if (flipSprite) ctx!.scale(-1, 1);
+        if (flipVertical) ctx!.scale(1, -1);
+        ctx!.drawImage(
+            spriteSheet,
+            spriteRect.x, spriteRect.y, SPRITE_W, SPRITE_H,
+            (flipSprite ? -drawW / 2 : -drawW / 2),
+            (flipVertical ? -drawH / 2 : -drawH / 2),
+            drawW, drawH
+        );
         ctx!.restore();
     }
 
