@@ -94,6 +94,13 @@ let teleportTarget = null;
 let teleportSpriteCol = SPRITE_COL_STAND;
 let teleportFlipSprite = false;
 let teleportFlipVertical = false;
+// --- Sound effects ---
+const rememberSound = new Audio('./src/assets/remember.wav');
+const teleportSound = new Audio('./src/assets/teleport.wav');
+const ouchSounds = [
+    new Audio('./src/assets/ouch_1.wav'),
+    new Audio('./src/assets/ouch_2.wav')
+];
 // --- Input state ---
 const keys = {};
 let prevKeys = {};
@@ -146,18 +153,22 @@ function gameLoop() {
                 teleportLocations[teleportSlot] = { x: astronaut.position.x, y: astronaut.position.y };
             }
             teleportSlot = (teleportSlot + 1) % 6;
+            // Play remember sound
+            try {
+                rememberSound.currentTime = 0;
+                rememberSound.play();
+            }
+            catch (_a) { }
         }
         if (keys['t'] && !prevKeys['t']) {
             let loc = null;
             if (teleportLocations.length > 0) {
                 // Use the most recent (last) location
                 loc = teleportLocations.pop();
-                // Adjust teleportSlot if needed
                 if (teleportSlot > teleportLocations.length)
                     teleportSlot = teleportLocations.length;
             }
             else {
-                // Default location if none saved
                 loc = { x: 691, y: 778 };
             }
             if (loc && !teleporting) {
@@ -168,6 +179,12 @@ function gameLoop() {
                 teleportSpriteCol = spriteCol;
                 teleportFlipSprite = flipSprite;
                 teleportFlipVertical = flipVertical;
+                // Play teleport sound
+                try {
+                    teleportSound.currentTime = 0;
+                    teleportSound.play();
+                }
+                catch (_b) { }
             }
         }
         // --- Draw twinkling stars ---
@@ -184,9 +201,14 @@ function gameLoop() {
         // Only apply velocity if NOT landed
         let nextX = gameState.astronaut.position.x;
         let nextY = gameState.astronaut.position.y;
+        let hitBlock = false;
+        let hitVelocity = 0;
+        let preVX = astronaut.velocity.x;
+        let preVY = astronaut.velocity.y;
+        let hitType = null;
         if (!gameState.astronaut.isLanded) {
-            nextX += gameState.astronaut.velocity.x;
-            nextY += gameState.astronaut.velocity.y;
+            nextX += astronaut.velocity.x;
+            nextY += astronaut.velocity.y;
         }
         // Use unique variable names for collision bounding box
         const tileWCol = floorGrassRect ? floorGrassRect.w * SPRITE_SCALE * (4 / 3) * 3 : 32;
@@ -205,6 +227,8 @@ function gameLoop() {
                 astronaut.velocity.y = 0;
                 gameState.astronaut.isLanded = true;
                 blockedY = true;
+                // Do NOT set hitBlock for feet landing
+                // hitBlock = true;
             }
         }
         else if (astronaut.velocity.y < 0) {
@@ -214,6 +238,8 @@ function gameLoop() {
                 nextY = blockAbove.y + tileHCol + halfH;
                 astronaut.velocity.y = 0;
                 blockedY = true;
+                hitBlock = true;
+                hitType = 'head';
             }
         }
         // Check horizontal movement (left/right sides)
@@ -230,6 +256,8 @@ function gameLoop() {
                     nextX = blockSide.x - halfW;
                     astronaut.velocity.x = 0;
                     blockedX = true;
+                    hitBlock = true;
+                    hitType = 'side';
                 }
             }
             else {
@@ -240,7 +268,21 @@ function gameLoop() {
                     nextX = blockSide.x + tileWCol + halfW;
                     astronaut.velocity.x = 0;
                     blockedX = true;
+                    hitBlock = true;
+                    hitType = 'side';
                 }
+            }
+        }
+        // --- Play ouch sound if hitting any collider block with high velocity (side or head only) ---
+        if (hitBlock && hitType !== null) {
+            const impactVel = Math.max(Math.abs(preVX), Math.abs(preVY));
+            if (impactVel > 4) {
+                const idx = Math.random() < 0.5 ? 0 : 1;
+                try {
+                    ouchSounds[idx].currentTime = 0;
+                    ouchSounds[idx].play();
+                }
+                catch (_c) { }
             }
         }
         // If not blocked vertically, not landed
@@ -361,23 +403,34 @@ function gameLoop() {
         // Show walking animation if landed and walkSpeed > 0 (even if no keys are pressed)
         else if (gameState.astronaut.isLanded &&
             walkSpeed > 0) {
-            // Debug: Show walking branch taken (momentum or key)
-            if (gameState.debugMode) {
-                console.log('WALKING: isLanded && walkSpeed > 0');
+            // Check if there is a block below the astronaut's feet
+            const tileHDraw = floorGrassRect ? floorGrassRect.h * SPRITE_SCALE * (2 / 3) * 3 : 32;
+            const feetY = gameState.astronaut.position.y + tileHDraw / 2;
+            const blockBelow = getBlockAtWorld(gameState.astronaut.position.x, feetY + 1, floorGrassRect, SPRITE_SCALE);
+            if (!blockBelow) {
+                // No block below: set to flying
+                gameState.astronaut.isLanded = false;
+                gameState.astronaut.isFlying = true;
             }
-            walkAnimTimer += 1 / 60;
-            if (walkAnimTimer > 0.16) { // slower frame rate
-                walkAnimFrame++;
-                if (walkAnimFrame > SPRITE_COL_WALK_END)
-                    walkAnimFrame = SPRITE_COL_WALK_START;
-                walkAnimTimer = 0;
+            else {
+                // Debug: Show walking branch taken (momentum or key)
+                if (gameState.debugMode) {
+                    console.log('WALKING: isLanded && walkSpeed > 0');
+                }
+                walkAnimTimer += 1 / 60;
+                if (walkAnimTimer > 0.16) { // slower frame rate
+                    walkAnimFrame++;
+                    if (walkAnimFrame > SPRITE_COL_WALK_END)
+                        walkAnimFrame = SPRITE_COL_WALK_START;
+                    walkAnimTimer = 0;
+                }
+                spriteCol = walkAnimFrame;
+                flyHoldTimer = 0;
+                flyDir = null;
+                flySwitching = false;
+                flySwitchStep = 0;
+                flySwitchTimer = 0;
             }
-            spriteCol = walkAnimFrame;
-            flyHoldTimer = 0;
-            flyDir = null;
-            flySwitching = false;
-            flySwitchStep = 0;
-            flySwitchTimer = 0;
         }
         else if (gameState.astronaut.isLanded) {
             spriteCol = SPRITE_COL_STAND;
