@@ -200,25 +200,12 @@ function gameLoop() {
         drawMap(ctx!, camera, floorGrassRect, floorPlainHalfRect, spriteSheet, SPRITE_SCALE);
     }
 
-    // --- Debug: astronaut coordinates ---
-    if (gameState.debugMode) {
-        ctx!.save();
-        ctx!.font = '16px monospace';
-        ctx!.fillStyle = '#fff';
-        ctx!.strokeStyle = '#000';
-        ctx!.lineWidth = 3;
-        const coordText = `x: ${astronaut.position.x.toFixed(2)}  y: ${astronaut.position.y.toFixed(2)}  Is Landed: ${astronaut.isLanded ? 'YES' : 'NO'}`;
-        ctx!.strokeText(coordText, 10, 22);
-        ctx!.fillText(coordText, 10, 22);
-        ctx!.restore();
-    }
-
     // --- Controls: Upward and horizontal movement ---
     // Upward (P or ArrowUp)
     if ((keys['p'] || keys['ArrowUp'])) {
-        if (astronaut.isLanded) {
-            astronaut.velocity.y = -2;
-            astronaut.isLanded = false;
+        if (gameState.astronaut.isLanded) {
+            gameState.astronaut.velocity.y = -2;
+            gameState.astronaut.isLanded = false;
         }
         upPressed = true;
     } else {
@@ -236,17 +223,17 @@ function gameLoop() {
     leftPressed = false;
     if (keys['q']) {
         leftPressed = true;
-        if (astronaut.isLanded) {
+        if (gameState.astronaut.isLanded) {
             // Only update position directly for walking, do NOT touch velocity
             if (walkSpeed === 0) walkSpeed = WALK_START_SPEED;
             walkSpeed += WALK_ACCEL;
             if (walkSpeed > WALK_MAX_SPEED) walkSpeed = WALK_MAX_SPEED;
-            astronaut.position.x -= walkSpeed;
+            gameState.astronaut.position.x -= walkSpeed;
             // Do NOT set astronaut.velocity.x here!
             facingLeft = true;
         } else {
-            astronaut.velocity.x -= FLY_ACCEL;
-            if (astronaut.velocity.x < -FLY_MAX_SPEED) astronaut.velocity.x = -FLY_MAX_SPEED;
+            gameState.astronaut.velocity.x -= FLY_ACCEL;
+            if (gameState.astronaut.velocity.x < -FLY_MAX_SPEED) gameState.astronaut.velocity.x = -FLY_MAX_SPEED;
             facingLeft = true;
         }
     }
@@ -254,37 +241,37 @@ function gameLoop() {
     rightPressed = false;
     if (keys['w']) {
         rightPressed = true;
-        if (astronaut.isLanded) {
+        if (gameState.astronaut.isLanded) {
             // Only update position directly for walking, do NOT touch velocity
             if (walkSpeed === 0) walkSpeed = WALK_START_SPEED;
             walkSpeed += WALK_ACCEL;
             if (walkSpeed > WALK_MAX_SPEED) walkSpeed = WALK_MAX_SPEED;
-            astronaut.position.x += walkSpeed;
+            gameState.astronaut.position.x += walkSpeed;
             // Do NOT set astronaut.velocity.x here!
             facingLeft = false;
         } else {
-            astronaut.velocity.x += FLY_ACCEL;
-            if (astronaut.velocity.x > FLY_MAX_SPEED) astronaut.velocity.x = FLY_MAX_SPEED;
+            gameState.astronaut.velocity.x += FLY_ACCEL;
+            if (gameState.astronaut.velocity.x > FLY_MAX_SPEED) gameState.astronaut.velocity.x = FLY_MAX_SPEED;
             facingLeft = false;
         }
     }
 
     // Reset walk speed if not walking or not landed
-    if ((!leftPressed && !rightPressed) || !astronaut.isLanded) {
+    if ((!leftPressed && !rightPressed) || !gameState.astronaut.isLanded) {
         walkSpeed = 0;
     }
 
     // --- Upward/downward acceleration if up or down is held and astronaut is not landed ---
-    if ((keys['p'] || keys['ArrowUp']) && !astronaut.isLanded) {
-        astronaut.velocity.y += UP_ACCEL * 0.25; // reduce upward flying acceleration further
-        if (astronaut.velocity.y < MAX_UP_SPEED) {
-            astronaut.velocity.y = MAX_UP_SPEED;
+    if ((keys['p'] || keys['ArrowUp']) && !gameState.astronaut.isLanded) {
+        gameState.astronaut.velocity.y += UP_ACCEL * 0.25; // reduce upward flying acceleration further
+        if (gameState.astronaut.velocity.y < MAX_UP_SPEED) {
+            gameState.astronaut.velocity.y = MAX_UP_SPEED;
         }
     }
-    if (downPressed && !astronaut.isLanded) {
-        astronaut.velocity.y += DOWN_ACCEL * 0.5; // reduce downward flying acceleration further
-        if (astronaut.velocity.y > MAX_DOWN_SPEED) {
-            astronaut.velocity.y = MAX_DOWN_SPEED;
+    if (downPressed && !gameState.astronaut.isLanded) {
+        gameState.astronaut.velocity.y += DOWN_ACCEL * 0.5; // reduce downward flying acceleration further
+        if (gameState.astronaut.velocity.y > MAX_DOWN_SPEED) {
+            gameState.astronaut.velocity.y = MAX_DOWN_SPEED;
         }
     }
 
@@ -293,11 +280,11 @@ function gameLoop() {
 
     // --- Move astronaut by velocity with collision detection ---
     // Only apply velocity if NOT landed
-    let nextX = astronaut.position.x;
-    let nextY = astronaut.position.y;
-    if (!astronaut.isLanded) {
-        nextX += astronaut.velocity.x;
-        nextY += astronaut.velocity.y;
+    let nextX = gameState.astronaut.position.x;
+    let nextY = gameState.astronaut.position.y;
+    if (!gameState.astronaut.isLanded) {
+        nextX += gameState.astronaut.velocity.x;
+        nextY += gameState.astronaut.velocity.y;
     }
 
     // Use unique variable names for collision bounding box
@@ -317,7 +304,7 @@ function gameLoop() {
         if (blockBelow) {
             nextY = blockBelow.y - halfH;
             astronaut.velocity.y = 0;
-            astronaut.isLanded = true;
+            gameState.astronaut.isLanded = true;
             blockedY = true;
         }
     } else if (astronaut.velocity.y < 0) {
@@ -358,10 +345,10 @@ function gameLoop() {
     }
 
     // If not blocked vertically, not landed
-    if (!blockedY) astronaut.isLanded = false;
+    //if (!blockedY) gameState.astronaut.isLanded = false;
 
-    astronaut.position.x = nextX;
-    astronaut.position.y = nextY;
+    gameState.astronaut.position.x = nextX;
+    gameState.astronaut.position.y = nextY;
 
     // --- Jetpack dots emission (world coordinates) ---
     emitJetpackDots({
@@ -390,18 +377,53 @@ function gameLoop() {
     let spriteCol = SPRITE_COL_STAND;
     let flipSprite = facingLeft;
 
+    // Debug: Log key and state info for animation selection
+    if (gameState.debugMode) {
+        ctx!.save();
+        ctx!.font = '12px monospace';
+        ctx!.fillStyle = '#ff0';
+        let debugY = 16;
+        ctx!.fillText(
+            `Astronaut position: (${gameState.astronaut.position.x.toFixed(2)}, ${gameState.astronaut.position.y.toFixed(2)})`,
+            10, debugY
+        )
+        debugY += 16;
+        ctx!.fillText(
+            `isLanded: ${gameState.astronaut.isLanded} | leftPressed: ${leftPressed} | rightPressed: ${rightPressed} | walkSpeed: ${walkSpeed.toFixed(2)}`,
+            10, debugY
+        );
+        debugY += 16;
+        ctx!.fillText(
+            `upPressed: ${upPressed} | keys[q]: ${!!keys['q']} | keys[w]: ${!!keys['w']} | spriteCol: ${spriteCol}`,
+            10, debugY
+        );
+        debugY += 16;
+        ctx!.fillText(
+            `walkAnimFrame: ${walkAnimFrame} | walkAnimTimer: ${walkAnimTimer.toFixed(2)} | flyHoldTimer: ${flyHoldTimer.toFixed(2)}`,
+            10, debugY
+        );
+        debugY += 16;
+        ctx!.fillText(
+            `flyDir: ${flyDir} | flySwitching: ${flySwitching} | flySwitchStep: ${flySwitchStep}`,
+            10, debugY
+        );
+        ctx!.restore();
+    }
+
     // Walking animation (cycle walk_right1, walk_right2, walk_right3 when walking left/right on ground)
     if (
-        astronaut.isLanded &&
-        !keys['p'] && !keys['ArrowUp'] &&
+        gameState.astronaut.isLanded &&
         (leftPressed || rightPressed) &&
         walkSpeed > 0
     ) {
+        // Debug: Show walking branch taken
+        if (gameState.debugMode) {
+            console.log('WALKING: isLanded && (leftPressed || rightPressed) && walkSpeed > 0');
+        }
         walkAnimTimer += 1 / 60;
-        if (walkAnimTimer > 0.08) {
+        if (walkAnimTimer > 0.20) {
             walkAnimFrame++;
             if (walkAnimFrame > SPRITE_COL_WALK_END) walkAnimFrame = SPRITE_COL_WALK_START;
-            walkAnimTimer = 0;
         }
         spriteCol = walkAnimFrame;
         flyHoldTimer = 0;
@@ -409,8 +431,11 @@ function gameLoop() {
         flySwitching = false;
         flySwitchStep = 0;
         flySwitchTimer = 0;
-    } else if (astronaut.isLanded) {
-        // Standing still on ground
+    } else if (gameState.astronaut.isLanded) {
+        // Debug: Show standing branch taken
+        if (gameState.debugMode) {
+            console.log('STANDING: gameState.astronaut.isLanded');
+        }
         spriteCol = SPRITE_COL_STAND;
         walkAnimFrame = SPRITE_COL_WALK_START;
         walkAnimTimer = 0;
@@ -419,7 +444,11 @@ function gameLoop() {
         flySwitching = false;
         flySwitchStep = 0;
         flySwitchTimer = 0;
-    } else if (!astronaut.isLanded && (keys['q'] || keys['w'])) {
+    } else if (!gameState.astronaut.isLanded && (keys['q'] || keys['w'])) {
+        // Debug: Show flying branch taken
+        if (gameState.debugMode) {
+            console.log('FLYING: !gameState.astronaut.isLanded && (keys[q] || keys[w])');
+        }
         let currentDir: 'left' | 'right' = keys['w'] ? 'right' : 'left';
 
         // If holding up and q/w, always show fly_diagonal (sprite 1), flipped if left
@@ -479,6 +508,10 @@ function gameLoop() {
             }
         }
     } else {
+        // Debug: Show fallback branch taken
+        if (gameState.debugMode) {
+            console.log('FALLBACK: no animation branch matched');
+        }
         walkAnimFrame = SPRITE_COL_WALK_START;
         walkAnimTimer = 0;
         flyHoldTimer = 0;
@@ -508,24 +541,24 @@ function gameLoop() {
     );
 
     if (blockTouchingFeet) {
-        astronaut.isLanded = true;
+        gameState.astronaut.isLanded = true;
         // Snap to top of block if slightly inside
-        astronaut.position.y = blockTouchingFeet.y - tileHDraw / 2;
-        astronaut.velocity.y = 0;
-        astronaut.velocity.x = 0; // zero horizontal velocity on landing
+        gameState.astronaut.position.y = blockTouchingFeet.y - tileHDraw / 2;
+        gameState.astronaut.velocity.y = 0;
+        gameState.astronaut.velocity.x = 0; // zero horizontal velocity on landing
     } else {
-        astronaut.isLanded = false;
+        gameState.astronaut.isLanded = false;
     }
 
     // Prevent flying above the top of the map
-    if (astronaut.position.y < 0) {
-        astronaut.position.y = 0;
-        astronaut.velocity.y = 0;
+    if (gameState.astronaut.position.y < 0) {
+        gameState.astronaut.position.y = 0;
+        gameState.astronaut.velocity.y = 0;
     }
     // Prevent moving off the left/right/top/bottom edges of the map
-    if (astronaut.position.x < 0) astronaut.position.x = 0;
-    if (astronaut.position.x > MAP_WIDTH) astronaut.position.x = MAP_WIDTH;
-    if (astronaut.position.y > MAP_HEIGHT) astronaut.position.y = MAP_HEIGHT;
+    if (gameState.astronaut.position.x < 0) gameState.astronaut.position.x = 0;
+    if (gameState.astronaut.position.x > MAP_WIDTH) gameState.astronaut.position.x = MAP_WIDTH;
+    if (gameState.astronaut.position.y > MAP_HEIGHT) gameState.astronaut.position.y = MAP_HEIGHT;
 
     // --- Render astronaut at center of screen with correct animation ---
     if (spriteSheet && spriteSheet.complete) {
