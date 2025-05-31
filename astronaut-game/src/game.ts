@@ -466,14 +466,15 @@ async function gameLoop() {
         flySwitchTimer = 0;
         lastFlySpriteCol = spriteCol;
     }
-    // --- Fly down with no left/right: show stand sprite vertically flipped ---
+    // --- Fly down with no left/right: show stand sprite vertically and horizontally flipped ---
     else if (
         !gameState.astronaut.isLanded &&
         downPressed &&
         !keys['q'] && !keys['w']
     ) {
         spriteCol = SPRITE_COL_STAND;
-        flipSprite = facingLeft;
+        // Always flip horizontally when flying down (so astronaut faces "down")
+        flipSprite = true;
         flipVertical = true; // flip vertically for "down"
         // Reset all other flying animation state
         walkAnimFrame = SPRITE_COL_WALK_START;
