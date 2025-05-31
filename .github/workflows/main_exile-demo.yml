@@ -74,4 +74,4 @@ jobs:
         with:
           app-name: 'exile-demo'
           slot-name: 'Production'
-          package: ./astronaut-game
+          package: release.zip
