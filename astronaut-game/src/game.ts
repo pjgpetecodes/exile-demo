@@ -99,6 +99,12 @@ let flySwitching = false;
 let flySwitchStep = 0;
 let flySwitchTimer = 0;
 
+// Add fly down transition state variables
+let flyDownTransitioning = false;
+let flyDownTransitionStep = 0;
+let flyDownTransitionTimer = 0;
+let lastFlySpriteCol = SPRITE_COL_FLY_RIGHT; // Track last flying sprite col
+
 // Move all control and movement state variables back above gameLoop so they are in scope
 let upPressed = false;
 let downPressed = false;
@@ -176,7 +182,7 @@ function getSpriteRectFromMap(row: number, col: number) {
 }
 
 // When drawing the sprite, ensure the canvas is cleared with a transparent background
-function gameLoop() {
+async function gameLoop() {
     if (!gameState.isRunning || !mapLoaded) return;
 
     ctx!.imageSmoothingEnabled = false;
@@ -377,41 +383,62 @@ function gameLoop() {
     let spriteCol = SPRITE_COL_STAND;
     let flipSprite = facingLeft;
 
-    // Debug: Log key and state info for animation selection
-    if (gameState.debugMode) {
-        ctx!.save();
-        ctx!.font = '12px monospace';
-        ctx!.fillStyle = '#ff0';
-        let debugY = 16;
-        ctx!.fillText(
-            `Astronaut position: (${gameState.astronaut.position.x.toFixed(2)}, ${gameState.astronaut.position.y.toFixed(2)})`,
-            10, debugY
-        )
-        debugY += 16;
-        ctx!.fillText(
-            `isLanded: ${gameState.astronaut.isLanded} | leftPressed: ${leftPressed} | rightPressed: ${rightPressed} | walkSpeed: ${walkSpeed.toFixed(2)}`,
-            10, debugY
-        );
-        debugY += 16;
-        ctx!.fillText(
-            `upPressed: ${upPressed} | keys[q]: ${!!keys['q']} | keys[w]: ${!!keys['w']} | spriteCol: ${spriteCol}`,
-            10, debugY
-        );
-        debugY += 16;
-        ctx!.fillText(
-            `walkAnimFrame: ${walkAnimFrame} | walkAnimTimer: ${walkAnimTimer.toFixed(2)} | flyHoldTimer: ${flyHoldTimer.toFixed(2)}`,
-            10, debugY
-        );
-        debugY += 16;
-        ctx!.fillText(
-            `flyDir: ${flyDir} | flySwitching: ${flySwitching} | flySwitchStep: ${flySwitchStep}`,
-            10, debugY
-        );
-        ctx!.restore();
-    }
-
-    // Walking animation (cycle walk_right1, walk_right2, walk_right3 when walking left/right on ground)
+    // --- Animate transition to fly_down if flying and down + (q or w) pressed ---
     if (
+        !gameState.astronaut.isLanded &&
+        downPressed &&
+        (keys['q'] || keys['w'])
+    ) {
+        // Determine direction
+        const goingLeft = !!keys['q'];
+        // If not already transitioning, start from current flying sprite
+        if (!flyDownTransitioning) {
+            // Determine which flying sprite we're currently on
+            if (lastFlySpriteCol === SPRITE_COL_FLY_DIAGONAL) {
+                flyDownTransitionStep = 0;
+            } else if (lastFlySpriteCol === SPRITE_COL_FLY_RIGHT) {
+                flyDownTransitionStep = 1;
+            } else {
+                // Default: start from fly_diagonal
+                flyDownTransitionStep = 0;
+            }
+            flyDownTransitioning = true;
+            flyDownTransitionTimer = 0;
+        }
+
+        // Animation sequence: fly_diagonal -> fly_right -> fly_down
+        const flyDownSeq = [
+            { col: SPRITE_COL_FLY_DIAGONAL, flip: goingLeft },
+            { col: SPRITE_COL_FLY_RIGHT,    flip: goingLeft },
+            { col: SPRITE_COL_FLY_DOWN,     flip: !goingLeft }
+        ];
+
+        spriteCol = flyDownSeq[flyDownTransitionStep].col;
+        flipSprite = flyDownSeq[flyDownTransitionStep].flip;
+
+        flyDownTransitionTimer += 1 / 60;
+        if (flyDownTransitionStep < flyDownSeq.length - 1 && flyDownTransitionTimer > 0.08) {
+            flyDownTransitionStep++;
+            flyDownTransitionTimer = 0;
+        }
+
+        // When finished, stay on fly_down
+        if (flyDownTransitionStep === flyDownSeq.length - 1) {
+            flyDownTransitioning = true;
+        }
+
+        // Reset all other flying animation state
+        walkAnimFrame = SPRITE_COL_WALK_START;
+        walkAnimTimer = 0;
+        flyHoldTimer = 0;
+        flyDir = null;
+        flySwitching = false;
+        flySwitchStep = 0;
+        flySwitchTimer = 0;
+        lastFlySpriteCol = spriteCol;
+    }
+    // --- Walking animation ---
+    else if (
         gameState.astronaut.isLanded &&
         (leftPressed || rightPressed) &&
         walkSpeed > 0
@@ -442,6 +469,13 @@ function gameLoop() {
         flySwitchStep = 0;
         flySwitchTimer = 0;
     } else if (!gameState.astronaut.isLanded && (keys['q'] || keys['w'])) {
+        // --- Regular flying logic ---
+        // Only reset flyDownTransition if not holding down
+        if (!downPressed) {
+            flyDownTransitioning = false;
+            flyDownTransitionStep = 0;
+            flyDownTransitionTimer = 0;
+        }
         // Debug: Show flying branch taken
         if (gameState.debugMode) {
             console.log('FLYING: !gameState.astronaut.isLanded && (keys[q] || keys[w])');
@@ -458,6 +492,7 @@ function gameLoop() {
             flySwitchTimer = 0;
             walkAnimFrame = SPRITE_COL_WALK_START;
             walkAnimTimer = 0;
+            lastFlySpriteCol = SPRITE_COL_FLY_DIAGONAL;
         } else {
             // Direction change animation (when not holding up)
             if (flyDir && flyDir !== currentDir) {
@@ -496,9 +531,11 @@ function gameLoop() {
                 if (flyHoldTimer <= 0.25) {
                     spriteCol = SPRITE_COL_FLY_DIAGONAL;
                     flipSprite = flyDir === 'left';
+                    lastFlySpriteCol = SPRITE_COL_FLY_DIAGONAL;
                 } else {
                     spriteCol = SPRITE_COL_FLY_RIGHT;
                     flipSprite = flyDir === 'left';
+                    lastFlySpriteCol = SPRITE_COL_FLY_RIGHT;
                 }
                 walkAnimFrame = SPRITE_COL_WALK_START;
                 walkAnimTimer = 0;
@@ -519,6 +556,7 @@ function gameLoop() {
         flySwitching = false;
         flySwitchStep = 0;
         flySwitchTimer = 0;
+        lastFlySpriteCol = SPRITE_COL_FLY_FLOAT;
     } else {
         // Debug: Show fallback branch taken
         if (gameState.debugMode) {
@@ -626,6 +664,58 @@ function makeBlackTransparent(img: HTMLImageElement, callback: (result: HTMLCanv
     }
     tempCtx.putImageData(imageData, 0, 0);
     callback(tempCanvas);
+}
+
+// Utility: Check if a pixel in the sprite sheet is transparent
+function isSpritePixelTransparent(
+    img: HTMLImageElement,
+    spriteRect: { x: number, y: number, w: number, h: number },
+    px: number,
+    py: number
+): Promise<boolean> {
+    return new Promise((resolve) => {
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = img.width;
+        tempCanvas.height = img.height;
+        const tempCtx = tempCanvas.getContext('2d')!;
+        tempCtx.drawImage(img, 0, 0);
+        const sx = Math.floor(px - spriteRect.x);
+        const sy = Math.floor(py - spriteRect.y);
+        if (
+            sx < 0 || sy < 0 ||
+            sx >= spriteRect.w || sy >= spriteRect.h
+        ) {
+            resolve(true);
+            return;
+        }
+        const imageData = tempCtx.getImageData(spriteRect.x + sx, spriteRect.y + sy, 1, 1).data;
+        resolve(imageData[3] === 0);
+    });
+}
+
+// Enhanced collision: Only collide with non-transparent pixels
+async function isSolidAtWorld(
+    worldX: number,
+    worldY: number,
+    spriteSheet: HTMLImageElement,
+    spriteMap: any,
+    floorRect: { x: number, y: number, w: number, h: number } | null,
+    scale: number
+): Promise<boolean> {
+    // Find which block (if any) is at this world position
+    const block = getBlockAtWorld(worldX, worldY, floorRect, scale);
+    if (!block || !floorRect) return false;
+
+    // Calculate pixel in the sprite sheet for this block
+    const localX = Math.floor((worldX - block.x) / scale);
+    const localY = Math.floor((worldY - block.y) / scale);
+
+    // Use the correct sprite for this block type
+    let spriteRect = floorRect;
+    // If you have multiple block types, select the correct rect here
+
+    // Check if the pixel is transparent
+    return !(await isSpritePixelTransparent(spriteSheet, spriteRect, spriteRect.x + localX, spriteRect.y + localY));
 }
 
 window.addEventListener('keydown', (event) => {
