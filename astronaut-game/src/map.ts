@@ -40,8 +40,11 @@ export function getBlockAtWorld(
         }
         if (!rect) continue;
 
-        const tileW = rect.w * SPRITE_SCALE * (4 / 3) * 3;
-        const tileH = rect.h * SPRITE_SCALE * (2 / 3) * 3;
+        // Pad to 16x32 before scaling
+        const paddedW = Math.max(rect.w, 16);
+        const paddedH = Math.max(rect.h, 32);
+        const tileW = paddedW * SPRITE_SCALE * (4 / 3) * 3;
+        const tileH = paddedH * SPRITE_SCALE * (2 / 3) * 3;
         if (
             x >= b.x && x < b.x + tileW &&
             y >= b.y && y < b.y + tileH &&
@@ -80,9 +83,19 @@ export function drawMap(
         }
         if (!rect) continue;
 
-        // Restore the original scaling logic for block drawing
-        const tileW = rect.w * SPRITE_SCALE * (4 / 3) * 3;
-        const tileH = rect.h * SPRITE_SCALE * (2 / 3) * 3;
+        // Determine rotated width/height
+        let rotatedW = rect.w;
+        let rotatedH = rect.h;
+        if (block.rotation && (block.rotation % 2 === 0)) {
+            rotatedW = rect.h;
+            rotatedH = rect.w;
+        }
+
+        // Pad to 16x32 after rotation
+        const paddedW = Math.max(rotatedW, 16);
+        const paddedH = Math.max(rotatedH, 32);
+        const tileW = paddedW * SPRITE_SCALE * (4 / 3) * 3;
+        const tileH = paddedH * SPRITE_SCALE * (2 / 3) * 3;
 
         const drawX = block.x - camera.x;
         const drawY = block.y - camera.y;
@@ -101,10 +114,18 @@ export function drawMap(
         ctx.translate(drawX + tileW / 2, drawY + tileH / 2);
         if (block.rotation) ctx.rotate(((block.rotation - 1) * Math.PI) / 2);
         ctx.scale(1, -1);
+
+        // Draw the sprite at the top-left, pad right/bottom with transparent pixels if needed
+        // Center the sprite in the padded area
+        const drawW = rect.w * SPRITE_SCALE * (4 / 3) * 3;
+        const drawH = rect.h * SPRITE_SCALE * (2 / 3) * 3;
+        const offsetX = -tileW / 2 + (paddedW - rotatedW) * SPRITE_SCALE * (4 / 3) * 3 / 2;
+        const offsetY = -tileH / 2 + (paddedH - rotatedH) * SPRITE_SCALE * (2 / 3) * 3 / 2;
+
         ctx.drawImage(
             sheet,
             rect.x, rect.y, rect.w, rect.h,
-            -tileW / 2, -tileH / 2, tileW, tileH
+            offsetX, offsetY, drawW, drawH
         );
         ctx.restore();
     }

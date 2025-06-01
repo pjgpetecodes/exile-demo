@@ -59,11 +59,11 @@
     { "name": "", "x": 0,  "y": 5, "w": 12, "h": 22, "rotation": 0, "palette": 0 },
     { "name": "", "x": 0,  "y": 5, "w": 12, "h": 22, "rotation": 0, "palette": 0 },
     { "name": "", "x": 0,  "y": 5, "w": 12, "h": 22, "rotation": 0, "palette": 0 },
-    { "name": "", "x": 0,  "y": 5, "w": 12, "h": 22, "rotation": 0, "palette": 0 },
-    { "name": "", "x": 0,  "y": 5, "w": 12, "h": 22, "rotation": 0, "palette": 0 },
-    { "name": "floor_plain_half", "x": 236,  "y": 80, "w": 16, "h": 18, "rotation": 0, "palette": 0 },
-    { "name": "floor_plain_third", "x": 256,  "y": 80, "w": 16, "h": 18, "rotation": 0, "palette": 0 },
-    { "name": "floor_plain_quarter", "x": 276,  "y": 80, "w": 16, "h": 18, "rotation": 0, "palette": 0 },
-    { "name": "floor_grass", "x": 296,  "y": 80, "w": 16, "h": 18, "rotation": 0, "palette": 0 }
+    { "name": "wall_full", "x": 196,  "y": 5, "w": 12, "h": 22, "rotation": 0, "palette": 0 },
+    { "name": "wall_thirds", "x": 216,  "y": 5, "w": 12, "h": 22, "rotation": 0, "palette": 0 },
+    { "name": "wall_half", "x": 236,  "y": 80, "w": 16, "h": 18, "rotation": 0, "palette": 0 },
+    { "name": "wall_quarter", "x": 256,  "y": 80, "w": 16, "h": 18, "rotation": 0, "palette": 0 },
+    { "name": "floor_full", "x": 276,  "y": 80, "w": 16, "h": 32, "rotation": 0, "palette": 0 },
+    { "name": "floor_grass", "x": 296,  "y": 80, "w": 16, "h": 19, "rotation": 0, "palette": 0 }
   ]
 ]
