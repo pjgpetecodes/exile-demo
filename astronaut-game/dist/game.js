@@ -18,17 +18,6 @@ function loadSpriteMap() {
     return __awaiter(this, void 0, void 0, function* () {
         const res = yield fetch('./src/assets/exile_sprites_map.json');
         spriteMap = yield res.json();
-        // Find the floor_grass and floor_plain_half sprites in the map (by name)
-        for (let row = 0; row < spriteMap.length; row++) {
-            for (let col = 0; col < spriteMap[row].length; col++) {
-                if (spriteMap[row][col].name === 'floor_grass') {
-                    floorGrassRect = spriteMap[row][col];
-                }
-                if (spriteMap[row][col].name === 'floor_plain_half') {
-                    floorPlainHalfRect = spriteMap[row][col];
-                }
-            }
-        }
     });
 }
 let palettes = [];
@@ -42,7 +31,6 @@ function loadPalettes() {
 // --- Map size in pixels (constant) ---
 const MAP_WIDTH = 10000; // pixels
 const MAP_HEIGHT = 10000; // pixels
-let mapTiles = [];
 // --- Camera ---
 function getCameraOffset() {
     // Center astronaut on screen
@@ -65,10 +53,6 @@ let gameState = {
 };
 let spriteSheet;
 let astronautSpriteSource; // Use this for astronaut rendering
-// Store ground tile info after loading sprite map
-let floorGrassRect = null;
-let floorPlainHalfRect = null;
-let groundTiles = [];
 // Sprite scaling factor (adjust as needed)
 const SPRITE_SCALE = 1.2;
 // Sprite columns
@@ -202,11 +186,12 @@ function gameLoop() {
             }
         }
         // --- Draw twinkling stars ---
-        updateAndDrawStars(ctx, camera, () => astronaut.position, canvas, floorGrassRect, SPRITE_SCALE, MAP_HEIGHT);
+        // Use a fixed y cutoff for stars (700px)
+        const tileHeight = 700;
+        updateAndDrawStars(ctx, camera, () => astronaut.position, canvas, tileHeight, MAP_HEIGHT);
         // --- Draw map blocks ---
-        // Replace the drawMap call with a version that uses palette switching
-        if (spriteSheet && spriteSheet.complete && floorGrassRect && floorPlainHalfRect) {
-            drawMap(ctx, camera, floorGrassRect, floorPlainHalfRect, remappedSpriteSheets, SPRITE_SCALE);
+        if (spriteSheet && spriteSheet.complete) {
+            drawMap(ctx, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE);
         }
         // --- Controls: Upward and horizontal movement ---
         handleAstronautMovement(keys);
@@ -239,8 +224,8 @@ function gameLoop() {
             nextY += astronaut.velocity.y;
         }
         // Use unique variable names for collision bounding box
-        const tileWCol = floorGrassRect ? floorGrassRect.w * SPRITE_SCALE * (4 / 3) * 3 : 32;
-        const tileHCol = floorGrassRect ? floorGrassRect.h * SPRITE_SCALE * (2 / 3) * 3 : 32;
+        const tileWCol = 32; // Default/fallback, not used for block lookup anymore
+        const tileHCol = 32;
         const halfW = tileWCol / 2;
         const halfH = tileHCol / 2;
         // Check for collision at next position (feet, head, left, right)
@@ -249,21 +234,50 @@ function gameLoop() {
         // Check vertical movement (feet and head)
         if (astronaut.velocity.y > 0) {
             // Moving down: check feet
-            const blockBelow = getBlockAtWorld(nextX, nextY + halfH, floorGrassRect, SPRITE_SCALE);
+            const blockBelow = getBlockAtWorld(nextX, nextY + halfH, spriteMap, SPRITE_SCALE);
             if (blockBelow) {
+                // Lookup rect for this block type
+                let rect = null;
+                if (spriteMap instanceof Array) {
+                    outer: for (let row = 0; row < spriteMap.length; row++) {
+                        for (let col = 0; col < spriteMap[row].length; col++) {
+                            if (spriteMap[row][col].name === blockBelow.type) {
+                                rect = spriteMap[row][col];
+                                break outer;
+                            }
+                        }
+                    }
+                }
+                else if (spriteMap[blockBelow.type]) {
+                    rect = spriteMap[blockBelow.type];
+                }
+                const tileH = rect ? rect.h * SPRITE_SCALE * (2 / 3) * 3 : 32;
                 nextY = blockBelow.y - halfH;
                 astronaut.velocity.y = 0;
                 gameState.astronaut.isLanded = true;
                 blockedY = true;
-                // Do NOT set hitBlock for feet landing
-                // hitBlock = true;
             }
         }
         else if (astronaut.velocity.y < 0) {
             // Moving up: check head
-            const blockAbove = getBlockAtWorld(nextX, nextY - halfH, floorGrassRect, SPRITE_SCALE);
+            const blockAbove = getBlockAtWorld(nextX, nextY - halfH, spriteMap, SPRITE_SCALE);
             if (blockAbove) {
-                nextY = blockAbove.y + tileHCol + halfH;
+                let rect = null;
+                if (spriteMap instanceof Array) {
+                    outer: for (let row = 0; row < spriteMap.length; row++) {
+                        for (let col = 0; col < spriteMap[row].length; col++) {
+                            if (spriteMap[row][col].name === blockAbove.type) {
+                                rect = spriteMap[row][col];
+                                break outer;
+                            }
+                        }
+                    }
+                }
+                else if (spriteMap[blockAbove.type]) {
+                    rect = spriteMap[blockAbove.type];
+                }
+                const tileH = rect ? rect.h * SPRITE_SCALE * (2 / 3) * 3 : 32;
+                nextY = blockAbove.y + tileH + halfH;
                 astronaut.velocity.y = 0;
                 blockedY = true;
                 hitBlock = true;
@@ -278,9 +292,24 @@ function gameLoop() {
             let blockSide = null;
             if (astronaut.velocity.x > 0) {
                 // Moving right
-                blockSide = getBlockAtWorld(nextX + halfW, sideY1, floorGrassRect, SPRITE_SCALE) ||
-                    getBlockAtWorld(nextX + halfW, sideY2, floorGrassRect, SPRITE_SCALE);
+                blockSide = getBlockAtWorld(nextX + halfW, sideY1, spriteMap, SPRITE_SCALE) ||
+                    getBlockAtWorld(nextX + halfW, sideY2, spriteMap, SPRITE_SCALE);
                 if (blockSide) {
+                    let rect = null;
+                    if (spriteMap instanceof Array) {
+                        outer: for (let row = 0; row < spriteMap.length; row++) {
+                            for (let col = 0; col < spriteMap[row].length; col++) {
+                                if (spriteMap[row][col].name === blockSide.type) {
+                                    rect = spriteMap[row][col];
+                                    break outer;
+                                }
+                            }
+                        }
+                    }
+                    else if (spriteMap[blockSide.type]) {
+                        rect = spriteMap[blockSide.type];
+                    }
+                    const tileW = rect ? rect.w * SPRITE_SCALE * (4 / 3) * 3 : 32;
                     nextX = blockSide.x - halfW;
                     astronaut.velocity.x = 0;
                     blockedX = true;
@@ -290,10 +319,25 @@ function gameLoop() {
             }
             else {
                 // Moving left
-                blockSide = getBlockAtWorld(nextX - halfW, sideY1, floorGrassRect, SPRITE_SCALE) ||
-                    getBlockAtWorld(nextX - halfW, sideY2, floorGrassRect, SPRITE_SCALE);
+                blockSide = getBlockAtWorld(nextX - halfW, sideY1, spriteMap, SPRITE_SCALE) ||
+                    getBlockAtWorld(nextX - halfW, sideY2, spriteMap, SPRITE_SCALE);
                 if (blockSide) {
-                    nextX = blockSide.x + tileWCol + halfW;
+                    let rect = null;
+                    if (spriteMap instanceof Array) {
+                        outer: for (let row = 0; row < spriteMap.length; row++) {
+                            for (let col = 0; col < spriteMap[row].length; col++) {
+                                if (spriteMap[row][col].name === blockSide.type) {
+                                    rect = spriteMap[row][col];
+                                    break outer;
+                                }
+                            }
+                        }
+                    }
+                    else if (spriteMap[blockSide.type]) {
+                        rect = spriteMap[blockSide.type];
+                    }
+                    const tileW = rect ? rect.w * SPRITE_SCALE * (4 / 3) * 3 : 32;
+                    nextX = blockSide.x + tileW + halfW;
                     astronaut.velocity.x = 0;
                     blockedX = true;
                     hitBlock = true;
@@ -330,8 +374,6 @@ function gameLoop() {
             SPRITE_ROW,
             SPRITE_COL_STAND,
             SPRITE_SCALE,
-            floorGrassRect,
-            floorPlainHalfRect,
             walkAnimFrame,
             walkAnimTimer,
             canvas
@@ -432,9 +474,9 @@ function gameLoop() {
         else if (gameState.astronaut.isLanded &&
             walkSpeed > 0) {
             // Check if there is a block below the astronaut's feet
-            const tileHDraw = floorGrassRect ? floorGrassRect.h * SPRITE_SCALE * (2 / 3) * 3 : 32;
+            const tileHDraw = 32; // Not used for block lookup
             const feetY = gameState.astronaut.position.y + tileHDraw / 2;
-            const blockBelow = getBlockAtWorld(gameState.astronaut.position.x, feetY + 1, floorGrassRect, SPRITE_SCALE);
+            const blockBelow = getBlockAtWorld(gameState.astronaut.position.x, feetY + 1, spriteMap, SPRITE_SCALE);
             if (!blockBelow) {
                 // No block below: set to flying
                 gameState.astronaut.isLanded = false;
@@ -615,9 +657,9 @@ function gameLoop() {
                     astronaut.velocity.y = 0; // Clear velocity on teleport
                     // If teleporting into the air (not on ground), set isFlying so gravity applies
                     // We'll check for ground below the feet
-                    const tileHDraw = floorGrassRect ? floorGrassRect.h * SPRITE_SCALE * (2 / 3) * 3 : 32;
+                    const tileHDraw = 32;
                     const feetY = teleportTarget.y + tileHDraw / 2;
-                    const blockBelow = getBlockAtWorld(teleportTarget.x, feetY + 1, floorGrassRect, SPRITE_SCALE);
+                    const blockBelow = getBlockAtWorld(teleportTarget.x, feetY + 1, spriteMap, SPRITE_SCALE);
                     if (!blockBelow) {
                         astronaut.isLanded = false;
                         astronaut.isFlying = true;
@@ -695,23 +737,6 @@ function isSpritePixelTransparent(img, spriteRect, px, py) {
         }
         const imageData = tempCtx.getImageData(spriteRect.x + sx, spriteRect.y + sy, 1, 1).data;
         resolve(imageData[3] === 0);
-    });
-}
-// Enhanced collision: Only collide with non-transparent pixels
-function isSolidAtWorld(worldX, worldY, spriteSheet, spriteMap, floorRect, scale) {
-    return __awaiter(this, void 0, void 0, function* () {
-        // Find which block (if any) is at this world position
-        const block = getBlockAtWorld(worldX, worldY, floorRect, scale);
-        if (!block || !floorRect)
-            return false;
-        // Calculate pixel in the sprite sheet for this block
-        const localX = Math.floor((worldX - block.x) / scale);
-        const localY = Math.floor((worldY - block.y) / scale);
-        // Use the correct sprite for this block type
-        let spriteRect = floorRect;
-        // If you have multiple block types, select the correct rect here
-        // Check if the pixel is transparent
-        return !(yield isSpritePixelTransparent(spriteSheet, spriteRect, spriteRect.x + localX, spriteRect.y + localY));
     });
 }
 /**

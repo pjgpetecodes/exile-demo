@@ -61,13 +61,11 @@ export function updateAndDrawStars(
     camera: { x: number, y: number },
     getAstronautPosition: () => { x: number, y: number },
     canvas: HTMLCanvasElement,
-    floorGrassRect: { h: number } | null,
-    SPRITE_SCALE: number,
+    tileHeight: number,
     MAP_HEIGHT: number
 ) {
     maybeMoveStarsToNewLocations(getAstronautPosition, canvas);
-    const tileH = floorGrassRect ? floorGrassRect.h * SPRITE_SCALE * (2 / 3) * 3 : 32;
-    const groundYWorld = (MAP_HEIGHT - 1) * tileH;
+    const groundYWorld = (MAP_HEIGHT - 1) * tileHeight;
 
     for (let star of stars) {
         star.x = star.worldX - camera.x * 0.7;

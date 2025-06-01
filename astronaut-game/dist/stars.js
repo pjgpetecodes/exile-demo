@@ -39,10 +39,9 @@ function maybeMoveStarsToNewLocations(getAstronautPosition, canvas) {
         }
     }
 }
-export function updateAndDrawStars(ctx, camera, getAstronautPosition, canvas, floorGrassRect, SPRITE_SCALE, MAP_HEIGHT) {
+export function updateAndDrawStars(ctx, camera, getAstronautPosition, canvas, tileHeight, MAP_HEIGHT) {
     maybeMoveStarsToNewLocations(getAstronautPosition, canvas);
-    const tileH = floorGrassRect ? floorGrassRect.h * SPRITE_SCALE * (2 / 3) * 3 : 32;
-    const groundYWorld = (MAP_HEIGHT - 1) * tileH;
+    const groundYWorld = (MAP_HEIGHT - 1) * tileHeight;
     for (let star of stars) {
         star.x = star.worldX - camera.x * 0.7;
         star.y = star.worldY - camera.y * 0.7;

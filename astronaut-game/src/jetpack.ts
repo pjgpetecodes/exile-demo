@@ -16,8 +16,6 @@ export function emitJetpackDots(params: {
     SPRITE_ROW: number;
     SPRITE_COL_STAND: number;
     SPRITE_SCALE: number;
-    floorGrassRect: any;
-    floorPlainHalfRect: any;
     walkAnimFrame: number;
     walkAnimTimer: number;
     canvas: HTMLCanvasElement;

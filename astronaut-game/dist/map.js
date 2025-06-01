@@ -17,30 +17,65 @@ export function loadMapBlocks() {
     });
 }
 // Collision detection with blocks
-export function getBlockAtWorld(x, y, floorGrassRect, SPRITE_SCALE) {
-    if (!floorGrassRect)
-        return undefined;
-    const tileW = floorGrassRect.w * SPRITE_SCALE * (4 / 3) * 3;
-    const tileH = floorGrassRect.h * SPRITE_SCALE * (2 / 3) * 3;
-    return mapBlocks.find(b => x >= b.x && x < b.x + tileW &&
-        y >= b.y && y < b.y + tileH &&
-        b.collision);
+export function getBlockAtWorld(x, y, spriteMap, SPRITE_SCALE) {
+    for (const b of mapBlocks) {
+        // Lookup the sprite rect for this block type
+        let rect = null;
+        if (spriteMap instanceof Array) {
+            outer: for (let row = 0; row < spriteMap.length; row++) {
+                for (let col = 0; col < spriteMap[row].length; col++) {
+                    if (spriteMap[row][col].name === b.type) {
+                        rect = spriteMap[row][col];
+                        break outer;
+                    }
+                }
+            }
+        }
+        else if (spriteMap[b.type]) {
+            rect = spriteMap[b.type];
+        }
+        if (!rect)
+            continue;
+        const tileW = rect.w * SPRITE_SCALE * (4 / 3) * 3;
+        const tileH = rect.h * SPRITE_SCALE * (2 / 3) * 3;
+        if (x >= b.x && x < b.x + tileW &&
+            y >= b.y && y < b.y + tileH &&
+            b.collision) {
+            return b;
+        }
+    }
+    return undefined;
 }
 // Draw map blocks
-export function drawMap(ctx, camera, floorGrassRect, floorPlainHalfRect, spriteSheets, // <-- now expects array of remapped sheets
-SPRITE_SCALE) {
-    if (!floorGrassRect || !floorPlainHalfRect || !mapLoaded)
+export function drawMap(ctx, camera, spriteMap, spriteSheets, SPRITE_SCALE) {
+    if (!spriteMap || !mapLoaded)
         return;
-    const tileW = floorGrassRect.w * SPRITE_SCALE * (4 / 3) * 3;
-    const tileH = floorGrassRect.h * SPRITE_SCALE * (2 / 3) * 3;
     for (const block of mapBlocks) {
+        // Lookup the sprite rect for this block type
+        let rect = null;
+        if (spriteMap instanceof Array) {
+            outer: for (let row = 0; row < spriteMap.length; row++) {
+                for (let col = 0; col < spriteMap[row].length; col++) {
+                    if (spriteMap[row][col].name === block.type) {
+                        rect = spriteMap[row][col];
+                        break outer;
+                    }
+                }
+            }
+        }
+        else if (spriteMap[block.type]) {
+            rect = spriteMap[block.type];
+        }
+        if (!rect)
+            continue;
+        // Restore the original scaling logic for block drawing
+        const tileW = rect.w * SPRITE_SCALE * (4 / 3) * 3;
+        const tileH = rect.h * SPRITE_SCALE * (2 / 3) * 3;
         const drawX = block.x - camera.x;
         const drawY = block.y - camera.y;
         if (drawX + tileW < 0 || drawX > ctx.canvas.width ||
             drawY + tileH < 0 || drawY > ctx.canvas.height)
             continue;
-        let rect = block.type === 'floor_grass' ? floorGrassRect : floorPlainHalfRect;
-        // Use block.palette (number) if present, else 0
         let paletteIdx = 0;
         if (typeof block.palette === "number" && block.palette >= 0 && block.palette < spriteSheets.length) {
             paletteIdx = block.palette;
