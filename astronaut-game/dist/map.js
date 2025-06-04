@@ -88,7 +88,16 @@ export function drawMap(ctx, camera, spriteMap, spriteSheets, SPRITE_SCALE) {
         ctx.translate(drawX + tileW / 2, drawY + tileH / 2);
         if (block.rotation) {
             // 1 = 0°, 2 = 90°, 3 = 180°, 4 = 270° clockwise
-            ctx.rotate(((block.rotation - 1) * Math.PI) / 2);
+            // 5 = flip horizontal, 6 = flip vertical
+            if (block.rotation >= 1 && block.rotation <= 4) {
+                ctx.rotate(((block.rotation - 1) * Math.PI) / 2);
+            }
+            else if (block.rotation === 5) {
+                ctx.scale(-1, 1); // flip horizontally
+            }
+            else if (block.rotation === 6) {
+                ctx.scale(1, -1); // flip vertically
+            }
         }
         // Draw the sprite centered, scaled, with black treated as transparent
         // Create an offscreen canvas to filter black to transparent
