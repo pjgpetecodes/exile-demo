@@ -100,8 +100,11 @@ export function drawMap(
 
         ctx.save();
         ctx.translate(drawX + tileW / 2, drawY + tileH / 2);
-        if (block.rotation) ctx.rotate(((block.rotation - 1) * Math.PI) / 2);
-        ctx.scale(1, -1);
+        if (block.rotation) {
+            // 1 = 0°, 2 = 90°, 3 = 180°, 4 = 270° clockwise
+            ctx.rotate(((block.rotation - 1) * Math.PI) / 2);
+        }
+        // ctx.scale(1, -1); // <-- Remove or comment out this line to avoid vertical flip
 
         // Draw the sprite centered, scaled, with black treated as transparent
         // Create an offscreen canvas to filter black to transparent
