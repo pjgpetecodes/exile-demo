@@ -34,8 +34,8 @@ export function emitJetpackDots(params: {
         const spriteRect = spriteMap[SPRITE_ROW][SPRITE_COL_STAND];
         const SPRITE_W = spriteRect.w;
         const SPRITE_H = spriteRect.h;
-        const drawW = SPRITE_W * SPRITE_SCALE * (4 / 3) * 3;
-        const drawH = SPRITE_H * SPRITE_SCALE * (2 / 3) * 3;
+        const drawW = SPRITE_W * SPRITE_SCALE;
+        const drawH = SPRITE_H * SPRITE_SCALE;
         const offset = 10;
         let jetpackX = facingLeft
             ? astronaut.position.x + drawW / 2 - offset
