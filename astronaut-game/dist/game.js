@@ -54,7 +54,7 @@ let gameState = {
 let spriteSheet;
 let astronautSpriteSource; // Use this for astronaut rendering
 // Sprite scaling factor (adjust as needed)
-const SPRITE_SCALE = 1.2;
+const SPRITE_SCALE = 2.2;
 // Sprite columns
 const SPRITE_ROW = 0; // top row
 const SPRITE_COL_STAND = 4;
@@ -105,7 +105,7 @@ function init() {
         yield loadMapBlocks();
         initStars(() => astronaut.position, canvas);
         const img = new Image();
-        img.src = './src/assets/exile_sprites.png';
+        img.src = './src/assets/sprite_sheet.png';
         img.onload = () => {
             makeBlackTransparent(img, (canvasWithTransparency) => {
                 spriteSheet = new Image();
@@ -251,7 +251,8 @@ function gameLoop() {
                 else if (spriteMap[blockBelow.type]) {
                     rect = spriteMap[blockBelow.type];
                 }
-                const tileH = rect ? rect.h * SPRITE_SCALE * (2 / 3) * 3 : 32;
+                // Use 32 * SPRITE_SCALE for tile height
+                const tileH = 32 * SPRITE_SCALE;
                 nextY = blockBelow.y - halfH;
                 astronaut.velocity.y = 0;
                 gameState.astronaut.isLanded = true;
@@ -276,7 +277,8 @@ function gameLoop() {
                 else if (spriteMap[blockAbove.type]) {
                     rect = spriteMap[blockAbove.type];
                 }
-                const tileH = rect ? rect.h * SPRITE_SCALE * (2 / 3) * 3 : 32;
+                // Use 32 * SPRITE_SCALE for tile height
+                const tileH = 32 * SPRITE_SCALE;
                 nextY = blockAbove.y + tileH + halfH;
                 astronaut.velocity.y = 0;
                 blockedY = true;
@@ -309,7 +311,8 @@ function gameLoop() {
                     else if (spriteMap[blockSide.type]) {
                         rect = spriteMap[blockSide.type];
                     }
-                    const tileW = rect ? rect.w * SPRITE_SCALE * (4 / 3) * 3 : 32;
+                    // Use 32 * SPRITE_SCALE for tile width
+                    const tileW = 32 * SPRITE_SCALE;
                     nextX = blockSide.x - halfW;
                     astronaut.velocity.x = 0;
                     blockedX = true;
@@ -336,7 +339,8 @@ function gameLoop() {
                     else if (spriteMap[blockSide.type]) {
                         rect = spriteMap[blockSide.type];
                     }
-                    const tileW = rect ? rect.w * SPRITE_SCALE * (4 / 3) * 3 : 32;
+                    // Use 32 * SPRITE_SCALE for tile width
+                    const tileW = 32 * SPRITE_SCALE;
                     nextX = blockSide.x + tileW + halfW;
                     astronaut.velocity.x = 0;
                     blockedX = true;
@@ -619,8 +623,8 @@ function gameLoop() {
             const spriteRect = getSpriteRectFromMap(SPRITE_ROW, teleportSpriteCol);
             const SPRITE_W = spriteRect.w;
             const SPRITE_H = spriteRect.h;
-            const drawW = SPRITE_W * SPRITE_SCALE * (4 / 3) * 3;
-            const drawH = SPRITE_H * SPRITE_SCALE * (2 / 3) * 3;
+            const drawW = 32 * SPRITE_SCALE;
+            const drawH = 32 * SPRITE_SCALE;
             ctx.save();
             ctx.translate(canvas.width / 2, canvas.height / 2);
             if (teleportFlipSprite)
@@ -644,7 +648,7 @@ function gameLoop() {
                 const sy = spriteRect.y + Math.floor(Math.random() * (SPRITE_H - bitH));
                 const dx = -drawW / 2 + ((sx - spriteRect.x) / SPRITE_W) * drawW;
                 const dy = -drawH / 2 + ((sy - spriteRect.y) / SPRITE_H) * drawH;
-                ctx.drawImage(spriteSheet, sx, sy, bitW, bitH, dx, dy, bitW * SPRITE_SCALE * (4 / 3) * 3, bitH * SPRITE_SCALE * (2 / 3) * 3);
+                ctx.drawImage(spriteSheet, sx, sy, bitW, bitH, dx, dy, bitW * SPRITE_SCALE, bitH * SPRITE_SCALE);
             }
             ctx.restore();
             teleportAnimFrame++;
@@ -682,15 +686,15 @@ function gameLoop() {
             const spriteRect = getSpriteRectFromMap(SPRITE_ROW, spriteCol);
             const SPRITE_W = spriteRect.w;
             const SPRITE_H = spriteRect.h;
-            const drawW = SPRITE_W * SPRITE_SCALE * (4 / 3) * 3;
-            const drawH = SPRITE_H * SPRITE_SCALE * (2 / 3) * 3;
+            const drawW = 32 * SPRITE_SCALE;
+            const drawH = 32 * SPRITE_SCALE;
             ctx.save();
             ctx.translate(canvas.width / 2, canvas.height / 2);
             if (flipSprite)
                 ctx.scale(-1, 1);
             if (flipVertical)
                 ctx.scale(1, -1);
-            ctx.drawImage(astronautSpriteSource || spriteSheet, spriteRect.x, spriteRect.y, SPRITE_W, SPRITE_H, (flipSprite ? -drawW / 2 : -drawW / 2), (flipVertical ? -drawH / 2 : -drawH / 2), drawW, drawH);
+            ctx.drawImage(astronautSpriteSource || spriteSheet, spriteRect.x, spriteRect.y, SPRITE_W, SPRITE_H, -drawW / 2, -drawH / 2, drawW, drawH);
             ctx.restore();
         }
         // --- Render trail (draw relative to camera) ---

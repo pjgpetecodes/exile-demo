@@ -40,11 +40,9 @@ export function getBlockAtWorld(
         }
         if (!rect) continue;
 
-        // Pad to 16x32 before scaling
-        const paddedW = Math.max(rect.w, 16);
-        const paddedH = Math.max(rect.h, 32);
-        const tileW = paddedW * SPRITE_SCALE * (4 / 3) * 3;
-        const tileH = paddedH * SPRITE_SCALE * (2 / 3) * 3;
+        // All sprites are 32x32, scale by SPRITE_SCALE
+        const tileW = 32 * SPRITE_SCALE;
+        const tileH = 32 * SPRITE_SCALE;
         if (
             x >= b.x && x < b.x + tileW &&
             y >= b.y && y < b.y + tileH &&
@@ -83,19 +81,9 @@ export function drawMap(
         }
         if (!rect) continue;
 
-        // Determine rotated width/height
-        let rotatedW = rect.w;
-        let rotatedH = rect.h;
-        if (block.rotation && (block.rotation % 2 === 0)) {
-            rotatedW = rect.h;
-            rotatedH = rect.w;
-        }
-
-        // Pad to 16x32 after rotation
-        const paddedW = Math.max(rotatedW, 16);
-        const paddedH = Math.max(rotatedH, 32);
-        const tileW = paddedW * SPRITE_SCALE * (4 / 3) * 3;
-        const tileH = paddedH * SPRITE_SCALE * (2 / 3) * 3;
+        // All sprites are 32x32, scale by SPRITE_SCALE
+        const tileW = 32 * SPRITE_SCALE;
+        const tileH = 32 * SPRITE_SCALE;
 
         const drawX = block.x - camera.x;
         const drawY = block.y - camera.y;
@@ -115,17 +103,34 @@ export function drawMap(
         if (block.rotation) ctx.rotate(((block.rotation - 1) * Math.PI) / 2);
         ctx.scale(1, -1);
 
-        // Draw the sprite at the top-left, pad right/bottom with transparent pixels if needed
-        // Center the sprite in the padded area
-        const drawW = rect.w * SPRITE_SCALE * (4 / 3) * 3;
-        const drawH = rect.h * SPRITE_SCALE * (2 / 3) * 3;
-        const offsetX = -tileW / 2 + (paddedW - rotatedW) * SPRITE_SCALE * (4 / 3) * 3 / 2;
-        const offsetY = -tileH / 2 + (paddedH - rotatedH) * SPRITE_SCALE * (2 / 3) * 3 / 2;
-
-        ctx.drawImage(
+        // Draw the sprite centered, scaled, with black treated as transparent
+        // Create an offscreen canvas to filter black to transparent
+        const offCanvas = document.createElement('canvas');
+        offCanvas.width = rect.w;
+        offCanvas.height = rect.h;
+        const offCtx = offCanvas.getContext('2d')!;
+        offCtx.drawImage(
             sheet,
             rect.x, rect.y, rect.w, rect.h,
-            offsetX, offsetY, drawW, drawH
+            0, 0, rect.w, rect.h
+        );
+        // Replace black with transparent
+        const imgData = offCtx.getImageData(0, 0, rect.w, rect.h);
+        for (let i = 0; i < imgData.data.length; i += 4) {
+            if (
+                imgData.data[i] === 0 &&
+                imgData.data[i + 1] === 0 &&
+                imgData.data[i + 2] === 0
+            ) {
+                imgData.data[i + 3] = 0;
+            }
+        }
+        offCtx.putImageData(imgData, 0, 0);
+
+        ctx.drawImage(
+            offCanvas,
+            -tileW / 2, -tileH / 2,
+            tileW, tileH
         );
         ctx.restore();
     }
