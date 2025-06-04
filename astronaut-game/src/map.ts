@@ -23,6 +23,9 @@ export function getBlockAtWorld(
     spriteMap: any,
     SPRITE_SCALE: number
 ): MapBlock | undefined {
+    x = Math.round(x);
+    y = Math.round(y);
+
     for (const b of mapBlocks) {
         // Lookup the sprite rect for this block type
         let rect = null;
@@ -104,8 +107,7 @@ export function drawMap(
             // 1 = 0°, 2 = 90°, 3 = 180°, 4 = 270° clockwise
             ctx.rotate(((block.rotation - 1) * Math.PI) / 2);
         }
-        // ctx.scale(1, -1); // <-- Remove or comment out this line to avoid vertical flip
-
+        
         // Draw the sprite centered, scaled, with black treated as transparent
         // Create an offscreen canvas to filter black to transparent
         const offCanvas = document.createElement('canvas');

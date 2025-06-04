@@ -62,7 +62,7 @@ const SPRITE_COL_FLY_RIGHT = 0;
 const SPRITE_COL_FLY_DIAGONAL = 1;
 const SPRITE_COL_FLY_FLOAT = 2;
 const SPRITE_COL_FLY_DOWN = 3;
-const SPRITE_COL_WALK_START = 5;
+const SPRITE_COL_WALK_START = 4;
 const SPRITE_COL_WALK_END = 7;
 let walkAnimFrame = SPRITE_COL_WALK_START;
 let walkAnimTimer = 0;
@@ -365,6 +365,9 @@ function gameLoop() {
         //if (!blockedY) gameState.astronaut.isLanded = false;
         gameState.astronaut.position.x = nextX;
         gameState.astronaut.position.y = nextY;
+        // Ensure astronaut position is always integer pixels
+        gameState.astronaut.position.x = Math.round(gameState.astronaut.position.x);
+        gameState.astronaut.position.y = Math.round(gameState.astronaut.position.y);
         // --- Jetpack dots emission (world coordinates) ---
         emitJetpackDots({
             upPressed,
@@ -492,7 +495,7 @@ function gameLoop() {
                     console.log('WALKING: isLanded && walkSpeed > 0');
                 }
                 walkAnimTimer += 1 / 60;
-                if (walkAnimTimer > 0.16) { // slower frame rate
+                if (walkAnimTimer > 0.05) { // slower frame rate
                     walkAnimFrame++;
                     if (walkAnimFrame > SPRITE_COL_WALK_END)
                         walkAnimFrame = SPRITE_COL_WALK_START;
@@ -608,7 +611,7 @@ function gameLoop() {
         else {
             // Debug: Show fallback branch taken
             if (gameState.debugMode) {
-                console.log('FALLBACK: no animation branch matched');
+                //console.log('FALLBACK: no animation branch matched');
             }
             walkAnimFrame = SPRITE_COL_WALK_START;
             walkAnimTimer = 0;
