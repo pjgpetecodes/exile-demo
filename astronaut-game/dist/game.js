@@ -118,12 +118,82 @@ const ouchSounds = [
 // --- Input state ---
 const keys = {};
 let prevKeys = {};
+// --- Entity arrays ---
+let creatureEntities = [];
+let doorEntities = [];
+let buttonEntities = [];
+// --- Entity loaders ---
+function loadCreatures() {
+    return __awaiter(this, void 0, void 0, function* () {
+        const res = yield fetch('./src/assets/creatures.json');
+        creatureEntities = yield res.json();
+    });
+}
+function loadDoors() {
+    return __awaiter(this, void 0, void 0, function* () {
+        const res = yield fetch('./src/assets/doors.json');
+        doorEntities = yield res.json();
+    });
+}
+function loadButtons() {
+    return __awaiter(this, void 0, void 0, function* () {
+        const res = yield fetch('./src/assets/buttons.json');
+        buttonEntities = yield res.json();
+    });
+}
+// --- Draw generic entity array (same as drawMap but for any array) ---
+function drawEntities(ctx, camera, spriteMap, spriteSheets, SPRITE_SCALE, entities) {
+    // Build rect lookup map once per draw
+    const rectMap = (spriteMap instanceof Array)
+        ? Object.fromEntries(spriteMap.flat().map((r) => [r.name, r]))
+        : spriteMap;
+    const tileW = 32 * SPRITE_SCALE;
+    const tileH = 32 * SPRITE_SCALE;
+    const minX = camera.x - tileW, maxX = camera.x + ctx.canvas.width + tileW;
+    const minY = camera.y - tileH, maxY = camera.y + ctx.canvas.height + tileH;
+    for (const entity of entities) {
+        if (entity.x + tileW < minX || entity.x > maxX ||
+            entity.y + tileH < minY || entity.y > maxY)
+            continue;
+        const rect = rectMap[entity.type];
+        if (!rect)
+            continue;
+        let paletteIdx = 0;
+        if (typeof entity.palette === "number" && entity.palette >= 0 && entity.palette < spriteSheets.length) {
+            paletteIdx = entity.palette;
+        }
+        const sheet = spriteSheets[paletteIdx] || spriteSheets[0];
+        ctx.save();
+        const drawX = entity.x - camera.x;
+        const drawY = entity.y - camera.y;
+        ctx.translate(drawX + tileW / 2, drawY + tileH / 2);
+        if (entity.rotation) {
+            if (entity.rotation >= 1 && entity.rotation <= 4) {
+                ctx.rotate(((entity.rotation - 1) * Math.PI) / 2);
+            }
+            else if (entity.rotation === 5) {
+                ctx.scale(-1, 1);
+            }
+            else if (entity.rotation === 6) {
+                ctx.scale(1, -1);
+            }
+            else if (entity.rotation === 7) {
+                ctx.scale(-1, -1);
+            }
+        }
+        ctx.drawImage(sheet, rect.x, rect.y, rect.w, rect.h, -tileW / 2, -tileH / 2, tileW, tileH);
+        ctx.restore();
+    }
+}
 // --- Map rendering and update logic ---
 function init() {
     return __awaiter(this, void 0, void 0, function* () {
         yield loadSpriteMap();
         yield loadPalettes();
         yield loadMapBlocks();
+        yield loadCreatures();
+        yield loadDoors();
+        yield loadButtons();
         initStars(() => astronaut.position, canvas);
         const img = new Image();
         img.src = './src/assets/sprite_sheet.png';
@@ -219,6 +289,9 @@ function gameLoop() {
         // --- Draw map blocks ---
         if (spriteSheet && spriteSheet.complete) {
             drawMap(ctx, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE);
+            drawEntities(ctx, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, doorEntities);
+            drawEntities(ctx, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, buttonEntities);
+            drawEntities(ctx, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureEntities);
         }
         // --- Controls: Upward and horizontal movement ---
         handleAstronautMovement(keys);

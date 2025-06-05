@@ -133,11 +133,93 @@ const ouchSounds = [
 const keys: Record<string, boolean> = {};
 let prevKeys: Record<string, boolean> = {}
 
+// --- Entity arrays ---
+let creatureEntities: any[] = [];
+let doorEntities: any[] = [];
+let buttonEntities: any[] = [];
+
+// --- Entity loaders ---
+async function loadCreatures() {
+    const res = await fetch('./src/assets/creatures.json');
+    creatureEntities = await res.json();
+}
+async function loadDoors() {
+    const res = await fetch('./src/assets/doors.json');
+    doorEntities = await res.json();
+}
+async function loadButtons() {
+    const res = await fetch('./src/assets/buttons.json');
+    buttonEntities = await res.json();
+}
+
+// --- Draw generic entity array (same as drawMap but for any array) ---
+function drawEntities(
+    ctx: CanvasRenderingContext2D,
+    camera: { x: number, y: number },
+    spriteMap: any,
+    spriteSheets: CanvasImageSource[],
+    SPRITE_SCALE: number,
+    entities: any[]
+) {
+    // Build rect lookup map once per draw
+    const rectMap = (spriteMap instanceof Array)
+        ? Object.fromEntries(spriteMap.flat().map((r: any) => [r.name, r]))
+        : spriteMap;
+
+    const tileW = 32 * SPRITE_SCALE;
+    const tileH = 32 * SPRITE_SCALE;
+    const minX = camera.x - tileW, maxX = camera.x + ctx.canvas.width + tileW;
+    const minY = camera.y - tileH, maxY = camera.y + ctx.canvas.height + tileH;
+
+    for (const entity of entities) {
+        if (
+            entity.x + tileW < minX || entity.x > maxX ||
+            entity.y + tileH < minY || entity.y > maxY
+        ) continue;
+
+        const rect = rectMap[entity.type];
+        if (!rect) continue;
+
+        let paletteIdx = 0;
+        if (typeof entity.palette === "number" && entity.palette >= 0 && entity.palette < spriteSheets.length) {
+            paletteIdx = entity.palette;
+        }
+        const sheet = spriteSheets[paletteIdx] || spriteSheets[0];
+
+        ctx.save();
+        const drawX = entity.x - camera.x;
+        const drawY = entity.y - camera.y;
+        ctx.translate(drawX + tileW / 2, drawY + tileH / 2);
+        if (entity.rotation) {
+            if (entity.rotation >= 1 && entity.rotation <= 4) {
+                ctx.rotate(((entity.rotation - 1) * Math.PI) / 2);
+            } else if (entity.rotation === 5) {
+                ctx.scale(-1, 1);
+            } else if (entity.rotation === 6) {
+                ctx.scale(1, -1);
+            } else if (entity.rotation === 7) {
+                ctx.scale(-1, -1);
+            }
+        }
+
+        ctx.drawImage(
+            sheet,
+            rect.x, rect.y, rect.w, rect.h,
+            -tileW / 2, -tileH / 2,
+            tileW, tileH
+        );
+        ctx.restore();
+    }
+}
+
 // --- Map rendering and update logic ---
 async function init() {
     await loadSpriteMap();
     await loadPalettes();
     await loadMapBlocks();
+    await loadCreatures();
+    await loadDoors();
+    await loadButtons();
     initStars(() => astronaut.position, canvas);
     const img = new Image();
     img.src = './src/assets/sprite_sheet.png';
@@ -237,6 +319,9 @@ async function gameLoop() {
     // --- Draw map blocks ---
     if (spriteSheet && spriteSheet.complete) {
         drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE);
+        drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, doorEntities);
+        drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, buttonEntities);
+        drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureEntities);
     }
 
     // --- Controls: Upward and horizontal movement ---
@@ -938,7 +1023,7 @@ function getAnyBlockAtWorld(
     x: number,
     y: number,
     SPRITE_SCALE: number
-): MapBlock | undefined {
+): any { // Use 'any' to avoid TS error if MapBlock is not imported
     x = Math.round(x);
     y = Math.round(y);
     for (const b of mapBlocks) {

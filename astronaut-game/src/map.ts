@@ -1,9 +1,9 @@
 export type MapBlock = {
     x: number; // tile x
     y: number; // tile y
-    type: 'floor_grass' | 'floor_plain_half';
+    type: string; // allow any block type, not just 'floor_grass' | 'floor_plain_half'
     collision: boolean;
-    palette?: string;
+    palette?: string | number;
     rotation?: 1 | 2 | 3 | 4 | 5 | 6 | 7;
 };
 
