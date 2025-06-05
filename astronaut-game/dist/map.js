@@ -88,7 +88,7 @@ export function drawMap(ctx, camera, spriteMap, spriteSheets, SPRITE_SCALE) {
         ctx.translate(drawX + tileW / 2, drawY + tileH / 2);
         if (block.rotation) {
             // 1 = 0°, 2 = 90°, 3 = 180°, 4 = 270° clockwise
-            // 5 = flip horizontal, 6 = flip vertical
+            // 5 = flip horizontal, 6 = flip vertical, 7 = flip both
             if (block.rotation >= 1 && block.rotation <= 4) {
                 ctx.rotate(((block.rotation - 1) * Math.PI) / 2);
             }
@@ -97,6 +97,9 @@ export function drawMap(ctx, camera, spriteMap, spriteSheets, SPRITE_SCALE) {
             }
             else if (block.rotation === 6) {
                 ctx.scale(1, -1); // flip vertically
+            }
+            else if (block.rotation === 7) {
+                ctx.scale(-1, -1); // flip both horizontally and vertically
             }
         }
         // Draw the sprite centered, scaled, with black treated as transparent

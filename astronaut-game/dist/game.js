@@ -492,7 +492,7 @@ function gameLoop() {
             else {
                 // Debug: Show walking branch taken (momentum or key)
                 if (gameState.debugMode) {
-                    console.log('WALKING: isLanded && walkSpeed > 0');
+                    //console.log('WALKING: isLanded && walkSpeed > 0');
                 }
                 walkAnimTimer += 1 / 60;
                 if (walkAnimTimer > 0.05) { // slower frame rate
@@ -529,7 +529,7 @@ function gameLoop() {
             }
             // Debug: Show flying branch taken
             if (gameState.debugMode) {
-                console.log('FLYING: !gameState.astronaut.isLanded && (keys[q] || keys[w])');
+                //console.log('FLYING: !gameState.astronaut.isLanded && (keys[q] || keys[w])');
             }
             let currentDir = keys['w'] ? 'right' : 'left';
             // If holding up and q/w, always show fly_diagonal (sprite 1), flipped if left

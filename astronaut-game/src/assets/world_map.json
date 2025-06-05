@@ -1,11 +1,32 @@
 [
-  { "x": 330, "y": 650, "type": "ship_5", "collision": true, "palette": 0, "rotation": 1 },
-  { "x": 400, "y": 650, "type": "ship_6", "collision": true, "palette": 0, "rotation": 1 },
+  { "x": 106, "y": 730, "type": "ship_2", "collision": true, "palette": 0, "rotation": 1 },
+  { "x": 106, "y": 800, "type": "ship_2", "collision": true, "palette": 0, "rotation": 6 },
+  { "x": 136, "y": 830, "type": "ship_3", "collision": true, "palette": 0, "rotation": 6 },
+  { "x": 176, "y": 845, "type": "destinator", "collision": true, "palette": 0, "rotation": 1 },
+  
+  
+  { "x": 316, "y": 625, "type": "ship_14", "collision": true, "palette": 0, "rotation": 1 },
+  { "x": 176, "y": 660, "type": "ship_7", "collision": true, "palette": 0, "rotation": 7 },
+  { "x": 176, "y": 710, "type": "ship_7", "collision": true, "palette": 0, "rotation": 1 },
+  { "x": 246, "y": 660, "type": "ship_6", "collision": true, "palette": 0, "rotation": 3 },
+  { "x": 316, "y": 660, "type": "ship_5", "collision": true, "palette": 0, "rotation": 1 },
+  { "x": 376, "y": 660, "type": "ship_6", "collision": true, "palette": 0, "rotation": 1 },
+  { "x": 446, "y": 625, "type": "ship_14", "collision": true, "palette": 0, "rotation": 7 },
+  { "x": 516, "y": 660, "type": "ship_2", "collision": true, "palette": 0, "rotation": 5 },
+  { "x": 516, "y": 730, "type": "ship_2", "collision": true, "palette": 0, "rotation": 7 },
   
   { "x": 240, "y": 800, "type": "ship_1", "collision": true, "palette": 0, "rotation": 1 },
   { "x": 310, "y": 800, "type": "ship_7", "collision": true, "palette": 0, "rotation": 1 },
-  { "x": 240, "y": 870, "type": "ship_1", "collision": true, "palette": 0, "rotation": 6 },
-  { "x": 310, "y": 870, "type": "ship_7", "collision": true, "palette": 0, "rotation": 6 }
+  { "x": 380, "y": 800, "type": "door_horizontal", "collision": true, "palette": 0, "rotation": 1 },
+  { "x": 450, "y": 748, "type": "ship_15", "collision": true, "palette": 0, "rotation": 7 },
+  { "x": 490, "y": 780, "type": "button", "collision": true, "palette": 0, "rotation": 1 },
+  { "x": 500, "y": 780, "type": "button_box", "collision": true, "palette": 0, "rotation": 1 },
   
+  { "x": 240, "y": 870, "type": "ship_1", "collision": true, "palette": 0, "rotation": 6 },
+  { "x": 310, "y": 870, "type": "ship_7", "collision": true, "palette": 0, "rotation": 6 },
+  { "x": 380, "y": 922, "type": "door_horizontal", "collision": true, "palette": 0, "rotation": 1 },
+  { "x": 450, "y": 922, "type": "ship_15", "collision": true, "palette": 0, "rotation": 5 },
+  
+  { "x": 170, "y": 870, "type": "ship_7", "collision": true, "palette": 0, "rotation": 1 }
 
 ]
