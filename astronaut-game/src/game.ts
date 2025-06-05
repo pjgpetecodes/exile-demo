@@ -8,6 +8,7 @@ import { applyGravity } from './gravity.js';
 import { mapBlocks, mapLoaded, loadMapBlocks, drawMap, getBlockAtWorld } from './map.js';
 import { initStars, updateAndDrawStars } from './stars.js';
 import { emitJetpackDots, updateAndDrawJetpackDots, resetJetpackDotEmitTimer } from './jetpack.js';
+import { Button, Door, Creature, Collectable } from './entities.js';
 
 // Instead of dynamic import, fetch the JSON file at runtime for browser compatibility
 let spriteMap: any;
@@ -134,22 +135,31 @@ const keys: Record<string, boolean> = {};
 let prevKeys: Record<string, boolean> = {}
 
 // --- Entity arrays ---
-let creatureEntities: any[] = [];
-let doorEntities: any[] = [];
-let buttonEntities: any[] = [];
+let buttonEntities: Button[] = [];
+let doorEntities: Door[] = [];
+let creatureEntities: Creature[] = [];
+let collectableEntities: Collectable[] = [];
 
 // --- Entity loaders ---
-async function loadCreatures() {
-    const res = await fetch('./src/assets/creatures.json');
-    creatureEntities = await res.json();
+async function loadButtons() {
+    const res = await fetch('./src/assets/buttons.json');
+    const arr = await res.json();
+    buttonEntities = arr.map((data: any) => new Button(data));
 }
 async function loadDoors() {
     const res = await fetch('./src/assets/doors.json');
-    doorEntities = await res.json();
+    const arr = await res.json();
+    doorEntities = arr.map((data: any) => new Door(data));
 }
-async function loadButtons() {
-    const res = await fetch('./src/assets/buttons.json');
-    buttonEntities = await res.json();
+async function loadCreatures() {
+    const res = await fetch('./src/assets/creatures.json');
+    const arr = await res.json();
+    creatureEntities = arr.map((data: any) => new Creature(data));
+}
+async function loadCollectables() {
+    const res = await fetch('./src/assets/collectables.json');
+    const arr = await res.json();
+    collectableEntities = arr.map((data: any) => new Collectable(data));
 }
 
 // --- Draw generic entity array (same as drawMap but for any array) ---
@@ -217,9 +227,10 @@ async function init() {
     await loadSpriteMap();
     await loadPalettes();
     await loadMapBlocks();
-    await loadCreatures();
     await loadDoors();
     await loadButtons();
+    await loadCreatures();
+    await loadCollectables();
     initStars(() => astronaut.position, canvas);
     const img = new Image();
     img.src = './src/assets/sprite_sheet.png';
@@ -322,6 +333,7 @@ async function gameLoop() {
         drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, doorEntities);
         drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, buttonEntities);
         drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureEntities);
+        drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, collectableEntities);
     }
 
     // --- Controls: Upward and horizontal movement ---
@@ -376,7 +388,7 @@ async function gameLoop() {
     // Check vertical movement (feet and head)
     if (astronaut.velocity.y > 0) {
         // Moving down: check feet
-        const blockBelow = getBlockAtWorld(nextX, nextY + halfH, spriteMap, SPRITE_SCALE);
+        const blockBelow = getSolidBlockAtWorld(nextX, nextY + halfH, spriteMap, SPRITE_SCALE);
         if (blockBelow) {
             // Lookup rect for this block type
             let rect = null;
@@ -401,7 +413,7 @@ async function gameLoop() {
         }
     } else if (astronaut.velocity.y < 0) {
         // Moving up: check head
-        const blockAbove = getBlockAtWorld(nextX, nextY - halfH, spriteMap, SPRITE_SCALE);
+        const blockAbove = getSolidBlockAtWorld(nextX, nextY - halfH, spriteMap, SPRITE_SCALE);
         if (blockAbove) {
             let rect = null;
             if (spriteMap instanceof Array) {
@@ -434,8 +446,8 @@ async function gameLoop() {
         let blockSide = null;
         if (astronaut.velocity.x > 0) {
             // Moving right
-            blockSide = getBlockAtWorld(nextX + halfW, sideY1, spriteMap, SPRITE_SCALE) ||
-                        getBlockAtWorld(nextX + halfW, sideY2, spriteMap, SPRITE_SCALE);
+            blockSide = getSolidBlockAtWorld(nextX + halfW, sideY1, spriteMap, SPRITE_SCALE) ||
+                        getSolidBlockAtWorld(nextX + halfW, sideY2, spriteMap, SPRITE_SCALE);
             if (blockSide) {
                 let rect = null;
                 if (spriteMap instanceof Array) {
@@ -460,8 +472,8 @@ async function gameLoop() {
             }
         } else {
             // Moving left
-            blockSide = getBlockAtWorld(nextX - halfW, sideY1, spriteMap, SPRITE_SCALE) ||
-                        getBlockAtWorld(nextX - halfW, sideY2, spriteMap, SPRITE_SCALE);
+            blockSide = getSolidBlockAtWorld(nextX - halfW, sideY1, spriteMap, SPRITE_SCALE) ||
+                        getSolidBlockAtWorld(nextX - halfW, sideY2, spriteMap, SPRITE_SCALE);
             if (blockSide) {
                 let rect = null;
                 if (spriteMap instanceof Array) {
@@ -639,26 +651,6 @@ async function gameLoop() {
         flySwitchTimer = 0;
         lastFlySpriteCol = spriteCol;
     }
-    // --- Fly down with no left/right: show stand sprite vertically and horizontally flipped ---
-    else if (
-        !gameState.astronaut.isLanded &&
-        downPressed &&
-        !keys['q'] && !keys['w']
-    ) {
-        spriteCol = SPRITE_COL_STAND;
-        // Always flip horizontally when flying down (so astronaut faces "down")
-        flipSprite = true;
-        flipVertical = true; // flip vertically for "down"
-        // Reset all other flying animation state
-        walkAnimFrame = SPRITE_COL_WALK_START;
-        walkAnimTimer = 0;
-        flyHoldTimer = 0;
-        flyDir = null;
-        flySwitching = false;
-        flySwitchStep = 0;
-        flySwitchTimer = 0;
-        lastFlySpriteCol = spriteCol;
-    }
     // --- Walking animation ---
     // Show walking animation if landed and walkSpeed > 0 (even if no keys are pressed)
     else if (
@@ -668,7 +660,7 @@ async function gameLoop() {
         // Check if there is a block below the astronaut's feet
         const tileHDraw = 32; // Not used for block lookup
         const feetY = gameState.astronaut.position.y + tileHDraw / 2;
-        const blockBelow = getBlockAtWorld(
+        const blockBelow = getSolidBlockAtWorld(
             gameState.astronaut.position.x,
             feetY + 1,
             spriteMap,
@@ -856,7 +848,7 @@ async function gameLoop() {
                 // We'll check for ground below the feet
                 const tileHDraw = 32;
                 const feetY = teleportTarget.y + tileHDraw / 2;
-                const blockBelow = getBlockAtWorld(
+                const blockBelow = getSolidBlockAtWorld(
                     teleportTarget.x,
                     feetY + 1,
                     spriteMap,
@@ -1037,4 +1029,55 @@ function getAnyBlockAtWorld(
         }
     }
     return undefined;
+}
+
+// Utility: Get any solid block (map, door, button) at world position
+function getSolidBlockAtWorld(
+    x: number,
+    y: number,
+    spriteMap: any,
+    SPRITE_SCALE: number
+): any {
+    x = Math.round(x);
+    y = Math.round(y);
+    // Check map blocks
+    for (const b of mapBlocks) {
+        const tileW = 32 * SPRITE_SCALE;
+        const tileH = 32 * SPRITE_SCALE;
+        if (
+            x >= b.x && x < b.x + tileW &&
+            y >= b.y && y < b.y + tileH
+        ) {
+            return b;
+        }
+    }
+    // Check doors
+    for (const d of doorEntities) {
+        const tileW = 32 * SPRITE_SCALE;
+        const tileH = 32 * SPRITE_SCALE;
+        if (
+            x >= d.x && x < d.x + tileW &&
+            y >= d.y && y < d.y + tileH
+        ) {
+            // Only collide if door is closed (assume open property)
+            if (!d.open) return d;
+        }
+    }
+    // Check buttons (treat as solid)
+    for (const btn of buttonEntities) {
+        const tileW = 32 * SPRITE_SCALE;
+        const tileH = 32 * SPRITE_SCALE;
+        if (
+            x >= btn.x && x < btn.x + tileW &&
+            y >= btn.y && y < btn.y + tileH
+        ) {
+            return btn;
+        }
+    }
+    return undefined;
+}
+
+// Example: when a button is pressed, activate it and unlock linked door
+function onButtonPress(button: Button) {
+    button.activate(doorEntities);
 }
