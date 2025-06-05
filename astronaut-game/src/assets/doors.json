@@ -1,4 +1,4 @@
 [
-  { "x": 380, "y": 800, "type": "door_horizontal", "palette": 0, "rotation": 1 },
-  { "x": 380, "y": 922, "type": "door_horizontal", "palette": 0, "rotation": 1 }
+  { "x": 380, "y": 746, "type": "door_horizontal", "palette": 0, "rotation": 6, "palette_locked": 11, "palette_unlocked": 12, "locked": false },
+  { "x": 380, "y": 870, "type": "door_horizontal", "palette": 0, "rotation": 6, "palette_locked": 11, "palette_unlocked": 12, "locked": true }
 ]

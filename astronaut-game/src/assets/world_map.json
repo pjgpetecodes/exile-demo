@@ -76,6 +76,8 @@
   { "x": 446, "y": 625, "type": "ship_14", "collision": true, "palette": 0, "rotation": 7 },
   { "x": 516, "y": 660, "type": "ship_2", "collision": true, "palette": 7, "rotation": 5 },
   { "x": 516, "y": 730, "type": "ship_2", "collision": true, "palette": 7, "rotation": 7 },
+  { "x": 588, "y": 660, "type": "ship_1", "collision": true, "palette": 10, "rotation": 1 },
+  { "x": 588, "y": 730, "type": "ship_1", "collision": true, "palette": 10, "rotation": 6 },
   
   { "x": 240, "y": 800, "type": "ship_1", "collision": true, "palette": 0, "rotation": 1 },
   { "x": 310, "y": 800, "type": "ship_7", "collision": true, "palette": 6, "rotation": 1 },

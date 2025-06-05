@@ -149,7 +149,9 @@ async function loadButtons() {
 async function loadDoors() {
     const res = await fetch('./src/assets/doors.json');
     const arr = await res.json();
-    doorEntities = arr.map((data: any) => new Door(data));
+    doorEntities = arr.map((data: any) => {
+        return new Door(data);
+    });
 }
 async function loadCreatures() {
     const res = await fetch('./src/assets/creatures.json');
@@ -191,10 +193,45 @@ function drawEntities(
         if (!rect) continue;
 
         let paletteIdx = 0;
-        if (typeof entity.palette === "number" && entity.palette >= 0 && entity.palette < spriteSheets.length) {
+        let paletteDebug = "";
+        // Use instanceof Door to check for Door entities
+        if (entity instanceof Door) {
+            if (entity.locked === true && typeof entity.palette_locked === "number") {
+                paletteIdx = entity.palette_locked;
+                paletteDebug = `DOOR locked: true, using palette_locked (${paletteIdx})`;
+            } else if (entity.locked === false && typeof entity.palette_unlocked === "number") {
+                paletteIdx = entity.palette_unlocked;
+                paletteDebug = `DOOR locked: false, using palette_unlocked (${paletteIdx})`;
+            } else if (typeof entity.palette === "number") {
+                paletteIdx = entity.palette;
+                paletteDebug = `DOOR fallback, using palette (${paletteIdx})`;
+            }
+        } else if (typeof entity.palette === "number" && entity.palette >= 0 && entity.palette < spriteSheets.length) {
             paletteIdx = entity.palette;
         }
         const sheet = spriteSheets[paletteIdx] || spriteSheets[0];
+
+        // --- DEBUG: Draw palette info above door ---
+        if (
+            entity instanceof Door &&
+            ctx && ctx.canvas && (window as any).DEBUG_DOOR_PALETTE
+        ) {
+            ctx.save();
+            ctx.font = "12px monospace";
+            ctx.fillStyle = "#f0f";
+            ctx.fillText(
+                `locked:${entity.locked} paletteIdx:${paletteIdx}`,
+                entity.x - camera.x,
+                entity.y - camera.y - 8
+            );
+            ctx.fillStyle = "#0ff";
+            ctx.fillText(
+                paletteDebug,
+                entity.x - camera.x,
+                entity.y - camera.y - 20
+            );
+            ctx.restore();
+        }
 
         ctx.save();
         const drawX = entity.x - camera.x;
@@ -580,9 +617,18 @@ async function gameLoop() {
         const block = getAnyBlockAtWorld(mouseWorld.x, mouseWorld.y, SPRITE_SCALE);
         if (block) {
             ctx!.fillText(
-                `Block under cursor: ${block.type} (${block.x},${block.y}) palette: ${block.palette ?? 0} rotation: ${block.rotation ?? 0}`,
+                `Block under cursor: ${block.type} (${block.x},${block.y}) palette: ${block.palette ?? 0} rotation: ${block.rotation ?? 0}` +
+                (typeof block.locked !== "undefined" ? ` locked: ${block.locked}` : ""),
                 10, debugY
             );
+            // Extra: If it's a door, show palette_locked/palette_unlocked
+            if (block.type && block.type.startsWith("door")) {
+                ctx!.fillText(
+                    `palette_locked: ${block.palette_locked} palette_unlocked: ${block.palette_unlocked}`,
+                    10, debugY + 16
+                );
+                debugY += 16;
+            }
         } else {
             ctx!.fillText(
                 `Block under cursor: (none)`,
@@ -1015,9 +1061,10 @@ function getAnyBlockAtWorld(
     x: number,
     y: number,
     SPRITE_SCALE: number
-): any { // Use 'any' to avoid TS error if MapBlock is not imported
+): any {
     x = Math.round(x);
     y = Math.round(y);
+    // Check map blocks
     for (const b of mapBlocks) {
         const tileW = 32 * SPRITE_SCALE;
         const tileH = 32 * SPRITE_SCALE;
@@ -1026,6 +1073,39 @@ function getAnyBlockAtWorld(
             y >= b.y && y < b.y + tileH
         ) {
             return b;
+        }
+    }
+    // Check doors
+    for (const d of doorEntities) {
+        const tileW = 32 * SPRITE_SCALE;
+        const tileH = 32 * SPRITE_SCALE;
+        if (
+            x >= d.x && x < d.x + tileW &&
+            y >= d.y && y < d.y + tileH
+        ) {
+            return d;
+        }
+    }
+    // Check buttons
+    for (const btn of buttonEntities) {
+        const tileW = 32 * SPRITE_SCALE;
+        const tileH = 32 * SPRITE_SCALE;
+        if (
+            x >= btn.x && x < btn.x + tileW &&
+            y >= btn.y && y < btn.y + tileH
+        ) {
+            return btn;
+        }
+    }
+    // Check creatures
+    for (const c of creatureEntities) {
+        const tileW = 32 * SPRITE_SCALE;
+        const tileH = 32 * SPRITE_SCALE;
+        if (
+            x >= c.x && x < c.x + tileW &&
+            y >= c.y && y < c.y + tileH
+        ) {
+            return c;
         }
     }
     return undefined;
@@ -1079,5 +1159,7 @@ function getSolidBlockAtWorld(
 
 // Example: when a button is pressed, activate it and unlock linked door
 function onButtonPress(button: Button) {
+    // When unlocking/locking, update both locked and open
     button.activate(doorEntities);
+    // If your Button.activate logic unlocks a door, ensure it sets door.locked = false and door.open = true
 }

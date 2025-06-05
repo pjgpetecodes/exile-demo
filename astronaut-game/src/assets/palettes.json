@@ -36,5 +36,20 @@
   [
     { "from": "Green", "to": "Yellow"},
     { "from": "White", "to": "Red" }
+  ],
+  [
+    { "from": "White", "to": "Blue" },
+    { "from": "Green", "to": "White" },
+    { "from": "Red", "to": "Green" }
+  ],
+  [
+    { "from": "Green", "to": "Yellow" },
+    { "from": "White", "to": "Green" },
+    { "from": "Red", "to": "Cyan" }
+  ],
+  [
+    { "from": "Green", "to": "Yellow" },
+    { "from": "White", "to": "Black" },
+    { "from": "Red", "to": "Cyan" }
   ]
 ]

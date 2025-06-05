@@ -31,6 +31,9 @@ export class Door {
         this.locked = (_d = data.locked) !== null && _d !== void 0 ? _d : false;
         this.open = (_e = data.open) !== null && _e !== void 0 ? _e : false;
         this.animating = false;
+        // Assign palette_locked and palette_unlocked even if they are 0
+        this.palette_locked = data.palette_locked !== undefined ? data.palette_locked : null;
+        this.palette_unlocked = data.palette_unlocked !== undefined ? data.palette_unlocked : null;
     }
     unlock() {
         this.locked = false;
