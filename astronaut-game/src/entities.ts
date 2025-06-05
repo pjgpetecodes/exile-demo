@@ -5,7 +5,7 @@ export class Button {
     palette: number;
     rotation: number;
     active: boolean;
-    linkedDoorName?: string;
+    linkedDoors?: number[]; // Array of doorIDs
 
     constructor(data: any) {
         this.x = data.x;
@@ -14,15 +14,17 @@ export class Button {
         this.palette = data.palette ?? 0;
         this.rotation = data.rotation ?? 1;
         this.active = data.active ?? false;
-        this.linkedDoorName = data.linkedDoorName;
+        this.linkedDoors = data.linkedDoors ?? [];
     }
 
-    // Example: activate the button and unlock linked door
+    // Activate the button and unlock all linked doors by doorID
     activate(doors: Door[]) {
         this.active = true;
-        if (this.linkedDoorName) {
-            const door = doors.find(d => d.name === this.linkedDoorName);
-            if (door) door.unlock();
+        if (this.linkedDoors && Array.isArray(this.linkedDoors)) {
+            for (const doorID of this.linkedDoors) {
+                const door = doors.find(d => d.doorID === doorID);
+                if (door) door.unlock();
+            }
         }
     }
 }
@@ -34,6 +36,7 @@ export class Door {
     palette: number;
     rotation: number;
     name: string;
+    doorID: number;
     locked: boolean;
     open: boolean;
     animating: boolean;
@@ -47,10 +50,10 @@ export class Door {
         this.palette = data.palette ?? 0;
         this.rotation = data.rotation ?? 1;
         this.name = data.name ?? "";
+        this.doorID = data.doorID ?? -1;
         this.locked = data.locked ?? false;
         this.open = data.open ?? false;
         this.animating = false;
-        // Assign palette_locked and palette_unlocked even if they are 0
         this.palette_locked = data.palette_locked !== undefined ? data.palette_locked : null;
         this.palette_unlocked = data.palette_unlocked !== undefined ? data.palette_unlocked : null;
     }

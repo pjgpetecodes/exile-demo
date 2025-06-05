@@ -1,4 +1,26 @@
 [
-  { "x": 380, "y": 746, "type": "door_horizontal", "palette": 0, "rotation": 6, "palette_locked": 11, "palette_unlocked": 12, "locked": false },
-  { "x": 380, "y": 870, "type": "door_horizontal", "palette": 0, "rotation": 6, "palette_locked": 11, "palette_unlocked": 12, "locked": true }
+  {
+    "doorID": 0,
+    "name": "main_door_top",
+    "x": 380,
+    "y": 746,
+    "type": "door_horizontal",
+    "palette": 0,
+    "rotation": 6,
+    "palette_locked": 11,
+    "palette_unlocked": 12,
+    "locked": true
+  },
+  {
+    "doorID": 1,
+    "name": "main_door_bottom",
+    "x": 380,
+    "y": 870,
+    "type": "door_horizontal",
+    "palette": 0,
+    "rotation": 6,
+    "palette_locked": 11,
+    "palette_unlocked": 12,
+    "locked": true
+  }
 ]

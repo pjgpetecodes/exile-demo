@@ -376,6 +376,54 @@ async function gameLoop() {
     // --- Controls: Upward and horizontal movement ---
     handleAstronautMovement(keys);
 
+    // --- Button collision detection and blocking for walking ---
+    if (gameState.astronaut.isLanded && walkSpeed > 0) {
+        // Determine intended next X position based on input
+        let intendedX = gameState.astronaut.position.x;
+        if (leftPressed) intendedX -= walkSpeed;
+        if (rightPressed) intendedX += walkSpeed;
+
+        // Check for button collision at intended position (feet)
+        const tileHDraw = 32;
+        const feetY = gameState.astronaut.position.y + tileHDraw / 2;
+        let blockedByButton = false;
+        let collidedButton: Button | undefined = undefined;
+        for (const b of buttonEntities) {
+            const tileW = 32 * SPRITE_SCALE;
+            const tileH = 32 * SPRITE_SCALE;
+            if (
+                intendedX >= b.x && intendedX < b.x + tileW &&
+                feetY >= b.y && feetY < b.y + tileH
+            ) {
+                blockedByButton = true;
+                collidedButton = b;
+                // Log collision
+                console.log(
+                    `Astronaut collided with button at (${b.x},${b.y}) while walking`
+                );
+                break;
+            }
+        }
+
+        // If blocked, prevent movement in that direction
+        if (blockedByButton) {
+            // Toggle linked doors' locked property
+            if (collidedButton && Array.isArray(collidedButton.linkedDoors)) {
+                for (const doorID of collidedButton.linkedDoors) {
+                    const door = doorEntities.find(d => d.doorID === doorID);
+                    if (door) {
+                        door.locked = !door.locked;
+                    }
+                }
+            }
+            // Do NOT update astronaut.position.x; walk animation continues as normal
+        } else {
+            // Normal walking movement (update position)
+            if (leftPressed) gameState.astronaut.position.x -= walkSpeed;
+            if (rightPressed) gameState.astronaut.position.x += walkSpeed;
+        }
+    }
+
     // Clear all velocities if landed and not walking
     if (
         gameState.astronaut.isLanded &&
@@ -422,13 +470,35 @@ async function gameLoop() {
     let blockedX = false;
     let blockedY = false;
 
+    // --- Button collision detection and logging ---
+    function checkButtonCollision(x: number, y: number, SPRITE_SCALE: number): Button | undefined {
+        for (const btn of buttonEntities) {
+            const tileW = 32 * SPRITE_SCALE;
+            const tileH = 32 * SPRITE_SCALE;
+            if (
+                x >= btn.x && x < btn.x + tileW &&
+                y >= btn.y && y < btn.y + tileH
+            ) {
+                return btn;
+            }
+        }
+        return undefined;
+    }
+
     // Check vertical movement (feet and head)
     if (astronaut.velocity.y > 0) {
         // Moving down: check feet
         const blockBelow = getSolidBlockAtWorld(nextX, nextY + halfH, spriteMap, SPRITE_SCALE);
+        // --- Button collision logging ---
+        const btn = checkButtonCollision(nextX, nextY + halfH, SPRITE_SCALE);
+        if (btn) {
+            console.log(
+                `Astronaut collided with button at (${btn.x},${btn.y}) while ${gameState.astronaut.isLanded ? "walking" : "flying"}`
+            );
+        }
+        // Fix: Only access blockBelow.type if blockBelow is defined
+        let rect = null;
         if (blockBelow) {
-            // Lookup rect for this block type
-            let rect = null;
             if (spriteMap instanceof Array) {
                 outer: for (let row = 0; row < spriteMap.length; row++) {
                     for (let col = 0; col < spriteMap[row].length; col++) {
@@ -451,8 +521,15 @@ async function gameLoop() {
     } else if (astronaut.velocity.y < 0) {
         // Moving up: check head
         const blockAbove = getSolidBlockAtWorld(nextX, nextY - halfH, spriteMap, SPRITE_SCALE);
+        // --- Button collision logging ---
+        const btn = checkButtonCollision(nextX, nextY - halfH, SPRITE_SCALE);
+        if (btn) {
+            console.log(
+                `Astronaut collided with button at (${btn.x},${btn.y}) while ${gameState.astronaut.isLanded ? "walking" : "flying"}`
+            );
+        }
+        let rect = null;
         if (blockAbove) {
-            let rect = null;
             if (spriteMap instanceof Array) {
                 outer: for (let row = 0; row < spriteMap.length; row++) {
                     for (let col = 0; col < spriteMap[row].length; col++) {
@@ -485,6 +562,17 @@ async function gameLoop() {
             // Moving right
             blockSide = getSolidBlockAtWorld(nextX + halfW, sideY1, spriteMap, SPRITE_SCALE) ||
                         getSolidBlockAtWorld(nextX + halfW, sideY2, spriteMap, SPRITE_SCALE);
+            // --- Button collision logging ---
+            const btn1 = checkButtonCollision(nextX + halfW, sideY1, SPRITE_SCALE);
+            const btn2 = checkButtonCollision(nextX + halfW, sideY2, SPRITE_SCALE);
+            if (btn1 || btn2) {
+                const btn = btn1 ?? btn2;
+                if (btn) {
+                    console.log(
+                        `Astronaut collided with button at (${btn.x},${btn.y}) while ${gameState.astronaut.isLanded ? "walking" : "flying"}`
+                    );
+                }
+            }
             if (blockSide) {
                 let rect = null;
                 if (spriteMap instanceof Array) {
@@ -511,6 +599,17 @@ async function gameLoop() {
             // Moving left
             blockSide = getSolidBlockAtWorld(nextX - halfW, sideY1, spriteMap, SPRITE_SCALE) ||
                         getSolidBlockAtWorld(nextX - halfW, sideY2, spriteMap, SPRITE_SCALE);
+            // --- Button collision logging ---
+            const btn1 = checkButtonCollision(nextX - halfW, sideY1, SPRITE_SCALE);
+            const btn2 = checkButtonCollision(nextX - halfW, sideY2, SPRITE_SCALE);
+            if (btn1 || btn2) {
+                const btn = btn1 ?? btn2;
+                if (btn) {
+                    console.log(
+                        `Astronaut collided with button at (${btn.x},${btn.y}) while ${gameState.astronaut.isLanded ? "walking" : "flying"}`
+                    );
+                }
+            }
             if (blockSide) {
                 let rect = null;
                 if (spriteMap instanceof Array) {
