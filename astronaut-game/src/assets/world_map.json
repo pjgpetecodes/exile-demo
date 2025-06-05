@@ -79,11 +79,15 @@
   { "x": 588, "y": 660, "type": "ship_1", "collision": true, "palette": 10, "rotation": 1 },
   { "x": 588, "y": 730, "type": "ship_1", "collision": true, "palette": 10, "rotation": 6 },
   
-  { "x": 240, "y": 800, "type": "ship_1", "collision": true, "palette": 0, "rotation": 1 },
+  { "x": 240, "y": 800, "type": "ship_1", "collision": true, "palette": 6, "rotation": 1 },
   { "x": 310, "y": 800, "type": "ship_7", "collision": true, "palette": 6, "rotation": 1 },
   { "x": 450, "y": 748, "type": "ship_15", "collision": true, "palette": 6, "rotation": 7 },
+  { "x": 516, "y": 800, "type": "ship_12", "collision": true, "palette": 7, "rotation": 5 },
+  { "x": 516, "y": 870, "type": "ship_12", "collision": true, "palette": 7, "rotation": 7 },
+  { "x": 588, "y": 800, "type": "ship_1", "collision": true, "palette": 10, "rotation": 1 },
+  { "x": 588, "y": 870, "type": "ship_1", "collision": true, "palette": 10, "rotation": 6 },
   
-  { "x": 240, "y": 870, "type": "ship_1", "collision": true, "palette": 0, "rotation": 6 },
+  { "x": 240, "y": 870, "type": "ship_1", "collision": true, "palette": 6, "rotation": 6 },
   { "x": 310, "y": 870, "type": "ship_7", "collision": true, "palette": 6, "rotation": 6 },
   { "x": 450, "y": 922, "type": "ship_15", "collision": true, "palette": 6, "rotation": 5 },
   
