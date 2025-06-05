@@ -38,4 +38,4 @@ npm run dev
 - You should be able to play the demo at the following addresses;
 
 - Local - [Exile Demo Local](https://localhost:3000)
-- Prebuilt Demo - [Exile Demo Local](https://exile-demo-ezg7egdpc7dwfvhk.uksouth-01.azurewebsites.net/)
+- Prebuilt Demo - [Exile Demo PreBuilt Demo](https://exile-demo-ezg7egdpc7dwfvhk.uksouth-01.azurewebsites.net/)
