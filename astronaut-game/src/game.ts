@@ -384,6 +384,8 @@ async function gameLoop() {
     let allowWalking = true;
     let collidedButton: Button | undefined = undefined;
     let collidedDoor: Door | undefined = undefined;
+    let doorCollision: Door | undefined = undefined; // Track any door collision for opening
+
     if (gameState.astronaut.isLanded && walkSpeed > 0) {
         // Use astronaut's bounding box for collision
         const spriteRect = getSpriteRectFromMap(SPRITE_ROW, SPRITE_COL_STAND);
@@ -433,6 +435,36 @@ async function gameLoop() {
                     astroBottom > doorTop
                 ) {
                     collidedDoor = d;
+                    doorCollision = d;
+                    break;
+                }
+            }
+        }
+    } else {
+        // Also check for door collision while flying or not walking
+        // Use astronaut's bounding box at current position
+        const spriteRect = getSpriteRectFromMap(SPRITE_ROW, SPRITE_COL_STAND);
+        const astroW = spriteRect.w * SPRITE_SCALE;
+        const astroH = spriteRect.h * SPRITE_SCALE;
+        const astroLeft = gameState.astronaut.position.x - astroW / 2;
+        const astroRight = gameState.astronaut.position.x + astroW / 2;
+        const astroTop = gameState.astronaut.position.y - astroH / 2;
+        const astroBottom = gameState.astronaut.position.y + astroH / 2;
+        for (const d of doorEntities) {
+            if (d.type === "door_horizontal" && !d.locked) {
+                const tileW = 32 * SPRITE_SCALE;
+                const tileH = 32 * SPRITE_SCALE;
+                const doorLeft = d.x;
+                const doorRight = d.x + tileW;
+                const doorTop = d.y;
+                const doorBottom = d.y + tileH;
+                if (
+                    astroLeft < doorRight &&
+                    astroRight > doorLeft &&
+                    astroTop < doorBottom &&
+                    astroBottom > doorTop
+                ) {
+                    doorCollision = d;
                     break;
                 }
             }
@@ -458,15 +490,15 @@ async function gameLoop() {
     }
 
     // --- Door animation logic for walking ---
-    if (collidedDoor && !collidedDoor.animating) {
-        collidedDoor.animating = true;
-        // Store original x position and animation state if not already set
-        if (typeof (collidedDoor as any)._originalX === "undefined") {
-            (collidedDoor as any)._originalX = collidedDoor.x;
+    // Open door if collided (landed or flying) and not already animating
+    if (doorCollision && !doorCollision.animating) {
+        doorCollision.animating = true;
+        if (typeof (doorCollision as any)._originalX === "undefined") {
+            (doorCollision as any)._originalX = doorCollision.x;
         }
-        (collidedDoor as any)._animationDirection = "open";
-        (collidedDoor as any)._animationTimer = 0;
-        (collidedDoor as any)._closeDelay = 0;
+        (doorCollision as any)._animationDirection = "open";
+        (doorCollision as any)._animationTimer = 0;
+        (doorCollision as any)._closeDelay = 0;
     }
 
     // --- Door animation update ---
