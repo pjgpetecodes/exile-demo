@@ -10,7 +10,27 @@ export type MapBlock = {
 export let mapBlocks: MapBlock[] = [];
 export let mapLoaded = false;
 
+// New: Color alias map and loader
+let colorAliases: Record<string, [number, number, number]> = {};
+let colorAliasesLoaded = false;
+
+async function loadColorAliases() {
+    if (colorAliasesLoaded) return;
+    const res = await fetch('./src/assets/colors.json');
+    colorAliases = await res.json();
+    colorAliasesLoaded = true;
+}
+
+// Utility: Resolve color alias or return RGB array
+function resolveColor(color: string | [number, number, number]): [number, number, number] {
+    if (typeof color === "string") {
+        return colorAliases[color] || [0, 0, 0];
+    }
+    return color;
+}
+
 export async function loadMapBlocks() {
+    await loadColorAliases(); // Ensure color aliases are loaded
     const res = await fetch('./src/assets/world_map.json');
     mapBlocks = await res.json();
     mapLoaded = true;

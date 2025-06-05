@@ -19,10 +19,32 @@ async function loadSpriteMap() {
 
 let palettes: any[] = [];
 let remappedSpriteSheets: CanvasImageSource[] = [];
+let colorAliases: Record<string, [number, number, number]> = {};
+
+async function loadColorAliases() {
+    if (Object.keys(colorAliases).length > 0) return;
+    const res = await fetch('./src/assets/colors.json');
+    colorAliases = await res.json();
+}
+
+function resolveColor(color: string | [number, number, number]): [number, number, number] {
+    if (typeof color === "string") {
+        return colorAliases[color] || [0, 0, 0];
+    }
+    return color;
+}
 
 async function loadPalettes() {
+    await loadColorAliases();
     const res = await fetch('./src/assets/palettes.json');
-    palettes = await res.json();
+    const rawPalettes = await res.json();
+    // Map aliases to RGB arrays
+    palettes = rawPalettes.map((palette: any[]) =>
+        palette.map(({ from, to }) => ({
+            from: resolveColor(from),
+            to: resolveColor(to)
+        }))
+    );
 }
 
 // --- Map size in pixels (constant) ---

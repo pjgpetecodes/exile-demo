@@ -9,8 +9,28 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 export let mapBlocks = [];
 export let mapLoaded = false;
+// New: Color alias map and loader
+let colorAliases = {};
+let colorAliasesLoaded = false;
+function loadColorAliases() {
+    return __awaiter(this, void 0, void 0, function* () {
+        if (colorAliasesLoaded)
+            return;
+        const res = yield fetch('./src/assets/colors.json');
+        colorAliases = yield res.json();
+        colorAliasesLoaded = true;
+    });
+}
+// Utility: Resolve color alias or return RGB array
+function resolveColor(color) {
+    if (typeof color === "string") {
+        return colorAliases[color] || [0, 0, 0];
+    }
+    return color;
+}
 export function loadMapBlocks() {
     return __awaiter(this, void 0, void 0, function* () {
+        yield loadColorAliases(); // Ensure color aliases are loaded
         const res = yield fetch('./src/assets/world_map.json');
         mapBlocks = yield res.json();
         mapLoaded = true;

@@ -22,10 +22,31 @@ function loadSpriteMap() {
 }
 let palettes = [];
 let remappedSpriteSheets = [];
+let colorAliases = {};
+function loadColorAliases() {
+    return __awaiter(this, void 0, void 0, function* () {
+        if (Object.keys(colorAliases).length > 0)
+            return;
+        const res = yield fetch('./src/assets/colors.json');
+        colorAliases = yield res.json();
+    });
+}
+function resolveColor(color) {
+    if (typeof color === "string") {
+        return colorAliases[color] || [0, 0, 0];
+    }
+    return color;
+}
 function loadPalettes() {
     return __awaiter(this, void 0, void 0, function* () {
+        yield loadColorAliases();
         const res = yield fetch('./src/assets/palettes.json');
-        palettes = yield res.json();
+        const rawPalettes = yield res.json();
+        // Map aliases to RGB arrays
+        palettes = rawPalettes.map((palette) => palette.map(({ from, to }) => ({
+            from: resolveColor(from),
+            to: resolveColor(to)
+        })));
     });
 }
 // --- Map size in pixels (constant) ---
