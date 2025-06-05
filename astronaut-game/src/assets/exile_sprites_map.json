@@ -123,12 +123,12 @@
     { "name": "fluffy",		 			"x": 496,  	"y": 166,  	"w": 32, 	"h": 32, 	"palette": 0 },
     { "name": "pipe_down_half",			"x": 529,  	"y": 166,  	"w": 32, 	"h": 32, 	"palette": 0 },
     { "name": "grenade",				"x": 562,  	"y": 166,  	"w": 32, 	"h": 32, 	"palette": 0 },
-    { "name": "button", 				"x": 595,	"y": 166,  	"w": 32, 	"h": 32, 	"palette": 0 },
+    { "name": "pod", 					"x": 595,	"y": 166,  	"w": 32, 	"h": 32, 	"palette": 0 },
     { "name": "whistle",		 		"x": 628, 	"y": 166, 	"w": 32, 	"h": 32, 	"palette": 0 },
 
-    { "name": "energy_pod2",			"x": 1,    	"y": 166, 	"w": 32, 	"h": 32, 	"palette": 0 },
-    { "name": "key2",					"x": 34,   	"y": 166, 	"w": 32, 	"h": 32, 	"palette": 0 }
-
-
+    { "name": "energy_pod2",			"x": 1,    	"y": 199, 	"w": 32, 	"h": 32, 	"palette": 0 },
+    { "name": "key2",					"x": 34,   	"y": 199, 	"w": 32, 	"h": 32, 	"palette": 0 },
+    { "name": "black_background",		"x": 67,   	"y": 199, 	"w": 32, 	"h": 32, 	"palette": 0 }
+	
   ]
 ]

@@ -147,8 +147,10 @@ async function init() {
             spriteSheet.src = canvasWithTransparency.toDataURL();
             spriteSheet.onload = () => {
                 // Generate remapped sprite sheets for each palette
-                remappedSpriteSheets = palettes.map((palette: any) =>
-                    remapSpritePalette(spriteSheet, palette)
+                remappedSpriteSheets = palettes.map((palette: any, idx: number) =>
+                    idx === 0
+                        ? spriteSheet // Palette 0: always original
+                        : remapSpritePalette(spriteSheet, palette)
                 );
                 // Use palettes[1] for astronaut, fallback to original if not present
                 astronautSpriteSource = remappedSpriteSheets[1] || spriteSheet;
@@ -176,6 +178,10 @@ async function gameLoop() {
 
     const camera = getCameraOffset();
 
+    // Update mouse world position
+    mouseWorld.x = mouseScreen.x + camera.x;
+    mouseWorld.y = mouseScreen.y + camera.y;
+
     // --- Sprite selection logic (animation, flipping, flying, walking) ---
     // Declare spriteCol/flipSprite/flipVertical only ONCE at the top of gameLoop
     let spriteCol = SPRITE_COL_STAND;
@@ -201,7 +207,7 @@ async function gameLoop() {
             loc = teleportLocations.pop()!;
             if (teleportSlot > teleportLocations.length) teleportSlot = teleportLocations.length;
         } else {
-            loc = { x: 691, y: 778 };
+            loc = { x: 222, y: 845 };
         }
         if (loc && !teleporting) {
             teleporting = true;
@@ -470,6 +476,25 @@ async function gameLoop() {
         debugY += 16;
         ctx!.fillText(
             `flyDir: ${flyDir} | flySwitching: ${flySwitching} | flySwitchStep: ${flySwitchStep}`,
+            10, debugY
+        );
+        debugY += 16;
+        // --- Show block under mouse cursor with palette and rotation ---
+        const block = getAnyBlockAtWorld(mouseWorld.x, mouseWorld.y, SPRITE_SCALE);
+        if (block) {
+            ctx!.fillText(
+                `Block under cursor: ${block.type} (${block.x},${block.y}) palette: ${block.palette ?? 0} rotation: ${block.rotation ?? 0}`,
+                10, debugY
+            );
+        } else {
+            ctx!.fillText(
+                `Block under cursor: (none)`,
+                10, debugY
+            );
+        }
+        debugY += 16;
+        ctx!.fillText(
+            `Mouse world: (${mouseWorld.x.toFixed(1)}, ${mouseWorld.y.toFixed(1)})`,
             10, debugY
         );
         ctx!.restore();
@@ -884,9 +909,9 @@ function remapSpritePalette(
 }
 
 // Example usage after loading the sprite sheet:
-// Replace pure red (255,0,0) with violet (143,0,255), and pure green (0,255,0) with white (255,255,255)
+// Replace pure red (255,0,0) with Magenta (143,0,255), and pure green (0,255,0) with white (255,255,255)
 // const remappedCanvas = remapSpritePalette(spriteSheet, [
-//     { from: [255, 0, 0], to: [143, 0, 255] },    // red -> violet
+//     { from: [255, 0, 0], to: [143, 0, 255] },    // red -> Magenta
 //     { from: [0, 255, 0], to: [255, 255, 255] }   // green -> white
 // ]);
 // Use remappedCanvas as your sprite source
@@ -898,3 +923,33 @@ window.addEventListener('keydown', (event) => {
 window.addEventListener('keyup', (event) => {
     keys[event.key] = false;
 });
+
+// --- Mouse tracking for debug ---
+let mouseScreen = { x: 0, y: 0 };
+let mouseWorld = { x: 0, y: 0 };
+window.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mouseScreen.x = e.clientX - rect.left;
+    mouseScreen.y = e.clientY - rect.top;
+});
+
+// Utility: Get any block at world position (ignores collision)
+function getAnyBlockAtWorld(
+    x: number,
+    y: number,
+    SPRITE_SCALE: number
+): MapBlock | undefined {
+    x = Math.round(x);
+    y = Math.round(y);
+    for (const b of mapBlocks) {
+        const tileW = 32 * SPRITE_SCALE;
+        const tileH = 32 * SPRITE_SCALE;
+        if (
+            x >= b.x && x < b.x + tileW &&
+            y >= b.y && y < b.y + tileH
+        ) {
+            return b;
+        }
+    }
+    return undefined;
+}
