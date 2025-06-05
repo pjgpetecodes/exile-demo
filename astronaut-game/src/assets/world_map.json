@@ -5,7 +5,6 @@
   { "x": 176, "y": 845, "type": "destinator", "collision": true, "palette": 0, "rotation": 1 },
   
   
-  { "x": 316, "y": 625, "type": "ship_14", "collision": true, "palette": 0, "rotation": 1 },
   { "x": 176, "y": 660, "type": "ship_7", "collision": true, "palette": 0, "rotation": 7 },
   { "x": 176, "y": 710, "type": "ship_7", "collision": true, "palette": 0, "rotation": 1 },
   { "x": 246, "y": 660, "type": "ship_6", "collision": true, "palette": 0, "rotation": 3 },
