@@ -17,7 +17,7 @@ export const DOWN_ACCEL = 0.3;
 export const MAX_UP_SPEED = -4;
 export const MAX_DOWN_SPEED = 4;
 export const WALK_ACCEL = 0.3;
-export const WALK_MAX_SPEED = 4;
+export const WALK_MAX_SPEED = 3;
 export const WALK_START_SPEED = 1;
 export const FLY_ACCEL = 0.28;
 export const FLY_MAX_SPEED = 2.8;
@@ -31,7 +31,7 @@ export function resetAstronaut() {
     facingLeft = false;
 }
 // Main movement handler (call this from game.ts)
-export function handleAstronautMovement(keys) {
+export function handleAstronautMovement(keys, allowWalking = true) {
     // Upward (P or ArrowUp)
     if ((keys['p'] || keys['ArrowUp'])) {
         if (astronaut.isLanded) {
@@ -60,7 +60,8 @@ export function handleAstronautMovement(keys) {
             walkSpeed += WALK_ACCEL;
             if (walkSpeed > WALK_MAX_SPEED)
                 walkSpeed = WALK_MAX_SPEED;
-            astronaut.position.x -= walkSpeed;
+            if (allowWalking)
+                astronaut.position.x -= walkSpeed;
             facingLeft = true;
         }
         else {
@@ -80,7 +81,8 @@ export function handleAstronautMovement(keys) {
             walkSpeed += WALK_ACCEL;
             if (walkSpeed > WALK_MAX_SPEED)
                 walkSpeed = WALK_MAX_SPEED;
-            astronaut.position.x += walkSpeed;
+            if (allowWalking)
+                astronaut.position.x += walkSpeed;
             facingLeft = false;
         }
         else {
@@ -94,11 +96,13 @@ export function handleAstronautMovement(keys) {
     if (astronaut.isLanded &&
         !leftPressed && !rightPressed &&
         walkSpeed > 0) {
-        if (facingLeft) {
-            astronaut.position.x -= walkSpeed;
-        }
-        else {
-            astronaut.position.x += walkSpeed;
+        if (allowWalking) {
+            if (facingLeft) {
+                astronaut.position.x -= walkSpeed;
+            }
+            else {
+                astronaut.position.x += walkSpeed;
+            }
         }
         walkSpeed -= WALK_ACCEL * 0.5;
         if (walkSpeed < 0)
@@ -124,7 +128,6 @@ export function handleAstronautMovement(keys) {
         }
     }
     // --- Carry over horizontal momentum into walking on landing ---
-    // This logic should be called when astronaut transitions from flying to landed
     if (typeof handleAstronautMovement._wasLanded === 'undefined') {
         handleAstronautMovement._wasLanded = astronaut.isLanded;
     }
@@ -132,31 +135,30 @@ export function handleAstronautMovement(keys) {
     if (!wasLanded && astronaut.isLanded) {
         // Just landed from flying
         if (Math.abs(handleAstronautMovement._lastVX || 0) > 0.01) {
-            // Set walkSpeed and facingLeft as if the player let go of the direction key while walking
             walkSpeed = Math.abs(handleAstronautMovement._lastVX);
             if (walkSpeed > WALK_MAX_SPEED)
                 walkSpeed = WALK_MAX_SPEED;
             facingLeft = handleAstronautMovement._lastVX < 0;
         }
     }
-    // Store velocity.x for next frame's landing check
     handleAstronautMovement._lastVX = astronaut.velocity.x;
     handleAstronautMovement._wasLanded = astronaut.isLanded;
-    // Walking momentum/friction after landing
+    // Walking momentum/friction after landing (again, for safety)
     if (astronaut.isLanded &&
         !leftPressed && !rightPressed &&
         walkSpeed > 0) {
-        if (facingLeft) {
-            astronaut.position.x -= walkSpeed;
-        }
-        else {
-            astronaut.position.x += walkSpeed;
+        if (allowWalking) {
+            if (facingLeft) {
+                astronaut.position.x -= walkSpeed;
+            }
+            else {
+                astronaut.position.x += walkSpeed;
+            }
         }
         walkSpeed -= WALK_ACCEL * 0.5;
         if (walkSpeed < 0)
             walkSpeed = 0;
     }
-    // Only reset walkSpeed if landed and no keys and walkSpeed is 0 (prevents instant cancel)
     if (astronaut.isLanded &&
         !leftPressed && !rightPressed &&
         walkSpeed <= 0) {

@@ -366,61 +366,101 @@ async function gameLoop() {
 
     // --- Draw map blocks ---
     if (spriteSheet && spriteSheet.complete) {
-        drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE);
         drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, doorEntities);
+        drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE);
         drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, buttonEntities);
         drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureEntities);
         drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, collectableEntities);
     }
 
     // --- Controls: Upward and horizontal movement ---
-    handleAstronautMovement(keys);
-
-    // --- Button collision detection and blocking for walking ---
+    // Determine if walking should be allowed (block if button collision or door collision)
+    let allowWalking = true;
+    let collidedButton: Button | undefined = undefined;
+    let collidedDoor: Door | undefined = undefined;
     if (gameState.astronaut.isLanded && walkSpeed > 0) {
-        // Determine intended next X position based on input
+        // Use astronaut's bounding box for collision
+        const spriteRect = getSpriteRectFromMap(SPRITE_ROW, SPRITE_COL_STAND);
+        const astroW = spriteRect.w * SPRITE_SCALE;
+        const astroH = spriteRect.h * SPRITE_SCALE;
         let intendedX = gameState.astronaut.position.x;
         if (leftPressed) intendedX -= walkSpeed;
         if (rightPressed) intendedX += walkSpeed;
+        let intendedY = gameState.astronaut.position.y;
+        const astroLeft = intendedX - astroW / 2;
+        const astroRight = intendedX + astroW / 2;
+        const astroTop = intendedY - astroH / 2;
+        const astroBottom = intendedY + astroH / 2;
 
-        // Check for button collision at intended position (feet)
-        const tileHDraw = 32;
-        const feetY = gameState.astronaut.position.y + tileHDraw / 2;
-        let blockedByButton = false;
-        let collidedButton: Button | undefined = undefined;
+        // Check for button collision
         for (const b of buttonEntities) {
             const tileW = 32 * SPRITE_SCALE;
             const tileH = 32 * SPRITE_SCALE;
+            const btnLeft = b.x;
+            const btnRight = b.x + tileW;
+            const btnTop = b.y;
+            const btnBottom = b.y + tileH;
             if (
-                intendedX >= b.x && intendedX < b.x + tileW &&
-                feetY >= b.y && feetY < b.y + tileH
+                astroLeft < btnRight &&
+                astroRight > btnLeft &&
+                astroTop < btnBottom &&
+                astroBottom > btnTop
             ) {
-                blockedByButton = true;
+                allowWalking = false;
                 collidedButton = b;
-                // Log collision
-                console.log(
-                    `Astronaut collided with button at (${b.x},${b.y}) while walking`
-                );
                 break;
             }
         }
-
-        // If blocked, prevent movement in that direction
-        if (blockedByButton) {
-            // Toggle linked doors' locked property
-            if (collidedButton && Array.isArray(collidedButton.linkedDoors)) {
-                for (const doorID of collidedButton.linkedDoors) {
-                    const door = doorEntities.find(d => d.doorID === doorID);
-                    if (door) {
-                        door.locked = !door.locked;
-                    }
+        // Check for door collision (horizontal doors only, unlocked)
+        for (const d of doorEntities) {
+            if (d.type === "door_horizontal" && !d.locked) {
+                const tileW = 32 * SPRITE_SCALE;
+                const tileH = 32 * SPRITE_SCALE;
+                const doorLeft = d.x;
+                const doorRight = d.x + tileW;
+                const doorTop = d.y;
+                const doorBottom = d.y + tileH;
+                if (
+                    astroLeft < doorRight &&
+                    astroRight > doorLeft &&
+                    astroTop < doorBottom &&
+                    astroBottom > doorTop
+                ) {
+                    collidedDoor = d;
+                    break;
                 }
             }
-            // Do NOT update astronaut.position.x; walk animation continues as normal
-        } else {
-            // Normal walking movement (update position)
-            if (leftPressed) gameState.astronaut.position.x -= walkSpeed;
-            if (rightPressed) gameState.astronaut.position.x += walkSpeed;
+        }
+    }
+    handleAstronautMovement(keys, allowWalking);
+
+    // --- Button logic: toggle linked doors if collision occurred ---
+    if (collidedButton && Array.isArray(collidedButton.linkedDoors)) {
+        for (const doorID of collidedButton.linkedDoors) {
+            const door = doorEntities.find(d => d.doorID === doorID);
+            if (door) {
+                door.locked = !door.locked;
+            }
+        }
+    }
+
+    // --- Door animation logic for walking ---
+    if (collidedDoor && !collidedDoor.animating) {
+        collidedDoor.animating = true;
+    }
+
+    // --- Door animation update ---
+    for (const door of doorEntities) {
+        if (door.animating && door.type === "door_horizontal" && !door.locked) {
+            if (!('animationOffset' in door)) {
+                (door as any).animationOffset = 0;
+            }
+            if ((door as any).animationOffset > -70) {
+                (door as any).animationOffset -= 1.5;
+                door.x = door.x - 1.5;
+            } else {
+                door.animating = false;
+            }
         }
     }
 
@@ -455,6 +495,7 @@ async function gameLoop() {
     let preVX = astronaut.velocity.x;
     let preVY = astronaut.velocity.y;
     let hitType: 'side' | 'head' | null = null;
+    let touchedDoor: Door | undefined = undefined;
     if (!gameState.astronaut.isLanded) {
         nextX += astronaut.velocity.x;
         nextY += astronaut.velocity.y;
@@ -574,6 +615,17 @@ async function gameLoop() {
                 }
             }
             if (blockSide) {
+                // --- Door animation logic ---
+                if (
+                    blockSide instanceof Door &&
+                    blockSide.type === "door_horizontal" &&
+                    !blockSide.locked &&
+                    !blockSide.animating
+                ) {
+                    blockSide.animating = true;
+                    touchedDoor = blockSide;
+                }
+                // ...existing code for collision response...
                 let rect = null;
                 if (spriteMap instanceof Array) {
                     outer: for (let row = 0; row < spriteMap.length; row++) {
@@ -611,6 +663,17 @@ async function gameLoop() {
                 }
             }
             if (blockSide) {
+                // --- Door animation logic ---
+                if (
+                    blockSide instanceof Door &&
+                    blockSide.type === "door_horizontal" &&
+                    !blockSide.locked &&
+                    !blockSide.animating
+                ) {
+                    blockSide.animating = true;
+                    touchedDoor = blockSide;
+                }
+                // ...existing code for collision response...
                 let rect = null;
                 if (spriteMap instanceof Array) {
                     outer: for (let row = 0; row < spriteMap.length; row++) {
@@ -635,12 +698,19 @@ async function gameLoop() {
         }
     }
 
-    // --- Play ouch sound if hitting any collider block with high velocity (side or head only) ---
-    if (hitBlock && hitType !== null) {
-        const impactVel = Math.max(Math.abs(preVX), Math.abs(preVY));
-        if (impactVel > 4) {
-            const idx = Math.random() < 0.5 ? 0 : 1;
-            try { ouchSounds[idx].currentTime = 0; ouchSounds[idx].play(); } catch {}
+    // --- Door animation update ---
+    for (const door of doorEntities) {
+        if (door.animating && door.type === "door_horizontal" && !door.locked) {
+            // Animate door to the left by 70px (1.5px per frame for ~47 frames)
+            if (!('animationOffset' in door)) {
+                (door as any).animationOffset = 0;
+            }
+            if ((door as any).animationOffset > -70) {
+                (door as any).animationOffset -= 1.5;
+                door.x = door.x - 1.5;
+            } else {
+                door.animating = false;
+            }
         }
     }
 
@@ -805,6 +875,7 @@ async function gameLoop() {
         // Check if there is a block below the astronaut's feet
         const tileHDraw = 32; // Not used for block lookup
         const feetY = gameState.astronaut.position.y + tileHDraw / 2;
+        // --- Use up-to-date door positions for collision ---
         const blockBelow = getSolidBlockAtWorld(
             gameState.astronaut.position.x,
             feetY + 1,
@@ -1227,7 +1298,10 @@ function getSolidBlockAtWorld(
             x >= b.x && x < b.x + tileW &&
             y >= b.y && y < b.y + tileH
         ) {
-            return b;
+            // Only treat as solid if collision is not explicitly false
+            if (b.collision !== false) {
+                return b;
+            }
         }
     }
     // Check doors
