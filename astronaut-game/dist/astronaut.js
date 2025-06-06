@@ -1,3 +1,5 @@
+import { getSolidBlockAtWorld } from './utilities.js';
+import { Door } from './entities.js';
 export let astronaut = {
     position: { x: 400, y: 778 },
     velocity: { x: 0, y: 0 },
@@ -163,5 +165,176 @@ export function handleAstronautMovement(keys, allowWalking = true) {
         !leftPressed && !rightPressed &&
         walkSpeed <= 0) {
         walkSpeed = 0;
+    }
+}
+// --- Button collision detection and logging ---
+function checkButtonCollision(x, y, SPRITE_SCALE, buttonEntities) {
+    for (const btn of buttonEntities) {
+        const tileW = 32 * SPRITE_SCALE;
+        const tileH = 32 * SPRITE_SCALE;
+        if (x >= btn.x && x < btn.x + tileW &&
+            y >= btn.y && y < btn.y + tileH) {
+            return btn;
+        }
+    }
+    return undefined;
+}
+export function checkAstronautCollisions(buttonEntities, spriteMap, SPRITE_SCALE, mapBlocks, doorEntities, nextX, nextY, gameState) {
+    // Use unique variable names for collision bounding box
+    const tileWCol = 32; // Default/fallback, not used for block lookup anymore
+    const tileHCol = 32;
+    const halfW = tileWCol / 2;
+    const halfH = tileHCol / 2;
+    // Check vertical movement (feet and head)
+    if (astronaut.velocity.y > 0) {
+        // Moving down: check feet
+        const blockBelow = getSolidBlockAtWorld(nextX, nextY + halfH, spriteMap, SPRITE_SCALE, mapBlocks, doorEntities, buttonEntities);
+        // --- Button collision logging ---
+        const btn = checkButtonCollision(nextX, nextY + halfH, SPRITE_SCALE, buttonEntities);
+        if (btn) {
+            console.log(`Astronaut collided with button at (${btn.x},${btn.y})`);
+        }
+        // Fix: Only access blockBelow.type if blockBelow is defined
+        let rect = null;
+        if (blockBelow) {
+            if (spriteMap instanceof Array) {
+                outer: for (let row = 0; row < spriteMap.length; row++) {
+                    for (let col = 0; col < spriteMap[row].length; col++) {
+                        if (spriteMap[row][col].name === blockBelow.type) {
+                            rect = spriteMap[row][col];
+                            break outer;
+                        }
+                    }
+                }
+            }
+            else if (spriteMap[blockBelow.type]) {
+                rect = spriteMap[blockBelow.type];
+            }
+            // Use 32 * SPRITE_SCALE for tile height
+            const tileH = 32 * SPRITE_SCALE;
+            nextY = blockBelow.y - halfH;
+            astronaut.velocity.y = 0;
+            gameState.astronaut.isLanded = true;
+        }
+    }
+    else if (astronaut.velocity.y < 0) {
+        // Moving up: check head
+        const blockAbove = getSolidBlockAtWorld(nextX, nextY - halfH, spriteMap, SPRITE_SCALE, mapBlocks, doorEntities, buttonEntities);
+        // --- Button collision logging ---
+        const btn = checkButtonCollision(nextX, nextY - halfH, SPRITE_SCALE, buttonEntities);
+        if (btn) {
+            console.log(`Astronaut collided with button at (${btn.x},${btn.y}) while ${gameState.astronaut.isLanded ? "walking" : "flying"}`);
+        }
+        let rect = null;
+        if (blockAbove) {
+            if (spriteMap instanceof Array) {
+                outer: for (let row = 0; row < spriteMap.length; row++) {
+                    for (let col = 0; col < spriteMap[row].length; col++) {
+                        if (spriteMap[row][col].name === blockAbove.type) {
+                            rect = spriteMap[row][col];
+                            break outer;
+                        }
+                    }
+                }
+            }
+            else if (spriteMap[blockAbove.type]) {
+                rect = spriteMap[blockAbove.type];
+            }
+            // Use 32 * SPRITE_SCALE for tile height
+            const tileH = 32 * SPRITE_SCALE;
+            nextY = blockAbove.y + tileH + halfH;
+            astronaut.velocity.y = 0;
+        }
+    }
+    // Check horizontal movement (left/right sides)
+    if (astronaut.velocity.x !== 0) {
+        // Check both top and bottom corners for side collision
+        const sideY1 = nextY - halfH + 2;
+        const sideY2 = nextY + halfH - 2;
+        let blockSide = null;
+        if (astronaut.velocity.x > 0) {
+            // Moving right
+            blockSide = getSolidBlockAtWorld(nextX + halfW, sideY1, spriteMap, SPRITE_SCALE, mapBlocks, doorEntities, buttonEntities) ||
+                getSolidBlockAtWorld(nextX + halfW, sideY2, spriteMap, SPRITE_SCALE, mapBlocks, doorEntities, buttonEntities);
+            // --- Button collision logging ---
+            const btn1 = checkButtonCollision(nextX + halfW, sideY1, SPRITE_SCALE, buttonEntities);
+            const btn2 = checkButtonCollision(nextX + halfW, sideY2, SPRITE_SCALE, buttonEntities);
+            if (btn1 || btn2) {
+                const btn = btn1 !== null && btn1 !== void 0 ? btn1 : btn2;
+                if (btn) {
+                    console.log(`Astronaut collided with button at (${btn.x},${btn.y}) while ${gameState.astronaut.isLanded ? "walking" : "flying"}`);
+                }
+            }
+            if (blockSide) {
+                // --- Door animation logic ---
+                if (blockSide instanceof Door &&
+                    blockSide.type === "door_horizontal" &&
+                    !blockSide.locked &&
+                    !blockSide.animating) {
+                    blockSide.animating = true;
+                }
+                // ...existing code for collision response...
+                let rect = null;
+                if (spriteMap instanceof Array) {
+                    outer: for (let row = 0; row < spriteMap.length; row++) {
+                        for (let col = 0; col < spriteMap[row].length; col++) {
+                            if (spriteMap[row][col].name === blockSide.type) {
+                                rect = spriteMap[row][col];
+                                break outer;
+                            }
+                        }
+                    }
+                }
+                else if (spriteMap[blockSide.type]) {
+                    rect = spriteMap[blockSide.type];
+                }
+                // Use 32 * SPRITE_SCALE for tile width
+                const tileW = 32 * SPRITE_SCALE;
+                nextX = blockSide.x - halfW;
+                astronaut.velocity.x = 0;
+            }
+        }
+        else {
+            // Moving left
+            blockSide = getSolidBlockAtWorld(nextX - halfW, sideY1, spriteMap, SPRITE_SCALE, mapBlocks, doorEntities, buttonEntities) ||
+                getSolidBlockAtWorld(nextX - halfW, sideY2, spriteMap, SPRITE_SCALE, mapBlocks, doorEntities, buttonEntities);
+            // --- Button collision logging ---
+            const btn1 = checkButtonCollision(nextX - halfW, sideY1, SPRITE_SCALE, buttonEntities);
+            const btn2 = checkButtonCollision(nextX - halfW, sideY2, SPRITE_SCALE, buttonEntities);
+            if (btn1 || btn2) {
+                const btn = btn1 !== null && btn1 !== void 0 ? btn1 : btn2;
+                if (btn) {
+                    console.log(`Astronaut collided with button at (${btn.x},${btn.y}) while ${gameState.astronaut.isLanded ? "walking" : "flying"}`);
+                }
+            }
+            if (blockSide) {
+                // --- Door animation logic ---
+                if (blockSide instanceof Door &&
+                    blockSide.type === "door_horizontal" &&
+                    !blockSide.locked &&
+                    !blockSide.animating) {
+                    blockSide.animating = true;
+                }
+                // ...existing code for collision response...
+                let rect = null;
+                if (spriteMap instanceof Array) {
+                    outer: for (let row = 0; row < spriteMap.length; row++) {
+                        for (let col = 0; col < spriteMap[row].length; col++) {
+                            if (spriteMap[row][col].name === blockSide.type) {
+                                rect = spriteMap[row][col];
+                                break outer;
+                            }
+                        }
+                    }
+                }
+                else if (spriteMap[blockSide.type]) {
+                    rect = spriteMap[blockSide.type];
+                }
+                // Use 32 * SPRITE_SCALE for tile width
+                const tileW = 32 * SPRITE_SCALE;
+                nextX = blockSide.x + tileW + halfW;
+                astronaut.velocity.x = 0;
+            }
+        }
     }
 }
