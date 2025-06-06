@@ -8,6 +8,7 @@ export class Button {
         this.rotation = (_b = data.rotation) !== null && _b !== void 0 ? _b : 1;
         this.active = (_c = data.active) !== null && _c !== void 0 ? _c : false;
         this.linkedDoors = (_d = data.linkedDoors) !== null && _d !== void 0 ? _d : [];
+        this.collision = data.collision !== undefined ? data.collision : true;
     }
     // Activate the button and unlock all linked doors by doorID
     activate(doors) {
@@ -36,6 +37,7 @@ export class Door {
         this.animating = false;
         this.palette_locked = data.palette_locked !== undefined ? data.palette_locked : null;
         this.palette_unlocked = data.palette_unlocked !== undefined ? data.palette_unlocked : null;
+        this.collision = data.collision !== undefined ? data.collision : true;
     }
     unlock() {
         this.locked = false;

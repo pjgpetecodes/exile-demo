@@ -9,7 +9,8 @@
     "rotation": 6,
     "palette_locked": 11,
     "palette_unlocked": 12,
-    "locked": true
+    "locked": true,
+    "collision": true
   },
   {
     "doorID": 1,
@@ -21,6 +22,7 @@
     "rotation": 6,
     "palette_locked": 11,
     "palette_unlocked": 12,
-    "locked": true
+    "locked": true,
+    "collision": true
   }
 ]

@@ -278,10 +278,10 @@ async function init() {
     const img = new Image();
     img.src = './src/assets/sprite_sheet.png';
     img.onload = () => {
-        makeBlackTransparent(img, (canvasWithTransparency) => {
+        makeBlackTransparent(img, async (canvasWithTransparency) => {
             spriteSheet = new Image();
             spriteSheet.src = canvasWithTransparency.toDataURL();
-            spriteSheet.onload = () => {
+            spriteSheet.onload = async () => {
                 // Generate remapped sprite sheets for each palette
                 remappedSpriteSheets = palettes.map((palette: any, idx: number) =>
                     idx === 0
@@ -290,6 +290,16 @@ async function init() {
                 );
                 // Use palettes[1] for astronaut, fallback to original if not present
                 astronautSpriteSource = remappedSpriteSheets[1] || spriteSheet;
+
+                // --- Calculate tightest collision bounding boxes at startup ---
+                await calculateSpriteCollisionBoundingBoxes(
+                    spriteSheet,
+                    spriteMap,
+                    mapBlocks,
+                    doorEntities,
+                    buttonEntities
+                );
+
                 gameLoop();
             };
         });
@@ -1477,9 +1487,77 @@ function getSolidBlockAtWorld(
     return undefined;
 }
 
-// Example: when a button is pressed, activate it and unlock linked door
-function onButtonPress(button: Button) {
-    // When unlocking/locking, update both locked and open
-    button.activate(doorEntities);
-    // If your Button.activate logic unlocks a door, ensure it sets door.locked = false and door.open = true
+// --- After all assets are loaded, calculate tightest collision bounding boxes ---
+// Now includes mapBlocks, doorEntities, and buttonEntities
+async function calculateSpriteCollisionBoundingBoxes(
+    spriteSheet: HTMLImageElement,
+    spriteMap: any,
+    mapBlocks: any[],
+    doorEntities: any[],
+    buttonEntities: any[]
+) {
+    // Gather all entities with collision = true
+    const allEntities = [
+        ...mapBlocks.filter(b => b.collision === true),
+        ...doorEntities.filter(d => d.collision === true),
+        ...buttonEntities.filter(b => b.collision === true)
+    ];
+    // Find all unique sprite types with collision = true
+    const typesWithCollision = new Set(allEntities.map(e => e.type));
+    const boundingBoxes: Record<string, { minX: number, minY: number, maxX: number, maxY: number, width: number, height: number }> = {};
+
+    // Helper to check if a pixel is transparent in the sprite sheet
+    function isPixelTransparent(imgData: Uint8ClampedArray, imgW: number, x: number, y: number): boolean {
+        const idx = (y * imgW + x) * 4;
+        return imgData[idx + 3] === 0;
+    }
+
+    // Get image data once for efficiency
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = spriteSheet.width;
+    tempCanvas.height = spriteSheet.height;
+    const tempCtx = tempCanvas.getContext('2d')!;
+    tempCtx.drawImage(spriteSheet, 0, 0);
+    const imgData = tempCtx.getImageData(0, 0, spriteSheet.width, spriteSheet.height).data;
+
+    for (const type of typesWithCollision) {
+        // Find the sprite rect for this type
+        let rect = null;
+        if (spriteMap instanceof Array) {
+            outer: for (let row = 0; row < spriteMap.length; row++) {
+                for (let col = 0; col < spriteMap[row].length; col++) {
+                    if (spriteMap[row][col].name === type) {
+                        rect = spriteMap[row][col];
+                        break outer;
+                    }
+                }
+            }
+        } else if (spriteMap[type]) {
+            rect = spriteMap[type];
+        }
+        if (!rect) continue;
+
+        let minX = rect.w, minY = rect.h, maxX = -1, maxY = -1;
+        for (let y = 0; y < rect.h; y++) {
+            for (let x = 0; x < rect.w; x++) {
+                const sx = rect.x + x;
+                const sy = rect.y + y;
+                if (!isPixelTransparent(imgData, spriteSheet.width, sx, sy)) {
+                    if (x < minX) minX = x;
+                    if (y < minY) minY = y;
+                    if (x > maxX) maxX = x;
+                    if (y > maxY) maxY = y;
+                }
+            }
+        }
+        if (maxX >= minX && maxY >= minY) {
+            boundingBoxes[type] = {
+                minX, minY, maxX, maxY,
+                width: maxX - minX + 1,
+                height: maxY - minY + 1
+            };
+        }
+    }
+    console.log("Tightest collision bounding boxes for sprites with collision=true (map, doors, buttons):", boundingBoxes);
+    return boundingBoxes;
 }
