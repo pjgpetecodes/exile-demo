@@ -7,7 +7,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
-import { astronaut, handleAstronautMovement, walkSpeed, facingLeft, upPressed, downPressed, leftPressed, rightPressed, checkAstronautCollisions } from './astronaut.js';
+import { astronaut, flipAstronaut, handleAstronautMovement, walkSpeed, facingLeft, upPressed, downPressed, leftPressed, rightPressed, checkAstronautCollisions } from './astronaut.js';
 import { applyGravity } from './gravity.js';
 import { mapBlocks, mapLoaded, loadMapBlocks, drawMap } from './map.js';
 import { initStars, updateAndDrawStars } from './stars.js';
@@ -68,6 +68,12 @@ window.addEventListener('mousemove', (e) => {
     const rect = canvas.getBoundingClientRect();
     mouseScreen.x = e.clientX - rect.left;
     mouseScreen.y = e.clientY - rect.top;
+});
+window.addEventListener('keydown', (e) => {
+    if (e.key === "Tab") {
+        e.preventDefault(); // Prevent tab from bubbling to browser
+        flipAstronaut();
+    }
 });
 // --- Camera ---
 function getCameraOffset() {
@@ -382,7 +388,6 @@ function gameLoop() {
         // Determine if walking should be allowed (block if button collision or door collision)
         let allowWalking = true;
         let collidedButton = undefined;
-        let collidedDoor = undefined;
         let doorCollision = undefined; // Track any door collision for opening
         if (gameState.astronaut.isLanded && walkSpeed > 0) {
             // Use astronaut's tightest bounding box for collision
@@ -460,7 +465,6 @@ function gameLoop() {
                         astroRight > doorLeft &&
                         astroTop < doorBottom &&
                         astroBottom > doorTop) {
-                        collidedDoor = d;
                         doorCollision = d;
                         break;
                     }

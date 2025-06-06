@@ -1,7 +1,7 @@
 // Main entry point for the astronaut game
 import { Astronaut, GameState } from './types/index.js';
 import {
-    astronaut, resetAstronaut, handleAstronautMovement,
+    astronaut, resetAstronaut, flipAstronaut, handleAstronautMovement,
     walkSpeed, facingLeft, upPressed, downPressed, leftPressed, rightPressed,
     checkAstronautCollisions
 } from './astronaut.js';
@@ -76,6 +76,13 @@ window.addEventListener('mousemove', (e) => {
     const rect = canvas.getBoundingClientRect();
     mouseScreen.x = e.clientX - rect.left;
     mouseScreen.y = e.clientY - rect.top;
+});
+
+window.addEventListener('keydown', (e) => {
+    if (e.key === "Tab") {
+        e.preventDefault(); // Prevent tab from bubbling to browser
+        flipAstronaut();
+    }
 });
 
 // --- Camera ---
@@ -410,7 +417,6 @@ async function gameLoop() {
     // Determine if walking should be allowed (block if button collision or door collision)
     let allowWalking = true;
     let collidedButton: Button | undefined = undefined;
-    let collidedDoor: Door | undefined = undefined;
     let doorCollision: Door | undefined = undefined; // Track any door collision for opening
 
     if (gameState.astronaut.isLanded && walkSpeed > 0) {
@@ -496,7 +502,6 @@ async function gameLoop() {
                     astroTop < doorBottom &&
                     astroBottom > doorTop
                 ) {
-                    collidedDoor = d;
                     doorCollision = d;
                     break;
                 }

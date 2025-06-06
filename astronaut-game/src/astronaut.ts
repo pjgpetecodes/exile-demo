@@ -11,6 +11,10 @@ export let astronaut: Astronaut = {
     isLanded: true,
 };
 
+export function flipAstronaut() {
+    facingLeft = !facingLeft;
+}
+
 export let walkSpeed = 0;
 export let facingLeft = false;
 

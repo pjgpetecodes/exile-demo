@@ -6,6 +6,9 @@ export let astronaut = {
     isFlying: false,
     isLanded: true,
 };
+export function flipAstronaut() {
+    facingLeft = !facingLeft;
+}
 export let walkSpeed = 0;
 export let facingLeft = false;
 // Animation state (export if needed for animation logic)
