@@ -7,6 +7,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
+import { Door } from './entities.js';
 // After loading the sprite sheet, convert black pixels to transparent
 export function makeBlackTransparent(img, callback) {
     const tempCanvas = document.createElement('canvas');
@@ -299,4 +300,75 @@ export function calculateAstronautSpriteBoundingBoxes(spriteSheet, spriteMap) {
         console.log("Tightest collision bounding boxes for astronaut sprites:", boundingBoxes);
         return boundingBoxes;
     });
+}
+// --- Draw generic entity array (same as drawMap but for any array) ---
+export function drawEntities(ctx, camera, spriteMap, spriteSheets, SPRITE_SCALE, entities) {
+    // Build rect lookup map once per draw
+    const rectMap = (spriteMap instanceof Array)
+        ? Object.fromEntries(spriteMap.flat().map((r) => [r.name, r]))
+        : spriteMap;
+    const tileW = 32 * SPRITE_SCALE;
+    const tileH = 32 * SPRITE_SCALE;
+    const minX = camera.x - tileW, maxX = camera.x + ctx.canvas.width + tileW;
+    const minY = camera.y - tileH, maxY = camera.y + ctx.canvas.height + tileH;
+    for (const entity of entities) {
+        if (entity.x + tileW < minX || entity.x > maxX ||
+            entity.y + tileH < minY || entity.y > maxY)
+            continue;
+        const rect = rectMap[entity.type];
+        if (!rect)
+            continue;
+        let paletteIdx = 0;
+        let paletteDebug = "";
+        // Use instanceof Door to check for Door entities
+        if (entity instanceof Door) {
+            if (entity.locked === true && typeof entity.palette_locked === "number") {
+                paletteIdx = entity.palette_locked;
+                paletteDebug = `DOOR locked: true, using palette_locked (${paletteIdx})`;
+            }
+            else if (entity.locked === false && typeof entity.palette_unlocked === "number") {
+                paletteIdx = entity.palette_unlocked;
+                paletteDebug = `DOOR locked: false, using palette_unlocked (${paletteIdx})`;
+            }
+            else if (typeof entity.palette === "number") {
+                paletteIdx = entity.palette;
+                paletteDebug = `DOOR fallback, using palette (${paletteIdx})`;
+            }
+        }
+        else if (typeof entity.palette === "number" && entity.palette >= 0 && entity.palette < spriteSheets.length) {
+            paletteIdx = entity.palette;
+        }
+        const sheet = spriteSheets[paletteIdx] || spriteSheets[0];
+        // --- DEBUG: Draw palette info above door ---
+        if (entity instanceof Door &&
+            ctx && ctx.canvas && window.DEBUG_DOOR_PALETTE) {
+            ctx.save();
+            ctx.font = "12px monospace";
+            ctx.fillStyle = "#f0f";
+            ctx.fillText(`locked:${entity.locked} paletteIdx:${paletteIdx}`, entity.x - camera.x, entity.y - camera.y - 8);
+            ctx.fillStyle = "#0ff";
+            ctx.fillText(paletteDebug, entity.x - camera.x, entity.y - camera.y - 20);
+            ctx.restore();
+        }
+        ctx.save();
+        const drawX = entity.x - camera.x;
+        const drawY = entity.y - camera.y;
+        ctx.translate(drawX + tileW / 2, drawY + tileH / 2);
+        if (entity.rotation) {
+            if (entity.rotation >= 1 && entity.rotation <= 4) {
+                ctx.rotate(((entity.rotation - 1) * Math.PI) / 2);
+            }
+            else if (entity.rotation === 5) {
+                ctx.scale(-1, 1);
+            }
+            else if (entity.rotation === 6) {
+                ctx.scale(1, -1);
+            }
+            else if (entity.rotation === 7) {
+                ctx.scale(-1, -1);
+            }
+        }
+        ctx.drawImage(sheet, rect.x, rect.y, rect.w, rect.h, -tileW / 2, -tileH / 2, tileW, tileH);
+        ctx.restore();
+    }
 }
