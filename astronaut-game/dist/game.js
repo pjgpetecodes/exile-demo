@@ -86,7 +86,7 @@ let gameState = {
     gravity: 0.04,
     trail: [],
     isRunning: true,
-    debugMode: true
+    debugMode: false
 };
 let spriteSheet;
 let astronautSpriteSource; // Use this for astronaut rendering
@@ -1280,4 +1280,6 @@ let showTightBoundingBoxes = false;
 window.addEventListener('keydown', (e) => {
     if (e.key === 'b')
         showTightBoundingBoxes = !showTightBoundingBoxes;
+    if (e.key === 'd')
+        gameState.debugMode = !gameState.debugMode;
 });

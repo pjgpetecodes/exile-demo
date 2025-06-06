@@ -91,7 +91,7 @@ let gameState: GameState & { debugMode: boolean } = {
     gravity: 0.04, // reduced gravity from 0.09 to 0.04 for gentler fall
     trail: [],
     isRunning: true,
-    debugMode: true
+    debugMode: false
 };
 
 let spriteSheet: HTMLImageElement;
@@ -1384,4 +1384,5 @@ let astronautBoundingBoxes: Record<string, { minX: number, minY: number, maxX: n
 let showTightBoundingBoxes = false;
 window.addEventListener('keydown', (e) => {
     if (e.key === 'b') showTightBoundingBoxes = !showTightBoundingBoxes;
+    if (e.key === 'd') gameState.debugMode = !gameState.debugMode;
 });
