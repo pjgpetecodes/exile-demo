@@ -1,6 +1,7 @@
 export class Door {
     x: number;
     y: number;
+    z: number;
     type: string;
     palette: number;
     rotation: number;
@@ -16,6 +17,7 @@ export class Door {
     constructor(data: any) {
         this.x = data.x;
         this.y = data.y;
+        this.z = data.z ?? 0;
         this.type = data.type;
         this.palette = data.palette ?? 0;
         this.rotation = data.rotation ?? 1;
@@ -44,5 +46,68 @@ export class Door {
     closeDoor() {
         this.open = false;
         this.animating = true;
+    }
+
+    updateAnimation(doorOpenSound: HTMLAudioElement, doorCloseSound: HTMLAudioElement) {
+        // Only animate horizontal, unlocked doors
+        if (!this.animating || this.type !== "door_horizontal" || this.locked) return;
+
+        // Initialize animation state if needed
+        if (typeof (this as any)._originalX === "undefined") {
+            (this as any)._originalX = this.x;
+        }
+        if (typeof (this as any)._animationDirection === "undefined") {
+            (this as any)._animationDirection = "open";
+        }
+        if (typeof (this as any)._closeDelay === "undefined") {
+            (this as any)._closeDelay = 0;
+        }
+        if (!('animationOffset' in this)) {
+            (this as any).animationOffset = 0;
+        }
+
+        // Animate open (slide left)
+        if ((this as any)._animationDirection === "open") {
+            if ((this as any).animationOffset > -70) {
+                (this as any).animationOffset -= 1.5;
+                this.x = (this as any)._originalX + (this as any).animationOffset;
+                // Play door open sound at the start of opening
+                if ((this as any).animationOffset === -1.5) {
+                    try { doorOpenSound.currentTime = 0; doorOpenSound.play(); } catch {}
+                }
+            } else {
+                // Fully open, start close delay
+                (this as any)._animationDirection = "wait";
+                (this as any)._closeDelay = 0;
+            }
+        }
+        // Wait before closing
+        else if ((this as any)._animationDirection === "wait") {
+            (this as any)._closeDelay += 1 / 60;
+            if ((this as any)._closeDelay >= 2) { // 2 seconds
+                (this as any)._animationDirection = "close";
+            }
+        }
+        // Animate close (slide right)
+        else if ((this as any)._animationDirection === "close") {
+            if ((this as any).animationOffset < 0) {
+                // Play door close sound at the start of closing
+                if ((this as any).animationOffset === -70) {
+                    try { doorCloseSound.currentTime = 0; doorCloseSound.play(); } catch {}
+                }
+                (this as any).animationOffset += 1.5;
+                if ((this as any).animationOffset > 0) (this as any).animationOffset = 0;
+                this.x = (this as any)._originalX + (this as any).animationOffset;
+            } else {
+                // Done closing
+                this.animating = false;
+                (this as any).animationOffset = 0;
+                this.x = (this as any)._originalX;
+                // Clean up animation state
+                delete (this as any)._animationDirection;
+                delete (this as any)._closeDelay;
+                delete (this as any)._originalX;
+            }
+        }
     }
 }

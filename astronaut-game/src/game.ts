@@ -592,65 +592,7 @@ async function gameLoop() {
 
     // --- Door animation update ---
     for (const door of doorEntities) {
-        if (door.animating && door.type === "door_horizontal" && !door.locked) {
-            // Initialize animation state if needed
-            if (typeof (door as any)._originalX === "undefined") {
-                (door as any)._originalX = door.x;
-            }
-            if (typeof (door as any)._animationDirection === "undefined") {
-                (door as any)._animationDirection = "open";
-            }
-            if (typeof (door as any)._closeDelay === "undefined") {
-                (door as any)._closeDelay = 0;
-            }
-            if (!('animationOffset' in door)) {
-                (door as any).animationOffset = 0;
-            }
-
-            // Animate open (slide left)
-            if ((door as any)._animationDirection === "open") {
-                if ((door as any).animationOffset > -70) {
-                    (door as any).animationOffset -= 1.5;
-                    door.x = (door as any)._originalX + (door as any).animationOffset;
-                    // Play door open sound at the start of opening
-                    if ((door as any).animationOffset === -1.5) {
-                        try { doorOpenSound.currentTime = 0; doorOpenSound.play(); } catch {}
-                    }
-                } else {
-                    // Fully open, start close delay
-                    (door as any)._animationDirection = "wait";
-                    (door as any)._closeDelay = 0;
-                }
-            }
-            // Wait before closing
-            else if ((door as any)._animationDirection === "wait") {
-                (door as any)._closeDelay += 1 / 60;
-                if ((door as any)._closeDelay >= 2) { // 2 seconds
-                    (door as any)._animationDirection = "close";
-                }
-            }
-            // Animate close (slide right)
-            else if ((door as any)._animationDirection === "close") {
-                if ((door as any).animationOffset < 0) {
-                    // Play door close sound at the start of closing
-                    if ((door as any).animationOffset === -69) {
-                        try { doorCloseSound.currentTime = 0; doorCloseSound.play(); } catch {}
-                    }
-                    (door as any).animationOffset += 1.5;
-                    if ((door as any).animationOffset > 0) (door as any).animationOffset = 0;
-                    door.x = (door as any)._originalX + (door as any).animationOffset;
-                } else {
-                    // Done closing
-                    door.animating = false;
-                    (door as any).animationOffset = 0;
-                    door.x = (door as any)._originalX;
-                    // Clean up animation state
-                    delete (door as any)._animationDirection;
-                    delete (door as any)._closeDelay;
-                    delete (door as any)._originalX;
-                }
-            }
-        }
+        door.updateAnimation(doorOpenSound, doorCloseSound);
     }
 
     // Clear all velocities if landed and not walking
@@ -688,65 +630,7 @@ async function gameLoop() {
 
     // --- Door animation update ---
     for (const door of doorEntities) {
-        if (door.animating && door.type === "door_horizontal" && !door.locked) {
-            // Initialize animation state if needed
-            if (typeof (door as any)._originalX === "undefined") {
-                (door as any)._originalX = door.x;
-            }
-            if (typeof (door as any)._animationDirection === "undefined") {
-                (door as any)._animationDirection = "open";
-            }
-            if (typeof (door as any)._closeDelay === "undefined") {
-                (door as any)._closeDelay = 0;
-            }
-            if (!('animationOffset' in door)) {
-                (door as any).animationOffset = 0;
-            }
-
-            // Animate open (slide left)
-            if ((door as any)._animationDirection === "open") {
-                if ((door as any).animationOffset > -70) {
-                    (door as any).animationOffset -= 1.5;
-                    door.x = (door as any)._originalX + (door as any).animationOffset;
-                    // Play door open sound at the start of opening
-                    if ((door as any).animationOffset === -1.5) {
-                        try { doorOpenSound.currentTime = 0; doorOpenSound.play(); } catch {}
-                    }
-                } else {
-                    // Fully open, start close delay
-                    (door as any)._animationDirection = "wait";
-                    (door as any)._closeDelay = 0;
-                }
-            }
-            // Wait before closing
-            else if ((door as any)._animationDirection === "wait") {
-                (door as any)._closeDelay += 1 / 60;
-                if ((door as any)._closeDelay >= 2) { // 2 seconds
-                    (door as any)._animationDirection = "close";
-                }
-            }
-            // Animate close (slide right)
-            else if ((door as any)._animationDirection === "close") {
-                if ((door as any).animationOffset < 0) {
-                    // Play door close sound at the start of closing
-                    if ((door as any).animationOffset === -70) {
-                        try { doorCloseSound.currentTime = 0; doorCloseSound.play(); } catch {}
-                    }
-                    (door as any).animationOffset += 1.5;
-                    if ((door as any).animationOffset > 0) (door as any).animationOffset = 0;
-                    door.x = (door as any)._originalX + (door as any).animationOffset;
-                } else {
-                    // Done closing
-                    door.animating = false;
-                    (door as any).animationOffset = 0;
-                    door.x = (door as any)._originalX;
-                    // Clean up animation state
-                    delete (door as any)._animationDirection;
-                    delete (door as any)._closeDelay;
-                    delete (door as any)._originalX;
-                }
-            }
-        }
+        door.updateAnimation(doorOpenSound, doorCloseSound);
     }
 
     gameState.astronaut.position.x = nextX;
@@ -1233,8 +1117,6 @@ async function gameLoop() {
     prevKeys = { ...keys };
     requestAnimationFrame(gameLoop);
 }
-
-
 
 // --- Bounding boxes for astronaut sprites (populated after calculation) ---
 let astronautBoundingBoxes: Record<string, { minX: number, minY: number, maxX: number, maxY: number, width: number, height: number }> = {};
