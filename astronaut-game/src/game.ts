@@ -91,6 +91,8 @@ const SPRITE_COL_FLY_DIAGONAL = 1;
 const SPRITE_COL_FLY_FLOAT = 2;
 const SPRITE_COL_FLY_DOWN = 3;
 const SPRITE_COL_WALK_START = 4;
+const SPRITE_COL_WALK_RIGHT1 = 5;
+const SPRITE_COL_WALK_RIGHT2 = 6;
 const SPRITE_COL_WALK_END = 7;
 
 let walkAnimFrame = SPRITE_COL_WALK_START;
@@ -301,11 +303,10 @@ async function init() {
                 );
 
                 // --- Calculate astronaut sprite bounding boxes at startup ---
-                await calculateAstronautSpriteBoundingBoxes(
+                astronautBoundingBoxes = await calculateAstronautSpriteBoundingBoxes(
                     spriteSheet,
                     spriteMap
                 );
-
                 gameLoop();
             };
         });
@@ -403,18 +404,53 @@ async function gameLoop() {
     let doorCollision: Door | undefined = undefined; // Track any door collision for opening
 
     if (gameState.astronaut.isLanded && walkSpeed > 0) {
-        // Use astronaut's bounding box for collision
+        // Use astronaut's tightest bounding box for collision
         const spriteRect = getSpriteRectFromMap(SPRITE_ROW, SPRITE_COL_STAND);
-        const astroW = spriteRect.w * SPRITE_SCALE;
-        const astroH = spriteRect.h * SPRITE_SCALE;
+        const bbox = astronautBoundingBoxes["stand"] || { minX: 0, minY: 0, maxX: spriteRect.w - 1, maxY: spriteRect.h - 1, width: spriteRect.w, height: spriteRect.h };
+        const astroW = bbox.width * SPRITE_SCALE;
+        const astroH = bbox.height * SPRITE_SCALE;
         let intendedX = gameState.astronaut.position.x;
         if (leftPressed) intendedX -= walkSpeed;
         if (rightPressed) intendedX += walkSpeed;
         let intendedY = gameState.astronaut.position.y;
-        const astroLeft = intendedX - astroW / 2;
-        const astroRight = intendedX + astroW / 2;
-        const astroTop = intendedY - astroH / 2;
-        const astroBottom = intendedY + astroH / 2;
+
+        // --- Rotation-aware bounding box calculation ---
+        // Assume astronaut.rotation is 0 (no rotation) unless you have a rotation property.
+        // If you have a rotation property, use it here. For now, we use 0.
+        const rotation = (gameState.astronaut as any).rotation || 0;
+
+        // Calculate the four corners of the bounding box before rotation
+        const cx = intendedX;
+        const cy = intendedY;
+        const halfW = astroW / 2;
+        const halfH = astroH / 2;
+        let corners = [
+            { x: cx - halfW, y: cy - halfH },
+            { x: cx + halfW, y: cy - halfH },
+            { x: cx + halfW, y: cy + halfH },
+            { x: cx - halfW, y: cy + halfH }
+        ];
+
+        // Apply rotation if needed (in radians)
+        if (rotation !== 0) {
+            const angle = rotation * (Math.PI / 2); // 1=90deg, 2=180deg, etc.
+            corners = corners.map(pt => {
+                const dx = pt.x - cx;
+                const dy = pt.y - cy;
+                return {
+                    x: cx + dx * Math.cos(angle) - dy * Math.sin(angle),
+                    y: cy + dx * Math.sin(angle) + dy * Math.cos(angle)
+                };
+            });
+        }
+
+        // Compute AABB of rotated bounding box for collision checks
+        const xs = corners.map(pt => pt.x);
+        const ys = corners.map(pt => pt.y);
+        const astroLeft = Math.min(...xs);
+        const astroRight = Math.max(...xs);
+        const astroTop = Math.min(...ys);
+        const astroBottom = Math.max(...ys);
 
         // Check for button collision
         for (const b of buttonEntities) {
@@ -458,14 +494,41 @@ async function gameLoop() {
         }
     } else {
         // Also check for door collision while flying or not walking
-        // Use astronaut's bounding box at current position
+        // Use astronaut's tightest bounding box at current position
         const spriteRect = getSpriteRectFromMap(SPRITE_ROW, SPRITE_COL_STAND);
-        const astroW = spriteRect.w * SPRITE_SCALE;
-        const astroH = spriteRect.h * SPRITE_SCALE;
-        const astroLeft = gameState.astronaut.position.x - astroW / 2;
-        const astroRight = gameState.astronaut.position.x + astroW / 2;
-        const astroTop = gameState.astronaut.position.y - astroH / 2;
-        const astroBottom = gameState.astronaut.position.y + astroH / 2;
+        const bbox = astronautBoundingBoxes["stand"] || { minX: 0, minY: 0, maxX: spriteRect.w - 1, maxY: spriteRect.h - 1, width: spriteRect.w, height: spriteRect.h };
+        const astroW = bbox.width * SPRITE_SCALE;
+        const astroH = bbox.height * SPRITE_SCALE;
+        // --- Rotation-aware bounding box calculation for flying ---
+        const rotation = (gameState.astronaut as any).rotation || 0;
+        const cx = gameState.astronaut.position.x;
+        const cy = gameState.astronaut.position.y;
+        const halfW = astroW / 2;
+        const halfH = astroH / 2;
+        let corners = [
+            { x: cx - halfW, y: cy - halfH },
+            { x: cx + halfW, y: cy - halfH },
+            { x: cx + halfW, y: cy + halfH },
+            { x: cx - halfW, y: cy + halfH }
+        ];
+        if (rotation !== 0) {
+            const angle = rotation * (Math.PI / 2);
+            corners = corners.map(pt => {
+                const dx = pt.x - cx;
+                const dy = pt.y - cy;
+                return {
+                    x: cx + dx * Math.cos(angle) - dy * Math.sin(angle),
+                    y: cy + dx * Math.sin(angle) + dy * Math.cos(angle)
+                };
+            });
+        }
+        const xs = corners.map(pt => pt.x);
+        const ys = corners.map(pt => pt.y);
+        const astroLeft = Math.min(...xs);
+        const astroRight = Math.max(...xs);
+        const astroTop = Math.min(...ys);
+        const astroBottom = Math.max(...ys);
+
         for (const d of doorEntities) {
             if (d.type === "door_horizontal" && !d.locked) {
                 const tileW = 32 * SPRITE_SCALE;
@@ -1269,14 +1332,116 @@ async function gameLoop() {
             -drawH / 2,
             drawW, drawH
         );
-        ctx!.restore();
-    }
 
-    // --- Render trail (draw relative to camera) ---
-    gameState.trail.forEach((dot: { x: number; y: number }) => {
-        ctx!.fillStyle = 'black';
-        ctx!.fillRect(dot.x - camera.x, dot.y - camera.y, 2, 2);
-    });
+        // --- Draw tight bounding box for astronaut (with transforms) ---
+        if (showTightBoundingBoxes) {
+            let spriteName = spriteRect.name;
+            if (!astronautBoundingBoxes[spriteName]) {
+                const colToName: Record<number, string> = {
+                    [SPRITE_COL_FLY_RIGHT]: "fly_right",
+                    [SPRITE_COL_FLY_DIAGONAL]: "fly_diagonal",
+                    [SPRITE_COL_FLY_FLOAT]: "fly_float",
+                    [SPRITE_COL_FLY_DOWN]: "fly_down",
+                    [SPRITE_COL_STAND]: "stand",
+                    [SPRITE_COL_WALK_START]: "walk_right1",
+                    [SPRITE_COL_WALK_RIGHT1]: "walk_right2",
+                    [SPRITE_COL_WALK_END]: "walk_right3"
+                };
+                spriteName = colToName[spriteCol];
+            }
+            const bbox = astronautBoundingBoxes[spriteName];
+            if (bbox) {
+                ctx!.save();
+                ctx!.strokeStyle = 'red';
+                ctx!.lineWidth = 2;
+                // The context is already translated and scaled as for the sprite.
+                const scale = SPRITE_SCALE;
+                const x = -drawW / 2 + bbox.minX * scale;
+                const y = -drawH / 2 + bbox.minY * scale;
+                const w = bbox.width * scale;
+                const h = bbox.height * scale;
+                ctx!.strokeRect(x, y, w, h);
+                ctx!.restore();
+            }
+        }
+        ctx!.restore();
+
+        // --- Draw tight bounding boxes for world map sprites with collision ---
+        if (showTightBoundingBoxes && spriteSheet && spriteSheet.complete) {
+            // Draw for mapBlocks, doorEntities, buttonEntities with collision=true
+            const drawBBox = (entity: any) => {
+                if (!entity.collision) return;
+                // Find bounding box for this type
+                let rect = null;
+                if (spriteMap instanceof Array) {
+                    outer: for (let row = 0; row < spriteMap.length; row++) {
+                        for (let col = 0; col < spriteMap[row].length; col++) {
+                            if (spriteMap[row][col].name === entity.type) {
+                                rect = spriteMap[row][col];
+                                break outer;
+                            }
+                        }
+                    }
+                } else if (spriteMap[entity.type]) {
+                    rect = spriteMap[entity.type];
+                }
+                if (!rect) return;
+                const boundingBoxes = (window as any)._spriteBoundingBoxes as Record<string, any> | undefined;
+                let bbox: any = undefined;
+                if (boundingBoxes && boundingBoxes[entity.type]) {
+                    bbox = boundingBoxes[entity.type];
+                } else {
+                    bbox = { minX: 0, minY: 0, width: rect.w, height: rect.h };
+                }
+                const scale = SPRITE_SCALE;
+                const tileW = 32 * scale;
+                const tileH = 32 * scale;
+                // Draw after applying the same transforms as the sprite
+                ctx!.save();
+                // Center of the sprite
+                const drawX = entity.x - camera.x + tileW / 2;
+                const drawY = entity.y - camera.y + tileH / 2;
+                ctx!.translate(drawX, drawY);
+                // Apply rotation if present
+                if (entity.rotation) {
+                    if (entity.rotation >= 1 && entity.rotation <= 4) {
+                        ctx!.rotate(((entity.rotation - 1) * Math.PI) / 2);
+                    } else if (entity.rotation === 5) {
+                        ctx!.scale(-1, 1);
+                    } else if (entity.rotation === 6) {
+                        ctx!.scale(1, -1);
+                    } else if (entity.rotation === 7) {
+                        ctx!.scale(-1, -1);
+                    }
+                }
+                ctx!.strokeStyle = 'red';
+                ctx!.lineWidth = 2;
+                // Draw bbox relative to sprite center
+                const x = -tileW / 2 + bbox.minX * scale;
+                const y = -tileH / 2 + bbox.minY * scale;
+                const w = bbox.width * scale;
+                const h = bbox.height * scale;
+                ctx!.strokeRect(x, y, w, h);
+                ctx!.restore();
+            };
+            // Try to get boundingBoxes from calculateSpriteCollisionBoundingBoxes
+            // If not present, call it and store in window._spriteBoundingBoxes
+            if (!(window as any)._spriteBoundingBoxes) {
+                calculateSpriteCollisionBoundingBoxes(
+                    spriteSheet,
+                    spriteMap,
+                    mapBlocks,
+                    doorEntities,
+                    buttonEntities
+                ).then(boundingBoxes => {
+                    (window as any)._spriteBoundingBoxes = boundingBoxes;
+                });
+            }
+            mapBlocks.forEach(drawBBox);
+            doorEntities.forEach(drawBBox);
+            buttonEntities.forEach(drawBBox);
+        }
+    }
 
     prevKeys = { ...keys };
     requestAnimationFrame(gameLoop);
@@ -1641,3 +1806,12 @@ async function calculateAstronautSpriteBoundingBoxes(
     console.log("Tightest collision bounding boxes for astronaut sprites:", boundingBoxes);
     return boundingBoxes;
 }
+
+// --- Bounding boxes for astronaut sprites (populated after calculation) ---
+let astronautBoundingBoxes: Record<string, { minX: number, minY: number, maxX: number, maxY: number, width: number, height: number }> = {};
+
+// --- Show tight bounding boxes toggle ---
+let showTightBoundingBoxes = false;
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'b') showTightBoundingBoxes = !showTightBoundingBoxes;
+});
