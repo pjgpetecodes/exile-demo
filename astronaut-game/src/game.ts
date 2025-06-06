@@ -300,6 +300,12 @@ async function init() {
                     buttonEntities
                 );
 
+                // --- Calculate astronaut sprite bounding boxes at startup ---
+                await calculateAstronautSpriteBoundingBoxes(
+                    spriteSheet,
+                    spriteMap
+                );
+
                 gameLoop();
             };
         });
@@ -1559,5 +1565,79 @@ async function calculateSpriteCollisionBoundingBoxes(
         }
     }
     console.log("Tightest collision bounding boxes for sprites with collision=true (map, doors, buttons):", boundingBoxes);
+    return boundingBoxes;
+}
+
+// --- Calculate tightest bounding boxes for astronaut sprites by name ---
+async function calculateAstronautSpriteBoundingBoxes(
+    spriteSheet: HTMLImageElement,
+    spriteMap: any
+) {
+    // List of astronaut sprite names to check
+    const astronautSpriteNames = [
+        "fly_right",
+        "fly_diagonal",
+        "fly_float",
+        "fly_down",
+        "stand",
+        "walk_right1",
+        "walk_right2",
+        "walk_right3"
+    ];
+    const boundingBoxes: Record<string, { minX: number, minY: number, maxX: number, maxY: number, width: number, height: number }> = {};
+
+    // Helper to check if a pixel is transparent in the sprite sheet
+    function isPixelTransparent(imgData: Uint8ClampedArray, imgW: number, x: number, y: number): boolean {
+        const idx = (y * imgW + x) * 4;
+        return imgData[idx + 3] === 0;
+    }
+
+    // Get image data once for efficiency
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = spriteSheet.width;
+    tempCanvas.height = spriteSheet.height;
+    const tempCtx = tempCanvas.getContext('2d')!;
+    tempCtx.drawImage(spriteSheet, 0, 0);
+    const imgData = tempCtx.getImageData(0, 0, spriteSheet.width, spriteSheet.height).data;
+
+    for (const name of astronautSpriteNames) {
+        // Find the sprite rect for this name
+        let rect = null;
+        if (spriteMap instanceof Array) {
+            outer: for (let row = 0; row < spriteMap.length; row++) {
+                for (let col = 0; col < spriteMap[row].length; col++) {
+                    if (spriteMap[row][col].name === name) {
+                        rect = spriteMap[row][col];
+                        break outer;
+                    }
+                }
+            }
+        } else if (spriteMap[name]) {
+            rect = spriteMap[name];
+        }
+        if (!rect) continue;
+
+        let minX = rect.w, minY = rect.h, maxX = -1, maxY = -1;
+        for (let y = 0; y < rect.h; y++) {
+            for (let x = 0; x < rect.w; x++) {
+                const sx = rect.x + x;
+                const sy = rect.y + y;
+                if (!isPixelTransparent(imgData, spriteSheet.width, sx, sy)) {
+                    if (x < minX) minX = x;
+                    if (y < minY) minY = y;
+                    if (x > maxX) maxX = x;
+                    if (y > maxY) maxY = y;
+                }
+            }
+        }
+        if (maxX >= minX && maxY >= minY) {
+            boundingBoxes[name] = {
+                minX, minY, maxX, maxY,
+                width: maxX - minX + 1,
+                height: maxY - minY + 1
+            };
+        }
+    }
+    console.log("Tightest collision bounding boxes for astronaut sprites:", boundingBoxes);
     return boundingBoxes;
 }
