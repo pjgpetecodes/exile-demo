@@ -1,5 +1,5 @@
 import { getSolidBlockAtWorld } from './utilities.js';
-import { Door } from './entities.js';
+import { Door } from './door.js';
 export let astronaut = {
     position: { x: 400, y: 778 },
     velocity: { x: 0, y: 0 },

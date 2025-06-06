@@ -9,8 +9,19 @@ import { applyGravity } from './gravity.js';
 import { mapBlocks, mapLoaded, loadMapBlocks, drawMap, getBlockAtWorld } from './map.js';
 import { initStars, updateAndDrawStars } from './stars.js';
 import { emitJetpackDots, updateAndDrawJetpackDots, resetJetpackDotEmitTimer } from './jetpack.js';
-import { Button, Door, Creature, Collectable } from './entities.js';
-import { makeBlackTransparent, remapSpritePalette, calculateSpriteCollisionBoundingBoxes, calculateAstronautSpriteBoundingBoxes, getSolidBlockAtWorld, getAnyBlockAtWorld, drawEntities } from './utilities.js';
+import { Button } from './button.js';
+import { Door } from './door.js';
+import { Creature } from './creature.js';
+import { Collectable } from './collectable.js';
+import { makeBlackTransparent, remapSpritePalette, calculateSpriteCollisionBoundingBoxes, 
+    calculateAstronautSpriteBoundingBoxes, getSolidBlockAtWorld, getAnyBlockAtWorld, 
+    drawEntities } from './utilities.js';
+import {
+    SPRITE_ROW, SPRITE_COL_STAND, SPRITE_COL_FLY_RIGHT, SPRITE_COL_FLY_DIAGONAL,
+    SPRITE_COL_FLY_FLOAT, SPRITE_COL_FLY_DOWN, SPRITE_COL_WALK_START, SPRITE_COL_WALK_RIGHT1,
+    SPRITE_COL_WALK_RIGHT2, SPRITE_COL_WALK_END, TELEPORT_ANIM_FRAMES, MAP_WIDTH, MAP_HEIGHT,
+    SPRITE_SCALE, rememberSound, teleportSound, buttonOnSound, doorOpenSound, doorCloseSound, ouchSounds
+} from './constants.js';
 
 // Instead of dynamic import, fetch the JSON file at runtime for browser compatibility
 let spriteMap: any;
@@ -49,10 +60,6 @@ async function loadPalettes() {
         }))
     );
 }
-
-// --- Map size in pixels (constant) ---
-const MAP_WIDTH = 10000;  // pixels
-const MAP_HEIGHT = 10000; // pixels
 
 window.addEventListener('keydown', (event) => {
     keys[event.key] = true;
@@ -97,22 +104,6 @@ let gameState: GameState & { debugMode: boolean } = {
 
 let spriteSheet: HTMLImageElement;
 let astronautSpriteSource: CanvasImageSource; // Use this for astronaut rendering
-
-// Sprite scaling factor (adjust as needed)
-const SPRITE_SCALE = 2.2;
-
-// Sprite columns
-const SPRITE_ROW = 0; // top row
-const SPRITE_COL_STAND = 4;
-const SPRITE_COL_FLY_RIGHT = 0;
-const SPRITE_COL_FLY_DIAGONAL = 1;
-const SPRITE_COL_FLY_FLOAT = 2;
-const SPRITE_COL_FLY_DOWN = 3;
-const SPRITE_COL_WALK_START = 4;
-const SPRITE_COL_WALK_RIGHT1 = 5;
-const SPRITE_COL_WALK_RIGHT2 = 6;
-const SPRITE_COL_WALK_END = 7;
-
 let walkAnimFrame = SPRITE_COL_WALK_START;
 let walkAnimTimer = 0;
 
@@ -135,23 +126,11 @@ const teleportLocations: TeleportLocation[] = [];
 let teleportSlot = 0;
 let teleporting = false;
 let teleportAnimFrame = 0;
-const TELEPORT_ANIM_FRAMES = 30; // 0.5 seconds at 60fps
 let teleportPhase: 'none' | 'out' | 'in' = 'none';
 let teleportTarget: TeleportLocation | null = null;
 let teleportSpriteCol = SPRITE_COL_STAND;
 let teleportFlipSprite = false;
 let teleportFlipVertical = false;
-
-// --- Sound effects ---
-const rememberSound = new Audio('./src/assets/remember.wav');
-const teleportSound = new Audio('./src/assets/teleport.wav');
-const buttonOnSound = new Audio('./src/assets/button_on.wav');
-const doorOpenSound = new Audio('./src/assets/door_open.wav');
-const doorCloseSound = new Audio('./src/assets/door_close.wav');
-const ouchSounds = [
-    new Audio('./src/assets/ouch_1.wav'),
-    new Audio('./src/assets/ouch_2.wav')
-];
 
 // --- Input state ---
 const keys: Record<string, boolean> = {};

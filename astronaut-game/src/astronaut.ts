@@ -1,7 +1,8 @@
 import { Astronaut } from './types/index.js';
 import { getSolidBlockAtWorld } from './utilities.js';
 import { MapBlock } from './map.js';
-import { Button, Door } from './entities.js';
+import { Button } from './button.js';
+import { Door } from './door.js';
 
 export let astronaut: Astronaut = {
     position: { x: 400, y: 778 },

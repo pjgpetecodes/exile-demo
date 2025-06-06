@@ -1,4 +1,4 @@
-import { Button, Door, Creature, Collectable } from './entities.js';
+import { Door } from './door.js';
 
 // After loading the sprite sheet, convert black pixels to transparent
 export function makeBlackTransparent(img: HTMLImageElement, callback: (result: HTMLCanvasElement) => void) {

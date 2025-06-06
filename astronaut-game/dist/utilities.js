@@ -7,7 +7,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
-import { Door } from './entities.js';
+import { Door } from './door.js';
 // After loading the sprite sheet, convert black pixels to transparent
 export function makeBlackTransparent(img, callback) {
     const tempCanvas = document.createElement('canvas');
