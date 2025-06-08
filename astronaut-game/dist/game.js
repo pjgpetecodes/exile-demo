@@ -130,8 +130,8 @@ let collectableEntities = [];
 // --- Button press debounce state ---
 const buttonPressTimestamps = new WeakMap();
 // --- Entity loaders ---
-let nextEntityId = 1;
-function assignEntityId(obj) {
+export let nextEntityId = 1;
+export function assignEntityId(obj) {
     obj.entityId = nextEntityId++;
     return obj;
 }

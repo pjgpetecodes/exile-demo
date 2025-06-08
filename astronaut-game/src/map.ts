@@ -1,3 +1,5 @@
+import { assignEntityId } from './game.js';
+
 export type MapBlock = {
     x: number; // tile x
     y: number; // tile y
@@ -33,12 +35,8 @@ export async function loadMapBlocks() {
     await loadColorAliases(); // Ensure color aliases are loaded
     const res = await fetch('./src/assets/world_map.json');
     const arr = await res.json();
-    // Assign entityId to each block
-    let nextEntityId = 1;
-    mapBlocks = arr.map((block: any) => {
-        block.entityId = nextEntityId++;
-        return block;
-    });
+    // Assign entityId to each block using global assignEntityId
+    mapBlocks = arr.map((block: any) => assignEntityId(block));
     mapLoaded = true;
 }
 

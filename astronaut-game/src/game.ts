@@ -153,8 +153,8 @@ let collectableEntities: Collectable[] = [];
 const buttonPressTimestamps: WeakMap<Button, number> = new WeakMap();
 
 // --- Entity loaders ---
-let nextEntityId = 1;
-function assignEntityId(obj: any) {
+export let nextEntityId = 1;
+export function assignEntityId(obj: any) {
     obj.entityId = nextEntityId++;
     return obj;
 }

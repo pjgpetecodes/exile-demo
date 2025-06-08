@@ -7,6 +7,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
+import { assignEntityId } from './game.js';
 export let mapBlocks = [];
 export let mapLoaded = false;
 // New: Color alias map and loader
@@ -33,12 +34,8 @@ export function loadMapBlocks() {
         yield loadColorAliases(); // Ensure color aliases are loaded
         const res = yield fetch('./src/assets/world_map.json');
         const arr = yield res.json();
-        // Assign entityId to each block
-        let nextEntityId = 1;
-        mapBlocks = arr.map((block) => {
-            block.entityId = nextEntityId++;
-            return block;
-        });
+        // Assign entityId to each block using global assignEntityId
+        mapBlocks = arr.map((block) => assignEntityId(block));
         mapLoaded = true;
     });
 }
