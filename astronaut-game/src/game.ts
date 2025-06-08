@@ -711,7 +711,7 @@ async function gameLoop() {
         const block = getAnyBlockAtWorld(mouseWorld.x, mouseWorld.y, SPRITE_SCALE, mapBlocks, doorEntities, buttonEntities, creatureEntities);
         if (block) {
             ctx!.fillText(
-                `Block under cursor: ${block.type} (${block.x},${block.y}) palette: ${block.palette ?? 0} rotation: ${block.rotation ?? 0}` +
+                `Block under cursor: ${block.type} (${block.x},${block.y}) id: ${block.entityId ?? 'n/a'} palette: ${block.palette ?? 0} rotation: ${block.rotation ?? 0}` +
                 (typeof block.locked !== "undefined" ? ` locked: ${block.locked}` : ""),
                 10, debugY
             );
@@ -734,6 +734,50 @@ async function gameLoop() {
             `Mouse world: (${mouseWorld.x.toFixed(1)}, ${mouseWorld.y.toFixed(1)})`,
             10, debugY
         );
+        ctx!.restore();
+    }
+    // --- Draw world coordinate bounding boxes for each block in green if enabled ---
+    if (showBlockBoundingBoxes) {
+        ctx!.save();
+        ctx!.strokeStyle = 'lime';
+        ctx!.lineWidth = 2;
+        const drawWorldBBox = (entity: any) => {
+            if (!entity.collision) return;
+            let bbox = blockInstanceRotatedBoundingBoxes.get(entity);
+            if (!bbox) return;
+            const scale = SPRITE_SCALE;
+            const tileW = 32 * scale;
+            const tileH = 32 * scale;
+            // Center of the sprite
+            const drawX = entity.x - camera.x + tileW / 2;
+            const drawY = entity.y - camera.y + tileH / 2;
+            ctx!.save();
+            ctx!.translate(drawX, drawY);
+            // Apply rotation if present
+            if (entity.rotation) {
+                if (entity.rotation >= 1 && entity.rotation <= 4) {
+                    ctx!.rotate(((entity.rotation - 1) * Math.PI) / 2);
+                } else if (entity.rotation === 5) {
+                    ctx!.scale(-1, 1);
+                } else if (entity.rotation === 6) {
+                    ctx!.scale(1, -1);
+                } else if (entity.rotation === 7) {
+                    ctx!.scale(-1, -1);
+                }
+            }
+            // Draw bbox relative to sprite center
+            const x = -tileW / 2 + bbox.minX * scale;
+            const y = -tileH / 2 + bbox.minY * scale;
+            const w = bbox.width * scale;
+            const h = bbox.height * scale;
+            ctx!.strokeRect(x, y, w, h);
+            ctx!.restore();
+        };
+        mapBlocks.forEach(drawWorldBBox);
+        doorEntities.forEach(drawWorldBBox);
+        buttonEntities.forEach(drawWorldBBox);
+        creatureEntities.forEach(drawWorldBBox);
+        collectableEntities.forEach(drawWorldBBox);
         ctx!.restore();
     }
 
@@ -1141,4 +1185,12 @@ let showTightBoundingBoxes = false;
 window.addEventListener('keydown', (e) => {
     if (e.key === 'b') showTightBoundingBoxes = !showTightBoundingBoxes;
     if (e.key === 'd') gameState.debugMode = !gameState.debugMode;
+});
+
+// --- Show block bounding boxes toggle ---
+let showBlockBoundingBoxes = false;
+window.addEventListener('keydown', (e) => {
+    if (e.key === "G" || e.key === "g") {
+        showBlockBoundingBoxes = !showBlockBoundingBoxes;
+    }
 });
