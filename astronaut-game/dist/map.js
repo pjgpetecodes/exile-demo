@@ -32,7 +32,13 @@ export function loadMapBlocks() {
     return __awaiter(this, void 0, void 0, function* () {
         yield loadColorAliases(); // Ensure color aliases are loaded
         const res = yield fetch('./src/assets/world_map.json');
-        mapBlocks = yield res.json();
+        const arr = yield res.json();
+        // Assign entityId to each block
+        let nextEntityId = 1;
+        mapBlocks = arr.map((block) => {
+            block.entityId = nextEntityId++;
+            return block;
+        });
         mapLoaded = true;
     });
 }

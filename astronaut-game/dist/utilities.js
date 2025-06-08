@@ -224,6 +224,52 @@ export function calculateSpriteCollisionBoundingBoxes(spriteSheet, spriteMap, ma
             }
         }
         console.log("Tightest collision bounding boxes for sprites with collision=true (map, doors, buttons):", boundingBoxes);
+        // --- Calculate and store world coordinate bounding boxes ---
+        // Use SPRITE_SCALE for all world bounding box calculations
+        const { SPRITE_SCALE } = yield import('./constants.js');
+        const worldBoundingBoxes = {};
+        for (const entity of allEntities) {
+            const type = entity.type;
+            const box = boundingBoxes[type];
+            let rect = null;
+            if (spriteMap instanceof Array) {
+                outer: for (let row = 0; row < spriteMap.length; row++) {
+                    for (let col = 0; col < spriteMap[row].length; col++) {
+                        if (spriteMap[row][col].name === type) {
+                            rect = spriteMap[row][col];
+                            break outer;
+                        }
+                    }
+                }
+            }
+            else if (spriteMap[type]) {
+                rect = spriteMap[type];
+            }
+            if (!box || !rect)
+                continue;
+            // Calculate world coordinates for this entity's bounding box using SPRITE_SCALE, rounding to integers
+            const scale = SPRITE_SCALE;
+            const width = Math.round(box.width * scale);
+            const height = Math.round(box.height * scale);
+            const worldMinX = Math.round(entity.x + box.minX * scale);
+            const worldMinY = Math.round(entity.y + box.minY * scale);
+            const worldBox = {
+                entityId: entity.entityId,
+                type,
+                worldMinX,
+                worldMinY,
+                worldMaxX: worldMinX + width - 1,
+                worldMaxY: worldMinY + height - 1,
+                width,
+                height
+            };
+            if (!worldBoundingBoxes[type])
+                worldBoundingBoxes[type] = [];
+            worldBoundingBoxes[type].push(worldBox);
+        }
+        // Store globally
+        window.spriteWorldBoundingBoxes = worldBoundingBoxes;
+        console.log("World coordinate bounding boxes for sprites with collision=true (map, doors, buttons):", worldBoundingBoxes);
         return boundingBoxes;
     });
 }
@@ -298,6 +344,24 @@ export function calculateAstronautSpriteBoundingBoxes(spriteSheet, spriteMap) {
             }
         }
         console.log("Tightest collision bounding boxes for astronaut sprites:", boundingBoxes);
+        // --- Calculate and store world coordinate bounding boxes for astronauts ---
+        // This function does not have entity positions, so just store the bounding boxes at (0,0) for each sprite name
+        const worldBoundingBoxes = {};
+        for (const name of astronautSpriteNames) {
+            const box = boundingBoxes[name];
+            if (!box)
+                continue;
+            worldBoundingBoxes[name] = {
+                worldMinX: box.minX,
+                worldMinY: box.minY,
+                worldMaxX: box.maxX,
+                worldMaxY: box.maxY,
+                width: box.width,
+                height: box.height
+            };
+        }
+        window.astronautWorldBoundingBoxes = worldBoundingBoxes;
+        console.log("World coordinate bounding boxes for astronaut sprites:", worldBoundingBoxes);
         return boundingBoxes;
     });
 }

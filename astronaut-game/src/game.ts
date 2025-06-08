@@ -153,27 +153,31 @@ let collectableEntities: Collectable[] = [];
 const buttonPressTimestamps: WeakMap<Button, number> = new WeakMap();
 
 // --- Entity loaders ---
+let nextEntityId = 1;
+function assignEntityId(obj: any) {
+    obj.entityId = nextEntityId++;
+    return obj;
+}
+
 async function loadButtons() {
     const res = await fetch('./src/assets/buttons.json');
     const arr = await res.json();
-    buttonEntities = arr.map((data: any) => new Button(data));
+    buttonEntities = arr.map((data: any) => assignEntityId(new Button(data)));
 }
 async function loadDoors() {
     const res = await fetch('./src/assets/doors.json');
     const arr = await res.json();
-    doorEntities = arr.map((data: any) => {
-        return new Door(data);
-    });
+    doorEntities = arr.map((data: any) => assignEntityId(new Door(data)));
 }
 async function loadCreatures() {
     const res = await fetch('./src/assets/creatures.json');
     const arr = await res.json();
-    creatureEntities = arr.map((data: any) => new Creature(data));
+    creatureEntities = arr.map((data: any) => assignEntityId(new Creature(data)));
 }
 async function loadCollectables() {
     const res = await fetch('./src/assets/collectables.json');
     const arr = await res.json();
-    collectableEntities = arr.map((data: any) => new Collectable(data));
+    collectableEntities = arr.map((data: any) => assignEntityId(new Collectable(data)));
 }
 
 // --- Map rendering and update logic ---
@@ -349,8 +353,8 @@ async function gameLoop() {
     const camera = getCameraOffset();
 
     // Update mouse world position
-    mouseWorld.x = mouseScreen.x + camera.x;
-    mouseWorld.y = mouseScreen.y + camera.y;
+    mouseWorld.x = Math.round(mouseScreen.x + camera.x);
+    mouseWorld.y = Math.round(mouseScreen.y + camera.y);
 
     // --- Sprite selection logic (animation, flipping, flying, walking) ---
     // Declare spriteCol/flipSprite/flipVertical only ONCE at the top of gameLoop

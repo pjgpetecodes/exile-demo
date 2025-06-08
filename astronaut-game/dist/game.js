@@ -130,34 +130,37 @@ let collectableEntities = [];
 // --- Button press debounce state ---
 const buttonPressTimestamps = new WeakMap();
 // --- Entity loaders ---
+let nextEntityId = 1;
+function assignEntityId(obj) {
+    obj.entityId = nextEntityId++;
+    return obj;
+}
 function loadButtons() {
     return __awaiter(this, void 0, void 0, function* () {
         const res = yield fetch('./src/assets/buttons.json');
         const arr = yield res.json();
-        buttonEntities = arr.map((data) => new Button(data));
+        buttonEntities = arr.map((data) => assignEntityId(new Button(data)));
     });
 }
 function loadDoors() {
     return __awaiter(this, void 0, void 0, function* () {
         const res = yield fetch('./src/assets/doors.json');
         const arr = yield res.json();
-        doorEntities = arr.map((data) => {
-            return new Door(data);
-        });
+        doorEntities = arr.map((data) => assignEntityId(new Door(data)));
     });
 }
 function loadCreatures() {
     return __awaiter(this, void 0, void 0, function* () {
         const res = yield fetch('./src/assets/creatures.json');
         const arr = yield res.json();
-        creatureEntities = arr.map((data) => new Creature(data));
+        creatureEntities = arr.map((data) => assignEntityId(new Creature(data)));
     });
 }
 function loadCollectables() {
     return __awaiter(this, void 0, void 0, function* () {
         const res = yield fetch('./src/assets/collectables.json');
         const arr = yield res.json();
-        collectableEntities = arr.map((data) => new Collectable(data));
+        collectableEntities = arr.map((data) => assignEntityId(new Collectable(data)));
     });
 }
 // --- Map rendering and update logic ---
@@ -321,8 +324,8 @@ function gameLoop() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         const camera = getCameraOffset();
         // Update mouse world position
-        mouseWorld.x = mouseScreen.x + camera.x;
-        mouseWorld.y = mouseScreen.y + camera.y;
+        mouseWorld.x = Math.round(mouseScreen.x + camera.x);
+        mouseWorld.y = Math.round(mouseScreen.y + camera.y);
         // --- Sprite selection logic (animation, flipping, flying, walking) ---
         // Declare spriteCol/flipSprite/flipVertical only ONCE at the top of gameLoop
         let spriteCol = SPRITE_COL_STAND;

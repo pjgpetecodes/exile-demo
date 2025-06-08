@@ -32,7 +32,13 @@ function resolveColor(color: string | [number, number, number]): [number, number
 export async function loadMapBlocks() {
     await loadColorAliases(); // Ensure color aliases are loaded
     const res = await fetch('./src/assets/world_map.json');
-    mapBlocks = await res.json();
+    const arr = await res.json();
+    // Assign entityId to each block
+    let nextEntityId = 1;
+    mapBlocks = arr.map((block: any) => {
+        block.entityId = nextEntityId++;
+        return block;
+    });
     mapLoaded = true;
 }
 
