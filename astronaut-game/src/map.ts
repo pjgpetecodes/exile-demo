@@ -106,7 +106,8 @@ export function drawMap(
     camera: { x: number, y: number },
     spriteMap: any,
     spriteSheets: CanvasImageSource[],
-    SPRITE_SCALE: number
+    SPRITE_SCALE: number,
+    blocks?: MapBlock[] // Optional: blocks to draw instead of global mapBlocks
 ) {
     if (!spriteMap || !mapLoaded) return;
 
@@ -119,7 +120,10 @@ export function drawMap(
     const minX = camera.x - tileW, maxX = camera.x + ctx.canvas.width + tileW;
     const minY = camera.y - tileH, maxY = camera.y + ctx.canvas.height + tileH;
 
-    for (const block of mapBlocks) {
+    // Use provided blocks array or global mapBlocks
+    const blocksToDraw = blocks || mapBlocks;
+
+    for (const block of blocksToDraw) {
         // Only draw visible blocks
         if (
             block.x + tileW < minX || block.x > maxX ||

@@ -92,7 +92,8 @@ function buildSpriteRectMap(spriteMap) {
     return rectMap;
 }
 // Draw map blocks
-export function drawMap(ctx, camera, spriteMap, spriteSheets, SPRITE_SCALE) {
+export function drawMap(ctx, camera, spriteMap, spriteSheets, SPRITE_SCALE, blocks // Optional: blocks to draw instead of global mapBlocks
+) {
     if (!spriteMap || !mapLoaded)
         return;
     // Build rect lookup map once per draw
@@ -102,7 +103,9 @@ export function drawMap(ctx, camera, spriteMap, spriteSheets, SPRITE_SCALE) {
     const tileH = 32 * SPRITE_SCALE;
     const minX = camera.x - tileW, maxX = camera.x + ctx.canvas.width + tileW;
     const minY = camera.y - tileH, maxY = camera.y + ctx.canvas.height + tileH;
-    for (const block of mapBlocks) {
+    // Use provided blocks array or global mapBlocks
+    const blocksToDraw = blocks || mapBlocks;
+    for (const block of blocksToDraw) {
         // Only draw visible blocks
         if (block.x + tileW < minX || block.x > maxX ||
             block.y + tileH < minY || block.y > maxY)

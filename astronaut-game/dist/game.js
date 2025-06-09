@@ -17,7 +17,7 @@ import { Door } from './door.js';
 import { Creature } from './creature.js';
 import { Collectable } from './collectable.js';
 import { makeBlackTransparent, remapSpritePalette, calculateSpriteCollisionBoundingBoxes, calculateAstronautSpriteBoundingBoxes, getSolidBlockAtWorld, getAnyBlockAtWorld, drawEntities } from './utilities.js';
-import { SPRITE_ROW, SPRITE_COL_STAND, SPRITE_COL_FLY_RIGHT, SPRITE_COL_FLY_DIAGONAL, SPRITE_COL_FLY_FLOAT, SPRITE_COL_FLY_DOWN, SPRITE_COL_WALK_START, SPRITE_COL_WALK_RIGHT1, SPRITE_COL_WALK_END, TELEPORT_ANIM_FRAMES, MAP_HEIGHT, SPRITE_SCALE, rememberSound, teleportSound, buttonOnSound, doorOpenSound, doorCloseSound } from './constants.js';
+import { SPRITE_ROW, SPRITE_COL_STAND, SPRITE_COL_FLY_RIGHT, SPRITE_COL_FLY_DIAGONAL, SPRITE_COL_FLY_FLOAT, SPRITE_COL_FLY_DOWN, SPRITE_COL_WALK_START, SPRITE_COL_WALK_RIGHT1, SPRITE_COL_WALK_RIGHT2, SPRITE_COL_WALK_END, TELEPORT_ANIM_FRAMES, MAP_HEIGHT, SPRITE_SCALE, rememberSound, teleportSound, buttonOnSound, doorOpenSound, doorCloseSound } from './constants.js';
 // Instead of dynamic import, fetch the JSON file at runtime for browser compatibility
 let spriteMap;
 function loadSpriteMap() {
@@ -122,6 +122,17 @@ let teleportFlipVertical = false;
 // --- Input state ---
 const keys = {};
 let prevKeys = {};
+// --- Black background block toggles ---
+let showBlackBackgroundBlocks = false; // c key
+let hideBlackBackgroundBlocks = false; // v key
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'c' && !prevKeys['c']) {
+        showBlackBackgroundBlocks = !showBlackBackgroundBlocks;
+    }
+    if (e.key === 'v' && !prevKeys['v']) {
+        hideBlackBackgroundBlocks = !hideBlackBackgroundBlocks;
+    }
+});
 // --- Entity arrays ---
 let buttonEntities = [];
 let doorEntities = [];
@@ -382,7 +393,65 @@ function gameLoop() {
         // --- Draw map blocks ---
         if (spriteSheet && spriteSheet.complete) {
             drawEntities(ctx, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, doorEntities);
-            drawMap(ctx, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE);
+            // Use a filtered array for drawing if hiding black_background blocks
+            const mapBlocksToDraw = hideBlackBackgroundBlocks
+                ? mapBlocks.filter(b => b.type !== 'black_background')
+                : mapBlocks;
+            // Draw map blocks (replace mapBlocks with mapBlocksToDraw in overlays below as well)
+            // Patch: temporarily override mapBlocks for drawMap by monkey-patching global (not ideal, but drawMap uses global)
+            // Instead, draw overlays and highlights using mapBlocksToDraw, but call drawMap as usual
+            // --- Draw overlays and highlights using mapBlocksToDraw ---
+            // --- Highlight all black_background blocks if enabled ---
+            if (showBlackBackgroundBlocks) {
+                ctx.save();
+                ctx.strokeStyle = 'cyan';
+                ctx.lineWidth = 2;
+                for (const block of mapBlocksToDraw) {
+                    if (block.type === 'black_background') {
+                        const bbox = blockInstanceRotatedBoundingBoxes.get(block);
+                        const scale = SPRITE_SCALE;
+                        const tileW = 32 * scale;
+                        const tileH = 32 * scale;
+                        // Center of the sprite
+                        const drawX = block.x - camera.x + tileW / 2;
+                        const drawY = block.y - camera.y + tileH / 2;
+                        ctx.save();
+                        ctx.translate(drawX, drawY);
+                        // Apply rotation if present
+                        if (block.rotation) {
+                            if (block.rotation >= 1 && block.rotation <= 4) {
+                                ctx.rotate(((block.rotation - 1) * Math.PI) / 2);
+                            }
+                            else if (block.rotation === 5) {
+                                ctx.scale(-1, 1);
+                            }
+                            else if (block.rotation === 6) {
+                                ctx.scale(1, -1);
+                            }
+                            else if (block.rotation === 7) {
+                                ctx.scale(-1, -1);
+                            }
+                        }
+                        // Draw bbox relative to sprite center
+                        if (bbox) {
+                            const x = -tileW / 2 + bbox.minX * scale;
+                            const y = -tileH / 2 + bbox.minY * scale;
+                            const w = bbox.width * scale;
+                            const h = bbox.height * scale;
+                            ctx.strokeRect(x, y, w, h);
+                        }
+                        else {
+                            // fallback: draw full tile
+                            ctx.strokeRect(-tileW / 2, -tileH / 2, tileW, tileH);
+                        }
+                        ctx.restore();
+                    }
+                }
+                ctx.restore();
+            }
+            // Draw map blocks (drawMap uses global mapBlocks, so black_background blocks will be hidden only if not present in mapBlocks)
+            // To hide, we need to patch drawMap to accept a blocks array, or temporarily monkey-patch global. For now, just draw overlays using mapBlocksToDraw.
+            drawMap(ctx, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksToDraw);
             drawEntities(ctx, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, buttonEntities);
             drawEntities(ctx, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureEntities);
             drawEntities(ctx, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, collectableEntities);
@@ -638,13 +707,40 @@ function gameLoop() {
             ctx.fillText(`flyDir: ${flyDir} | flySwitching: ${flySwitching} | flySwitchStep: ${flySwitchStep}`, 10, debugY);
             debugY += 16;
             // --- Show block under mouse cursor with palette and rotation ---
-            const block = getAnyBlockAtWorld(mouseWorld.x, mouseWorld.y, SPRITE_SCALE, mapBlocks, doorEntities, buttonEntities, creatureEntities);
+            let block = null;
+            if (hideBlackBackgroundBlocks) {
+                // Find the topmost non-black_background block under the mouse
+                const blocksUnderMouse = mapBlocks.filter(b => {
+                    const tileW = 32 * SPRITE_SCALE;
+                    const tileH = 32 * SPRITE_SCALE;
+                    return (mouseWorld.x >= b.x && mouseWorld.x < b.x + tileW &&
+                        mouseWorld.y >= b.y && mouseWorld.y < b.y + tileH);
+                });
+                block = blocksUnderMouse.find(b => b.type !== 'black_background');
+                // If not found, fall back to doors/buttons/creatures
+                if (!block) {
+                    block = getAnyBlockAtWorld(mouseWorld.x, mouseWorld.y, SPRITE_SCALE, [], doorEntities, buttonEntities, creatureEntities);
+                }
+            }
+            else {
+                block = getAnyBlockAtWorld(mouseWorld.x, mouseWorld.y, SPRITE_SCALE, mapBlocks, doorEntities, buttonEntities, creatureEntities);
+            }
             if (block) {
                 ctx.fillText(`Block under cursor: ${block.type} (${block.x},${block.y}) id: ${(_a = block.entityId) !== null && _a !== void 0 ? _a : 'n/a'} palette: ${(_b = block.palette) !== null && _b !== void 0 ? _b : 0} rotation: ${(_c = block.rotation) !== null && _c !== void 0 ? _c : 0}` +
                     (typeof block.locked !== "undefined" ? ` locked: ${block.locked}` : ""), 10, debugY);
                 // Extra: If it's a door, show palette_locked/palette_unlocked
                 if (block.type && block.type.startsWith("door")) {
                     ctx.fillText(`palette_locked: ${block.palette_locked} palette_unlocked: ${block.palette_unlocked}`, 10, debugY + 16);
+                    debugY += 16;
+                }
+                // Show tight bounding box world min/max if available
+                const bbox = blockInstanceRotatedBoundingBoxes.get(block);
+                if (bbox) {
+                    const worldMinX = Math.round(block.x + bbox.minX * SPRITE_SCALE);
+                    const worldMinY = Math.round(block.y + bbox.minY * SPRITE_SCALE);
+                    const worldMaxX = Math.round(block.x + bbox.maxX * SPRITE_SCALE);
+                    const worldMaxY = Math.round(block.y + bbox.maxY * SPRITE_SCALE);
+                    ctx.fillText(`Tight bbox: worldMin=(${worldMinX},${worldMinY}) worldMax=(${worldMaxX},${worldMaxY})`, 10, debugY + 16);
                     debugY += 16;
                 }
             }
@@ -656,7 +752,7 @@ function gameLoop() {
             ctx.restore();
         }
         // --- Draw world coordinate bounding boxes for each block in green if enabled ---
-        if (showBlockBoundingBoxes) {
+        if (showWorldBoundingBoxes) {
             ctx.save();
             ctx.strokeStyle = 'lime';
             ctx.lineWidth = 2;
@@ -697,11 +793,63 @@ function gameLoop() {
                 ctx.strokeRect(x, y, w, h);
                 ctx.restore();
             };
-            mapBlocks.forEach(drawWorldBBox);
+            // Use mapBlocksToDraw for overlays
+            const mapBlocksToDraw = hideBlackBackgroundBlocks
+                ? mapBlocks.filter(b => b.type !== 'black_background')
+                : mapBlocks;
+            mapBlocksToDraw.forEach(drawWorldBBox);
             doorEntities.forEach(drawWorldBBox);
             buttonEntities.forEach(drawWorldBBox);
             creatureEntities.forEach(drawWorldBBox);
             collectableEntities.forEach(drawWorldBBox);
+            ctx.restore();
+        }
+        // --- Highlight all black_background blocks if enabled ---
+        if (showBlackBackgroundBlocks) {
+            ctx.save();
+            ctx.strokeStyle = 'cyan';
+            ctx.lineWidth = 2;
+            for (const block of mapBlocks) {
+                if (block.type === 'black_background') {
+                    const bbox = blockInstanceRotatedBoundingBoxes.get(block);
+                    const scale = SPRITE_SCALE;
+                    const tileW = 32 * scale;
+                    const tileH = 32 * scale;
+                    // Center of the sprite
+                    const drawX = block.x - camera.x + tileW / 2;
+                    const drawY = block.y - camera.y + tileH / 2;
+                    ctx.save();
+                    ctx.translate(drawX, drawY);
+                    // Apply rotation if present
+                    if (block.rotation) {
+                        if (block.rotation >= 1 && block.rotation <= 4) {
+                            ctx.rotate(((block.rotation - 1) * Math.PI) / 2);
+                        }
+                        else if (block.rotation === 5) {
+                            ctx.scale(-1, 1);
+                        }
+                        else if (block.rotation === 6) {
+                            ctx.scale(1, -1);
+                        }
+                        else if (block.rotation === 7) {
+                            ctx.scale(-1, -1);
+                        }
+                    }
+                    // Draw bbox relative to sprite center
+                    if (bbox) {
+                        const x = -tileW / 2 + bbox.minX * scale;
+                        const y = -tileH / 2 + bbox.minY * scale;
+                        const w = bbox.width * scale;
+                        const h = bbox.height * scale;
+                        ctx.strokeRect(x, y, w, h);
+                    }
+                    else {
+                        // fallback: draw full tile
+                        ctx.strokeRect(-tileW / 2, -tileH / 2, tileW, tileH);
+                    }
+                    ctx.restore();
+                }
+            }
             ctx.restore();
         }
         // --- Animate transition to fly_down if flying and down + (q or w) pressed ---
@@ -988,7 +1136,7 @@ function gameLoop() {
                         [SPRITE_COL_STAND]: "stand",
                         [SPRITE_COL_WALK_START]: "walk_right1",
                         [SPRITE_COL_WALK_RIGHT1]: "walk_right2",
-                        [SPRITE_COL_WALK_END]: "walk_right3"
+                        [SPRITE_COL_WALK_RIGHT2]: "walk_right3"
                     };
                     spriteName = colToName[spriteCol];
                 }
@@ -1077,17 +1225,13 @@ let worldMapRotatedBoundingBoxes = {};
 // --- Rotated bounding boxes for each block instance (populated after map/entities load) ---
 let blockInstanceRotatedBoundingBoxes = new WeakMap();
 // --- Show tight bounding boxes toggle ---
-let showTightBoundingBoxes = false;
+let showTightBoundingBoxes = false; // Red sprite-based bounding boxes
+let showWorldBoundingBoxes = false; // Green world-coordinate bounding boxes
 window.addEventListener('keydown', (e) => {
     if (e.key === 'b')
         showTightBoundingBoxes = !showTightBoundingBoxes;
+    if (e.key === 'f')
+        showWorldBoundingBoxes = !showWorldBoundingBoxes;
     if (e.key === 'd')
         gameState.debugMode = !gameState.debugMode;
-});
-// --- Show block bounding boxes toggle ---
-let showBlockBoundingBoxes = false;
-window.addEventListener('keydown', (e) => {
-    if (e.key === "G" || e.key === "g") {
-        showBlockBoundingBoxes = !showBlockBoundingBoxes;
-    }
 });
