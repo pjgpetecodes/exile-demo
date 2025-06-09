@@ -74,18 +74,20 @@ export class Door {
             this._closeDelay += 1 / 60;
             if (this._closeDelay >= 2) { // 2 seconds
                 this._animationDirection = "close";
+                this._closeSoundPlayed = false; // Reset sound flag when starting close
             }
         }
         // Animate close (slide right)
         else if (this._animationDirection === "close") {
             if (this.animationOffset < 0) {
-                // Play door close sound at the start of closing
-                if (this.animationOffset === -70) {
+                // Play door close sound at the start of closing (when offset crosses -70)
+                if (this.animationOffset <= -70 && !this._closeSoundPlayed) {
                     try {
                         doorCloseSound.currentTime = 0;
                         doorCloseSound.play();
                     }
                     catch (_b) { }
+                    this._closeSoundPlayed = true;
                 }
                 this.animationOffset += 1.5;
                 if (this.animationOffset > 0)
@@ -101,6 +103,7 @@ export class Door {
                 delete this._animationDirection;
                 delete this._closeDelay;
                 delete this._originalX;
+                delete this._closeSoundPlayed;
             }
         }
     }
