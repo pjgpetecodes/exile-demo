@@ -192,6 +192,15 @@ function init() {
                 spriteSheet = new Image();
                 spriteSheet.src = canvasWithTransparency.toDataURL();
                 spriteSheet.onload = () => __awaiter(this, void 0, void 0, function* () {
+                    // Make spriteSheet globally accessible for pixel-perfect collision
+                    window.spriteSheet = spriteSheet;
+                    // Also create and store a 2D context for pixel access
+                    const tempCanvas = document.createElement('canvas');
+                    tempCanvas.width = spriteSheet.width;
+                    tempCanvas.height = spriteSheet.height;
+                    const tempCtx = tempCanvas.getContext('2d');
+                    tempCtx.drawImage(spriteSheet, 0, 0);
+                    window._spriteSheetCtx = tempCtx;
                     // Generate remapped sprite sheets for each palette
                     remappedSpriteSheets = palettes.map((palette, idx) => idx === 0
                         ? spriteSheet // Palette 0: always original

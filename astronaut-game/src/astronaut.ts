@@ -271,12 +271,65 @@ export function checkAstronautCollisions(buttonEntities: Button[],
                     x: blockBelow.x, y: blockBelow.y, w: (blockBelow as any).width ?? tileW, h: (blockBelow as any).height ?? tileH
                 });
             }
-            // Use green bounding box for landing
-            // Place astronaut just above the green box
-            nextY = greenHit.worldMinY - halfH;
-            astronaut.velocity.y = 0;
-            gameState.astronaut.isLanded = true;
-            console.log('[DEBUG] Astronaut landed on greenBBox. Velocity set to 0, isLanded = true');
+            // --- PIXEL PERFECT COLLISION CHECK ---
+            let pixelSolid = true;
+            try {
+                // Get spriteSheet from window (must be set in game.ts)
+                const spriteSheet = (window as any).spriteSheet;
+                const spriteRects = (window as any).spriteRects || spriteMap; // fallback to spriteMap if not set
+                if (spriteSheet && spriteRects) {
+                    // Find the sprite rect for this block type
+                    let rect = null;
+                    if (spriteRects instanceof Array) {
+                        outer: for (let row = 0; row < spriteRects.length; row++) {
+                            for (let col = 0; col < spriteRects[row].length; col++) {
+                                if (spriteRects[row][col].name === greenHit.type) {
+                                    rect = spriteRects[row][col];
+                                    break outer;
+                                }
+                            }
+                        }
+                    } else if (spriteRects[greenHit.type]) {
+                        rect = spriteRects[greenHit.type];
+                    }
+                    if (rect) {
+                        // Calculate astronaut's feet position in block local coordinates
+                        const localX = Math.floor((nextX - greenHit.worldMinX) / SPRITE_SCALE);
+                        const localY = Math.floor((greenHit.worldMaxY - (nextY + halfH)) / SPRITE_SCALE); // feet at bottom
+                        // Clamp to sprite rect
+                        const px = Math.max(0, Math.min(rect.w - 1, localX));
+                        const py = Math.max(0, Math.min(rect.h - 1, localY));
+                        // Get pixel data
+                        const ctx = (window as any)._spriteSheetCtx;
+                        if (ctx) {
+                            const imageData = ctx.getImageData(rect.x + px, rect.y + py, 1, 1).data;
+                            const alpha = imageData[3];
+                            pixelSolid = alpha > 0;
+                            console.log('[DEBUG][pixelPerfect] Checking pixel at', { px, py, alpha, pixelSolid });
+                        } else {
+                            // If no ctx, fallback to green box only
+                            console.warn('[DEBUG][pixelPerfect] No _spriteSheetCtx found on window, skipping pixel check');
+                        }
+                    } else {
+                        console.warn('[DEBUG][pixelPerfect] No sprite rect found for', greenHit.type);
+                    }
+                } else {
+                    console.warn('[DEBUG][pixelPerfect] spriteSheet or spriteRects not found on window');
+                }
+            } catch (e) {
+                console.error('[DEBUG][pixelPerfect] Error during pixel-perfect check:', e);
+            }
+            if (pixelSolid) {
+                // Use green bounding box for landing
+                // Place astronaut just above the green box
+                nextY = greenHit.worldMinY - halfH;
+                astronaut.velocity.y = 0;
+                gameState.astronaut.isLanded = true;
+                console.log('[DEBUG] Astronaut landed on greenBBox. Velocity set to 0, isLanded = true');
+            } else {
+                // Not solid at pixel, keep falling
+                console.log('[DEBUG][pixelPerfect] Pixel not solid, ignoring greenBBox for landing');
+            }
         }
         // ...do not use old tile collision for landing anymore...
     } else if (astronaut.velocity.y < 0) {
