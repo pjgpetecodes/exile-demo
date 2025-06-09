@@ -287,19 +287,55 @@ export async function calculateSpriteCollisionBoundingBoxes(
             rect = spriteMap[type];
         }
         if (!box || !rect) continue;
-        // Calculate world coordinates for this entity's bounding box using SPRITE_SCALE, rounding to integers
         const scale = SPRITE_SCALE;
-        const width = Math.round(box.width * scale);
-        const height = Math.round(box.height * scale);
-        const worldMinX = Math.round(entity.x + box.minX * scale);
-        const worldMinY = Math.round(entity.y + box.minY * scale);
+        const tileW = 32 * scale;
+        const tileH = 32 * scale;
+        // Center of the sprite in world coordinates
+        const cx = entity.x + tileW / 2;
+        const cy = entity.y + tileH / 2;
+        // Corners relative to sprite center
+        let corners = [
+            { x: -tileW / 2 + box.minX * scale, y: -tileH / 2 + box.minY * scale },
+            { x: -tileW / 2 + box.maxX * scale, y: -tileH / 2 + box.minY * scale },
+            { x: -tileW / 2 + box.maxX * scale, y: -tileH / 2 + box.maxY * scale },
+            { x: -tileW / 2 + box.minX * scale, y: -tileH / 2 + box.maxY * scale }
+        ];
+        // Apply rotation/flip
+        let rot = entity.rotation || 0;
+        corners = corners.map(pt => {
+            let { x, y } = pt;
+            if (rot >= 1 && rot <= 4) {
+                const angle = ((rot - 1) * Math.PI) / 2;
+                const cos = Math.cos(angle);
+                const sin = Math.sin(angle);
+                const nx = x * cos - y * sin;
+                const ny = x * sin + y * cos;
+                x = nx; y = ny;
+            } else if (rot === 5) {
+                x = -x;
+            } else if (rot === 6) {
+                y = -y;
+            } else if (rot === 7) {
+                x = -x; y = -y;
+            }
+            // Translate to world
+            return { x: cx + x, y: cy + y };
+        });
+        const xs = corners.map(pt => pt.x);
+        const ys = corners.map(pt => pt.y);
+        const worldMinX = Math.round(Math.min(...xs));
+        const worldMinY = Math.round(Math.min(...ys));
+        const worldMaxX = Math.round(Math.max(...xs));
+        const worldMaxY = Math.round(Math.max(...ys));
+        const width = worldMaxX - worldMinX + 1;
+        const height = worldMaxY - worldMinY + 1;
         const worldBox = {
             entityId: entity.entityId, // always use entity.entityId
             type,
             worldMinX,
             worldMinY,
-            worldMaxX: worldMinX + width - 1,
-            worldMaxY: worldMinY + height - 1,
+            worldMaxX,
+            worldMaxY,
             width,
             height
         };

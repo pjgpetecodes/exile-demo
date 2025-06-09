@@ -811,10 +811,47 @@ async function gameLoop() {
             // Show tight bounding box world min/max if available
             const bbox = blockInstanceRotatedBoundingBoxes.get(block);
             if (bbox) {
-                const worldMinX = Math.round(block.x + bbox.minX * SPRITE_SCALE);
-                const worldMinY = Math.round(block.y + bbox.minY * SPRITE_SCALE);
-                const worldMaxX = Math.round(block.x + bbox.maxX * SPRITE_SCALE);
-                const worldMaxY = Math.round(block.y + bbox.maxY * SPRITE_SCALE);
+                // Calculate transformed corners (with rotation/flip)
+                const scale = SPRITE_SCALE;
+                const tileW = 32 * scale;
+                const tileH = 32 * scale;
+                const cx = block.x + tileW / 2;
+                const cy = block.y + tileH / 2;
+                // Corners relative to sprite center
+                let corners = [
+                    { x: -tileW / 2 + bbox.minX * scale, y: -tileH / 2 + bbox.minY * scale },
+                    { x: -tileW / 2 + bbox.maxX * scale, y: -tileH / 2 + bbox.minY * scale },
+                    { x: -tileW / 2 + bbox.maxX * scale, y: -tileH / 2 + bbox.maxY * scale },
+                    { x: -tileW / 2 + bbox.minX * scale, y: -tileH / 2 + bbox.maxY * scale }
+                ];
+                // Apply rotation/flip
+                let rot = block.rotation || 0;
+                corners = corners.map(pt => {
+                    let { x, y } = pt;
+                    // Rotation (1-4 = 0,90,180,270 deg)
+                    if (rot >= 1 && rot <= 4) {
+                        const angle = ((rot - 1) * Math.PI) / 2;
+                        const cos = Math.cos(angle);
+                        const sin = Math.sin(angle);
+                        const nx = x * cos - y * sin;
+                        const ny = x * sin + y * cos;
+                        x = nx; y = ny;
+                    } else if (rot === 5) {
+                        x = -x;
+                    } else if (rot === 6) {
+                        y = -y;
+                    } else if (rot === 7) {
+                        x = -x; y = -y;
+                    }
+                    // Translate to world
+                    return { x: cx + x, y: cy + y };
+                });
+                const xs = corners.map(pt => pt.x);
+                const ys = corners.map(pt => pt.y);
+                const worldMinX = Math.round(Math.min(...xs));
+                const worldMinY = Math.round(Math.min(...ys));
+                const worldMaxX = Math.round(Math.max(...xs));
+                const worldMaxY = Math.round(Math.max(...ys));
                 ctx!.fillText(
                     `Tight bbox: worldMin=(${worldMinX},${worldMinY}) worldMax=(${worldMaxX},${worldMaxY})`,
                     10, debugY + 16
