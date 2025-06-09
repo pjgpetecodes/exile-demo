@@ -112,5 +112,25 @@ export class Door {
                 delete (this as any)._closeSoundPlayed;
             }
         }
+        // --- Update green world bounding box for this door ---
+        if (typeof window !== 'undefined' && (window as any).spriteWorldBoundingBoxes) {
+            const greenBoxes = (window as any).spriteWorldBoundingBoxes;
+            const boxes = greenBoxes[this.type];
+            if (boxes && Array.isArray(boxes)) {
+                for (const box of boxes) {
+                    // Use doorID for matching, fallback to entityId if present
+                    if ((box.doorID !== undefined && box.doorID === this.doorID) || (box.entityId !== undefined && box.entityId === (this as any).entityId)) {
+                        // Calculate offset from originalX
+                        const offsetX = this.x - ((this as any)._originalX ?? this.x);
+                        // Shift the bounding box by offsetX
+                        const width = box.worldMaxX - box.worldMinX;
+                        box.worldMinX = Math.round(this.x);
+                        box.worldMaxX = Math.round(this.x + width);
+                        // Optionally, update other properties if needed
+                        break;
+                    }
+                }
+            }
+        }
     }
 }

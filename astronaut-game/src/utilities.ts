@@ -157,12 +157,20 @@ export function getSolidBlockAtWorld(
     for (const b of mapBlocks) {
         const tileW = 32 * SPRITE_SCALE;
         const tileH = 32 * SPRITE_SCALE;
+        // --- DEBUG: Log greenBBox and test point if present ---
+        if (b.greenBBox) {
+            const bbox = b.greenBBox;
+            const inside = x >= bbox.worldMinX && x < bbox.worldMaxX && y >= bbox.worldMinY && y < bbox.worldMaxY;
+            console.log('[DEBUG][greenBBox] Block', b.type, 'entityId', b.entityId, 'greenBBox:', bbox, 'Test point:', {x, y}, 'Inside:', inside);
+        }
         if (
             x >= b.x && x < b.x + tileW &&
             y >= b.y && y < b.y + tileH
         ) {
             // Only treat as solid if collision is not explicitly false
             if (b.collision !== false) {
+                // --- DEBUG: Log which block is returned ---
+                console.log('[DEBUG] Returning solid map block:', b.type, 'entityId', b.entityId);
                 return b;
             }
         }

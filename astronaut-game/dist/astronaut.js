@@ -183,46 +183,91 @@ function checkButtonCollision(x, y, SPRITE_SCALE, buttonEntities) {
     return undefined;
 }
 export function checkAstronautCollisions(buttonEntities, spriteMap, SPRITE_SCALE, mapBlocks, doorEntities, nextX, nextY, gameState) {
+    var _a, _b;
     // Use unique variable names for collision bounding box
     const tileWCol = 32; // Default/fallback, not used for block lookup anymore
     const tileHCol = 32;
     const halfW = tileWCol / 2;
     const halfH = tileHCol / 2;
+    // --- DEBUG: Log astronaut position and velocity before collision checks ---
+    console.log('[DEBUG] Astronaut collision check:', {
+        nextX, nextY, velocity: Object.assign({}, astronaut.velocity), isLanded: astronaut.isLanded
+    });
     // Check vertical movement (feet and head)
     if (astronaut.velocity.y > 0) {
         // Moving down: check feet
-        const blockBelow = getSolidBlockAtWorld(nextX, nextY + halfH, spriteMap, SPRITE_SCALE, mapBlocks, doorEntities, buttonEntities);
+        const testX = nextX;
+        const testY = nextY + halfH;
+        console.log('[DEBUG] Checking feet collision at', { x: testX, y: testY });
+        // --- GREEN BBOX DEBUG: Check global green bounding boxes ---
+        const greenBoxes = window.spriteWorldBoundingBoxes;
+        let greenHit = null;
+        if (greenBoxes) {
+            for (const type in greenBoxes) {
+                for (const box of greenBoxes[type]) {
+                    const inside = testX >= box.worldMinX && testX < box.worldMaxX && testY >= box.worldMinY && testY < box.worldMaxY;
+                    if (inside) {
+                        greenHit = box;
+                        console.log('[DEBUG][greenBBox] HIT', box.type, 'entityId', box.entityId, 'at', { x: testX, y: testY }, 'box:', box);
+                    }
+                    else {
+                        console.log('[DEBUG][greenBBox] MISS', box.type, 'entityId', box.entityId, 'at', { x: testX, y: testY }, 'box:', box);
+                    }
+                }
+            }
+            if (!greenHit) {
+                console.log('[DEBUG][greenBBox] No green bounding box hit for feet at', { x: testX, y: testY });
+            }
+        }
+        else {
+            console.log('[DEBUG][greenBBox] No global green bounding boxes found');
+        }
         // --- Button collision logging ---
         const btn = checkButtonCollision(nextX, nextY + halfH, SPRITE_SCALE, buttonEntities);
         if (btn) {
             console.log(`Astronaut collided with button at (${btn.x},${btn.y})`);
         }
-        // Fix: Only access blockBelow.type if blockBelow is defined
-        let rect = null;
-        if (blockBelow) {
-            if (spriteMap instanceof Array) {
-                outer: for (let row = 0; row < spriteMap.length; row++) {
-                    for (let col = 0; col < spriteMap[row].length; col++) {
-                        if (spriteMap[row][col].name === blockBelow.type) {
-                            rect = spriteMap[row][col];
-                            break outer;
-                        }
-                    }
+        // --- Use green bounding box for landing logic ---
+        if (greenHit) {
+            // Try to find the corresponding tile block for this entityId for comparison
+            let blockBelow = null;
+            for (const b of mapBlocks) {
+                if (b.entityId && b.entityId === greenHit.entityId) {
+                    blockBelow = b;
+                    break;
                 }
             }
-            else if (spriteMap[blockBelow.type]) {
-                rect = spriteMap[blockBelow.type];
+            if (blockBelow) {
+                // Log both green box and tile box for comparison
+                const tileW = 32 * SPRITE_SCALE;
+                const tileH = 32 * SPRITE_SCALE;
+                console.log('[DEBUG][compare] Landing on greenBBox entityId', greenHit.entityId, 'greenBBox:', greenHit, 'tileBox:', {
+                    x: blockBelow.x, y: blockBelow.y, w: (_a = blockBelow.width) !== null && _a !== void 0 ? _a : tileW, h: (_b = blockBelow.height) !== null && _b !== void 0 ? _b : tileH
+                });
             }
-            // Use 32 * SPRITE_SCALE for tile height
-            const tileH = 32 * SPRITE_SCALE;
-            nextY = blockBelow.y - halfH;
+            // Use green bounding box for landing
+            // Place astronaut just above the green box
+            nextY = greenHit.worldMinY - halfH;
             astronaut.velocity.y = 0;
             gameState.astronaut.isLanded = true;
+            console.log('[DEBUG] Astronaut landed on greenBBox. Velocity set to 0, isLanded = true');
         }
+        // ...do not use old tile collision for landing anymore...
     }
     else if (astronaut.velocity.y < 0) {
         // Moving up: check head
+        console.log('[DEBUG] Checking head collision at', { x: nextX, y: nextY - halfH });
         const blockAbove = getSolidBlockAtWorld(nextX, nextY - halfH, spriteMap, SPRITE_SCALE, mapBlocks, doorEntities, buttonEntities);
+        if (blockAbove) {
+            // --- DEBUG: Log blockAbove details and bounding box ---
+            console.log('[DEBUG] blockAbove found:', blockAbove);
+            if (blockAbove.greenBBox) {
+                console.log('[DEBUG] blockAbove greenBBox:', blockAbove.greenBBox);
+            }
+        }
+        else {
+            console.log('[DEBUG] No blockAbove found at', { x: nextX, y: nextY - halfH });
+        }
         // --- Button collision logging ---
         const btn = checkButtonCollision(nextX, nextY - halfH, SPRITE_SCALE, buttonEntities);
         if (btn) {
@@ -245,6 +290,8 @@ export function checkAstronautCollisions(buttonEntities, spriteMap, SPRITE_SCALE
             }
             // Use 32 * SPRITE_SCALE for tile height
             const tileH = 32 * SPRITE_SCALE;
+            // --- DEBUG: Log collision resolution ---
+            console.log('[DEBUG] Hitting head on blockAbove. Setting nextY:', blockAbove.y + tileH + halfH);
             nextY = blockAbove.y + tileH + halfH;
             astronaut.velocity.y = 0;
         }
@@ -257,8 +304,18 @@ export function checkAstronautCollisions(buttonEntities, spriteMap, SPRITE_SCALE
         let blockSide = null;
         if (astronaut.velocity.x > 0) {
             // Moving right
+            console.log('[DEBUG] Checking right side collision at', { x: nextX + halfW, y1: sideY1, y2: sideY2 });
             blockSide = getSolidBlockAtWorld(nextX + halfW, sideY1, spriteMap, SPRITE_SCALE, mapBlocks, doorEntities, buttonEntities) ||
                 getSolidBlockAtWorld(nextX + halfW, sideY2, spriteMap, SPRITE_SCALE, mapBlocks, doorEntities, buttonEntities);
+            if (blockSide) {
+                console.log('[DEBUG] blockSide (right) found:', blockSide);
+                if (blockSide.greenBBox) {
+                    console.log('[DEBUG] blockSide greenBBox:', blockSide.greenBBox);
+                }
+            }
+            else {
+                console.log('[DEBUG] No blockSide (right) found at', { x: nextX + halfW, y1: sideY1, y2: sideY2 });
+            }
             // --- Button collision logging ---
             const btn1 = checkButtonCollision(nextX + halfW, sideY1, SPRITE_SCALE, buttonEntities);
             const btn2 = checkButtonCollision(nextX + halfW, sideY2, SPRITE_SCALE, buttonEntities);
@@ -293,14 +350,26 @@ export function checkAstronautCollisions(buttonEntities, spriteMap, SPRITE_SCALE
                 }
                 // Use 32 * SPRITE_SCALE for tile width
                 const tileW = 32 * SPRITE_SCALE;
+                // --- DEBUG: Log collision resolution ---
+                console.log('[DEBUG] Collided with right blockSide. Setting nextX:', blockSide.x - halfW);
                 nextX = blockSide.x - halfW;
                 astronaut.velocity.x = 0;
             }
         }
         else {
             // Moving left
+            console.log('[DEBUG] Checking left side collision at', { x: nextX - halfW, y1: sideY1, y2: sideY2 });
             blockSide = getSolidBlockAtWorld(nextX - halfW, sideY1, spriteMap, SPRITE_SCALE, mapBlocks, doorEntities, buttonEntities) ||
                 getSolidBlockAtWorld(nextX - halfW, sideY2, spriteMap, SPRITE_SCALE, mapBlocks, doorEntities, buttonEntities);
+            if (blockSide) {
+                console.log('[DEBUG] blockSide (left) found:', blockSide);
+                if (blockSide.greenBBox) {
+                    console.log('[DEBUG] blockSide greenBBox:', blockSide.greenBBox);
+                }
+            }
+            else {
+                console.log('[DEBUG] No blockSide (left) found at', { x: nextX - halfW, y1: sideY1, y2: sideY2 });
+            }
             // --- Button collision logging ---
             const btn1 = checkButtonCollision(nextX - halfW, sideY1, SPRITE_SCALE, buttonEntities);
             const btn2 = checkButtonCollision(nextX - halfW, sideY2, SPRITE_SCALE, buttonEntities);
@@ -335,9 +404,15 @@ export function checkAstronautCollisions(buttonEntities, spriteMap, SPRITE_SCALE
                 }
                 // Use 32 * SPRITE_SCALE for tile width
                 const tileW = 32 * SPRITE_SCALE;
+                // --- DEBUG: Log collision resolution ---
+                console.log('[DEBUG] Collided with left blockSide. Setting nextX:', blockSide.x + tileW + halfW);
                 nextX = blockSide.x + tileW + halfW;
                 astronaut.velocity.x = 0;
             }
         }
     }
+    // --- DEBUG: Log astronaut state after collision checks ---
+    console.log('[DEBUG] Astronaut after collision:', {
+        nextX, nextY, velocity: Object.assign({}, astronaut.velocity), isLanded: astronaut.isLanded
+    });
 }

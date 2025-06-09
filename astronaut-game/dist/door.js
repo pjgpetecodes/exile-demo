@@ -33,6 +33,7 @@ export class Door {
         this.animating = true;
     }
     updateAnimation(doorOpenSound, doorCloseSound) {
+        var _a;
         // Only animate horizontal, unlocked doors
         if (!this.animating || this.type !== "door_horizontal" || this.locked)
             return;
@@ -60,7 +61,7 @@ export class Door {
                         doorOpenSound.currentTime = 0;
                         doorOpenSound.play();
                     }
-                    catch (_a) { }
+                    catch (_b) { }
                 }
             }
             else {
@@ -86,7 +87,7 @@ export class Door {
                         doorCloseSound.currentTime = 0;
                         doorCloseSound.play();
                     }
-                    catch (_b) { }
+                    catch (_c) { }
                     this._closeSoundPlayed = true;
                 }
                 this.animationOffset += 1.5;
@@ -104,6 +105,26 @@ export class Door {
                 delete this._closeDelay;
                 delete this._originalX;
                 delete this._closeSoundPlayed;
+            }
+        }
+        // --- Update green world bounding box for this door ---
+        if (typeof window !== 'undefined' && window.spriteWorldBoundingBoxes) {
+            const greenBoxes = window.spriteWorldBoundingBoxes;
+            const boxes = greenBoxes[this.type];
+            if (boxes && Array.isArray(boxes)) {
+                for (const box of boxes) {
+                    // Use doorID for matching, fallback to entityId if present
+                    if ((box.doorID !== undefined && box.doorID === this.doorID) || (box.entityId !== undefined && box.entityId === this.entityId)) {
+                        // Calculate offset from originalX
+                        const offsetX = this.x - ((_a = this._originalX) !== null && _a !== void 0 ? _a : this.x);
+                        // Shift the bounding box by offsetX
+                        const width = box.worldMaxX - box.worldMinX;
+                        box.worldMinX = Math.round(this.x);
+                        box.worldMaxX = Math.round(this.x + width);
+                        // Optionally, update other properties if needed
+                        break;
+                    }
+                }
             }
         }
     }
