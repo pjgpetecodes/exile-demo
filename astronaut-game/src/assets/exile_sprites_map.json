@@ -33,7 +33,7 @@
     { "name": "slime2", 				"x": 298,  	"y": 34, 	"w": 32, 	"h": 32, 	"palette": 0 },
     { "name": "slime3", 				"x": 331,  	"y": 34, 	"w": 32, 	"h": 32, 	"palette": 0 },
     { "name": "slime4", 				"x": 364,  	"y": 34, 	"w": 32, 	"h": 32, 	"palette": 0 },
-    { "name": "slime5", 				"x": 397,  	"y": 34, 	"w": 32, 	"h": 32, 	"palette": 0 },
+    { "name": "boulder", 				"x": 397,  	"y": 34, 	"w": 32, 	"h": 32, 	"palette": 0 },
     { "name": "grenade", 				"x": 430,  	"y": 34, 	"w": 32, 	"h": 32, 	"palette": 0 },
     { "name": "crystal", 				"x": 463,  	"y": 34, 	"w": 32, 	"h": 32, 	"palette": 0 },
     { "name": "ship_1", 				"x": 496,  	"y": 34, 	"w": 32, 	"h": 32, 	"palette": 0 },

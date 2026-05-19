@@ -49,8 +49,8 @@ export class Door {
     }
 
     updateAnimation(doorOpenSound: HTMLAudioElement, doorCloseSound: HTMLAudioElement) {
-        // Only animate horizontal, unlocked doors
-        if (!this.animating || this.type !== "door_horizontal" || this.locked) return;
+        // Only horizontal doors animate; lock state should not interrupt an animation already in progress
+        if (!this.animating || this.type !== "door_horizontal") return;
 
         // Initialize animation state if needed
         if (typeof (this as any)._originalX === "undefined") {

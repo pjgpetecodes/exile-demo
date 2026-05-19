@@ -26,6 +26,11 @@ export let downPressed = false;
 export let leftPressed = false;
 export let rightPressed = false;
 
+type MovementModifiers = {
+    walkSpeedScale?: number;
+    flightControlScale?: number;
+};
+
 // Reset astronaut state
 export function resetAstronaut() {
     astronaut.position = { x: 400, y: 778 };
@@ -50,13 +55,20 @@ export function applyLandingMomentum(horizontalVelocity: number) {
 // Main movement handler (call this from game.ts)
 export function handleAstronautMovement(
     keys: Record<string, boolean>,
-    allowWalking: boolean = true
+    allowWalking: boolean = true,
+    modifiers: MovementModifiers = {}
 ) {
+    const walkSpeedScale = modifiers.walkSpeedScale ?? 1;
+    const flightControlScale = modifiers.flightControlScale ?? 1;
     // Upward (P or ArrowUp)
     if ((keys['p'] || keys['ArrowUp'])) {
         if (astronaut.isLanded) {
             astronaut.position.y -= 1;
             astronaut.isLanded = false;
+            astronaut.velocity.y = Math.min(
+                astronaut.velocity.y,
+                MOVEMENT_SETTINGS.groundedTakeoffImpulse * flightControlScale
+            );
         }
         upPressed = true;
     } else {
@@ -75,14 +87,17 @@ export function handleAstronautMovement(
     if (keys['q']) {
         leftPressed = true;
         if (astronaut.isLanded) {
-            if (walkSpeed === 0) walkSpeed = MOVEMENT_SETTINGS.walkStartSpeed;
-            walkSpeed += MOVEMENT_SETTINGS.walkAccel;
-            if (walkSpeed > MOVEMENT_SETTINGS.walkMaxSpeed) walkSpeed = MOVEMENT_SETTINGS.walkMaxSpeed;
+            const walkStartSpeed = MOVEMENT_SETTINGS.walkStartSpeed * walkSpeedScale;
+            const walkAccel = MOVEMENT_SETTINGS.walkAccel * walkSpeedScale;
+            const walkMaxSpeed = MOVEMENT_SETTINGS.walkMaxSpeed * walkSpeedScale;
+            if (walkSpeed === 0) walkSpeed = walkStartSpeed;
+            walkSpeed += walkAccel;
+            if (walkSpeed > walkMaxSpeed) walkSpeed = walkMaxSpeed;
             if (allowWalking) astronaut.position.x -= walkSpeed;
             facingLeft = true;
         } else {
-            astronaut.velocity.x -= MOVEMENT_SETTINGS.flyAccel;
-            if (astronaut.velocity.x < -MOVEMENT_SETTINGS.flyMaxSpeed) astronaut.velocity.x = -MOVEMENT_SETTINGS.flyMaxSpeed;
+            astronaut.velocity.x -= MOVEMENT_SETTINGS.flyAccel * flightControlScale;
+            if (astronaut.velocity.x < -(MOVEMENT_SETTINGS.flyMaxSpeed * flightControlScale)) astronaut.velocity.x = -(MOVEMENT_SETTINGS.flyMaxSpeed * flightControlScale);
             facingLeft = true;
         }
     }
@@ -91,14 +106,17 @@ export function handleAstronautMovement(
     if (keys['w']) {
         rightPressed = true;
         if (astronaut.isLanded) {
-            if (walkSpeed === 0) walkSpeed = MOVEMENT_SETTINGS.walkStartSpeed;
-            walkSpeed += MOVEMENT_SETTINGS.walkAccel;
-            if (walkSpeed > MOVEMENT_SETTINGS.walkMaxSpeed) walkSpeed = MOVEMENT_SETTINGS.walkMaxSpeed;
+            const walkStartSpeed = MOVEMENT_SETTINGS.walkStartSpeed * walkSpeedScale;
+            const walkAccel = MOVEMENT_SETTINGS.walkAccel * walkSpeedScale;
+            const walkMaxSpeed = MOVEMENT_SETTINGS.walkMaxSpeed * walkSpeedScale;
+            if (walkSpeed === 0) walkSpeed = walkStartSpeed;
+            walkSpeed += walkAccel;
+            if (walkSpeed > walkMaxSpeed) walkSpeed = walkMaxSpeed;
             if (allowWalking) astronaut.position.x += walkSpeed;
             facingLeft = false;
         } else {
-            astronaut.velocity.x += MOVEMENT_SETTINGS.flyAccel;
-            if (astronaut.velocity.x > MOVEMENT_SETTINGS.flyMaxSpeed) astronaut.velocity.x = MOVEMENT_SETTINGS.flyMaxSpeed;
+            astronaut.velocity.x += MOVEMENT_SETTINGS.flyAccel * flightControlScale;
+            if (astronaut.velocity.x > MOVEMENT_SETTINGS.flyMaxSpeed * flightControlScale) astronaut.velocity.x = MOVEMENT_SETTINGS.flyMaxSpeed * flightControlScale;
             facingLeft = false;
         }
     }
@@ -116,7 +134,7 @@ export function handleAstronautMovement(
                 astronaut.position.x += walkSpeed;
             }
         }
-        walkSpeed -= MOVEMENT_SETTINGS.walkAccel * 0.5;
+        walkSpeed -= MOVEMENT_SETTINGS.walkAccel * walkSpeedScale * 0.5;
         if (walkSpeed < 0) walkSpeed = 0;
     }
 
@@ -131,13 +149,13 @@ export function handleAstronautMovement(
 
     // Upward/downward acceleration if up or down is held and astronaut is not landed
     if ((keys['p'] || keys['ArrowUp']) && !astronaut.isLanded) {
-        astronaut.velocity.y += MOVEMENT_SETTINGS.upAccel * 0.25;
+        astronaut.velocity.y += MOVEMENT_SETTINGS.upAccel * flightControlScale * 0.25;
         if (astronaut.velocity.y < MOVEMENT_SETTINGS.maxUpSpeed) {
             astronaut.velocity.y = MOVEMENT_SETTINGS.maxUpSpeed;
         }
     }
     if (downPressed && !astronaut.isLanded) {
-        astronaut.velocity.y += MOVEMENT_SETTINGS.downAccel * 0.5;
+        astronaut.velocity.y += MOVEMENT_SETTINGS.downAccel * flightControlScale * 0.5;
         if (astronaut.velocity.y > MOVEMENT_SETTINGS.flyDownTerminalVelocity) {
             astronaut.velocity.y = MOVEMENT_SETTINGS.flyDownTerminalVelocity;
         }
@@ -156,7 +174,7 @@ export function handleAstronautMovement(
                 astronaut.position.x += walkSpeed;
             }
         }
-        walkSpeed -= MOVEMENT_SETTINGS.walkAccel * 0.5;
+        walkSpeed -= MOVEMENT_SETTINGS.walkAccel * walkSpeedScale * 0.5;
         if (walkSpeed < 0) walkSpeed = 0;
     }
 
@@ -253,6 +271,29 @@ function collidesOnSide(
     doorEntities: Door[],
     buttonEntities: Button[]
 ) {
+    const collision = findCollisionOnSide(
+        centerX,
+        centerY,
+        side,
+        spriteMap,
+        SPRITE_SCALE,
+        mapBlocks,
+        doorEntities,
+        buttonEntities
+    );
+    return collision?.hit;
+}
+
+function findCollisionOnSide(
+    centerX: number,
+    centerY: number,
+    side: 'down' | 'up' | 'left' | 'right',
+    spriteMap: any,
+    SPRITE_SCALE: number,
+    mapBlocks: MapBlock[],
+    doorEntities: Door[],
+    buttonEntities: Button[]
+) {
     const probeOffset = side === 'right' || side === 'down' ? 1 : -1;
 
     for (const point of getSideProbePoints(centerX, centerY, side)) {
@@ -266,11 +307,75 @@ function collidesOnSide(
             buttonEntities
         );
         if (hit) {
-            return hit;
+            return {
+                hit,
+                point: {
+                    x: point.x + (side === 'left' || side === 'right' ? probeOffset : 0),
+                    y: point.y + (side === 'up' || side === 'down' ? probeOffset : 0)
+                }
+            };
         }
     }
 
     return undefined;
+}
+
+function estimateCeilingSlope(
+    hitEntity: unknown,
+    collisionPoint: { x: number; y: number },
+    spriteMap: any,
+    SPRITE_SCALE: number,
+    mapBlocks: MapBlock[],
+    doorEntities: Door[],
+    buttonEntities: Button[]
+) {
+    const samples: { x: number; y: number }[] = [];
+    const horizontalRadius = 8;
+    const verticalRadius = 8;
+
+    for (let offsetX = -horizontalRadius; offsetX <= horizontalRadius; offsetX++) {
+        const sampleX = collisionPoint.x + offsetX;
+        let boundaryY: number | undefined;
+        for (let sampleY = collisionPoint.y - verticalRadius; sampleY <= collisionPoint.y + verticalRadius; sampleY++) {
+            const hit = getSolidBlockAtWorld(
+                sampleX,
+                sampleY,
+                spriteMap,
+                SPRITE_SCALE,
+                mapBlocks,
+                doorEntities,
+                buttonEntities
+            );
+            if (hit === hitEntity) {
+                boundaryY = sampleY;
+            }
+        }
+
+        if (boundaryY !== undefined) {
+            samples.push({ x: sampleX, y: boundaryY });
+        }
+    }
+
+    if (samples.length < 3) {
+        return undefined;
+    }
+
+    const meanX = samples.reduce((sum, sample) => sum + sample.x, 0) / samples.length;
+    const meanY = samples.reduce((sum, sample) => sum + sample.y, 0) / samples.length;
+    let numerator = 0;
+    let denominator = 0;
+
+    for (const sample of samples) {
+        const dx = sample.x - meanX;
+        numerator += dx * (sample.y - meanY);
+        denominator += dx * dx;
+    }
+
+    if (denominator === 0) {
+        return undefined;
+    }
+
+    return numerator / denominator;
 }
 
 function findGroundSupport(
@@ -444,7 +549,7 @@ export function checkAstronautCollisions(buttonEntities: Button[],
         if (stepY !== 0) {
             const attemptY = resolvedY + stepY;
             const side = stepY > 0 ? 'down' : 'up';
-            const verticalHit = collidesOnSide(
+            const verticalCollision = findCollisionOnSide(
                 resolvedX,
                 attemptY,
                 side,
@@ -454,12 +559,48 @@ export function checkAstronautCollisions(buttonEntities: Button[],
                 doorEntities,
                 buttonEntities
             );
+            const verticalHit = verticalCollision?.hit;
 
             if (verticalHit) {
                 recordTriggerEntity(verticalHit);
-                velocityY = 0;
                 if (stepY > 0) {
+                    velocityY = 0;
                     isLanded = true;
+                } else {
+                    const impactSpeed = Math.abs(velocityY);
+                    const reboundSpeed = impactSpeed >= MOVEMENT_SETTINGS.headBounceMinImpactSpeed
+                        ? impactSpeed * MOVEMENT_SETTINGS.headBounceRestitution
+                        : 0;
+                    const ceilingSlope = verticalCollision
+                        ? estimateCeilingSlope(
+                            verticalHit,
+                            verticalCollision.point,
+                            spriteMap,
+                            SPRITE_SCALE,
+                            mapBlocks,
+                            doorEntities,
+                            buttonEntities
+                        )
+                        : undefined;
+
+                    if (
+                        reboundSpeed > 0 &&
+                        ceilingSlope !== undefined &&
+                        Math.abs(ceilingSlope) >= MOVEMENT_SETTINGS.headBounceSlopeThreshold
+                    ) {
+                        let tangentX = 1;
+                        let tangentY = ceilingSlope;
+                        if (tangentY > 0) {
+                            tangentX *= -1;
+                            tangentY *= -1;
+                        }
+                        const tangentLength = Math.hypot(tangentX, tangentY);
+                        velocityX = (tangentX / tangentLength) * reboundSpeed;
+                        velocityY = (tangentY / tangentLength) * reboundSpeed;
+                    } else {
+                        velocityY = reboundSpeed;
+                    }
+                    isLanded = false;
                 }
             } else {
                 resolvedY = attemptY;

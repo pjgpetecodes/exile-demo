@@ -283,19 +283,22 @@ export function getSolidBlockAtWorld(
 }
 
 // --- After all assets are loaded, calculate tightest collision bounding boxes ---
-// Now includes mapBlocks, doorEntities, and buttonEntities
 export async function calculateSpriteCollisionBoundingBoxes(
     spriteSheet: HTMLImageElement,
     spriteMap: any,
     mapBlocks: any[],
     doorEntities: any[],
-    buttonEntities: any[]
+    buttonEntities: any[],
+    creatureEntities: any[] = [],
+    collectableEntities: any[] = []
 ) {
     // Gather all entities with collision = true
     const allEntities = [
         ...mapBlocks.filter(b => b.collision === true),
         ...doorEntities.filter(d => d.collision === true),
-        ...buttonEntities.filter(b => b.collision === true)
+        ...buttonEntities.filter(b => b.collision === true),
+        ...creatureEntities.filter(c => c.collision === true),
+        ...collectableEntities.filter(c => c.collision === true)
     ];
     // Find all unique sprite types with collision = true
     const typesWithCollision = new Set(allEntities.map(e => e.type));
