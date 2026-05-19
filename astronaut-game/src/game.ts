@@ -21,7 +21,7 @@ import {
     SPRITE_ROW, SPRITE_COL_STAND, SPRITE_COL_FLY_RIGHT, SPRITE_COL_FLY_DIAGONAL,
     SPRITE_COL_FLY_FLOAT, SPRITE_COL_FLY_DOWN, SPRITE_COL_WALK_START, SPRITE_COL_WALK_RIGHT1,
     SPRITE_COL_WALK_RIGHT2, SPRITE_COL_WALK_END, TELEPORT_ANIM_FRAMES, MAP_WIDTH, MAP_HEIGHT,
-    SPRITE_SCALE, rememberSound, teleportSound, buttonOnSound, doorOpenSound, doorCloseSound, ouchSounds
+    SPRITE_SCALE, rememberSound, teleportSound, buttonOnSound, doorOpenSound, doorCloseSound, getSound, saveSound, ouchSounds
 } from './constants.js';
 
 // Instead of dynamic import, fetch the JSON file at runtime for browser compatibility
@@ -281,12 +281,26 @@ async function init() {
 
                 // --- Calculate rotated bounding boxes for each type and rotation ---
                 worldMapRotatedBoundingBoxes = {};
+                const getSpriteRectForType = (type: string) => {
+                    if (spriteMap instanceof Array) {
+                        for (const row of spriteMap) {
+                            for (const sprite of row) {
+                                if (sprite.name === type) {
+                                    return sprite;
+                                }
+                            }
+                        }
+                        return null;
+                    }
+                    return spriteMap[type] || null;
+                };
                 for (const [type, bbox] of Object.entries(worldMapBoundingBoxes)) {
+                    const spriteRect = getSpriteRectForType(type);
+                    if (!spriteRect) {
+                        continue;
+                    }
                     worldMapRotatedBoundingBoxes[type] = {};
                     for (let rot = 0; rot <= 7; rot++) {
-                        // Compute rotated bounding box corners
-                        const w = bbox.width;
-                        const h = bbox.height;
                         // Corners relative to (0,0)
                         let corners = [
                             { x: bbox.minX, y: bbox.minY },
@@ -294,30 +308,29 @@ async function init() {
                             { x: bbox.maxX, y: bbox.maxY },
                             { x: bbox.minX, y: bbox.maxY }
                         ];
-                        // Center for rotation
-                        const cx = bbox.minX + w / 2;
-                        const cy = bbox.minY + h / 2;
+                        // Match draw-time transforms by rotating/flipping around the full sprite center.
+                        const cx = (spriteRect.w - 1) / 2;
+                        const cy = (spriteRect.h - 1) / 2;
                         let rotated: { x: number, y: number }[];
                         if (rot >= 1 && rot <= 4) {
-                            // 1=90deg, 2=180deg, 3=270deg, 4=360deg
                             const angle = (rot - 1) * (Math.PI / 2);
                             rotated = corners.map(pt => {
                                 const dx = pt.x - cx;
                                 const dy = pt.y - cy;
                                 return {
-                                    x: cx + dx * Math.cos(angle) - dy * Math.sin(angle),
-                                    y: cy + dx * Math.sin(angle) + dy * Math.cos(angle)
+                                    x: Math.round(cx + dx * Math.cos(angle) - dy * Math.sin(angle)),
+                                    y: Math.round(cy + dx * Math.sin(angle) + dy * Math.cos(angle))
                                 };
                             });
                         } else if (rot === 5) {
                             // flip X
-                            rotated = corners.map(pt => ({ x: 2 * cx - pt.x, y: pt.y }));
+                            rotated = corners.map(pt => ({ x: Math.round(2 * cx - pt.x), y: pt.y }));
                         } else if (rot === 6) {
                             // flip Y
-                            rotated = corners.map(pt => ({ x: pt.x, y: 2 * cy - pt.y }));
+                            rotated = corners.map(pt => ({ x: pt.x, y: Math.round(2 * cy - pt.y) }));
                         } else if (rot === 7) {
                             // flip X and Y
-                            rotated = corners.map(pt => ({ x: 2 * cx - pt.x, y: 2 * cy - pt.y }));
+                            rotated = corners.map(pt => ({ x: Math.round(2 * cx - pt.x), y: Math.round(2 * cy - pt.y) }));
                         } else {
                             // rot == 0, no rotation
                             rotated = corners;
@@ -1198,9 +1211,6 @@ async function gameLoop() {
     // --- Render astronaut at center of screen with correct animation ---
     if ((astronautSpriteSource || spriteSheet) && (spriteSheet && spriteSheet.complete)) {
         drawThrowGuide(ctx!, camera);
-        if (heldCollectable) {
-            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, [heldCollectable]);
-        }
         const spriteRect = getSpriteRectFromMap(SPRITE_ROW, spriteCol);
         const SPRITE_W = spriteRect.w;
         const SPRITE_H = spriteRect.h;
@@ -1301,6 +1311,10 @@ async function gameLoop() {
             doorEntities.forEach(drawBBox);
             buttonEntities.forEach(drawBBox);
         }
+
+        if (heldCollectable) {
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, [heldCollectable]);
+        }
     }
 
     prevKeys = { ...keys };
@@ -1325,7 +1339,11 @@ type CollisionBounds = {
 
 function getEntityCollisionBounds(entity: { type: string, rotation?: number }) {
     const tileSize = 32 * SPRITE_SCALE;
-    const bbox = blockInstanceRotatedBoundingBoxes.get(entity as object);
+    const rotation = typeof entity.rotation === "number" ? entity.rotation : 0;
+    const bbox =
+        worldMapRotatedBoundingBoxes[entity.type]?.[rotation] ||
+        blockInstanceRotatedBoundingBoxes.get(entity as object) ||
+        worldMapBoundingBoxes[entity.type];
     if (bbox) {
         return {
             left: bbox.minX * SPRITE_SCALE,
@@ -1461,7 +1479,7 @@ function getAimOriginPosition() {
     };
 }
 
-function getReleasedCollectablePosition() {
+function getReleasedCollectablePosition(thrown: boolean) {
     if (!heldCollectable) {
         return {
             x: astronaut.position.x,
@@ -1470,15 +1488,24 @@ function getReleasedCollectablePosition() {
     }
 
     const heldPosition = getHeldCollectableTargetPosition();
-    const releaseX = heldPosition.x + getFacingSign() * (MOVEMENT_SETTINGS.droppedCollectableForwardOffset - MOVEMENT_SETTINGS.heldCollectableForwardOffset);
     return {
-        x: releaseX,
+        x: thrown
+            ? heldPosition.x + getFacingSign() * (MOVEMENT_SETTINGS.droppedCollectableForwardOffset - MOVEMENT_SETTINGS.heldCollectableForwardOffset)
+            : heldPosition.x,
         y: heldPosition.y
+    };
+}
+
+function getDroppedCollectableReleaseVelocity(): Position {
+    return {
+        x: astronaut.velocity.x * MOVEMENT_SETTINGS.droppedCollectableMomentumTransfer,
+        y: astronaut.velocity.y * MOVEMENT_SETTINGS.droppedCollectableMomentumTransfer
     };
 }
 
 function updateHeldCollectablePosition() {
     if (!heldCollectable) return;
+    heldCollectable.setHeldFacing(facingLeft);
     const heldPosition = getHeldCollectableTargetPosition();
     heldCollectable.x = heldPosition.x;
     heldCollectable.y = heldPosition.y;
@@ -1544,6 +1571,7 @@ function storeHeldCollectable() {
     storedCollectables.push(heldCollectable);
     inventoryCycleIndex = storedCollectables.length - 1;
     heldCollectable = null;
+    try { saveSound.currentTime = 0; saveSound.play(); } catch {}
 }
 
 function cycleStoredCollectable() {
@@ -1565,8 +1593,9 @@ function cycleStoredCollectable() {
     }
 
     const nextCollectable = storedCollectables.splice(inventoryCycleIndex, 1)[0];
-    nextCollectable.hold();
+    nextCollectable.hold(facingLeft);
     heldCollectable = nextCollectable;
+    try { getSound.currentTime = 0; getSound.play(); } catch {}
 
     if (storedCollectables.length === 0) {
         inventoryCycleIndex = -1;
@@ -1577,8 +1606,15 @@ function cycleStoredCollectable() {
 
 function releaseHeldCollectable(velocity: Position = { x: 0, y: 0 }) {
     if (!heldCollectable) return;
-    const releasePosition = getReleasedCollectablePosition();
-    heldCollectable.release(releasePosition.x, releasePosition.y, velocity);
+    const isThrown = velocity.x !== 0 || velocity.y !== 0;
+    const releasePosition = getReleasedCollectablePosition(isThrown);
+    const releaseVelocity = isThrown ? velocity : getDroppedCollectableReleaseVelocity();
+    heldCollectable.release(
+        releasePosition.x,
+        releasePosition.y,
+        releaseVelocity,
+        isThrown ? 0 : MOVEMENT_SETTINGS.droppedCollectableAstronautIgnoreFrames
+    );
     heldCollectable = null;
 }
 
@@ -1586,7 +1622,7 @@ function handleCollectableInteractions() {
     if (keys[','] && !prevKeys[','] && !heldCollectable) {
         const pickupTarget = getNearestPickupCollectable();
         if (pickupTarget) {
-            pickupTarget.hold();
+            pickupTarget.hold(facingLeft);
             heldCollectable = pickupTarget;
         }
     }
@@ -1720,6 +1756,7 @@ function resolveAstronautCollectableCollisions(horizontalMovement: number, verti
 
     for (const collectable of collectableEntities) {
         if (!isLooseCollectable(collectable)) continue;
+        if (collectable.astronautCollisionIgnoreFrames > 0) continue;
 
         const bounds = getEntityCollisionBounds(collectable);
         const collectableRect = getEntityRect(collectable.x, collectable.y, bounds);
@@ -1762,6 +1799,10 @@ function resolveAstronautCollectableCollisions(horizontalMovement: number, verti
 
 function updateSingleCollectablePhysics(collectable: Collectable) {
     if (!isLooseCollectable(collectable)) return;
+
+    if (collectable.astronautCollisionIgnoreFrames > 0) {
+        collectable.astronautCollisionIgnoreFrames--;
+    }
 
     const collisionBounds = getEntityCollisionBounds(collectable);
     collectable.velocity.y = Math.min(

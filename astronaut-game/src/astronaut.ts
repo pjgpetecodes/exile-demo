@@ -467,6 +467,116 @@ function tryStepUp(
     return undefined;
 }
 
+function isAstronautOverlappingSolid(
+    centerX: number,
+    centerY: number,
+    spriteMap: any,
+    SPRITE_SCALE: number,
+    mapBlocks: MapBlock[],
+    doorEntities: Door[],
+    buttonEntities: Button[]
+) {
+    const offsets = getAstronautCollisionOffsets();
+    const sampleXs = sampleEdge(centerX + offsets.left + 1, centerX + offsets.right - 1, 6);
+    const sampleYs = sampleEdge(centerY + offsets.top + 1, centerY + offsets.bottom - 1, 6);
+
+    for (const sampleY of sampleYs) {
+        for (const sampleX of sampleXs) {
+            const hit = getSolidBlockAtWorld(
+                sampleX,
+                sampleY,
+                spriteMap,
+                SPRITE_SCALE,
+                mapBlocks,
+                doorEntities,
+                buttonEntities
+            );
+            if (hit) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+function resolveAstronautOverlap(
+    centerX: number,
+    centerY: number,
+    deltaX: number,
+    deltaY: number,
+    spriteMap: any,
+    SPRITE_SCALE: number,
+    mapBlocks: MapBlock[],
+    doorEntities: Door[],
+    buttonEntities: Button[]
+) {
+    if (!isAstronautOverlappingSolid(centerX, centerY, spriteMap, SPRITE_SCALE, mapBlocks, doorEntities, buttonEntities)) {
+        return { x: centerX, y: centerY };
+    }
+
+    const preferredDirections = [
+        { x: -Math.sign(deltaX || 0), y: 0 },
+        { x: 0, y: -Math.sign(deltaY || 0) },
+        { x: 0, y: -1 },
+        { x: Math.sign(deltaX || 1), y: 0 },
+        { x: 0, y: 1 },
+        { x: -1, y: 0 },
+        { x: 1, y: 0 }
+    ].filter((direction, index, directions) =>
+        !(direction.x === 0 && direction.y === 0) &&
+        directions.findIndex(other => other.x === direction.x && other.y === direction.y) === index
+    );
+
+    for (let distance = 1; distance <= 24; distance++) {
+        const candidates: { x: number; y: number; score: number }[] = [];
+
+        for (const direction of preferredDirections) {
+            candidates.push({
+                x: centerX + direction.x * distance,
+                y: centerY + direction.y * distance,
+                score: Math.abs(direction.x * distance) + Math.abs(direction.y * distance)
+            });
+        }
+
+        for (let offsetX = -distance; offsetX <= distance; offsetX++) {
+            candidates.push({
+                x: centerX + offsetX,
+                y: centerY - distance,
+                score: Math.abs(offsetX) + distance
+            });
+            candidates.push({
+                x: centerX + offsetX,
+                y: centerY + distance,
+                score: Math.abs(offsetX) + distance
+            });
+        }
+
+        for (let offsetY = -distance + 1; offsetY <= distance - 1; offsetY++) {
+            candidates.push({
+                x: centerX - distance,
+                y: centerY + offsetY,
+                score: Math.abs(offsetY) + distance
+            });
+            candidates.push({
+                x: centerX + distance,
+                y: centerY + offsetY,
+                score: Math.abs(offsetY) + distance
+            });
+        }
+
+        candidates.sort((left, right) => left.score - right.score);
+
+        for (const candidate of candidates) {
+            if (!isAstronautOverlappingSolid(candidate.x, candidate.y, spriteMap, SPRITE_SCALE, mapBlocks, doorEntities, buttonEntities)) {
+                return candidate;
+            }
+        }
+    }
+
+    return { x: centerX, y: centerY };
+}
+
 export function checkAstronautCollisions(buttonEntities: Button[], 
     spriteMap: any, SPRITE_SCALE: number, 
     mapBlocks: MapBlock[], 
@@ -634,6 +744,20 @@ export function checkAstronautCollisions(buttonEntities: Button[],
         velocityY = 0;
         resolvedY = support.snappedY;
     }
+
+    const depenetratedPosition = resolveAstronautOverlap(
+        resolvedX,
+        resolvedY,
+        deltaX,
+        deltaY,
+        spriteMap,
+        SPRITE_SCALE,
+        mapBlocks,
+        doorEntities,
+        buttonEntities
+    );
+    resolvedX = depenetratedPosition.x;
+    resolvedY = depenetratedPosition.y;
 
     return {
         nextX: resolvedX,

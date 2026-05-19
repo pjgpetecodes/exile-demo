@@ -24,6 +24,8 @@ export const teleportSound = new Audio('./src/assets/teleport.wav');
 export const buttonOnSound = new Audio('./src/assets/button_on.wav');
 export const doorOpenSound = new Audio('./src/assets/door_open.wav');
 export const doorCloseSound = new Audio('./src/assets/door_close.wav');
+export const getSound = new Audio('./src/assets/get.wav');
+export const saveSound = new Audio('./src/assets/save.wav');
 export const ouchSounds = [
     new Audio('./src/assets/ouch_1.wav'),
     new Audio('./src/assets/ouch_2.wav')

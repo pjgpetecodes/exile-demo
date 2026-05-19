@@ -36,6 +36,8 @@ export const MOVEMENT_SETTINGS = {
     heldCollectableForwardOffset: 28,
     heldCollectableVerticalOffset: -6,
     droppedCollectableForwardOffset: 24,
+    droppedCollectableAstronautIgnoreFrames: 18,
+    droppedCollectableMomentumTransfer: 0.75,
     throwAngleAdjustDegreesPerFrame: 1.6,
     throwVelocity: 7,
     throwGuideLength: 200,
