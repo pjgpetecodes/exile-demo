@@ -1,7 +1,7 @@
 // Main entry point for the astronaut game
-import { Astronaut, GameState } from './types/index.js';
+import { Astronaut, GameState, Position } from './types/index.js';
 import {
-    astronaut, resetAstronaut, flipAstronaut, handleAstronautMovement, applyLandingMomentum, getAstronautCollisionOffsets,
+    astronaut, resetAstronaut, flipAstronaut, handleAstronautMovement, applyLandingMomentum, getAstronautCollisionOffsets, setAstronautCollisionProfile,
     walkSpeed, facingLeft, upPressed, downPressed, leftPressed, rightPressed,
     checkAstronautCollisions
 } from './astronaut.js';
@@ -21,7 +21,7 @@ import {
     SPRITE_ROW, SPRITE_COL_STAND, SPRITE_COL_FLY_RIGHT, SPRITE_COL_FLY_DIAGONAL,
     SPRITE_COL_FLY_FLOAT, SPRITE_COL_FLY_DOWN, SPRITE_COL_WALK_START, SPRITE_COL_WALK_RIGHT1,
     SPRITE_COL_WALK_RIGHT2, SPRITE_COL_WALK_END, TELEPORT_ANIM_FRAMES, MAP_WIDTH, MAP_HEIGHT,
-    SPRITE_SCALE, rememberSound, teleportSound, buttonOnSound, doorOpenSound, doorCloseSound, ouchSounds
+    SPRITE_SCALE, rememberSound, teleportSound, buttonOnSound, doorOpenSound, doorCloseSound, getSound, saveSound, ouchSounds
 } from './constants.js';
 
 // Instead of dynamic import, fetch the JSON file at runtime for browser compatibility
@@ -162,6 +162,39 @@ let buttonEntities: Button[] = [];
 let doorEntities: Door[] = [];
 let creatureEntities: Creature[] = [];
 let collectableEntities: Collectable[] = [];
+let heldCollectable: Collectable | null = null;
+let storedCollectables: Collectable[] = [];
+let inventoryCycleIndex = -1;
+let throwAngleDegrees = 20;
+type ThrowGuideDot = {
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    hue: number;
+    hueDrift: number;
+    flickerOffset: number;
+};
+let throwGuideDots: ThrowGuideDot[] = [];
+let throwGuideDotEmitTimer = 0;
+
+function getCurrentAstronautCollisionProfile() {
+    if (astronaut.isLanded) {
+        return 'stand';
+    }
+
+    if (downPressed && (leftPressed || rightPressed)) {
+        return 'fly_down';
+    }
+    if (leftPressed || rightPressed) {
+        return upPressed ? 'fly_diagonal' : 'fly_right';
+    }
+    if (Math.abs(astronaut.velocity.x) > 0.01) {
+        return 'fly_float';
+    }
+
+    return upPressed ? 'fly_diagonal' : 'fly_float';
+}
 
 // --- Button press debounce state ---
 const buttonPressTimestamps: WeakMap<Button, number> = new WeakMap();
@@ -177,6 +210,19 @@ async function loadButtons() {
     const res = await fetch('./src/assets/buttons.json');
     const arr = await res.json();
     buttonEntities = arr.map((data: any) => assignEntityId(new Button(data)));
+    syncButtonStatesToDoors();
+}
+
+function syncButtonStatesToDoors() {
+    for (const button of buttonEntities) {
+        if (!Array.isArray(button.linkedDoors) || button.linkedDoors.length === 0) {
+            continue;
+        }
+
+        button.active = button.linkedDoors.some((doorID) =>
+            doorEntities.some((door) => door.doorID === doorID && door.locked)
+        );
+    }
 }
 async function loadDoors() {
     const res = await fetch('./src/assets/doors.json');
@@ -192,6 +238,9 @@ async function loadCollectables() {
     const res = await fetch('./src/assets/collectables.json');
     const arr = await res.json();
     collectableEntities = arr.map((data: any) => assignEntityId(new Collectable(data)));
+    storedCollectables = collectableEntities.filter(collectable => collectable.stored);
+    heldCollectable = collectableEntities.find(collectable => collectable.held) ?? null;
+    inventoryCycleIndex = storedCollectables.length > 0 ? storedCollectables.length - 1 : -1;
 }
 
 // --- Map rendering and update logic ---
@@ -235,18 +284,34 @@ async function init() {
                     spriteMap,
                     mapBlocks,
                     doorEntities,
-                    buttonEntities
+                    buttonEntities,
+                    creatureEntities,
+                    collectableEntities
                 );
                 worldMapBoundingBoxes = boundingBoxes;
 
                 // --- Calculate rotated bounding boxes for each type and rotation ---
                 worldMapRotatedBoundingBoxes = {};
+                const getSpriteRectForType = (type: string) => {
+                    if (spriteMap instanceof Array) {
+                        for (const row of spriteMap) {
+                            for (const sprite of row) {
+                                if (sprite.name === type) {
+                                    return sprite;
+                                }
+                            }
+                        }
+                        return null;
+                    }
+                    return spriteMap[type] || null;
+                };
                 for (const [type, bbox] of Object.entries(worldMapBoundingBoxes)) {
+                    const spriteRect = getSpriteRectForType(type);
+                    if (!spriteRect) {
+                        continue;
+                    }
                     worldMapRotatedBoundingBoxes[type] = {};
                     for (let rot = 0; rot <= 7; rot++) {
-                        // Compute rotated bounding box corners
-                        const w = bbox.width;
-                        const h = bbox.height;
                         // Corners relative to (0,0)
                         let corners = [
                             { x: bbox.minX, y: bbox.minY },
@@ -254,30 +319,29 @@ async function init() {
                             { x: bbox.maxX, y: bbox.maxY },
                             { x: bbox.minX, y: bbox.maxY }
                         ];
-                        // Center for rotation
-                        const cx = bbox.minX + w / 2;
-                        const cy = bbox.minY + h / 2;
+                        // Match draw-time transforms by rotating/flipping around the full sprite center.
+                        const cx = (spriteRect.w - 1) / 2;
+                        const cy = (spriteRect.h - 1) / 2;
                         let rotated: { x: number, y: number }[];
                         if (rot >= 1 && rot <= 4) {
-                            // 1=90deg, 2=180deg, 3=270deg, 4=360deg
                             const angle = (rot - 1) * (Math.PI / 2);
                             rotated = corners.map(pt => {
                                 const dx = pt.x - cx;
                                 const dy = pt.y - cy;
                                 return {
-                                    x: cx + dx * Math.cos(angle) - dy * Math.sin(angle),
-                                    y: cy + dx * Math.sin(angle) + dy * Math.cos(angle)
+                                    x: Math.round(cx + dx * Math.cos(angle) - dy * Math.sin(angle)),
+                                    y: Math.round(cy + dx * Math.sin(angle) + dy * Math.cos(angle))
                                 };
                             });
                         } else if (rot === 5) {
                             // flip X
-                            rotated = corners.map(pt => ({ x: 2 * cx - pt.x, y: pt.y }));
+                            rotated = corners.map(pt => ({ x: Math.round(2 * cx - pt.x), y: pt.y }));
                         } else if (rot === 6) {
                             // flip Y
-                            rotated = corners.map(pt => ({ x: pt.x, y: 2 * cy - pt.y }));
+                            rotated = corners.map(pt => ({ x: pt.x, y: Math.round(2 * cy - pt.y) }));
                         } else if (rot === 7) {
                             // flip X and Y
-                            rotated = corners.map(pt => ({ x: 2 * cx - pt.x, y: 2 * cy - pt.y }));
+                            rotated = corners.map(pt => ({ x: Math.round(2 * cx - pt.x), y: Math.round(2 * cy - pt.y) }));
                         } else {
                             // rot == 0, no rotation
                             rotated = corners;
@@ -491,17 +555,29 @@ async function gameLoop() {
         drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksToDraw);
         drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, buttonEntities);
         drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureEntities);
-        drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, collectableEntities);
+        drawEntities(
+            ctx!,
+            camera,
+            spriteMap,
+            remappedSpriteSheets,
+            SPRITE_SCALE,
+            collectableEntities.filter(collectable => !collectable.stored && !collectable.held && !collectable.collected)
+        );
     }
 
     // --- Controls: Upward and horizontal movement ---
     const movementStartX = gameState.astronaut.position.x;
     const movementStartY = gameState.astronaut.position.y;
-    handleAstronautMovement(keys, true);
+    const movementModifiers = getHeldMovementModifiers();
+    handleAstronautMovement(keys, true, {
+        walkSpeedScale: movementModifiers.walkSpeedScale,
+        flightControlScale: movementModifiers.flightControlScale
+    });
     const movementTargetX = astronaut.position.x;
     const movementTargetY = astronaut.position.y;
     astronaut.position.x = movementStartX;
     astronaut.position.y = movementStartY;
+    setAstronautCollisionProfile(getCurrentAstronautCollisionProfile());
 
     // --- Door animation update ---
     for (const door of doorEntities) {
@@ -530,8 +606,8 @@ async function gameLoop() {
     // --- Gravity ---
     applyGravity(
         astronaut,
-        gameState.gravity,
-        downPressed ? MOVEMENT_SETTINGS.flyDownTerminalVelocity : MOVEMENT_SETTINGS.fallTerminalVelocity
+        gameState.gravity * movementModifiers.gravityScale,
+        (downPressed ? MOVEMENT_SETTINGS.flyDownTerminalVelocity : MOVEMENT_SETTINGS.fallTerminalVelocity) * movementModifiers.terminalVelocityScale
     );
     const wasLanded = gameState.astronaut.isLanded;
     const horizontalVelocityBeforeResolution = astronaut.velocity.x;
@@ -595,6 +671,7 @@ async function gameLoop() {
                     door.locked = !door.locked;
                 }
             }
+            syncButtonStatesToDoors();
             buttonPressTimestamps.set(collidedButton, now);
             try { buttonOnSound.currentTime = 0; buttonOnSound.play(); } catch {}
         }
@@ -614,6 +691,16 @@ async function gameLoop() {
         (doorCollision as any)._animationTimer = 0;
         (doorCollision as any)._closeDelay = 0;
     }
+
+    updateThrowAngle();
+    handleCollectableInteractions();
+    updateHeldCollectablePosition();
+    resolveAstronautCollectableCollisions(
+        gameState.astronaut.position.x - movementStartX,
+        gameState.astronaut.position.y - movementStartY
+    );
+    updateCollectablePhysics();
+    updateHeldCollectablePosition();
 
     // Ensure astronaut position is always integer pixels
     gameState.astronaut.position.x = Math.round(gameState.astronaut.position.x);
@@ -819,7 +906,9 @@ async function gameLoop() {
         doorEntities.forEach(drawWorldBBox);
         buttonEntities.forEach(drawWorldBBox);
         creatureEntities.forEach(drawWorldBBox);
-        collectableEntities.forEach(drawWorldBBox);
+        collectableEntities
+            .filter(collectable => !collectable.stored && !collectable.collected)
+            .forEach(drawWorldBBox);
         ctx!.restore();
     }
 
@@ -1132,6 +1221,7 @@ async function gameLoop() {
 
     // --- Render astronaut at center of screen with correct animation ---
     if ((astronautSpriteSource || spriteSheet) && (spriteSheet && spriteSheet.complete)) {
+        updateAndDrawThrowGuide(ctx!, camera);
         const spriteRect = getSpriteRectFromMap(SPRITE_ROW, spriteCol);
         const SPRITE_W = spriteRect.w;
         const SPRITE_H = spriteRect.h;
@@ -1232,6 +1322,10 @@ async function gameLoop() {
             doorEntities.forEach(drawBBox);
             buttonEntities.forEach(drawBBox);
         }
+
+        if (heldCollectable) {
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, [heldCollectable]);
+        }
     }
 
     prevKeys = { ...keys };
@@ -1246,6 +1340,644 @@ let worldMapBoundingBoxes: Record<string, { minX: number, minY: number, maxX: nu
 let worldMapRotatedBoundingBoxes: Record<string, Record<number, { minX: number, minY: number, maxX: number, maxY: number, width: number, height: number }>> = {};
 // --- Rotated bounding boxes for each block instance (populated after map/entities load) ---
 let blockInstanceRotatedBoundingBoxes: WeakMap<object, { minX: number, minY: number, maxX: number, maxY: number, width: number, height: number }> = new WeakMap();
+
+type CollisionBounds = {
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+};
+
+function getEntityCollisionBounds(entity: { type: string, rotation?: number }) {
+    const tileSize = 32 * SPRITE_SCALE;
+    const rotation = typeof entity.rotation === "number" ? entity.rotation : 0;
+    const bbox =
+        worldMapRotatedBoundingBoxes[entity.type]?.[rotation] ||
+        blockInstanceRotatedBoundingBoxes.get(entity as object) ||
+        worldMapBoundingBoxes[entity.type];
+    if (bbox) {
+        return {
+            left: bbox.minX * SPRITE_SCALE,
+            right: (bbox.maxX + 1) * SPRITE_SCALE - 1,
+            top: bbox.minY * SPRITE_SCALE,
+            bottom: (bbox.maxY + 1) * SPRITE_SCALE - 1
+        };
+    }
+
+    return {
+        left: 0,
+        right: tileSize - 1,
+        top: 0,
+        bottom: tileSize - 1
+    };
+}
+
+function getHeldMovementModifiers() {
+    if (!heldCollectable || heldCollectable.stored || !heldCollectable.affectsAstronaut) {
+        return {
+            effectiveWeight: 0,
+            walkSpeedScale: 1,
+            flightControlScale: 1,
+            gravityScale: 1,
+            terminalVelocityScale: 1
+        };
+    }
+
+    const effectiveWeight = heldCollectable.weight < MOVEMENT_SETTINGS.heldWeightIgnoreThreshold
+        ? 0
+        : heldCollectable.weight;
+    if (effectiveWeight === 0) {
+        return {
+            effectiveWeight,
+            walkSpeedScale: 1,
+            flightControlScale: 1,
+            gravityScale: 1,
+            terminalVelocityScale: 1
+        };
+    }
+
+    const walkSpeedScale = Math.max(
+        MOVEMENT_SETTINGS.heldWeightMinScale,
+        1 - effectiveWeight * MOVEMENT_SETTINGS.heldWeightWalkPenaltyPerUnit
+    );
+    const flightControlScale = Math.max(
+        MOVEMENT_SETTINGS.heldWeightMinScale,
+        1 - effectiveWeight * MOVEMENT_SETTINGS.heldWeightFlyPenaltyPerUnit
+    );
+
+    return {
+        effectiveWeight,
+        walkSpeedScale,
+        flightControlScale,
+        gravityScale: 1 + effectiveWeight * MOVEMENT_SETTINGS.heldWeightGravityBonusPerUnit,
+        terminalVelocityScale: 1 + effectiveWeight * MOVEMENT_SETTINGS.heldWeightTerminalVelocityBonusPerUnit
+    };
+}
+
+function getFacingSign() {
+    return facingLeft ? -1 : 1;
+}
+
+function getAstronautRect() {
+    const astronautOffsets = getAstronautCollisionOffsets();
+    return {
+        left: astronaut.position.x + astronautOffsets.left,
+        right: astronaut.position.x + astronautOffsets.right,
+        top: astronaut.position.y + astronautOffsets.top,
+        bottom: astronaut.position.y + astronautOffsets.bottom
+    };
+}
+
+function getEntityRect(
+    entityX: number,
+    entityY: number,
+    collisionBounds: CollisionBounds
+) {
+    return {
+        left: entityX + collisionBounds.left,
+        right: entityX + collisionBounds.right,
+        top: entityY + collisionBounds.top,
+        bottom: entityY + collisionBounds.bottom
+    };
+}
+
+function getEntityCenter(
+    entityX: number,
+    entityY: number,
+    collisionBounds: CollisionBounds
+) {
+    const rect = getEntityRect(entityX, entityY, collisionBounds);
+    return {
+        x: (rect.left + rect.right) / 2,
+        y: (rect.top + rect.bottom) / 2
+    };
+}
+
+function getHeldCollectableTargetPosition(): Position {
+    if (!heldCollectable) {
+        return {
+            x: astronaut.position.x,
+            y: astronaut.position.y
+        };
+    }
+
+    const astronautRect = getAstronautRect();
+    const collectableBounds = getEntityCollisionBounds(heldCollectable);
+    const collectableHalfHeight = (collectableBounds.bottom - collectableBounds.top + 1) / 2;
+    const desiredCenterY = astronaut.position.y + MOVEMENT_SETTINGS.heldCollectableVerticalOffset;
+
+    const x = facingLeft
+        ? astronautRect.left - 2 - collectableBounds.right
+        : astronautRect.right + 2 - collectableBounds.left;
+
+    return {
+        x,
+        y: desiredCenterY - collectableBounds.top - collectableHalfHeight
+    };
+}
+
+function getAimOriginPosition() {
+    if (heldCollectable) {
+        const originPosition = getHeldCollectableTargetPosition();
+        const heldBounds = getEntityCollisionBounds(heldCollectable);
+        return getEntityCenter(originPosition.x, originPosition.y, heldBounds);
+    }
+
+    const astronautRect = getAstronautRect();
+    return {
+        x: facingLeft ? astronautRect.left - 2 : astronautRect.right + 2,
+        y: astronaut.position.y + MOVEMENT_SETTINGS.heldCollectableVerticalOffset
+    };
+}
+
+function getReleasedCollectablePosition(thrown: boolean) {
+    if (!heldCollectable) {
+        return {
+            x: astronaut.position.x,
+            y: astronaut.position.y
+        };
+    }
+
+    const heldPosition = getHeldCollectableTargetPosition();
+    return {
+        x: thrown
+            ? heldPosition.x + getFacingSign() * (MOVEMENT_SETTINGS.droppedCollectableForwardOffset - MOVEMENT_SETTINGS.heldCollectableForwardOffset)
+            : heldPosition.x,
+        y: heldPosition.y
+    };
+}
+
+function getDroppedCollectableReleaseVelocity(): Position {
+    return {
+        x: astronaut.velocity.x * MOVEMENT_SETTINGS.droppedCollectableMomentumTransfer,
+        y: astronaut.velocity.y * MOVEMENT_SETTINGS.droppedCollectableMomentumTransfer
+    };
+}
+
+function updateHeldCollectablePosition() {
+    if (!heldCollectable) return;
+    heldCollectable.setHeldFacing(facingLeft);
+    const heldPosition = getHeldCollectableTargetPosition();
+    heldCollectable.x = heldPosition.x;
+    heldCollectable.y = heldPosition.y;
+    heldCollectable.velocity.x = 0;
+    heldCollectable.velocity.y = 0;
+    heldCollectable.isGrounded = false;
+}
+
+function isLooseCollectable(collectable: Collectable) {
+    return !collectable.collected && !collectable.held && !collectable.stored;
+}
+
+function getEntityOverlapBounds(
+    entityX: number,
+    entityY: number,
+    collisionBounds: CollisionBounds
+) {
+    return getEntityRect(entityX, entityY, collisionBounds);
+}
+
+function isCollectableNearAstronaut(collectable: Collectable) {
+    const collectableBounds = getEntityCollisionBounds(collectable);
+    const collectableRect = getEntityOverlapBounds(collectable.x, collectable.y, collectableBounds);
+    const astronautRect = getAstronautRect();
+
+    const overlaps =
+        collectableRect.right >= astronautRect.left &&
+        collectableRect.left <= astronautRect.right &&
+        collectableRect.bottom >= astronautRect.top &&
+        collectableRect.top <= astronautRect.bottom;
+    if (overlaps) return true;
+
+    const collectableCenter = getEntityCenter(collectable.x, collectable.y, collectableBounds);
+    const dx = collectableCenter.x - astronaut.position.x;
+    const dy = collectableCenter.y - astronaut.position.y;
+    return Math.hypot(dx, dy) <= MOVEMENT_SETTINGS.collectablePickupRange;
+}
+
+function getNearestPickupCollectable() {
+    let bestCollectable: Collectable | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    for (const collectable of collectableEntities) {
+        if (!isLooseCollectable(collectable)) continue;
+        if (!isCollectableNearAstronaut(collectable)) continue;
+        const bounds = getEntityCollisionBounds(collectable);
+        const collectableCenter = getEntityCenter(collectable.x, collectable.y, bounds);
+        const distance = Math.hypot(collectableCenter.x - astronaut.position.x, collectableCenter.y - astronaut.position.y);
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            bestCollectable = collectable;
+        }
+    }
+
+    return bestCollectable;
+}
+
+function storeHeldCollectable() {
+    if (!heldCollectable || !heldCollectable.storable) return;
+    if (storedCollectables.length >= MOVEMENT_SETTINGS.collectableInventoryLimit) return;
+
+    heldCollectable.store();
+    storedCollectables.push(heldCollectable);
+    inventoryCycleIndex = storedCollectables.length - 1;
+    heldCollectable = null;
+    try { saveSound.currentTime = 0; saveSound.play(); } catch {}
+}
+
+function cycleStoredCollectable() {
+    if (heldCollectable && !heldCollectable.storable) {
+        return;
+    }
+
+    if (heldCollectable) {
+        const previousHeldCollectable = heldCollectable;
+        storeHeldCollectable();
+        if (heldCollectable === previousHeldCollectable) {
+            return;
+        }
+    }
+
+    if (storedCollectables.length === 0) return;
+    if (inventoryCycleIndex < 0 || inventoryCycleIndex >= storedCollectables.length) {
+        inventoryCycleIndex = storedCollectables.length - 1;
+    }
+
+    const nextCollectable = storedCollectables.splice(inventoryCycleIndex, 1)[0];
+    nextCollectable.hold(facingLeft);
+    heldCollectable = nextCollectable;
+    try { getSound.currentTime = 0; getSound.play(); } catch {}
+
+    if (storedCollectables.length === 0) {
+        inventoryCycleIndex = -1;
+    } else {
+        inventoryCycleIndex = (inventoryCycleIndex - 1 + storedCollectables.length) % storedCollectables.length;
+    }
+}
+
+function releaseHeldCollectable(velocity: Position = { x: 0, y: 0 }) {
+    if (!heldCollectable) return;
+    const isThrown = velocity.x !== 0 || velocity.y !== 0;
+    const releasePosition = getReleasedCollectablePosition(isThrown);
+    const releaseVelocity = isThrown ? velocity : getDroppedCollectableReleaseVelocity();
+    heldCollectable.release(
+        releasePosition.x,
+        releasePosition.y,
+        releaseVelocity,
+        isThrown ? 0 : MOVEMENT_SETTINGS.droppedCollectableAstronautIgnoreFrames
+    );
+    heldCollectable = null;
+}
+
+function handleCollectableInteractions() {
+    if (keys[','] && !prevKeys[','] && !heldCollectable) {
+        const pickupTarget = getNearestPickupCollectable();
+        if (pickupTarget) {
+            pickupTarget.hold(facingLeft);
+            heldCollectable = pickupTarget;
+        }
+    }
+
+    if (keys['s'] && !prevKeys['s']) {
+        storeHeldCollectable();
+    }
+
+    if (keys['g'] && !prevKeys['g']) {
+        cycleStoredCollectable();
+    }
+
+    if (keys['m'] && !prevKeys['m']) {
+        releaseHeldCollectable();
+    }
+
+    if (keys['.'] && !prevKeys['.'] && heldCollectable) {
+        const angleRadians = (throwAngleDegrees * Math.PI) / 180;
+        const horizontalVelocity = Math.cos(angleRadians) * MOVEMENT_SETTINGS.throwVelocity * getFacingSign();
+        const verticalVelocity = -Math.sin(angleRadians) * MOVEMENT_SETTINGS.throwVelocity;
+        releaseHeldCollectable({ x: horizontalVelocity, y: verticalVelocity });
+    }
+}
+
+function updateThrowAngle() {
+    const raisingThrowAngle = !!keys['o'];
+    const loweringThrowAngle = !!keys['k'];
+    if (raisingThrowAngle === loweringThrowAngle) return;
+
+    const nextAngle = throwAngleDegrees + (raisingThrowAngle ? 1 : -1) * MOVEMENT_SETTINGS.throwAngleAdjustDegreesPerFrame;
+    throwAngleDegrees = Math.max(-90, Math.min(90, nextAngle));
+}
+
+function getCollectableEdgeSamples(
+    entityX: number,
+    entityY: number,
+    collisionBounds: CollisionBounds,
+    side: 'left' | 'right' | 'top' | 'bottom'
+) {
+    const left = entityX + collisionBounds.left;
+    const right = entityX + collisionBounds.right;
+    const top = entityY + collisionBounds.top;
+    const bottom = entityY + collisionBounds.bottom;
+    const sampleEdge = (start: number, end: number, segments = 6) => {
+        if (start >= end) {
+            return [start];
+        }
+
+        const points: number[] = [];
+        for (let index = 0; index <= segments; index++) {
+            points.push(start + ((end - start) * index) / segments);
+        }
+        return points;
+    };
+
+    if (side === 'left' || side === 'right') {
+        const x = side === 'left' ? left : right;
+        return sampleEdge(top + 1, bottom - 1).map((y) => ({ x, y }));
+    }
+
+    const y = side === 'top' ? top : bottom;
+    return sampleEdge(left + 1, right - 1).map((x) => ({ x, y }));
+}
+
+function collidesAtSide(
+    entityX: number,
+    entityY: number,
+    collisionBounds: CollisionBounds,
+    side: 'left' | 'right' | 'top' | 'bottom'
+) {
+    const samples = getCollectableEdgeSamples(entityX, entityY, collisionBounds, side);
+    const probeOffset = side === 'right' || side === 'bottom' ? 1 : -1;
+    return samples.some(sample => !!getSolidBlockAtWorld(
+        sample.x + (side === 'left' || side === 'right' ? probeOffset : 0),
+        sample.y + (side === 'top' || side === 'bottom' ? probeOffset : 0),
+        spriteMap,
+        SPRITE_SCALE,
+        mapBlocks,
+        doorEntities,
+        buttonEntities
+    ));
+}
+
+function getFloorSnapAmount(entityX: number, entityY: number, collisionBounds: CollisionBounds) {
+    for (let distance = 1; distance <= MOVEMENT_SETTINGS.collectableGroundSnapDistance; distance++) {
+        const samples = getCollectableEdgeSamples(entityX, entityY + distance, collisionBounds, 'bottom');
+        const supported = samples.some(sample => !!getSolidBlockAtWorld(
+            sample.x,
+            sample.y + 1,
+            spriteMap,
+            SPRITE_SCALE,
+            mapBlocks,
+            doorEntities,
+            buttonEntities
+        ));
+        if (supported) return distance;
+    }
+
+    return 0;
+}
+
+function moveCollectableHorizontally(collectable: Collectable, amount: number) {
+    if (amount === 0) return 0;
+
+    const direction = amount > 0 ? 1 : -1;
+    const collisionBounds = getEntityCollisionBounds(collectable);
+    const side = direction > 0 ? 'right' : 'left';
+    let moved = 0;
+
+    for (let step = 0; step < Math.abs(amount); step++) {
+        const nextX = collectable.x + direction;
+        if (collidesAtSide(nextX, collectable.y, collisionBounds, side)) {
+            break;
+        }
+        collectable.x = nextX;
+        moved += direction;
+    }
+
+    return moved;
+}
+
+function getCollectablePushScale(collectable: Collectable) {
+    return Math.max(
+        MOVEMENT_SETTINGS.collectablePushMinScale,
+        1 - collectable.weight * MOVEMENT_SETTINGS.collectablePushResistancePerUnit
+    );
+}
+
+function getCollectableBounceRestitution(collectable: Collectable, impactSpeed: number) {
+    if (
+        impactSpeed < MOVEMENT_SETTINGS.collectableBounceMinImpactSpeed ||
+        MOVEMENT_SETTINGS.collectableBounceRestitution <= 0
+    ) {
+        return 0;
+    }
+
+    const weightScale = Math.max(
+        0,
+        1 - collectable.weight * MOVEMENT_SETTINGS.collectableBounceWeightPenaltyPerUnit
+    );
+    if (weightScale === 0) {
+        return 0;
+    }
+
+    const impactScale = Math.max(
+        0,
+        Math.min(
+            1,
+            (impactSpeed - MOVEMENT_SETTINGS.collectableBounceMinImpactSpeed) /
+            Math.max(0.001, MOVEMENT_SETTINGS.collectableTerminalVelocity - MOVEMENT_SETTINGS.collectableBounceMinImpactSpeed)
+        )
+    );
+
+    return MOVEMENT_SETTINGS.collectableBounceRestitution * weightScale * (0.75 + impactScale * 0.25);
+}
+
+function resolveAstronautCollectableCollisions(horizontalMovement: number, verticalMovement: number) {
+    const astronautRect = getAstronautRect();
+
+    for (const collectable of collectableEntities) {
+        if (!isLooseCollectable(collectable)) continue;
+        if (collectable.astronautCollisionIgnoreFrames > 0) continue;
+
+        const bounds = getEntityCollisionBounds(collectable);
+        const collectableRect = getEntityRect(collectable.x, collectable.y, bounds);
+        const overlapX = Math.min(astronautRect.right, collectableRect.right) - Math.max(astronautRect.left, collectableRect.left) + 1;
+        const overlapY = Math.min(astronautRect.bottom, collectableRect.bottom) - Math.max(astronautRect.top, collectableRect.top) + 1;
+
+        if (overlapX <= 0 || overlapY <= 0) {
+            continue;
+        }
+
+        if (horizontalMovement !== 0 && Math.abs(horizontalMovement) >= Math.abs(verticalMovement)) {
+            const pushAmount = Math.ceil(overlapX);
+            const pushScale = getCollectablePushScale(collectable);
+            const requestedPush = Math.max(1, Math.ceil(pushAmount * pushScale));
+            const moved = moveCollectableHorizontally(collectable, Math.sign(horizontalMovement) * requestedPush);
+            const remaining = pushAmount - Math.abs(moved);
+            if (remaining > 0) {
+                gameState.astronaut.position.x -= Math.sign(horizontalMovement) * remaining;
+                astronaut.velocity.x = 0;
+            }
+
+            const pushedVelocity = Math.max(
+                -MOVEMENT_SETTINGS.collectablePushMaxSpeed,
+                Math.min(
+                    MOVEMENT_SETTINGS.collectablePushMaxSpeed,
+                    horizontalMovement * MOVEMENT_SETTINGS.collectablePushVelocityMultiplier * pushScale
+                )
+            );
+            collectable.velocity.x = pushedVelocity;
+        } else if (verticalMovement > 0) {
+            gameState.astronaut.position.y -= Math.ceil(overlapY);
+            astronaut.velocity.y = 0;
+            gameState.astronaut.isLanded = true;
+        } else if (verticalMovement < 0) {
+            gameState.astronaut.position.y += Math.ceil(overlapY);
+            astronaut.velocity.y = 0;
+        }
+    }
+}
+
+function updateSingleCollectablePhysics(collectable: Collectable) {
+    if (!isLooseCollectable(collectable)) return;
+
+    if (collectable.astronautCollisionIgnoreFrames > 0) {
+        collectable.astronautCollisionIgnoreFrames--;
+    }
+
+    const collisionBounds = getEntityCollisionBounds(collectable);
+    collectable.velocity.y = Math.min(
+        collectable.velocity.y + MOVEMENT_SETTINGS.collectableGravity,
+        MOVEMENT_SETTINGS.collectableTerminalVelocity
+    );
+
+    const targetX = collectable.x + collectable.velocity.x;
+    const targetY = collectable.y + collectable.velocity.y;
+    const steps = Math.max(1, Math.ceil(Math.max(Math.abs(targetX - collectable.x), Math.abs(targetY - collectable.y))));
+    let nextX = collectable.x;
+    let nextY = collectable.y;
+    let grounded = false;
+    let bounced = false;
+
+    for (let step = 0; step < steps; step++) {
+        const stepTargetX = collectable.x + ((targetX - collectable.x) * (step + 1)) / steps;
+        const stepTargetY = collectable.y + ((targetY - collectable.y) * (step + 1)) / steps;
+
+        if (stepTargetX !== nextX) {
+            const horizontalDirection = stepTargetX > nextX ? 'right' : 'left';
+            if (!collidesAtSide(stepTargetX, nextY, collisionBounds, horizontalDirection)) {
+                nextX = stepTargetX;
+            } else {
+                collectable.velocity.x = 0;
+            }
+        }
+
+        if (stepTargetY !== nextY) {
+            const verticalDirection = stepTargetY > nextY ? 'bottom' : 'top';
+            if (!collidesAtSide(nextX, stepTargetY, collisionBounds, verticalDirection)) {
+                nextY = stepTargetY;
+            } else {
+                if (verticalDirection === 'bottom') {
+                    const impactSpeed = collectable.velocity.y;
+                    const bounceRestitution = getCollectableBounceRestitution(collectable, impactSpeed);
+                    if (bounceRestitution > 0) {
+                        collectable.velocity.y = -impactSpeed * bounceRestitution;
+                        bounced = true;
+                    } else {
+                        grounded = true;
+                        collectable.velocity.y = 0;
+                    }
+                    break;
+                } else {
+                    collectable.velocity.y = 0;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!grounded && !bounced && collectable.velocity.y >= 0) {
+        const snapAmount = getFloorSnapAmount(nextX, nextY, collisionBounds);
+        if (snapAmount > 0) {
+            const snapImpactSpeed = collectable.velocity.y + snapAmount * MOVEMENT_SETTINGS.collectableGravity * 2;
+            const bounceRestitution = getCollectableBounceRestitution(collectable, snapImpactSpeed);
+            nextY += snapAmount;
+            if (bounceRestitution > 0) {
+                collectable.velocity.y = -snapImpactSpeed * bounceRestitution;
+                bounced = true;
+            } else {
+                grounded = true;
+                collectable.velocity.y = 0;
+            }
+        }
+    }
+
+    collectable.x = Math.round(nextX);
+    collectable.y = Math.round(nextY);
+    collectable.isGrounded = grounded;
+
+    if (grounded) {
+        collectable.velocity.x *= 1 - MOVEMENT_SETTINGS.collectableGroundFriction;
+        if (Math.abs(collectable.velocity.x) < 0.05) {
+            collectable.velocity.x = 0;
+        }
+    }
+}
+
+function updateCollectablePhysics() {
+    for (const collectable of collectableEntities) {
+        updateSingleCollectablePhysics(collectable);
+    }
+}
+
+function updateAndDrawThrowGuide(context: CanvasRenderingContext2D, camera: Position) {
+    const aimingActive = !!keys['o'] || !!keys['k'];
+    if (aimingActive) {
+        throwGuideDotEmitTimer++;
+        if (throwGuideDotEmitTimer % MOVEMENT_SETTINGS.throwGuideDotEmitIntervalFrames === 0) {
+            const origin = getAimOriginPosition();
+            const angleRadians = (throwAngleDegrees * Math.PI) / 180;
+            const directionX = Math.cos(angleRadians) * getFacingSign();
+            const directionY = -Math.sin(angleRadians);
+            for (let index = 0; index < MOVEMENT_SETTINGS.throwGuideDotsPerBurst; index++) {
+                const speedJitter = 0.85 + Math.random() * 0.3;
+                throwGuideDots.push({
+                    x: origin.x,
+                    y: origin.y,
+                    vx: directionX * MOVEMENT_SETTINGS.throwGuideDotSpeed * speedJitter,
+                    vy: directionY * MOVEMENT_SETTINGS.throwGuideDotSpeed * speedJitter,
+                    hue: Math.random() * 360,
+                    hueDrift: (Math.random() - 0.5) * 16,
+                    flickerOffset: Math.random() * Math.PI * 2
+                });
+            }
+        }
+    } else {
+        throwGuideDotEmitTimer = 0;
+    }
+
+    const animationTime = performance.now() * 0.02;
+    const nextThrowGuideDots: ThrowGuideDot[] = [];
+
+    for (const dot of throwGuideDots) {
+        dot.x += dot.vx;
+        dot.y += dot.vy;
+
+        const screenX = dot.x - camera.x;
+        const screenY = dot.y - camera.y;
+        if (screenX < 0 || screenX > canvas.width || screenY < 0 || screenY > canvas.height) {
+            continue;
+        }
+
+        nextThrowGuideDots.push(dot);
+        const hue = (dot.hue + animationTime * 120 + dot.hueDrift) % 360;
+        const lightness = 58 + (Math.sin(animationTime * 2.3 + dot.flickerOffset) + 1) * 14;
+        context.fillStyle = `hsl(${hue}, 100%, ${lightness}%)`;
+        context.beginPath();
+        context.arc(screenX, screenY, MOVEMENT_SETTINGS.throwGuideDotSize, 0, Math.PI * 2);
+        context.fill();
+    }
+
+    throwGuideDots = nextThrowGuideDots;
+}
 
 // --- Show tight bounding boxes toggle ---
 let showTightBoundingBoxes = false; // Red sprite-based bounding boxes

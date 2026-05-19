@@ -1,4 +1,16 @@
 [
-  { "x": 490, "y": 781, "type": "button", "palette": 9, "rotation": 1, "linkedDoors": [0,1], "collision": true },
-  { "x": 500, "y": 780, "type": "button_box", "palette": 8, "rotation": 1, "linkedDoors": [0,1], "collision": true }
+  {
+    "x": 490,
+    "y": 781,
+    "type": "button",
+    "boxType": "button_box",
+    "palette": 9,
+    "boxPalette": 8,
+    "rotation": 1,
+    "linkedDoors": [0, 1],
+    "collision": true,
+    "pressOffset": 3,
+    "boxOffsetX": 12,
+    "boxOffsetY": 0
+  }
 ]
