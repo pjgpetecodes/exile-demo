@@ -39,3 +39,17 @@ npm run dev
 
 - Local - [Exile Demo Local](https://localhost:3000)
 - Prebuilt Demo - [Exile Demo PreBuilt Demo](https://exile-demo-ezg7egdpc7dwfvhk.uksouth-01.azurewebsites.net/)
+
+## Specialist agents
+
+- Specialist agent profiles now live under `.github/agents/`.
+- Each specialist is a Markdown agent profile with YAML frontmatter.
+- Current specialists:
+  - `game-design-specialist.md`
+  - `graphics-content-specialist.md`
+  - `unit-test-specialist.md`
+  - `playwright-frontend-specialist.md`
+  - `collision-physics-specialist.md`
+  - `animation-specialist.md`
+  - `tooling-workflow-specialist.md`
+  - `architecture-specialist.md`
