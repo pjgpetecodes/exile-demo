@@ -1,14 +1,23 @@
 [
   {
-    "x": 400,
-    "y": 646,
+    "x": 4816,
+    "y": 652,
     "type": "rcd",
     "palette": 0,
     "rotation": 1,
+    "collected": false,
     "name": "rcd",
     "weight": 0.2,
     "storable": true,
     "affectsAstronaut": true,
-    "collision": true
+    "collision": true,
+    "held": false,
+    "stored": false,
+    "isGrounded": true,
+    "velocity": {
+      "x": 0,
+      "y": 0
+    },
+    "astronautCollisionIgnoreFrames": 0
   }
 ]

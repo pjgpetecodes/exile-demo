@@ -1,13 +1,17 @@
 [
   {
-    "x": 490,
-    "y": 781,
+    "x": 4902,
+    "y": 783,
     "type": "button",
-    "boxType": "button_box",
     "palette": 9,
+    "boxType": "button_box",
     "boxPalette": 8,
     "rotation": 1,
-    "linkedDoors": [0, 1],
+    "active": false,
+    "linkedDoors": [
+      0,
+      1
+    ],
     "collision": true,
     "pressOffset": 3,
     "boxOffsetX": 12,

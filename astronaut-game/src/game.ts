@@ -2,6 +2,7 @@
 import { Astronaut, GameState, Position } from './types/index.js';
 import {
     astronaut, resetAstronaut, flipAstronaut, handleAstronautMovement, applyLandingMomentum, getAstronautCollisionOffsets, setAstronautCollisionProfile,
+    getAstronautStartPosition, setAstronautStartPosition,
     walkSpeed, facingLeft, upPressed, downPressed, leftPressed, rightPressed,
     checkAstronautCollisions
 } from './astronaut.js';
@@ -23,6 +24,7 @@ import {
     SPRITE_COL_WALK_RIGHT2, SPRITE_COL_WALK_END, TELEPORT_ANIM_FRAMES, MAP_WIDTH, MAP_HEIGHT,
     SPRITE_SCALE, rememberSound, teleportSound, buttonOnSound, doorOpenSound, doorCloseSound, getSound, saveSound, ouchSounds
 } from './constants.js';
+import { createWorldDesigner, LayerVisibility, RawWorldData, SpriteCatalogEntry, WorldDesigner } from './world-designer.js';
 
 // Instead of dynamic import, fetch the JSON file at runtime for browser compatibility
 let spriteMap: any;
@@ -36,10 +38,18 @@ let palettes: any[] = [];
 let remappedSpriteSheets: CanvasImageSource[] = [];
 let colorAliases: Record<string, [number, number, number]> = {};
 
+async function fetchFreshJson<T>(url: string): Promise<T> {
+    const separator = url.includes('?') ? '&' : '?';
+    const response = await fetch(`${url}${separator}t=${Date.now()}`, { cache: 'no-store' });
+    if (!response.ok) {
+        throw new Error(`Failed to load ${url}: ${response.status} ${response.statusText}`);
+    }
+    return response.json() as Promise<T>;
+}
+
 async function loadColorAliases() {
     if (Object.keys(colorAliases).length > 0) return;
-    const res = await fetch('./src/assets/colors.json');
-    colorAliases = await res.json();
+    colorAliases = await fetchFreshJson('./src/assets/colors.json');
 }
 
 function resolveColor(color: string | [number, number, number]): [number, number, number] {
@@ -51,8 +61,7 @@ function resolveColor(color: string | [number, number, number]): [number, number
 
 async function loadPalettes() {
     await loadColorAliases();
-    const res = await fetch('./src/assets/palettes.json');
-    const rawPalettes = await res.json();
+    const rawPalettes = await fetchFreshJson<any[]>('./src/assets/palettes.json');
     // Map aliases to RGB arrays
     palettes = rawPalettes.map((palette: any[]) =>
         palette.map(({ from, to }) => ({
@@ -88,6 +97,9 @@ window.addEventListener('keydown', (e) => {
 
 // --- Camera ---
 function getCameraOffset() {
+    if (worldDesigner?.isActive()) {
+        return worldDesigner.getCamera();
+    }
     // Center astronaut on screen
     return {
         x: astronaut.position.x - canvas.width / 2,
@@ -177,6 +189,8 @@ type ThrowGuideDot = {
 };
 let throwGuideDots: ThrowGuideDot[] = [];
 let throwGuideDotEmitTimer = 0;
+let worldDesigner: WorldDesigner | null = null;
+const STARFIELD_HEIGHT = Math.min(MAP_HEIGHT, 2000);
 
 function getCurrentAstronautCollisionProfile() {
     if (astronaut.isLanded) {
@@ -207,8 +221,7 @@ export function assignEntityId(obj: any) {
 }
 
 async function loadButtons() {
-    const res = await fetch('./src/assets/buttons.json');
-    const arr = await res.json();
+    const arr = await fetchFreshJson<any[]>('./src/assets/buttons.json');
     buttonEntities = arr.map((data: any) => assignEntityId(new Button(data)));
     syncButtonStatesToDoors();
 }
@@ -225,22 +238,281 @@ function syncButtonStatesToDoors() {
     }
 }
 async function loadDoors() {
-    const res = await fetch('./src/assets/doors.json');
-    const arr = await res.json();
+    const arr = await fetchFreshJson<any[]>('./src/assets/doors.json');
     doorEntities = arr.map((data: any) => assignEntityId(new Door(data)));
 }
 async function loadCreatures() {
-    const res = await fetch('./src/assets/creatures.json');
-    const arr = await res.json();
+    const arr = await fetchFreshJson<any[]>('./src/assets/creatures.json');
     creatureEntities = arr.map((data: any) => assignEntityId(new Creature(data)));
 }
 async function loadCollectables() {
-    const res = await fetch('./src/assets/collectables.json');
-    const arr = await res.json();
+    const arr = await fetchFreshJson<any[]>('./src/assets/collectables.json');
     collectableEntities = arr.map((data: any) => assignEntityId(new Collectable(data)));
+    syncCollectableRuntimeState();
+}
+
+async function loadAstronautStartPosition() {
+    const data = await fetchFreshJson<Position>('./src/assets/astronaut_start.json');
+    setAstronautStartPosition(data, true);
+}
+
+function syncCollectableRuntimeState() {
     storedCollectables = collectableEntities.filter(collectable => collectable.stored);
     heldCollectable = collectableEntities.find(collectable => collectable.held) ?? null;
     inventoryCycleIndex = storedCollectables.length > 0 ? storedCollectables.length - 1 : -1;
+}
+
+function findSpriteRectByType(type: string) {
+    if (!spriteMap) return null;
+    if (spriteMap instanceof Array) {
+        for (const row of spriteMap) {
+            for (const sprite of row) {
+                if (sprite.name === type) {
+                    return sprite;
+                }
+            }
+        }
+        return null;
+    }
+    return spriteMap[type] || null;
+}
+
+function assignRotatedBoundingBoxes(arr: any[]) {
+    for (const entity of arr) {
+        const type = entity.type;
+        const rotation = typeof entity.rotation === "number" ? entity.rotation : 0;
+        let bbox =
+            (worldMapRotatedBoundingBoxes[type] && worldMapRotatedBoundingBoxes[type][rotation]) ||
+            worldMapBoundingBoxes[type];
+        if (!bbox) {
+            const rect = findSpriteRectByType(type);
+            if (rect) {
+                bbox = {
+                    minX: 0,
+                    minY: 0,
+                    maxX: rect.w - 1,
+                    maxY: rect.h - 1,
+                    width: rect.w,
+                    height: rect.h
+                };
+            }
+        }
+        if (bbox) {
+            blockInstanceRotatedBoundingBoxes.set(entity, bbox);
+        }
+    }
+}
+
+function rebuildBlockInstanceBoundingBoxes() {
+    blockInstanceRotatedBoundingBoxes = new WeakMap();
+    assignRotatedBoundingBoxes(mapBlocks);
+    assignRotatedBoundingBoxes(doorEntities);
+    assignRotatedBoundingBoxes(buttonEntities);
+    assignRotatedBoundingBoxes(creatureEntities);
+    assignRotatedBoundingBoxes(collectableEntities);
+}
+
+function afterWorldDataMutated() {
+    syncButtonStatesToDoors();
+    syncCollectableRuntimeState();
+    rebuildBlockInstanceBoundingBoxes();
+}
+
+function clampCamera(camera: Position) {
+    return {
+        x: Math.max(0, Math.min(camera.x, Math.max(0, MAP_WIDTH - canvas.width))),
+        y: Math.max(0, Math.min(camera.y, Math.max(0, MAP_HEIGHT - canvas.height)))
+    };
+}
+
+function drawWorldBoundingBoxOverlay(
+    context: CanvasRenderingContext2D,
+    camera: Position,
+    layerVisibility: LayerVisibility = {
+        world: true,
+        buttons: true,
+        doors: true,
+        creatures: true,
+        collectables: true
+    }
+) {
+    context.save();
+    context.strokeStyle = 'lime';
+    context.lineWidth = 2;
+
+    const drawWorldBBox = (entity: any) => {
+        if (!entity.collision) return;
+        const bbox = blockInstanceRotatedBoundingBoxes.get(entity);
+        if (!bbox) return;
+        const scale = SPRITE_SCALE;
+        const tileW = 32 * scale;
+        const tileH = 32 * scale;
+        const drawX = entity.x - camera.x + tileW / 2;
+        const drawY = entity.y - camera.y + tileH / 2;
+        context.save();
+        context.translate(drawX, drawY);
+        if (entity.rotation) {
+            if (entity.rotation >= 1 && entity.rotation <= 4) {
+                context.rotate(((entity.rotation - 1) * Math.PI) / 2);
+            } else if (entity.rotation === 5) {
+                context.scale(-1, 1);
+            } else if (entity.rotation === 6) {
+                context.scale(1, -1);
+            } else if (entity.rotation === 7) {
+                context.scale(-1, -1);
+            }
+        }
+        const x = -tileW / 2 + bbox.minX * scale;
+        const y = -tileH / 2 + bbox.minY * scale;
+        const w = bbox.width * scale;
+        const h = bbox.height * scale;
+        context.strokeRect(x, y, w, h);
+        context.restore();
+    };
+
+    const mapBlocksToDraw = !layerVisibility.world
+        ? []
+        : hideBlackBackgroundBlocks
+            ? mapBlocks.filter((b) => b.type !== 'black_background')
+            : mapBlocks;
+    mapBlocksToDraw.forEach(drawWorldBBox);
+    if (layerVisibility.doors) doorEntities.forEach(drawWorldBBox);
+    if (layerVisibility.buttons) buttonEntities.forEach(drawWorldBBox);
+    if (layerVisibility.creatures) creatureEntities.forEach(drawWorldBBox);
+    if (layerVisibility.collectables) {
+        collectableEntities
+            .filter((collectable) => !collectable.stored && !collectable.collected)
+            .forEach(drawWorldBBox);
+    }
+    context.restore();
+}
+
+function getRawWorldData(): RawWorldData {
+    return {
+        worldMap: mapBlocks as RawWorldData['worldMap'],
+        buttons: buttonEntities as RawWorldData['buttons'],
+        doors: doorEntities as RawWorldData['doors'],
+        creatures: creatureEntities as RawWorldData['creatures'],
+        collectables: collectableEntities as RawWorldData['collectables'],
+        astronautStart: getAstronautStartPosition()
+    };
+}
+
+function replaceRawWorldData(data: RawWorldData) {
+    mapBlocks.splice(0, mapBlocks.length, ...data.worldMap.map((block) => assignEntityId({ ...block })));
+    doorEntities = data.doors.map((door) => assignEntityId(new Door(door)));
+    buttonEntities = data.buttons.map((button) => assignEntityId(new Button(button)));
+    creatureEntities = data.creatures.map((creature) => assignEntityId(new Creature(creature)));
+    collectableEntities = data.collectables.map((collectable) => assignEntityId(new Collectable(collectable)));
+    setAstronautStartPosition(data.astronautStart, true);
+    afterWorldDataMutated();
+}
+
+function getSpriteTypes() {
+    if (!spriteMap) return [];
+    if (spriteMap instanceof Array) {
+        return spriteMap.flat().map((entry: any) => entry.name).filter(Boolean);
+    }
+    return Object.keys(spriteMap);
+}
+
+function getSpriteCatalog(): SpriteCatalogEntry[] {
+    if (!spriteMap) return [];
+    if (spriteMap instanceof Array) {
+        return spriteMap.flat()
+            .filter((entry: any) => entry?.name)
+            .map((entry: any) => ({
+                name: entry.name,
+                palette: typeof entry.palette === 'number' ? entry.palette : 0
+            }));
+    }
+    return Object.entries(spriteMap).map(([name, entry]: [string, any]) => ({
+        name,
+        palette: typeof entry?.palette === 'number' ? entry.palette : 0
+    }));
+}
+
+function drawSpritePreview(
+    context: CanvasRenderingContext2D,
+    type: string,
+    palette: number,
+    rotation: number = 1,
+    clearFirst: boolean = true,
+    targetSize?: number
+) {
+    const rect = findSpriteRectByType(type);
+    if (!rect || remappedSpriteSheets.length === 0) {
+        if (clearFirst) {
+            context.clearRect(0, 0, context.canvas.width, context.canvas.height);
+        }
+        return false;
+    }
+
+    const paletteIndex = Number.isFinite(palette) && palette >= 0 && palette < remappedSpriteSheets.length
+        ? palette
+        : (typeof rect.palette === 'number' ? rect.palette : 0);
+    const sheet = remappedSpriteSheets[paletteIndex] || remappedSpriteSheets[0];
+    if (!sheet) {
+        if (clearFirst) {
+            context.clearRect(0, 0, context.canvas.width, context.canvas.height);
+        }
+        return false;
+    }
+
+    const padding = 8;
+    const previewWidth = targetSize ?? context.canvas.width;
+    const previewHeight = targetSize ?? context.canvas.height;
+    const maxWidth = Math.max(1, previewWidth - padding * 2);
+    const maxHeight = Math.max(1, previewHeight - padding * 2);
+    const scale = Math.max(1, Math.min(
+        maxWidth / rect.w,
+        maxHeight / rect.h
+    ));
+    const drawW = rect.w * scale;
+    const drawH = rect.h * scale;
+
+    context.save();
+    if (clearFirst) {
+        context.clearRect(0, 0, context.canvas.width, context.canvas.height);
+    }
+    context.imageSmoothingEnabled = false;
+    context.translate(context.canvas.width / 2, context.canvas.height / 2);
+    if (rotation >= 1 && rotation <= 4) {
+        context.rotate(((rotation - 1) * Math.PI) / 2);
+    } else if (rotation === 5) {
+        context.scale(-1, 1);
+    } else if (rotation === 6) {
+        context.scale(1, -1);
+    } else if (rotation === 7) {
+        context.scale(-1, -1);
+    }
+    context.drawImage(
+        sheet,
+        rect.x,
+        rect.y,
+        rect.w,
+        rect.h,
+        -drawW / 2,
+        -drawH / 2,
+        drawW,
+        drawH
+    );
+    context.restore();
+    return true;
+}
+
+async function saveWorldData(data: RawWorldData) {
+    const res = await fetch('http://localhost:3001/save-world-data', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+        const payload = await res.text();
+        throw new Error(payload || 'Failed to save world data.');
+    }
 }
 
 // --- Map rendering and update logic ---
@@ -252,7 +524,8 @@ async function init() {
     await loadButtons();
     await loadCreatures();
     await loadCollectables();
-    initStars(() => astronaut.position, canvas);
+    await loadAstronautStartPosition();
+    initStars(MAP_WIDTH, STARFIELD_HEIGHT);
     const img = new Image();
     img.src = './src/assets/sprite_sheet.png';
     img.onload = () => {
@@ -363,58 +636,35 @@ async function init() {
                     }
                 }
 
-                // --- Store rotated bounding boxes for each block instance ---
-                // Helper to assign bounding box for a list of entities/blocks
-                function assignRotatedBoundingBoxes(arr: any[]) {
-                    for (const entity of arr) {
-                        const type = entity.type;
-                        // Default to 0 if not present
-                        const rotation = typeof entity.rotation === "number" ? entity.rotation : 0;
-                        let bbox =
-                            (worldMapRotatedBoundingBoxes[type] && worldMapRotatedBoundingBoxes[type][rotation]) ||
-                            worldMapBoundingBoxes[type];
-                        // Fallback to default rect if not found
-                        if (!bbox) {
-                            let rect = null;
-                            if (spriteMap instanceof Array) {
-                                outer: for (let row = 0; row < spriteMap.length; row++) {
-                                    for (let col = 0; col < spriteMap[row].length; col++) {
-                                        if (spriteMap[row][col].name === type) {
-                                            rect = spriteMap[row][col];
-                                            break outer;
-                                        }
-                                    }
-                                }
-                            } else if (spriteMap[type]) {
-                                rect = spriteMap[type];
-                            }
-                            if (rect) {
-                                bbox = {
-                                    minX: 0,
-                                    minY: 0,
-                                    maxX: rect.w - 1,
-                                    maxY: rect.h - 1,
-                                    width: rect.w,
-                                    height: rect.h
-                                };
-                            }
-                        }
-                        if (bbox) {
-                            blockInstanceRotatedBoundingBoxes.set(entity, bbox);
-                        }
-                    }
-                }
-                assignRotatedBoundingBoxes(mapBlocks);
-                assignRotatedBoundingBoxes(doorEntities);
-                assignRotatedBoundingBoxes(buttonEntities);
-                assignRotatedBoundingBoxes(creatureEntities);
-                assignRotatedBoundingBoxes(collectableEntities);
+                rebuildBlockInstanceBoundingBoxes();
 
                 // --- Calculate astronaut sprite bounding boxes at startup ---
                 astronautBoundingBoxes = await calculateAstronautSpriteBoundingBoxes(
                     spriteSheet,
                     spriteMap
                 );
+                worldDesigner = createWorldDesigner({
+                    canvas,
+                    getRawWorldData,
+                    replaceRawWorldData,
+                    afterWorldDataMutated,
+                    getFocusWorldPosition: () => ({
+                        x: astronaut.position.x,
+                        y: astronaut.position.y
+                    }),
+                    setAstronautStartPosition,
+                    getShowSpriteOutlines: () => showWorldBoundingBoxes,
+                    setShowSpriteOutlines: (value: boolean) => {
+                        showWorldBoundingBoxes = value;
+                    },
+                    drawSpriteOutlineOverlay: drawWorldBoundingBoxOverlay,
+                    getSpriteTypes,
+                    getSpriteCatalog,
+                    drawSpritePreview,
+                    getPaletteCount: () => Math.max(remappedSpriteSheets.length, palettes.length, 1),
+                    clampCamera,
+                    saveWorldData
+                });
                 gameLoop();
             };
         });
@@ -428,6 +678,38 @@ init();
 
 function getSpriteRectFromMap(row: number, col: number) {
     return spriteMap[row][col];
+}
+
+function drawAstronautInWorld(
+    context: CanvasRenderingContext2D,
+    camera: Position,
+    spriteCol: number,
+    flipSprite: boolean,
+    flipVertical: boolean
+) {
+    if (!(astronautSpriteSource || spriteSheet) || !(spriteSheet && spriteSheet.complete)) {
+        return;
+    }
+
+    const spriteRect = getSpriteRectFromMap(SPRITE_ROW, spriteCol);
+    const drawW = 32 * SPRITE_SCALE;
+    const drawH = 32 * SPRITE_SCALE;
+
+    context.save();
+    context.translate(
+        astronaut.position.x - camera.x,
+        astronaut.position.y - camera.y
+    );
+    if (flipSprite) context.scale(-1, 1);
+    if (flipVertical) context.scale(1, -1);
+    context.drawImage(
+        astronautSpriteSource || spriteSheet,
+        spriteRect.x, spriteRect.y, spriteRect.w, spriteRect.h,
+        -drawW / 2,
+        -drawH / 2,
+        drawW, drawH
+    );
+    context.restore();
 }
 
 // When drawing the sprite, ensure the canvas is cleared with a transparent background
@@ -484,24 +766,34 @@ async function gameLoop() {
     }
 
     // --- Draw twinkling stars ---
-    // Use a fixed y cutoff for stars (700px)
-    const tileHeight = 700;
     updateAndDrawStars(
         ctx!,
         camera,
-        () => astronaut.position,
         canvas,
-        tileHeight,
-        MAP_HEIGHT
+        MAP_WIDTH,
+        STARFIELD_HEIGHT
     );
 
     // --- Draw map blocks ---
+    const layerVisibility = worldDesigner?.isActive()
+        ? worldDesigner.getLayerVisibility()
+        : {
+            world: true,
+            buttons: true,
+            doors: true,
+            creatures: true,
+            collectables: true
+        };
     if (spriteSheet && spriteSheet.complete) {
-        drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, doorEntities);
+        if (layerVisibility.doors) {
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, doorEntities);
+        }
         // Use a filtered array for drawing if hiding black_background blocks
-        const mapBlocksToDraw = hideBlackBackgroundBlocks
-            ? mapBlocks.filter(b => b.type !== 'black_background')
-            : mapBlocks;
+        const mapBlocksToDraw = !layerVisibility.world
+            ? []
+            : hideBlackBackgroundBlocks
+                ? mapBlocks.filter(b => b.type !== 'black_background')
+                : mapBlocks;
         // Draw map blocks (replace mapBlocks with mapBlocksToDraw in overlays below as well)
         // Patch: temporarily override mapBlocks for drawMap by monkey-patching global (not ideal, but drawMap uses global)
         // Instead, draw overlays and highlights using mapBlocksToDraw, but call drawMap as usual
@@ -553,16 +845,33 @@ async function gameLoop() {
         // Draw map blocks (drawMap uses global mapBlocks, so black_background blocks will be hidden only if not present in mapBlocks)
         // To hide, we need to patch drawMap to accept a blocks array, or temporarily monkey-patch global. For now, just draw overlays using mapBlocksToDraw.
         drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksToDraw);
-        drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, buttonEntities);
-        drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureEntities);
-        drawEntities(
-            ctx!,
-            camera,
-            spriteMap,
-            remappedSpriteSheets,
-            SPRITE_SCALE,
-            collectableEntities.filter(collectable => !collectable.stored && !collectable.held && !collectable.collected)
-        );
+        if (layerVisibility.buttons) {
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, buttonEntities);
+        }
+        if (layerVisibility.creatures) {
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureEntities);
+        }
+        if (layerVisibility.collectables) {
+            drawEntities(
+                ctx!,
+                camera,
+                spriteMap,
+                remappedSpriteSheets,
+                SPRITE_SCALE,
+                collectableEntities.filter(collectable => !collectable.stored && !collectable.held && !collectable.collected)
+            );
+        }
+    }
+
+    if (worldDesigner?.isActive()) {
+        drawAstronautInWorld(ctx!, camera, spriteCol, flipSprite, flipVertical);
+        if (heldCollectable) {
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, [heldCollectable]);
+        }
+        worldDesigner.render(ctx!);
+        prevKeys = { ...keys };
+        requestAnimationFrame(gameLoop);
+        return;
     }
 
     // --- Controls: Upward and horizontal movement ---
@@ -863,53 +1172,7 @@ async function gameLoop() {
     }
     // --- Draw world coordinate bounding boxes for each block in green if enabled ---
     if (showWorldBoundingBoxes) {
-        ctx!.save();
-        ctx!.strokeStyle = 'lime';
-        ctx!.lineWidth = 2;
-        const drawWorldBBox = (entity: any) => {
-            if (!entity.collision) return;
-            let bbox = blockInstanceRotatedBoundingBoxes.get(entity);
-            if (!bbox) return;
-            const scale = SPRITE_SCALE;
-            const tileW = 32 * scale;
-            const tileH = 32 * scale;
-            // Center of the sprite
-            const drawX = entity.x - camera.x + tileW / 2;
-            const drawY = entity.y - camera.y + tileH / 2;
-            ctx!.save();
-            ctx!.translate(drawX, drawY);
-            // Apply rotation if present
-            if (entity.rotation) {
-                if (entity.rotation >= 1 && entity.rotation <= 4) {
-                    ctx!.rotate(((entity.rotation - 1) * Math.PI) / 2);
-                } else if (entity.rotation === 5) {
-                    ctx!.scale(-1, 1);
-                } else if (entity.rotation === 6) {
-                    ctx!.scale(1, -1);
-                } else if (entity.rotation === 7) {
-                    ctx!.scale(-1, -1);
-                }
-            }
-            // Draw bbox relative to sprite center
-            const x = -tileW / 2 + bbox.minX * scale;
-            const y = -tileH / 2 + bbox.minY * scale;
-            const w = bbox.width * scale;
-            const h = bbox.height * scale;
-            ctx!.strokeRect(x, y, w, h);
-            ctx!.restore();
-        };
-        // Use mapBlocksToDraw for overlays
-        const mapBlocksToDraw = hideBlackBackgroundBlocks
-            ? mapBlocks.filter(b => b.type !== 'black_background')
-            : mapBlocks;
-        mapBlocksToDraw.forEach(drawWorldBBox);
-        doorEntities.forEach(drawWorldBBox);
-        buttonEntities.forEach(drawWorldBBox);
-        creatureEntities.forEach(drawWorldBBox);
-        collectableEntities
-            .filter(collectable => !collectable.stored && !collectable.collected)
-            .forEach(drawWorldBBox);
-        ctx!.restore();
+        drawWorldBoundingBoxOverlay(ctx!, camera);
     }
 
     // --- Highlight all black_background blocks if enabled ---

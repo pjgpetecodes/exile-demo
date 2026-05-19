@@ -4,9 +4,10 @@
   "description": "A simple 2D game featuring an astronaut character with flying mechanics and weak gravity.",
   "main": "src/game.ts",
   "scripts": {
-    "start": "serve .",
+    "start": "lite-server --config bs-config.js --no-open",
+    "save-server": "node designer-save-server.cjs",
     "build": "tsc",
-    "dev": "concurrently \"tsc --watch\" \"lite-server\""
+    "dev": "concurrently \"tsc --watch\" \"lite-server --config bs-config.js --no-open\" \"node designer-save-server.cjs\""
   },
   "dependencies": {
     "typescript": "^4.5.4",

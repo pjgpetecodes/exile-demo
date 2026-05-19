@@ -16,19 +16,34 @@ const STAR_COLORS = [
     '#ffffff', '#ffeedd', '#ffd700', '#ffb3fa', '#00eaff', '#00ffea', '#ff6b6b', '#fffb00',
     '#00ff00', '#00aaff', '#ff9900', '#e0e0ff', '#ff00ff', '#00ffff', '#fffacd', '#f8f8ff'
 ];
-const STAR_COUNT = 40;
 let stars: Star[] = [];
+const STAR_DENSITY_DIVISOR = 30000;
+const MIN_STAR_COUNT = 200;
+const MAX_STAR_COUNT = 1000;
+
+function getStarCount(worldWidth: number, starfieldHeight: number) {
+    return Math.max(
+        MIN_STAR_COUNT,
+        Math.min(MAX_STAR_COUNT, Math.round((worldWidth * starfieldHeight) / STAR_DENSITY_DIVISOR))
+    );
+}
+
+function randomStarWorldPosition(worldWidth: number, starfieldHeight: number) {
+    return {
+        x: Math.random() * worldWidth,
+        y: Math.random() * starfieldHeight
+    };
+}
 
 function randomStarMoveInterval() {
     return 120 + Math.floor(Math.random() * 240);
 }
 
-export function initStars(getAstronautPosition: () => { x: number, y: number }, canvas: HTMLCanvasElement) {
+export function initStars(worldWidth: number, starfieldHeight: number) {
     stars = [];
-    const astronaut = getAstronautPosition();
-    for (let i = 0; i < STAR_COUNT; i++) {
-        const worldX = astronaut.x - canvas.width / 2 + Math.random() * canvas.width;
-        const worldY = astronaut.y - canvas.height / 2 + Math.random() * (canvas.height - 80);
+    const starCount = getStarCount(worldWidth, starfieldHeight);
+    for (let i = 0; i < starCount; i++) {
+        const position = randomStarWorldPosition(worldWidth, starfieldHeight);
         stars.push({
             x: 0, y: 0,
             colorIndex: Math.floor(Math.random() * STAR_COLORS.length),
@@ -36,19 +51,19 @@ export function initStars(getAstronautPosition: () => { x: number, y: number }, 
             twinkleSpeed: 0.5 + Math.random() * 1.5,
             moveTimer: 0,
             moveInterval: randomStarMoveInterval(),
-            worldX,
-            worldY
+            worldX: position.x,
+            worldY: position.y
         });
     }
 }
 
-function maybeMoveStarsToNewLocations(getAstronautPosition: () => { x: number, y: number }, canvas: HTMLCanvasElement) {
-    const astronaut = getAstronautPosition();
+function maybeMoveStarsToNewLocations(worldWidth: number, starfieldHeight: number) {
     for (let star of stars) {
         star.moveTimer++;
         if (star.moveTimer > star.moveInterval) {
-            star.worldX = astronaut.x - canvas.width / 2 + Math.random() * canvas.width;
-            star.worldY = astronaut.y - canvas.height / 2 + Math.random() * (canvas.height - 80);
+            const position = randomStarWorldPosition(worldWidth, starfieldHeight);
+            star.worldX = position.x;
+            star.worldY = position.y;
             star.twinkleTimer = Math.random() * 2;
             star.moveTimer = 0;
             star.moveInterval = randomStarMoveInterval();
@@ -59,13 +74,11 @@ function maybeMoveStarsToNewLocations(getAstronautPosition: () => { x: number, y
 export function updateAndDrawStars(
     ctx: CanvasRenderingContext2D,
     camera: { x: number, y: number },
-    getAstronautPosition: () => { x: number, y: number },
     canvas: HTMLCanvasElement,
-    tileHeight: number,
-    MAP_HEIGHT: number
+    worldWidth: number,
+    starfieldHeight: number
 ) {
-    maybeMoveStarsToNewLocations(getAstronautPosition, canvas);
-    const groundYWorld = (MAP_HEIGHT - 1) * tileHeight;
+    maybeMoveStarsToNewLocations(worldWidth, starfieldHeight);
 
     for (let star of stars) {
         star.x = star.worldX - camera.x * 0.7;
@@ -81,7 +94,7 @@ export function updateAndDrawStars(
         if (
             star.x >= 0 && star.x < canvas.width &&
             star.y >= 0 && star.y < canvas.height &&
-            star.worldY < groundYWorld
+            star.worldY < starfieldHeight
         ) {
             ctx.save();
             ctx.fillStyle = STAR_COLORS[star.colorIndex];

@@ -16,10 +16,18 @@ export let mapLoaded = false;
 let colorAliases: Record<string, [number, number, number]> = {};
 let colorAliasesLoaded = false;
 
+async function fetchFreshJson<T>(url: string): Promise<T> {
+    const separator = url.includes('?') ? '&' : '?';
+    const response = await fetch(`${url}${separator}t=${Date.now()}`, { cache: 'no-store' });
+    if (!response.ok) {
+        throw new Error(`Failed to load ${url}: ${response.status} ${response.statusText}`);
+    }
+    return response.json() as Promise<T>;
+}
+
 async function loadColorAliases() {
     if (colorAliasesLoaded) return;
-    const res = await fetch('./src/assets/colors.json');
-    colorAliases = await res.json();
+    colorAliases = await fetchFreshJson('./src/assets/colors.json');
     colorAliasesLoaded = true;
 }
 
@@ -33,8 +41,7 @@ function resolveColor(color: string | [number, number, number]): [number, number
 
 export async function loadMapBlocks() {
     await loadColorAliases(); // Ensure color aliases are loaded
-    const res = await fetch('./src/assets/world_map.json');
-    const arr = await res.json();
+    const arr = await fetchFreshJson<any[]>('./src/assets/world_map.json');
     // Assign entityId to each block using global assignEntityId
     mapBlocks = arr.map((block: any) => assignEntityId(block));
     mapLoaded = true;

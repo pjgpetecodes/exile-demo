@@ -1,3 +1,10 @@
 [
-  { "x": 600, "y": 1900, "type": "bird2", "palette": 2, "rotation": 1 }
+  {
+    "x": 600,
+    "y": 1900,
+    "type": "bird2",
+    "palette": 2,
+    "rotation": 1,
+    "state": {}
+  }
 ]
