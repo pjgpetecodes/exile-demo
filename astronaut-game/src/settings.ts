@@ -9,7 +9,7 @@ export const MOVEMENT_SETTINGS = {
     walkMaxSpeed: 3,
     walkStartSpeed: 1,
     flyAccel: 0.28,
-    flyMaxSpeed: 2.8,
+    flyMaxSpeed: 5.6,
     landingMomentumFactor: 0.65,
     landingMomentumMinSpeed: 0.35,
     walkStepUpHeight: 6
