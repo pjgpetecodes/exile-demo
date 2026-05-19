@@ -27,6 +27,9 @@ export const MOVEMENT_SETTINGS = {
     collectableTerminalVelocity: 6,
     collectableGroundSnapDistance: 3,
     collectableGroundFriction: 0.18,
+    collectableBounceRestitution: 0.48,
+    collectableBounceMinImpactSpeed: 0.35,
+    collectableBounceWeightPenaltyPerUnit: 0.6,
     collectablePushVelocityMultiplier: 1.1,
     collectablePushMaxSpeed: 5,
     collectablePushResistancePerUnit: 0.35,
@@ -38,8 +41,10 @@ export const MOVEMENT_SETTINGS = {
     droppedCollectableForwardOffset: 24,
     droppedCollectableAstronautIgnoreFrames: 18,
     droppedCollectableMomentumTransfer: 0.75,
-    throwAngleAdjustDegreesPerFrame: 1.6,
-    throwVelocity: 7,
-    throwGuideLength: 200,
-    throwGuideDotCount: 14
+    throwAngleAdjustDegreesPerFrame: 2.4,
+    throwVelocity: 5.6,
+    throwGuideDotSpeed: 14,
+    throwGuideDotEmitIntervalFrames: 2,
+    throwGuideDotsPerBurst: 2,
+    throwGuideDotSize: 2.2
 } as const;

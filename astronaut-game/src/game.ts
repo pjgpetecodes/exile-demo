@@ -166,6 +166,17 @@ let heldCollectable: Collectable | null = null;
 let storedCollectables: Collectable[] = [];
 let inventoryCycleIndex = -1;
 let throwAngleDegrees = 20;
+type ThrowGuideDot = {
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    hue: number;
+    hueDrift: number;
+    flickerOffset: number;
+};
+let throwGuideDots: ThrowGuideDot[] = [];
+let throwGuideDotEmitTimer = 0;
 
 function getCurrentAstronautCollisionProfile() {
     if (astronaut.isLanded) {
@@ -1210,7 +1221,7 @@ async function gameLoop() {
 
     // --- Render astronaut at center of screen with correct animation ---
     if ((astronautSpriteSource || spriteSheet) && (spriteSheet && spriteSheet.complete)) {
-        drawThrowGuide(ctx!, camera);
+        updateAndDrawThrowGuide(ctx!, camera);
         const spriteRect = getSpriteRectFromMap(SPRITE_ROW, spriteCol);
         const SPRITE_W = spriteRect.w;
         const SPRITE_H = spriteRect.h;
@@ -1751,6 +1762,34 @@ function getCollectablePushScale(collectable: Collectable) {
     );
 }
 
+function getCollectableBounceRestitution(collectable: Collectable, impactSpeed: number) {
+    if (
+        impactSpeed < MOVEMENT_SETTINGS.collectableBounceMinImpactSpeed ||
+        MOVEMENT_SETTINGS.collectableBounceRestitution <= 0
+    ) {
+        return 0;
+    }
+
+    const weightScale = Math.max(
+        0,
+        1 - collectable.weight * MOVEMENT_SETTINGS.collectableBounceWeightPenaltyPerUnit
+    );
+    if (weightScale === 0) {
+        return 0;
+    }
+
+    const impactScale = Math.max(
+        0,
+        Math.min(
+            1,
+            (impactSpeed - MOVEMENT_SETTINGS.collectableBounceMinImpactSpeed) /
+            Math.max(0.001, MOVEMENT_SETTINGS.collectableTerminalVelocity - MOVEMENT_SETTINGS.collectableBounceMinImpactSpeed)
+        )
+    );
+
+    return MOVEMENT_SETTINGS.collectableBounceRestitution * weightScale * (0.75 + impactScale * 0.25);
+}
+
 function resolveAstronautCollectableCollisions(horizontalMovement: number, verticalMovement: number) {
     const astronautRect = getAstronautRect();
 
@@ -1816,6 +1855,7 @@ function updateSingleCollectablePhysics(collectable: Collectable) {
     let nextX = collectable.x;
     let nextY = collectable.y;
     let grounded = false;
+    let bounced = false;
 
     for (let step = 0; step < steps; step++) {
         const stepTargetX = collectable.x + ((targetX - collectable.x) * (step + 1)) / steps;
@@ -1836,19 +1876,37 @@ function updateSingleCollectablePhysics(collectable: Collectable) {
                 nextY = stepTargetY;
             } else {
                 if (verticalDirection === 'bottom') {
-                    grounded = true;
+                    const impactSpeed = collectable.velocity.y;
+                    const bounceRestitution = getCollectableBounceRestitution(collectable, impactSpeed);
+                    if (bounceRestitution > 0) {
+                        collectable.velocity.y = -impactSpeed * bounceRestitution;
+                        bounced = true;
+                    } else {
+                        grounded = true;
+                        collectable.velocity.y = 0;
+                    }
+                    break;
+                } else {
+                    collectable.velocity.y = 0;
+                    break;
                 }
-                collectable.velocity.y = 0;
             }
         }
     }
 
-    if (!grounded && collectable.velocity.y >= 0) {
+    if (!grounded && !bounced && collectable.velocity.y >= 0) {
         const snapAmount = getFloorSnapAmount(nextX, nextY, collisionBounds);
         if (snapAmount > 0) {
+            const snapImpactSpeed = collectable.velocity.y + snapAmount * MOVEMENT_SETTINGS.collectableGravity * 2;
+            const bounceRestitution = getCollectableBounceRestitution(collectable, snapImpactSpeed);
             nextY += snapAmount;
-            grounded = true;
-            collectable.velocity.y = 0;
+            if (bounceRestitution > 0) {
+                collectable.velocity.y = -snapImpactSpeed * bounceRestitution;
+                bounced = true;
+            } else {
+                grounded = true;
+                collectable.velocity.y = 0;
+            }
         }
     }
 
@@ -1870,29 +1928,55 @@ function updateCollectablePhysics() {
     }
 }
 
-function drawThrowGuide(context: CanvasRenderingContext2D, camera: Position) {
-    if (!keys['o'] && !keys['k']) return;
+function updateAndDrawThrowGuide(context: CanvasRenderingContext2D, camera: Position) {
+    const aimingActive = !!keys['o'] || !!keys['k'];
+    if (aimingActive) {
+        throwGuideDotEmitTimer++;
+        if (throwGuideDotEmitTimer % MOVEMENT_SETTINGS.throwGuideDotEmitIntervalFrames === 0) {
+            const origin = getAimOriginPosition();
+            const angleRadians = (throwAngleDegrees * Math.PI) / 180;
+            const directionX = Math.cos(angleRadians) * getFacingSign();
+            const directionY = -Math.sin(angleRadians);
+            for (let index = 0; index < MOVEMENT_SETTINGS.throwGuideDotsPerBurst; index++) {
+                const speedJitter = 0.85 + Math.random() * 0.3;
+                throwGuideDots.push({
+                    x: origin.x,
+                    y: origin.y,
+                    vx: directionX * MOVEMENT_SETTINGS.throwGuideDotSpeed * speedJitter,
+                    vy: directionY * MOVEMENT_SETTINGS.throwGuideDotSpeed * speedJitter,
+                    hue: Math.random() * 360,
+                    hueDrift: (Math.random() - 0.5) * 16,
+                    flickerOffset: Math.random() * Math.PI * 2
+                });
+            }
+        }
+    } else {
+        throwGuideDotEmitTimer = 0;
+    }
 
-    const origin = getAimOriginPosition();
-    const angleRadians = (throwAngleDegrees * Math.PI) / 180;
-    const directionX = Math.cos(angleRadians) * getFacingSign();
-    const directionY = -Math.sin(angleRadians);
     const animationTime = performance.now() * 0.02;
+    const nextThrowGuideDots: ThrowGuideDot[] = [];
 
-    context.save();
-    for (let index = 1; index <= MOVEMENT_SETTINGS.throwGuideDotCount; index++) {
-        const distance = (index / MOVEMENT_SETTINGS.throwGuideDotCount) * MOVEMENT_SETTINGS.throwGuideLength;
-        const x = origin.x + directionX * distance - camera.x;
-        const y = origin.y + directionY * distance - camera.y;
-        const hueSeed = Math.sin((index + 1) * 12.9898 + animationTime * 0.73) * 43758.5453;
-        const hue = Math.abs(hueSeed % 360);
-        const lightness = 62 + ((Math.sin(animationTime + index * 1.7) + 1) * 10);
+    for (const dot of throwGuideDots) {
+        dot.x += dot.vx;
+        dot.y += dot.vy;
+
+        const screenX = dot.x - camera.x;
+        const screenY = dot.y - camera.y;
+        if (screenX < 0 || screenX > canvas.width || screenY < 0 || screenY > canvas.height) {
+            continue;
+        }
+
+        nextThrowGuideDots.push(dot);
+        const hue = (dot.hue + animationTime * 120 + dot.hueDrift) % 360;
+        const lightness = 58 + (Math.sin(animationTime * 2.3 + dot.flickerOffset) + 1) * 14;
         context.fillStyle = `hsl(${hue}, 100%, ${lightness}%)`;
         context.beginPath();
-        context.arc(x, y, 2, 0, Math.PI * 2);
+        context.arc(screenX, screenY, MOVEMENT_SETTINGS.throwGuideDotSize, 0, Math.PI * 2);
         context.fill();
     }
-    context.restore();
+
+    throwGuideDots = nextThrowGuideDots;
 }
 
 // --- Show tight bounding boxes toggle ---
