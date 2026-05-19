@@ -1,14 +1,28 @@
 // Main entry point for the astronaut game
 import { Astronaut, GameState } from './types/index.js';
 import {
-    astronaut, resetAstronaut, handleAstronautMovement,
-    walkSpeed, facingLeft, upPressed, downPressed, leftPressed, rightPressed
+    astronaut, resetAstronaut, flipAstronaut, handleAstronautMovement, applyLandingMomentum, getAstronautCollisionOffsets,
+    walkSpeed, facingLeft, upPressed, downPressed, leftPressed, rightPressed,
+    checkAstronautCollisions
 } from './astronaut.js';
 import { applyGravity } from './gravity.js';
 import { mapBlocks, mapLoaded, loadMapBlocks, drawMap, getBlockAtWorld } from './map.js';
 import { initStars, updateAndDrawStars } from './stars.js';
 import { emitJetpackDots, updateAndDrawJetpackDots, resetJetpackDotEmitTimer } from './jetpack.js';
-import { Button, Door, Creature, Collectable } from './entities.js';
+import { Button } from './button.js';
+import { Door } from './door.js';
+import { Creature } from './creature.js';
+import { Collectable } from './collectable.js';
+import { makeBlackTransparent, remapSpritePalette, calculateSpriteCollisionBoundingBoxes, 
+    calculateAstronautSpriteBoundingBoxes, getSolidBlockAtWorld, getAnyBlockAtWorld, 
+    drawEntities } from './utilities.js';
+import { MOVEMENT_SETTINGS } from './settings.js';
+import {
+    SPRITE_ROW, SPRITE_COL_STAND, SPRITE_COL_FLY_RIGHT, SPRITE_COL_FLY_DIAGONAL,
+    SPRITE_COL_FLY_FLOAT, SPRITE_COL_FLY_DOWN, SPRITE_COL_WALK_START, SPRITE_COL_WALK_RIGHT1,
+    SPRITE_COL_WALK_RIGHT2, SPRITE_COL_WALK_END, TELEPORT_ANIM_FRAMES, MAP_WIDTH, MAP_HEIGHT,
+    SPRITE_SCALE, rememberSound, teleportSound, buttonOnSound, doorOpenSound, doorCloseSound, ouchSounds
+} from './constants.js';
 
 // Instead of dynamic import, fetch the JSON file at runtime for browser compatibility
 let spriteMap: any;
@@ -48,10 +62,29 @@ async function loadPalettes() {
     );
 }
 
-// --- Map size in pixels (constant) ---
-const MAP_WIDTH = 10000;  // pixels
-const MAP_HEIGHT = 10000; // pixels
+window.addEventListener('keydown', (event) => {
+    keys[event.key] = true;
+});
 
+window.addEventListener('keyup', (event) => {
+    keys[event.key] = false;
+});
+
+// --- Mouse tracking for debug ---
+let mouseScreen = { x: 0, y: 0 };
+let mouseWorld = { x: 0, y: 0 };
+window.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mouseScreen.x = e.clientX - rect.left;
+    mouseScreen.y = e.clientY - rect.top;
+});
+
+window.addEventListener('keydown', (e) => {
+    if (e.key === "Tab") {
+        e.preventDefault(); // Prevent tab from bubbling to browser
+        flipAstronaut();
+    }
+});
 
 // --- Camera ---
 function getCameraOffset() {
@@ -71,28 +104,14 @@ if (!canvas || !ctx) {
 
 let gameState: GameState & { debugMode: boolean } = {
     astronaut,
-    gravity: 0.04, // reduced gravity from 0.09 to 0.04 for gentler fall
+    gravity: MOVEMENT_SETTINGS.gravity,
     trail: [],
     isRunning: true,
-    debugMode: true
+    debugMode: false
 };
 
 let spriteSheet: HTMLImageElement;
 let astronautSpriteSource: CanvasImageSource; // Use this for astronaut rendering
-
-// Sprite scaling factor (adjust as needed)
-const SPRITE_SCALE = 2.2;
-
-// Sprite columns
-const SPRITE_ROW = 0; // top row
-const SPRITE_COL_STAND = 4;
-const SPRITE_COL_FLY_RIGHT = 0;
-const SPRITE_COL_FLY_DIAGONAL = 1;
-const SPRITE_COL_FLY_FLOAT = 2;
-const SPRITE_COL_FLY_DOWN = 3;
-const SPRITE_COL_WALK_START = 4;
-const SPRITE_COL_WALK_END = 7;
-
 let walkAnimFrame = SPRITE_COL_WALK_START;
 let walkAnimTimer = 0;
 
@@ -115,27 +134,28 @@ const teleportLocations: TeleportLocation[] = [];
 let teleportSlot = 0;
 let teleporting = false;
 let teleportAnimFrame = 0;
-const TELEPORT_ANIM_FRAMES = 30; // 0.5 seconds at 60fps
 let teleportPhase: 'none' | 'out' | 'in' = 'none';
 let teleportTarget: TeleportLocation | null = null;
 let teleportSpriteCol = SPRITE_COL_STAND;
 let teleportFlipSprite = false;
 let teleportFlipVertical = false;
 
-// --- Sound effects ---
-const rememberSound = new Audio('./src/assets/remember.wav');
-const teleportSound = new Audio('./src/assets/teleport.wav');
-const buttonOnSound = new Audio('./src/assets/button_on.wav');
-const doorOpenSound = new Audio('./src/assets/door_open.wav');
-const doorCloseSound = new Audio('./src/assets/door_close.wav');
-const ouchSounds = [
-    new Audio('./src/assets/ouch_1.wav'),
-    new Audio('./src/assets/ouch_2.wav')
-];
-
 // --- Input state ---
 const keys: Record<string, boolean> = {};
 let prevKeys: Record<string, boolean> = {}
+
+// --- Black background block toggles ---
+let showBlackBackgroundBlocks = false; // c key
+let hideBlackBackgroundBlocks = false; // v key
+
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'c' && !prevKeys['c']) {
+        showBlackBackgroundBlocks = !showBlackBackgroundBlocks;
+    }
+    if (e.key === 'v' && !prevKeys['v']) {
+        hideBlackBackgroundBlocks = !hideBlackBackgroundBlocks;
+    }
+});
 
 // --- Entity arrays ---
 let buttonEntities: Button[] = [];
@@ -147,122 +167,31 @@ let collectableEntities: Collectable[] = [];
 const buttonPressTimestamps: WeakMap<Button, number> = new WeakMap();
 
 // --- Entity loaders ---
+export let nextEntityId = 1;
+export function assignEntityId(obj: any) {
+    obj.entityId = nextEntityId++;
+    return obj;
+}
+
 async function loadButtons() {
     const res = await fetch('./src/assets/buttons.json');
     const arr = await res.json();
-    buttonEntities = arr.map((data: any) => new Button(data));
+    buttonEntities = arr.map((data: any) => assignEntityId(new Button(data)));
 }
 async function loadDoors() {
     const res = await fetch('./src/assets/doors.json');
     const arr = await res.json();
-    doorEntities = arr.map((data: any) => {
-        return new Door(data);
-    });
+    doorEntities = arr.map((data: any) => assignEntityId(new Door(data)));
 }
 async function loadCreatures() {
     const res = await fetch('./src/assets/creatures.json');
     const arr = await res.json();
-    creatureEntities = arr.map((data: any) => new Creature(data));
+    creatureEntities = arr.map((data: any) => assignEntityId(new Creature(data)));
 }
 async function loadCollectables() {
     const res = await fetch('./src/assets/collectables.json');
     const arr = await res.json();
-    collectableEntities = arr.map((data: any) => new Collectable(data));
-}
-
-// --- Draw generic entity array (same as drawMap but for any array) ---
-function drawEntities(
-    ctx: CanvasRenderingContext2D,
-    camera: { x: number, y: number },
-    spriteMap: any,
-    spriteSheets: CanvasImageSource[],
-    SPRITE_SCALE: number,
-    entities: any[]
-) {
-    // Build rect lookup map once per draw
-    const rectMap = (spriteMap instanceof Array)
-        ? Object.fromEntries(spriteMap.flat().map((r: any) => [r.name, r]))
-        : spriteMap;
-
-    const tileW = 32 * SPRITE_SCALE;
-    const tileH = 32 * SPRITE_SCALE;
-    const minX = camera.x - tileW, maxX = camera.x + ctx.canvas.width + tileW;
-    const minY = camera.y - tileH, maxY = camera.y + ctx.canvas.height + tileH;
-
-    for (const entity of entities) {
-        if (
-            entity.x + tileW < minX || entity.x > maxX ||
-            entity.y + tileH < minY || entity.y > maxY
-        ) continue;
-
-        const rect = rectMap[entity.type];
-        if (!rect) continue;
-
-        let paletteIdx = 0;
-        let paletteDebug = "";
-        // Use instanceof Door to check for Door entities
-        if (entity instanceof Door) {
-            if (entity.locked === true && typeof entity.palette_locked === "number") {
-                paletteIdx = entity.palette_locked;
-                paletteDebug = `DOOR locked: true, using palette_locked (${paletteIdx})`;
-            } else if (entity.locked === false && typeof entity.palette_unlocked === "number") {
-                paletteIdx = entity.palette_unlocked;
-                paletteDebug = `DOOR locked: false, using palette_unlocked (${paletteIdx})`;
-            } else if (typeof entity.palette === "number") {
-                paletteIdx = entity.palette;
-                paletteDebug = `DOOR fallback, using palette (${paletteIdx})`;
-            }
-        } else if (typeof entity.palette === "number" && entity.palette >= 0 && entity.palette < spriteSheets.length) {
-            paletteIdx = entity.palette;
-        }
-        const sheet = spriteSheets[paletteIdx] || spriteSheets[0];
-
-        // --- DEBUG: Draw palette info above door ---
-        if (
-            entity instanceof Door &&
-            ctx && ctx.canvas && (window as any).DEBUG_DOOR_PALETTE
-        ) {
-            ctx.save();
-            ctx.font = "12px monospace";
-            ctx.fillStyle = "#f0f";
-            ctx.fillText(
-                `locked:${entity.locked} paletteIdx:${paletteIdx}`,
-                entity.x - camera.x,
-                entity.y - camera.y - 8
-            );
-            ctx.fillStyle = "#0ff";
-            ctx.fillText(
-                paletteDebug,
-                entity.x - camera.x,
-                entity.y - camera.y - 20
-            );
-            ctx.restore();
-        }
-
-        ctx.save();
-        const drawX = entity.x - camera.x;
-        const drawY = entity.y - camera.y;
-        ctx.translate(drawX + tileW / 2, drawY + tileH / 2);
-        if (entity.rotation) {
-            if (entity.rotation >= 1 && entity.rotation <= 4) {
-                ctx.rotate(((entity.rotation - 1) * Math.PI) / 2);
-            } else if (entity.rotation === 5) {
-                ctx.scale(-1, 1);
-            } else if (entity.rotation === 6) {
-                ctx.scale(1, -1);
-            } else if (entity.rotation === 7) {
-                ctx.scale(-1, -1);
-            }
-        }
-
-        ctx.drawImage(
-            sheet,
-            rect.x, rect.y, rect.w, rect.h,
-            -tileW / 2, -tileH / 2,
-            tileW, tileH
-        );
-        ctx.restore();
-    }
+    collectableEntities = arr.map((data: any) => assignEntityId(new Collectable(data)));
 }
 
 // --- Map rendering and update logic ---
@@ -278,10 +207,19 @@ async function init() {
     const img = new Image();
     img.src = './src/assets/sprite_sheet.png';
     img.onload = () => {
-        makeBlackTransparent(img, (canvasWithTransparency) => {
+        makeBlackTransparent(img, async (canvasWithTransparency) => {
             spriteSheet = new Image();
             spriteSheet.src = canvasWithTransparency.toDataURL();
-            spriteSheet.onload = () => {
+            spriteSheet.onload = async () => {
+                // Make spriteSheet globally accessible for pixel-perfect collision
+                (window as any).spriteSheet = spriteSheet;
+                // Also create and store a 2D context for pixel access
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = spriteSheet.width;
+                tempCanvas.height = spriteSheet.height;
+                const tempCtx = tempCanvas.getContext('2d');
+                tempCtx!.drawImage(spriteSheet, 0, 0);
+                (window as any)._spriteSheetCtx = tempCtx;
                 // Generate remapped sprite sheets for each palette
                 remappedSpriteSheets = palettes.map((palette: any, idx: number) =>
                     idx === 0
@@ -290,6 +228,129 @@ async function init() {
                 );
                 // Use palettes[1] for astronaut, fallback to original if not present
                 astronautSpriteSource = remappedSpriteSheets[1] || spriteSheet;
+
+                // --- Calculate tightest collision bounding boxes at startup ---
+                const boundingBoxes = await calculateSpriteCollisionBoundingBoxes(
+                    spriteSheet,
+                    spriteMap,
+                    mapBlocks,
+                    doorEntities,
+                    buttonEntities
+                );
+                worldMapBoundingBoxes = boundingBoxes;
+
+                // --- Calculate rotated bounding boxes for each type and rotation ---
+                worldMapRotatedBoundingBoxes = {};
+                for (const [type, bbox] of Object.entries(worldMapBoundingBoxes)) {
+                    worldMapRotatedBoundingBoxes[type] = {};
+                    for (let rot = 0; rot <= 7; rot++) {
+                        // Compute rotated bounding box corners
+                        const w = bbox.width;
+                        const h = bbox.height;
+                        // Corners relative to (0,0)
+                        let corners = [
+                            { x: bbox.minX, y: bbox.minY },
+                            { x: bbox.maxX, y: bbox.minY },
+                            { x: bbox.maxX, y: bbox.maxY },
+                            { x: bbox.minX, y: bbox.maxY }
+                        ];
+                        // Center for rotation
+                        const cx = bbox.minX + w / 2;
+                        const cy = bbox.minY + h / 2;
+                        let rotated: { x: number, y: number }[];
+                        if (rot >= 1 && rot <= 4) {
+                            // 1=90deg, 2=180deg, 3=270deg, 4=360deg
+                            const angle = (rot - 1) * (Math.PI / 2);
+                            rotated = corners.map(pt => {
+                                const dx = pt.x - cx;
+                                const dy = pt.y - cy;
+                                return {
+                                    x: cx + dx * Math.cos(angle) - dy * Math.sin(angle),
+                                    y: cy + dx * Math.sin(angle) + dy * Math.cos(angle)
+                                };
+                            });
+                        } else if (rot === 5) {
+                            // flip X
+                            rotated = corners.map(pt => ({ x: 2 * cx - pt.x, y: pt.y }));
+                        } else if (rot === 6) {
+                            // flip Y
+                            rotated = corners.map(pt => ({ x: pt.x, y: 2 * cy - pt.y }));
+                        } else if (rot === 7) {
+                            // flip X and Y
+                            rotated = corners.map(pt => ({ x: 2 * cx - pt.x, y: 2 * cy - pt.y }));
+                        } else {
+                            // rot == 0, no rotation
+                            rotated = corners;
+                        }
+                        const xs = rotated.map(pt => pt.x);
+                        const ys = rotated.map(pt => pt.y);
+                        const minX = Math.min(...xs);
+                        const maxX = Math.max(...xs);
+                        const minY = Math.min(...ys);
+                        const maxY = Math.max(...ys);
+                        worldMapRotatedBoundingBoxes[type][rot] = {
+                            minX,
+                            minY,
+                            maxX,
+                            maxY,
+                            width: maxX - minX + 1,
+                            height: maxY - minY + 1
+                        };
+                    }
+                }
+
+                // --- Store rotated bounding boxes for each block instance ---
+                // Helper to assign bounding box for a list of entities/blocks
+                function assignRotatedBoundingBoxes(arr: any[]) {
+                    for (const entity of arr) {
+                        const type = entity.type;
+                        // Default to 0 if not present
+                        const rotation = typeof entity.rotation === "number" ? entity.rotation : 0;
+                        let bbox =
+                            (worldMapRotatedBoundingBoxes[type] && worldMapRotatedBoundingBoxes[type][rotation]) ||
+                            worldMapBoundingBoxes[type];
+                        // Fallback to default rect if not found
+                        if (!bbox) {
+                            let rect = null;
+                            if (spriteMap instanceof Array) {
+                                outer: for (let row = 0; row < spriteMap.length; row++) {
+                                    for (let col = 0; col < spriteMap[row].length; col++) {
+                                        if (spriteMap[row][col].name === type) {
+                                            rect = spriteMap[row][col];
+                                            break outer;
+                                        }
+                                    }
+                                }
+                            } else if (spriteMap[type]) {
+                                rect = spriteMap[type];
+                            }
+                            if (rect) {
+                                bbox = {
+                                    minX: 0,
+                                    minY: 0,
+                                    maxX: rect.w - 1,
+                                    maxY: rect.h - 1,
+                                    width: rect.w,
+                                    height: rect.h
+                                };
+                            }
+                        }
+                        if (bbox) {
+                            blockInstanceRotatedBoundingBoxes.set(entity, bbox);
+                        }
+                    }
+                }
+                assignRotatedBoundingBoxes(mapBlocks);
+                assignRotatedBoundingBoxes(doorEntities);
+                assignRotatedBoundingBoxes(buttonEntities);
+                assignRotatedBoundingBoxes(creatureEntities);
+                assignRotatedBoundingBoxes(collectableEntities);
+
+                // --- Calculate astronaut sprite bounding boxes at startup ---
+                astronautBoundingBoxes = await calculateAstronautSpriteBoundingBoxes(
+                    spriteSheet,
+                    spriteMap
+                );
                 gameLoop();
             };
         });
@@ -315,8 +376,8 @@ async function gameLoop() {
     const camera = getCameraOffset();
 
     // Update mouse world position
-    mouseWorld.x = mouseScreen.x + camera.x;
-    mouseWorld.y = mouseScreen.y + camera.y;
+    mouseWorld.x = Math.round(mouseScreen.x + camera.x);
+    mouseWorld.y = Math.round(mouseScreen.y + camera.y);
 
     // --- Sprite selection logic (animation, flipping, flying, walking) ---
     // Declare spriteCol/flipSprite/flipVertical only ONCE at the top of gameLoop
@@ -373,195 +434,78 @@ async function gameLoop() {
     // --- Draw map blocks ---
     if (spriteSheet && spriteSheet.complete) {
         drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, doorEntities);
-        drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE);
+        // Use a filtered array for drawing if hiding black_background blocks
+        const mapBlocksToDraw = hideBlackBackgroundBlocks
+            ? mapBlocks.filter(b => b.type !== 'black_background')
+            : mapBlocks;
+        // Draw map blocks (replace mapBlocks with mapBlocksToDraw in overlays below as well)
+        // Patch: temporarily override mapBlocks for drawMap by monkey-patching global (not ideal, but drawMap uses global)
+        // Instead, draw overlays and highlights using mapBlocksToDraw, but call drawMap as usual
+        // --- Draw overlays and highlights using mapBlocksToDraw ---
+        // --- Highlight all black_background blocks if enabled ---
+        if (showBlackBackgroundBlocks) {
+            ctx!.save();
+            ctx!.strokeStyle = 'cyan';
+            ctx!.lineWidth = 2;
+            for (const block of mapBlocksToDraw) {
+                if (block.type === 'black_background') {
+                    const bbox = blockInstanceRotatedBoundingBoxes.get(block);
+                    const scale = SPRITE_SCALE;
+                    const tileW = 32 * scale;
+                    const tileH = 32 * scale;
+                    // Center of the sprite
+                    const drawX = block.x - camera.x + tileW / 2;
+                    const drawY = block.y - camera.y + tileH / 2;
+                    ctx!.save();
+                    ctx!.translate(drawX, drawY);
+                    // Apply rotation if present
+                    if (block.rotation) {
+                        if (block.rotation >= 1 && block.rotation <= 4) {
+                            ctx!.rotate(((block.rotation - 1) * Math.PI) / 2);
+                        } else if (block.rotation === 5) {
+                            ctx!.scale(-1, 1);
+                        } else if (block.rotation === 6) {
+                            ctx!.scale(1, -1);
+                        } else if (block.rotation === 7) {
+                            ctx!.scale(-1, -1);
+                        }
+                    }
+                    // Draw bbox relative to sprite center
+                    if (bbox) {
+                        const x = -tileW / 2 + bbox.minX * scale;
+                        const y = -tileH / 2 + bbox.minY * scale;
+                        const w = bbox.width * scale;
+                        const h = bbox.height * scale;
+                        ctx!.strokeRect(x, y, w, h);
+                    } else {
+                        // fallback: draw full tile
+                        ctx!.strokeRect(-tileW / 2, -tileH / 2, tileW, tileH);
+                    }
+                    ctx!.restore();
+                }
+            }
+            ctx!.restore();
+        }
+        // Draw map blocks (drawMap uses global mapBlocks, so black_background blocks will be hidden only if not present in mapBlocks)
+        // To hide, we need to patch drawMap to accept a blocks array, or temporarily monkey-patch global. For now, just draw overlays using mapBlocksToDraw.
+        drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksToDraw);
         drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, buttonEntities);
         drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureEntities);
         drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, collectableEntities);
     }
 
     // --- Controls: Upward and horizontal movement ---
-    // Determine if walking should be allowed (block if button collision or door collision)
-    let allowWalking = true;
-    let collidedButton: Button | undefined = undefined;
-    let collidedDoor: Door | undefined = undefined;
-    let doorCollision: Door | undefined = undefined; // Track any door collision for opening
-
-    if (gameState.astronaut.isLanded && walkSpeed > 0) {
-        // Use astronaut's bounding box for collision
-        const spriteRect = getSpriteRectFromMap(SPRITE_ROW, SPRITE_COL_STAND);
-        const astroW = spriteRect.w * SPRITE_SCALE;
-        const astroH = spriteRect.h * SPRITE_SCALE;
-        let intendedX = gameState.astronaut.position.x;
-        if (leftPressed) intendedX -= walkSpeed;
-        if (rightPressed) intendedX += walkSpeed;
-        let intendedY = gameState.astronaut.position.y;
-        const astroLeft = intendedX - astroW / 2;
-        const astroRight = intendedX + astroW / 2;
-        const astroTop = intendedY - astroH / 2;
-        const astroBottom = intendedY + astroH / 2;
-
-        // Check for button collision
-        for (const b of buttonEntities) {
-            const tileW = 32 * SPRITE_SCALE;
-            const tileH = 32 * SPRITE_SCALE;
-            const btnLeft = b.x;
-            const btnRight = b.x + tileW;
-            const btnTop = b.y;
-            const btnBottom = b.y + tileH;
-            if (
-                astroLeft < btnRight &&
-                astroRight > btnLeft &&
-                astroTop < btnBottom &&
-                astroBottom > btnTop
-            ) {
-                allowWalking = false;
-                collidedButton = b;
-                break;
-            }
-        }
-        // Check for door collision (horizontal doors only, unlocked)
-        for (const d of doorEntities) {
-            if (d.type === "door_horizontal" && !d.locked) {
-                const tileW = 32 * SPRITE_SCALE;
-                const tileH = 32 * SPRITE_SCALE;
-                const doorLeft = d.x;
-                const doorRight = d.x + tileW;
-                const doorTop = d.y;
-                const doorBottom = d.y + tileH;
-                if (
-                    astroLeft < doorRight &&
-                    astroRight > doorLeft &&
-                    astroTop < doorBottom &&
-                    astroBottom > doorTop
-                ) {
-                    collidedDoor = d;
-                    doorCollision = d;
-                    break;
-                }
-            }
-        }
-    } else {
-        // Also check for door collision while flying or not walking
-        // Use astronaut's bounding box at current position
-        const spriteRect = getSpriteRectFromMap(SPRITE_ROW, SPRITE_COL_STAND);
-        const astroW = spriteRect.w * SPRITE_SCALE;
-        const astroH = spriteRect.h * SPRITE_SCALE;
-        const astroLeft = gameState.astronaut.position.x - astroW / 2;
-        const astroRight = gameState.astronaut.position.x + astroW / 2;
-        const astroTop = gameState.astronaut.position.y - astroH / 2;
-        const astroBottom = gameState.astronaut.position.y + astroH / 2;
-        for (const d of doorEntities) {
-            if (d.type === "door_horizontal" && !d.locked) {
-                const tileW = 32 * SPRITE_SCALE;
-                const tileH = 32 * SPRITE_SCALE;
-                const doorLeft = d.x;
-                const doorRight = d.x + tileW;
-                const doorTop = d.y;
-                const doorBottom = d.y + tileH;
-                if (
-                    astroLeft < doorRight &&
-                    astroRight > doorLeft &&
-                    astroTop < doorBottom &&
-                    astroBottom > doorTop
-                ) {
-                    doorCollision = d;
-                    break;
-                }
-            }
-        }
-    }
-    handleAstronautMovement(keys, allowWalking);
-
-    // --- Button logic: toggle linked doors if collision occurred ---
-    if (collidedButton && Array.isArray(collidedButton.linkedDoors)) {
-        const now = performance.now();
-        const lastPress = buttonPressTimestamps.get(collidedButton) || 0;
-        if (now - lastPress > 500) { // 0.5 seconds debounce
-            for (const doorID of collidedButton.linkedDoors) {
-                const door = doorEntities.find(d => d.doorID === doorID);
-                if (door) {
-                    door.locked = !door.locked;
-                }
-            }
-            buttonPressTimestamps.set(collidedButton, now);
-            // Play button_on sound
-            try { buttonOnSound.currentTime = 0; buttonOnSound.play(); } catch {}
-        }
-    }
-
-    // --- Door animation logic for walking ---
-    // Open door if collided (landed or flying) and not already animating
-    if (doorCollision && !doorCollision.animating) {
-        doorCollision.animating = true;
-        if (typeof (doorCollision as any)._originalX === "undefined") {
-            (doorCollision as any)._originalX = doorCollision.x;
-        }
-        (doorCollision as any)._animationDirection = "open";
-        (doorCollision as any)._animationTimer = 0;
-        (doorCollision as any)._closeDelay = 0;
-    }
+    const movementStartX = gameState.astronaut.position.x;
+    const movementStartY = gameState.astronaut.position.y;
+    handleAstronautMovement(keys, true);
+    const movementTargetX = astronaut.position.x;
+    const movementTargetY = astronaut.position.y;
+    astronaut.position.x = movementStartX;
+    astronaut.position.y = movementStartY;
 
     // --- Door animation update ---
     for (const door of doorEntities) {
-        if (door.animating && door.type === "door_horizontal" && !door.locked) {
-            // Initialize animation state if needed
-            if (typeof (door as any)._originalX === "undefined") {
-                (door as any)._originalX = door.x;
-            }
-            if (typeof (door as any)._animationDirection === "undefined") {
-                (door as any)._animationDirection = "open";
-            }
-            if (typeof (door as any)._closeDelay === "undefined") {
-                (door as any)._closeDelay = 0;
-            }
-            if (!('animationOffset' in door)) {
-                (door as any).animationOffset = 0;
-            }
-
-            // Animate open (slide left)
-            if ((door as any)._animationDirection === "open") {
-                if ((door as any).animationOffset > -70) {
-                    (door as any).animationOffset -= 1.5;
-                    door.x = (door as any)._originalX + (door as any).animationOffset;
-                    // Play door open sound at the start of opening
-                    if ((door as any).animationOffset === -1.5) {
-                        try { doorOpenSound.currentTime = 0; doorOpenSound.play(); } catch {}
-                    }
-                } else {
-                    // Fully open, start close delay
-                    (door as any)._animationDirection = "wait";
-                    (door as any)._closeDelay = 0;
-                }
-            }
-            // Wait before closing
-            else if ((door as any)._animationDirection === "wait") {
-                (door as any)._closeDelay += 1 / 60;
-                if ((door as any)._closeDelay >= 2) { // 2 seconds
-                    (door as any)._animationDirection = "close";
-                }
-            }
-            // Animate close (slide right)
-            else if ((door as any)._animationDirection === "close") {
-                if ((door as any).animationOffset < 0) {
-                    // Play door close sound at the start of closing
-                    if ((door as any).animationOffset === -69) {
-                        try { doorCloseSound.currentTime = 0; doorCloseSound.play(); } catch {}
-                    }
-                    (door as any).animationOffset += 1.5;
-                    if ((door as any).animationOffset > 0) (door as any).animationOffset = 0;
-                    door.x = (door as any)._originalX + (door as any).animationOffset;
-                } else {
-                    // Done closing
-                    door.animating = false;
-                    (door as any).animationOffset = 0;
-                    door.x = (door as any)._originalX;
-                    // Clean up animation state
-                    delete (door as any)._animationDirection;
-                    delete (door as any)._closeDelay;
-                    delete (door as any)._originalX;
-                }
-            }
-        }
+        door.updateAnimation(doorOpenSound, doorCloseSound);
     }
 
     // Clear all velocities if landed and not walking
@@ -584,288 +528,92 @@ async function gameLoop() {
     }
 
     // --- Gravity ---
-    applyGravity(astronaut, gameState.gravity);
+    applyGravity(
+        astronaut,
+        gameState.gravity,
+        downPressed ? MOVEMENT_SETTINGS.flyDownTerminalVelocity : MOVEMENT_SETTINGS.fallTerminalVelocity
+    );
+    const wasLanded = gameState.astronaut.isLanded;
+    const horizontalVelocityBeforeResolution = astronaut.velocity.x;
 
     // --- Move astronaut by velocity with collision detection ---
-    // Only apply velocity if NOT landed
-    let nextX = gameState.astronaut.position.x;
-    let nextY = gameState.astronaut.position.y;
-    let hitBlock = false;
-    let hitVelocity = 0;
-    let preVX = astronaut.velocity.x;
-    let preVY = astronaut.velocity.y;
-    let hitType: 'side' | 'head' | null = null;
-    let touchedDoor: Door | undefined = undefined;
+    let nextX = movementTargetX;
+    let nextY = movementTargetY;
     if (!gameState.astronaut.isLanded) {
         nextX += astronaut.velocity.x;
         nextY += astronaut.velocity.y;
     }
 
-    // Use unique variable names for collision bounding box
-    const tileWCol = 32; // Default/fallback, not used for block lookup anymore
-    const tileHCol = 32;
-    const halfW = tileWCol / 2;
-    const halfH = tileHCol / 2;
+    const collisionState = checkAstronautCollisions(
+        buttonEntities,
+        spriteMap,
+        SPRITE_SCALE,
+        mapBlocks,
+        doorEntities,
+        movementStartX,
+        movementStartY,
+        nextX,
+        nextY,
+        gameState
+    );
 
-    // Check for collision at next position (feet, head, left, right)
-    let blockedX = false;
-    let blockedY = false;
-
-    // --- Button collision detection and logging ---
-    function checkButtonCollision(x: number, y: number, SPRITE_SCALE: number): Button | undefined {
-        for (const btn of buttonEntities) {
-            const tileW = 32 * SPRITE_SCALE;
-            const tileH = 32 * SPRITE_SCALE;
-            if (
-                x >= btn.x && x < btn.x + tileW &&
-                y >= btn.y && y < btn.y + tileH
-            ) {
-                return btn;
-            }
-        }
-        return undefined;
+    gameState.astronaut.position.x = collisionState.nextX;
+    gameState.astronaut.position.y = collisionState.nextY;
+    astronaut.velocity.x = collisionState.velocityX;
+    astronaut.velocity.y = collisionState.velocityY;
+    gameState.astronaut.isLanded = collisionState.isLanded;
+    gameState.astronaut.isFlying = !collisionState.isLanded;
+    if (!wasLanded && collisionState.isLanded) {
+        const carriedHorizontalMotion = collisionState.nextX - movementStartX;
+        const landingMomentumSource = Math.abs(carriedHorizontalMotion) > Math.abs(horizontalVelocityBeforeResolution)
+            ? carriedHorizontalMotion
+            : horizontalVelocityBeforeResolution;
+        applyLandingMomentum(landingMomentumSource);
+        astronaut.velocity.x = 0;
+        astronaut.velocity.y = 0;
+        flyDownTransitioning = false;
+        flyDownTransitionStep = 0;
+        flyDownTransitionTimer = 0;
+        flyHoldTimer = 0;
+        flyDir = null;
+        flySwitching = false;
+        flySwitchStep = 0;
+        flySwitchTimer = 0;
+        lastFlySpriteCol = SPRITE_COL_STAND;
     }
 
-    // Check vertical movement (feet and head)
-    if (astronaut.velocity.y > 0) {
-        // Moving down: check feet
-        const blockBelow = getSolidBlockAtWorld(nextX, nextY + halfH, spriteMap, SPRITE_SCALE);
-        // --- Button collision logging ---
-        const btn = checkButtonCollision(nextX, nextY + halfH, SPRITE_SCALE);
-        if (btn) {
-            console.log(
-                `Astronaut collided with button at (${btn.x},${btn.y}) while ${gameState.astronaut.isLanded ? "walking" : "flying"}`
-            );
-        }
-        // Fix: Only access blockBelow.type if blockBelow is defined
-        let rect = null;
-        if (blockBelow) {
-            if (spriteMap instanceof Array) {
-                outer: for (let row = 0; row < spriteMap.length; row++) {
-                    for (let col = 0; col < spriteMap[row].length; col++) {
-                        if (spriteMap[row][col].name === blockBelow.type) {
-                            rect = spriteMap[row][col];
-                            break outer;
-                        }
-                    }
+    const collidedButton = collisionState.touchedButton;
+    const doorCollision = collisionState.touchedDoor;
+
+    if (collidedButton && Array.isArray(collidedButton.linkedDoors)) {
+        const now = performance.now();
+        const lastPress = buttonPressTimestamps.get(collidedButton) || 0;
+        if (now - lastPress > 500) {
+            for (const doorID of collidedButton.linkedDoors) {
+                const door = doorEntities.find(d => d.doorID === doorID);
+                if (door) {
+                    door.locked = !door.locked;
                 }
-            } else if (spriteMap[blockBelow.type]) {
-                rect = spriteMap[blockBelow.type];
             }
-            // Use 32 * SPRITE_SCALE for tile height
-            const tileH = 32 * SPRITE_SCALE;
-            nextY = blockBelow.y - halfH;
-            astronaut.velocity.y = 0;
-            gameState.astronaut.isLanded = true;
-            blockedY = true;
-        }
-    } else if (astronaut.velocity.y < 0) {
-        // Moving up: check head
-        const blockAbove = getSolidBlockAtWorld(nextX, nextY - halfH, spriteMap, SPRITE_SCALE);
-        // --- Button collision logging ---
-        const btn = checkButtonCollision(nextX, nextY - halfH, SPRITE_SCALE);
-        if (btn) {
-            console.log(
-                `Astronaut collided with button at (${btn.x},${btn.y}) while ${gameState.astronaut.isLanded ? "walking" : "flying"}`
-            );
-        }
-        let rect = null;
-        if (blockAbove) {
-            if (spriteMap instanceof Array) {
-                outer: for (let row = 0; row < spriteMap.length; row++) {
-                    for (let col = 0; col < spriteMap[row].length; col++) {
-                        if (spriteMap[row][col].name === blockAbove.type) {
-                            rect = spriteMap[row][col];
-                            break outer;
-                        }
-                    }
-                }
-            } else if (spriteMap[blockAbove.type]) {
-                rect = spriteMap[blockAbove.type];
-            }
-            // Use 32 * SPRITE_SCALE for tile height
-            const tileH = 32 * SPRITE_SCALE;
-            nextY = blockAbove.y + tileH + halfH;
-            astronaut.velocity.y = 0;
-            blockedY = true;
-            hitBlock = true;
-            hitType = 'head';
+            buttonPressTimestamps.set(collidedButton, now);
+            try { buttonOnSound.currentTime = 0; buttonOnSound.play(); } catch {}
         }
     }
 
-    // Check horizontal movement (left/right sides)
-    if (astronaut.velocity.x !== 0) {
-        // Check both top and bottom corners for side collision
-        const sideY1 = nextY - halfH + 2;
-        const sideY2 = nextY + halfH - 2;
-        let blockSide = null;
-        if (astronaut.velocity.x > 0) {
-            // Moving right
-            blockSide = getSolidBlockAtWorld(nextX + halfW, sideY1, spriteMap, SPRITE_SCALE) ||
-                        getSolidBlockAtWorld(nextX + halfW, sideY2, spriteMap, SPRITE_SCALE);
-            // --- Button collision logging ---
-            const btn1 = checkButtonCollision(nextX + halfW, sideY1, SPRITE_SCALE);
-            const btn2 = checkButtonCollision(nextX + halfW, sideY2, SPRITE_SCALE);
-            if (btn1 || btn2) {
-                const btn = btn1 ?? btn2;
-                if (btn) {
-                    console.log(
-                        `Astronaut collided with button at (${btn.x},${btn.y}) while ${gameState.astronaut.isLanded ? "walking" : "flying"}`
-                    );
-                }
-            }
-            if (blockSide) {
-                // --- Door animation logic ---
-                if (
-                    blockSide instanceof Door &&
-                    blockSide.type === "door_horizontal" &&
-                    !blockSide.locked &&
-                    !blockSide.animating
-                ) {
-                    blockSide.animating = true;
-                    touchedDoor = blockSide;
-                }
-                // ...existing code for collision response...
-                let rect = null;
-                if (spriteMap instanceof Array) {
-                    outer: for (let row = 0; row < spriteMap.length; row++) {
-                        for (let col = 0; col < spriteMap[row].length; col++) {
-                            if (spriteMap[row][col].name === blockSide.type) {
-                                rect = spriteMap[row][col];
-                                break outer;
-                            }
-                        }
-                    }
-                } else if (spriteMap[blockSide.type]) {
-                    rect = spriteMap[blockSide.type];
-                }
-                // Use 32 * SPRITE_SCALE for tile width
-                const tileW = 32 * SPRITE_SCALE;
-                nextX = blockSide.x - halfW;
-                astronaut.velocity.x = 0;
-                blockedX = true;
-                hitBlock = true;
-                hitType = 'side';
-            }
-        } else {
-            // Moving left
-            blockSide = getSolidBlockAtWorld(nextX - halfW, sideY1, spriteMap, SPRITE_SCALE) ||
-                        getSolidBlockAtWorld(nextX - halfW, sideY2, spriteMap, SPRITE_SCALE);
-            // --- Button collision logging ---
-            const btn1 = checkButtonCollision(nextX - halfW, sideY1, SPRITE_SCALE);
-            const btn2 = checkButtonCollision(nextX - halfW, sideY2, SPRITE_SCALE);
-            if (btn1 || btn2) {
-                const btn = btn1 ?? btn2;
-                if (btn) {
-                    console.log(
-                        `Astronaut collided with button at (${btn.x},${btn.y}) while ${gameState.astronaut.isLanded ? "walking" : "flying"}`
-                    );
-                }
-            }
-            if (blockSide) {
-                // --- Door animation logic ---
-                if (
-                    blockSide instanceof Door &&
-                    blockSide.type === "door_horizontal" &&
-                    !blockSide.locked &&
-                    !blockSide.animating
-                ) {
-                    blockSide.animating = true;
-                    touchedDoor = blockSide;
-                }
-                // ...existing code for collision response...
-                let rect = null;
-                if (spriteMap instanceof Array) {
-                    outer: for (let row = 0; row < spriteMap.length; row++) {
-                        for (let col = 0; col < spriteMap[row].length; col++) {
-                            if (spriteMap[row][col].name === blockSide.type) {
-                                rect = spriteMap[row][col];
-                                break outer;
-                            }
-                        }
-                    }
-                } else if (spriteMap[blockSide.type]) {
-                    rect = spriteMap[blockSide.type];
-                }
-                // Use 32 * SPRITE_SCALE for tile width
-                const tileW = 32 * SPRITE_SCALE;
-                nextX = blockSide.x + tileW + halfW;
-                astronaut.velocity.x = 0;
-                blockedX = true;
-                hitBlock = true;
-                hitType = 'side';
-            }
+    if (
+        doorCollision &&
+        doorCollision.type === "door_horizontal" &&
+        !doorCollision.locked &&
+        !doorCollision.animating
+    ) {
+        doorCollision.animating = true;
+        if (typeof (doorCollision as any)._originalX === "undefined") {
+            (doorCollision as any)._originalX = doorCollision.x;
         }
+        (doorCollision as any)._animationDirection = "open";
+        (doorCollision as any)._animationTimer = 0;
+        (doorCollision as any)._closeDelay = 0;
     }
-
-    // --- Door animation update ---
-    for (const door of doorEntities) {
-        if (door.animating && door.type === "door_horizontal" && !door.locked) {
-            // Initialize animation state if needed
-            if (typeof (door as any)._originalX === "undefined") {
-                (door as any)._originalX = door.x;
-            }
-            if (typeof (door as any)._animationDirection === "undefined") {
-                (door as any)._animationDirection = "open";
-            }
-            if (typeof (door as any)._closeDelay === "undefined") {
-                (door as any)._closeDelay = 0;
-            }
-            if (!('animationOffset' in door)) {
-                (door as any).animationOffset = 0;
-            }
-
-            // Animate open (slide left)
-            if ((door as any)._animationDirection === "open") {
-                if ((door as any).animationOffset > -70) {
-                    (door as any).animationOffset -= 1.5;
-                    door.x = (door as any)._originalX + (door as any).animationOffset;
-                    // Play door open sound at the start of opening
-                    if ((door as any).animationOffset === -1.5) {
-                        try { doorOpenSound.currentTime = 0; doorOpenSound.play(); } catch {}
-                    }
-                } else {
-                    // Fully open, start close delay
-                    (door as any)._animationDirection = "wait";
-                    (door as any)._closeDelay = 0;
-                }
-            }
-            // Wait before closing
-            else if ((door as any)._animationDirection === "wait") {
-                (door as any)._closeDelay += 1 / 60;
-                if ((door as any)._closeDelay >= 2) { // 2 seconds
-                    (door as any)._animationDirection = "close";
-                }
-            }
-            // Animate close (slide right)
-            else if ((door as any)._animationDirection === "close") {
-                if ((door as any).animationOffset < 0) {
-                    // Play door close sound at the start of closing
-                    if ((door as any).animationOffset === -70) {
-                        try { doorCloseSound.currentTime = 0; doorCloseSound.play(); } catch {}
-                    }
-                    (door as any).animationOffset += 1.5;
-                    if ((door as any).animationOffset > 0) (door as any).animationOffset = 0;
-                    door.x = (door as any)._originalX + (door as any).animationOffset;
-                } else {
-                    // Done closing
-                    door.animating = false;
-                    (door as any).animationOffset = 0;
-                    door.x = (door as any)._originalX;
-                    // Clean up animation state
-                    delete (door as any)._animationDirection;
-                    delete (door as any)._closeDelay;
-                    delete (door as any)._originalX;
-                }
-            }
-        }
-    }
-
-    // If not blocked vertically, not landed
-    //if (!blockedY) gameState.astronaut.isLanded = false;
-
-    gameState.astronaut.position.x = nextX;
-    gameState.astronaut.position.y = nextY;
 
     // Ensure astronaut position is always integer pixels
     gameState.astronaut.position.x = Math.round(gameState.astronaut.position.x);
@@ -930,10 +678,28 @@ async function gameLoop() {
         );
         debugY += 16;
         // --- Show block under mouse cursor with palette and rotation ---
-        const block = getAnyBlockAtWorld(mouseWorld.x, mouseWorld.y, SPRITE_SCALE);
+        let block: any = null;
+        if (hideBlackBackgroundBlocks) {
+            // Find the topmost non-black_background block under the mouse
+            const blocksUnderMouse = mapBlocks.filter(b => {
+                const tileW = 32 * SPRITE_SCALE;
+                const tileH = 32 * SPRITE_SCALE;
+                return (
+                    mouseWorld.x >= b.x && mouseWorld.x < b.x + tileW &&
+                    mouseWorld.y >= b.y && mouseWorld.y < b.y + tileH
+                );
+            });
+            block = blocksUnderMouse.find(b => b.type !== 'black_background');
+            // If not found, fall back to doors/buttons/creatures
+            if (!block) {
+                block = getAnyBlockAtWorld(mouseWorld.x, mouseWorld.y, SPRITE_SCALE, [], doorEntities, buttonEntities, creatureEntities);
+            }
+        } else {
+            block = getAnyBlockAtWorld(mouseWorld.x, mouseWorld.y, SPRITE_SCALE, mapBlocks, doorEntities, buttonEntities, creatureEntities);
+        }
         if (block) {
             ctx!.fillText(
-                `Block under cursor: ${block.type} (${block.x},${block.y}) palette: ${block.palette ?? 0} rotation: ${block.rotation ?? 0}` +
+                `Block under cursor: ${block.type} (${block.x},${block.y}) id: ${block.entityId ?? 'n/a'} palette: ${block.palette ?? 0} rotation: ${block.rotation ?? 0}` +
                 (typeof block.locked !== "undefined" ? ` locked: ${block.locked}` : ""),
                 10, debugY
             );
@@ -941,6 +707,56 @@ async function gameLoop() {
             if (block.type && block.type.startsWith("door")) {
                 ctx!.fillText(
                     `palette_locked: ${block.palette_locked} palette_unlocked: ${block.palette_unlocked}`,
+                    10, debugY + 16
+                );
+                debugY += 16;
+            }
+            // Show tight bounding box world min/max if available
+            const bbox = blockInstanceRotatedBoundingBoxes.get(block);
+            if (bbox) {
+                // Calculate transformed corners (with rotation/flip)
+                const scale = SPRITE_SCALE;
+                const tileW = 32 * scale;
+                const tileH = 32 * scale;
+                const cx = block.x + tileW / 2;
+                const cy = block.y + tileH / 2;
+                // Corners relative to sprite center
+                let corners = [
+                    { x: -tileW / 2 + bbox.minX * scale, y: -tileH / 2 + bbox.minY * scale },
+                    { x: -tileW / 2 + bbox.maxX * scale, y: -tileH / 2 + bbox.minY * scale },
+                    { x: -tileW / 2 + bbox.maxX * scale, y: -tileH / 2 + bbox.maxY * scale },
+                    { x: -tileW / 2 + bbox.minX * scale, y: -tileH / 2 + bbox.maxY * scale }
+                ];
+                // Apply rotation/flip
+                let rot = block.rotation || 0;
+                corners = corners.map(pt => {
+                    let { x, y } = pt;
+                    // Rotation (1-4 = 0,90,180,270 deg)
+                    if (rot >= 1 && rot <= 4) {
+                        const angle = ((rot - 1) * Math.PI) / 2;
+                        const cos = Math.cos(angle);
+                        const sin = Math.sin(angle);
+                        const nx = x * cos - y * sin;
+                        const ny = x * sin + y * cos;
+                        x = nx; y = ny;
+                    } else if (rot === 5) {
+                        x = -x;
+                    } else if (rot === 6) {
+                        y = -y;
+                    } else if (rot === 7) {
+                        x = -x; y = -y;
+                    }
+                    // Translate to world
+                    return { x: cx + x, y: cy + y };
+                });
+                const xs = corners.map(pt => pt.x);
+                const ys = corners.map(pt => pt.y);
+                const worldMinX = Math.round(Math.min(...xs));
+                const worldMinY = Math.round(Math.min(...ys));
+                const worldMaxX = Math.round(Math.max(...xs));
+                const worldMaxY = Math.round(Math.max(...ys));
+                ctx!.fillText(
+                    `Tight bbox: worldMin=(${worldMinX},${worldMinY}) worldMax=(${worldMaxX},${worldMaxY})`,
                     10, debugY + 16
                 );
                 debugY += 16;
@@ -956,6 +772,99 @@ async function gameLoop() {
             `Mouse world: (${mouseWorld.x.toFixed(1)}, ${mouseWorld.y.toFixed(1)})`,
             10, debugY
         );
+        ctx!.restore();
+    }
+    // --- Draw world coordinate bounding boxes for each block in green if enabled ---
+    if (showWorldBoundingBoxes) {
+        ctx!.save();
+        ctx!.strokeStyle = 'lime';
+        ctx!.lineWidth = 2;
+        const drawWorldBBox = (entity: any) => {
+            if (!entity.collision) return;
+            let bbox = blockInstanceRotatedBoundingBoxes.get(entity);
+            if (!bbox) return;
+            const scale = SPRITE_SCALE;
+            const tileW = 32 * scale;
+            const tileH = 32 * scale;
+            // Center of the sprite
+            const drawX = entity.x - camera.x + tileW / 2;
+            const drawY = entity.y - camera.y + tileH / 2;
+            ctx!.save();
+            ctx!.translate(drawX, drawY);
+            // Apply rotation if present
+            if (entity.rotation) {
+                if (entity.rotation >= 1 && entity.rotation <= 4) {
+                    ctx!.rotate(((entity.rotation - 1) * Math.PI) / 2);
+                } else if (entity.rotation === 5) {
+                    ctx!.scale(-1, 1);
+                } else if (entity.rotation === 6) {
+                    ctx!.scale(1, -1);
+                } else if (entity.rotation === 7) {
+                    ctx!.scale(-1, -1);
+                }
+            }
+            // Draw bbox relative to sprite center
+            const x = -tileW / 2 + bbox.minX * scale;
+            const y = -tileH / 2 + bbox.minY * scale;
+            const w = bbox.width * scale;
+            const h = bbox.height * scale;
+            ctx!.strokeRect(x, y, w, h);
+            ctx!.restore();
+        };
+        // Use mapBlocksToDraw for overlays
+        const mapBlocksToDraw = hideBlackBackgroundBlocks
+            ? mapBlocks.filter(b => b.type !== 'black_background')
+            : mapBlocks;
+        mapBlocksToDraw.forEach(drawWorldBBox);
+        doorEntities.forEach(drawWorldBBox);
+        buttonEntities.forEach(drawWorldBBox);
+        creatureEntities.forEach(drawWorldBBox);
+        collectableEntities.forEach(drawWorldBBox);
+        ctx!.restore();
+    }
+
+    // --- Highlight all black_background blocks if enabled ---
+    if (showBlackBackgroundBlocks) {
+        ctx!.save();
+        ctx!.strokeStyle = 'cyan';
+        ctx!.lineWidth = 2;
+        for (const block of mapBlocks) {
+            if (block.type === 'black_background') {
+                const bbox = blockInstanceRotatedBoundingBoxes.get(block);
+                const scale = SPRITE_SCALE;
+                const tileW = 32 * scale;
+                const tileH = 32 * scale;
+                // Center of the sprite
+                const drawX = block.x - camera.x + tileW / 2;
+                const drawY = block.y - camera.y + tileH / 2;
+                ctx!.save();
+                ctx!.translate(drawX, drawY);
+                // Apply rotation if present
+                if (block.rotation) {
+                    if (block.rotation >= 1 && block.rotation <= 4) {
+                        ctx!.rotate(((block.rotation - 1) * Math.PI) / 2);
+                    } else if (block.rotation === 5) {
+                        ctx!.scale(-1, 1);
+                    } else if (block.rotation === 6) {
+                        ctx!.scale(1, -1);
+                    } else if (block.rotation === 7) {
+                        ctx!.scale(-1, -1);
+                    }
+                }
+                // Draw bbox relative to sprite center
+                if (bbox) {
+                    const x = -tileW / 2 + bbox.minX * scale;
+                    const y = -tileH / 2 + bbox.minY * scale;
+                    const w = bbox.width * scale;
+                    const h = bbox.height * scale;
+                    ctx!.strokeRect(x, y, w, h);
+                } else {
+                    // fallback: draw full tile
+                    ctx!.strokeRect(-tileW / 2, -tileH / 2, tileW, tileH);
+                }
+                ctx!.restore();
+            }
+        }
         ctx!.restore();
     }
 
@@ -1019,38 +928,21 @@ async function gameLoop() {
         gameState.astronaut.isLanded &&
         walkSpeed > 0
     ) {
-        // Check if there is a block below the astronaut's feet
-        const tileHDraw = 32; // Not used for block lookup
-        const feetY = gameState.astronaut.position.y + tileHDraw / 2;
-        // --- Use up-to-date door positions for collision ---
-        const blockBelow = getSolidBlockAtWorld(
-            gameState.astronaut.position.x,
-            feetY + 1,
-            spriteMap,
-            SPRITE_SCALE
-        );
-        if (!blockBelow) {
-            // No block below: set to flying
-            gameState.astronaut.isLanded = false;
-            gameState.astronaut.isFlying = true;
-        } else {
-            // Debug: Show walking branch taken (momentum or key)
-            if (gameState.debugMode) {
-                //console.log('WALKING: isLanded && walkSpeed > 0');
-            }
-            walkAnimTimer += 1 / 60;
-            if (walkAnimTimer > 0.05) { // slower frame rate
-                walkAnimFrame++;
-                if (walkAnimFrame > SPRITE_COL_WALK_END) walkAnimFrame = SPRITE_COL_WALK_START;
-                walkAnimTimer = 0;
-            }
-            spriteCol = walkAnimFrame;
-            flyHoldTimer = 0;
-            flyDir = null;
-            flySwitching = false;
-            flySwitchStep = 0;
-            flySwitchTimer = 0;
+        if (gameState.debugMode) {
+            //console.log('WALKING: isLanded && walkSpeed > 0');
         }
+        walkAnimTimer += 1 / 60;
+        if (walkAnimTimer > 0.05) { // slower frame rate
+            walkAnimFrame++;
+            if (walkAnimFrame > SPRITE_COL_WALK_END) walkAnimFrame = SPRITE_COL_WALK_START;
+            walkAnimTimer = 0;
+        }
+        spriteCol = walkAnimFrame;
+        flyHoldTimer = 0;
+        flyDir = null;
+        flySwitching = false;
+        flySwitchStep = 0;
+        flySwitchTimer = 0;
     } else if (gameState.astronaut.isLanded) {
         spriteCol = SPRITE_COL_STAND;
         walkAnimFrame = SPRITE_COL_WALK_START;
@@ -1209,13 +1101,16 @@ async function gameLoop() {
                 astronaut.velocity.y = 0; // Clear velocity on teleport
                 // If teleporting into the air (not on ground), set isFlying so gravity applies
                 // We'll check for ground below the feet
-                const tileHDraw = 32;
-                const feetY = teleportTarget.y + tileHDraw / 2;
+                const astronautOffsets = getAstronautCollisionOffsets();
+                const feetY = teleportTarget.y + astronautOffsets.bottom;
                 const blockBelow = getSolidBlockAtWorld(
                     teleportTarget.x,
                     feetY + 1,
                     spriteMap,
-                    SPRITE_SCALE
+                    SPRITE_SCALE,
+                    mapBlocks,
+                    doorEntities,
+                    buttonEntities
                 );
                 if (!blockBelow) {
                     astronaut.isLanded = false;
@@ -1253,233 +1148,110 @@ async function gameLoop() {
             -drawH / 2,
             drawW, drawH
         );
-        ctx!.restore();
-    }
 
-    // --- Render trail (draw relative to camera) ---
-    gameState.trail.forEach((dot: { x: number; y: number }) => {
-        ctx!.fillStyle = 'black';
-        ctx!.fillRect(dot.x - camera.x, dot.y - camera.y, 2, 2);
-    });
+        // --- Draw tight bounding box for astronaut (with transforms) ---
+        if (showTightBoundingBoxes) {
+            let spriteName = spriteRect.name;
+            if (!astronautBoundingBoxes[spriteName]) {
+                const colToName: Record<number, string> = {
+                    [SPRITE_COL_FLY_RIGHT]: "fly_right",
+                    [SPRITE_COL_FLY_DIAGONAL]: "fly_diagonal",
+                    [SPRITE_COL_FLY_FLOAT]: "fly_float",
+                    [SPRITE_COL_FLY_DOWN]: "fly_down",
+                    [SPRITE_COL_STAND]: "stand",
+                    [SPRITE_COL_WALK_START]: "walk_right1",
+                    [SPRITE_COL_WALK_RIGHT1]: "walk_right2",
+                    [SPRITE_COL_WALK_RIGHT2]: "walk_right3"
+                };
+                spriteName = colToName[spriteCol];
+            }
+            const bbox = astronautBoundingBoxes[spriteName];
+            if (bbox) {
+                ctx!.save();
+                ctx!.strokeStyle = 'red';
+                ctx!.lineWidth = 2;
+                // The context is already translated and scaled as for the sprite.
+                const scale = SPRITE_SCALE;
+                const x = -drawW / 2 + bbox.minX * scale;
+                const y = -drawH / 2 + bbox.minY * scale;
+                const w = bbox.width * scale;
+                const h = bbox.height * scale;
+                ctx!.strokeRect(x, y, w, h);
+                ctx!.restore();
+            }
+        }
+        ctx!.restore();
+
+        // --- Draw tight bounding boxes for world map sprites with collision ---
+        if (showTightBoundingBoxes && spriteSheet && spriteSheet.complete) {
+            // Draw for mapBlocks, doorEntities, buttonEntities with collision=true
+            const drawBBox = (entity: any) => {
+                if (!entity.collision) return;
+                // Use precomputed bounding box for this instance
+                let bbox = blockInstanceRotatedBoundingBoxes.get(entity);
+                // Fallback if not found
+                if (!bbox) {
+                    let type = entity.type;
+                    let rotation = typeof entity.rotation === "number" ? entity.rotation : 0;
+                    bbox =
+                        (worldMapRotatedBoundingBoxes[type] && worldMapRotatedBoundingBoxes[type][rotation]) ||
+                        worldMapBoundingBoxes[type];
+                }
+                if (!bbox) return;
+                const scale = SPRITE_SCALE;
+                const tileW = 32 * scale;
+                const tileH = 32 * scale;
+                ctx!.save();
+                // Center of the sprite
+                const drawX = entity.x - camera.x + tileW / 2;
+                const drawY = entity.y - camera.y + tileH / 2;
+                ctx!.translate(drawX, drawY);
+                // Apply rotation if present
+                if (entity.rotation) {
+                    if (entity.rotation >= 1 && entity.rotation <= 4) {
+                        ctx!.rotate(((entity.rotation - 1) * Math.PI) / 2);
+                    } else if (entity.rotation === 5) {
+                        ctx!.scale(-1, 1);
+                    } else if (entity.rotation === 6) {
+                        ctx!.scale(1, -1);
+                    } else if (entity.rotation === 7) {
+                        ctx!.scale(-1, -1);
+                    }
+                }
+                ctx!.strokeStyle = 'red';
+                ctx!.lineWidth = 2;
+                // Draw bbox relative to sprite center
+                const x = -tileW / 2 + bbox.minX * scale;
+                const y = -tileH / 2 + bbox.minY * scale;
+                const w = bbox.width * scale;
+                const h = bbox.height * scale;
+                ctx!.strokeRect(x, y, w, h);
+                ctx!.restore();
+            };
+            mapBlocks.forEach(drawBBox);
+            doorEntities.forEach(drawBBox);
+            buttonEntities.forEach(drawBBox);
+        }
+    }
 
     prevKeys = { ...keys };
     requestAnimationFrame(gameLoop);
 }
 
-// After loading the sprite sheet, convert black pixels to transparent
-function makeBlackTransparent(img: HTMLImageElement, callback: (result: HTMLCanvasElement) => void) {
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = img.width;
-    tempCanvas.height = img.height;
-    const tempCtx = tempCanvas.getContext('2d')!;
-    tempCtx.drawImage(img, 0, 0);
-    const imageData = tempCtx.getImageData(0, 0, img.width, img.height);
-    const data = imageData.data;
-    for (let i = 0; i < data.length; i += 4) {
-        // If pixel is black (0,0,0), set alpha to 0
-        if (data[i] === 0 && data[i + 1] === 0 && data[i + 2] === 0) {
-            data[i + 3] = 0;
-        }
-    }
-    tempCtx.putImageData(imageData, 0, 0);
-    callback(tempCanvas);
-}
+// --- Bounding boxes for astronaut sprites (populated after calculation) ---
+let astronautBoundingBoxes: Record<string, { minX: number, minY: number, maxX: number, maxY: number, width: number, height: number }> = {};
+// --- Bounding boxes for world map sprites (populated after calculation) ---
+let worldMapBoundingBoxes: Record<string, { minX: number, minY: number, maxX: number, maxY: number, width: number, height: number }> = {};
+// --- Rotated bounding boxes for world map sprites (by type and rotation) ---
+let worldMapRotatedBoundingBoxes: Record<string, Record<number, { minX: number, minY: number, maxX: number, maxY: number, width: number, height: number }>> = {};
+// --- Rotated bounding boxes for each block instance (populated after map/entities load) ---
+let blockInstanceRotatedBoundingBoxes: WeakMap<object, { minX: number, minY: number, maxX: number, maxY: number, width: number, height: number }> = new WeakMap();
 
-// Utility: Check if a pixel in the sprite sheet is transparent
-function isSpritePixelTransparent(
-    img: HTMLImageElement,
-    spriteRect: { x: number, y: number, w: number, h: number },
-    px: number,
-    py: number
-): Promise<boolean> {
-    return new Promise((resolve) => {
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = img.width;
-        tempCanvas.height = img.height;
-        const tempCtx = tempCanvas.getContext('2d')!;
-        tempCtx.drawImage(img, 0, 0);
-        const sx = Math.floor(px - spriteRect.x);
-        const sy = Math.floor(py - spriteRect.y);
-        if (
-            sx < 0 || sy < 0 ||
-            sx >= spriteRect.w || sy >= spriteRect.h
-        ) {
-            resolve(true);
-            return;
-        }
-        const imageData = tempCtx.getImageData(spriteRect.x + sx, spriteRect.y + sy, 1, 1).data;
-        resolve(imageData[3] === 0);
-    });
-}
-
-/**
- * Remap the palette of a sprite image.
- * @param img The source image.
- * @param colorMap An array of {from: [r,g,b], to: [r,g,b]} mappings.
- * @returns A new HTMLCanvasElement with remapped colors.
- */
-function remapSpritePalette(
-    img: HTMLImageElement,
-    colorMap: { from: [number, number, number], to: [number, number, number] }[]
-): HTMLCanvasElement {
-    // This function allows for any number of color mappings.
-    // Each entry in colorMap will be applied to the image.
-    const canvas = document.createElement('canvas');
-    canvas.width = img.width;
-    canvas.height = img.height;
-    const ctx = canvas.getContext('2d')!;
-    ctx.drawImage(img, 0, 0);
-    const imageData = ctx.getImageData(0, 0, img.width, img.height);
-    const data = imageData.data;
-    for (let i = 0; i < data.length; i += 4) {
-        for (const { from, to } of colorMap) {
-            if (
-                data[i] === from[0] &&
-                data[i + 1] === from[1] &&
-                data[i + 2] === from[2]
-            ) {
-                data[i] = to[0];
-                data[i + 1] = to[1];
-                data[i + 2] = to[2];
-            }
-        }
-    }
-    ctx.putImageData(imageData, 0, 0);
-    return canvas;
-}
-
-// Example usage after loading the sprite sheet:
-// Replace pure red (255,0,0) with Magenta (143,0,255), and pure green (0,255,0) with white (255,255,255)
-// const remappedCanvas = remapSpritePalette(spriteSheet, [
-//     { from: [255, 0, 0], to: [143, 0, 255] },    // red -> Magenta
-//     { from: [0, 255, 0], to: [255, 255, 255] }   // green -> white
-// ]);
-// Use remappedCanvas as your sprite source
-
-window.addEventListener('keydown', (event) => {
-    keys[event.key] = true;
+// --- Show tight bounding boxes toggle ---
+let showTightBoundingBoxes = false; // Red sprite-based bounding boxes
+let showWorldBoundingBoxes = false; // Green world-coordinate bounding boxes
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'b') showTightBoundingBoxes = !showTightBoundingBoxes;
+    if (e.key === 'f') showWorldBoundingBoxes = !showWorldBoundingBoxes;
+    if (e.key === 'd') gameState.debugMode = !gameState.debugMode;
 });
-
-window.addEventListener('keyup', (event) => {
-    keys[event.key] = false;
-});
-
-// --- Mouse tracking for debug ---
-let mouseScreen = { x: 0, y: 0 };
-let mouseWorld = { x: 0, y: 0 };
-window.addEventListener('mousemove', (e) => {
-    const rect = canvas.getBoundingClientRect();
-    mouseScreen.x = e.clientX - rect.left;
-    mouseScreen.y = e.clientY - rect.top;
-});
-
-// Utility: Get any block at world position (ignores collision)
-function getAnyBlockAtWorld(
-    x: number,
-    y: number,
-    SPRITE_SCALE: number
-): any {
-    x = Math.round(x);
-    y = Math.round(y);
-    // Check map blocks
-    for (const b of mapBlocks) {
-        const tileW = 32 * SPRITE_SCALE;
-        const tileH = 32 * SPRITE_SCALE;
-        if (
-            x >= b.x && x < b.x + tileW &&
-            y >= b.y && y < b.y + tileH
-        ) {
-            return b;
-        }
-    }
-    // Check doors
-    for (const d of doorEntities) {
-        const tileW = 32 * SPRITE_SCALE;
-        const tileH = 32 * SPRITE_SCALE;
-        if (
-            x >= d.x && x < d.x + tileW &&
-            y >= d.y && y < d.y + tileH
-        ) {
-            return d;
-        }
-    }
-    // Check buttons
-    for (const btn of buttonEntities) {
-        const tileW = 32 * SPRITE_SCALE;
-        const tileH = 32 * SPRITE_SCALE;
-        if (
-            x >= btn.x && x < btn.x + tileW &&
-            y >= btn.y && y < btn.y + tileH
-        ) {
-            return btn;
-        }
-    }
-    // Check creatures
-    for (const c of creatureEntities) {
-        const tileW = 32 * SPRITE_SCALE;
-        const tileH = 32 * SPRITE_SCALE;
-        if (
-            x >= c.x && x < c.x + tileW &&
-            y >= c.y && y < c.y + tileH
-        ) {
-            return c;
-        }
-    }
-    return undefined;
-}
-
-// Utility: Get any solid block (map, door, button) at world position
-function getSolidBlockAtWorld(
-    x: number,
-    y: number,
-    spriteMap: any,
-    SPRITE_SCALE: number
-): any {
-    x = Math.round(x);
-    y = Math.round(y);
-    // Check map blocks
-    for (const b of mapBlocks) {
-        const tileW = 32 * SPRITE_SCALE;
-        const tileH = 32 * SPRITE_SCALE;
-        if (
-            x >= b.x && x < b.x + tileW &&
-            y >= b.y && y < b.y + tileH
-        ) {
-            // Only treat as solid if collision is not explicitly false
-            if (b.collision !== false) {
-                return b;
-            }
-        }
-    }
-    // Check doors
-    for (const d of doorEntities) {
-        const tileW = 32 * SPRITE_SCALE;
-        const tileH = 32 * SPRITE_SCALE;
-        if (
-            x >= d.x && x < d.x + tileW &&
-            y >= d.y && y < d.y + tileH
-        ) {
-            // Only collide if door is closed (assume open property)
-            if (!d.open) return d;
-        }
-    }
-    // Check buttons (treat as solid)
-    for (const btn of buttonEntities) {
-        const tileW = 32 * SPRITE_SCALE;
-        const tileH = 32 * SPRITE_SCALE;
-        if (
-            x >= btn.x && x < btn.x + tileW &&
-            y >= btn.y && y < btn.y + tileH
-        ) {
-            return btn;
-        }
-    }
-    return undefined;
-}
-
-// Example: when a button is pressed, activate it and unlock linked door
-function onButtonPress(button: Button) {
-    // When unlocking/locking, update both locked and open
-    button.activate(doorEntities);
-    // If your Button.activate logic unlocks a door, ensure it sets door.locked = false and door.open = true
-}

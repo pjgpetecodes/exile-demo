@@ -1,9 +1,14 @@
 import { Astronaut } from './types/index.js';
 
-export function applyGravity(astronaut: Astronaut, gravity: number = 0.2) {
+export function applyGravity(
+    astronaut: Astronaut,
+    gravity: number = 0.2,
+    maxFallSpeed: number = Number.POSITIVE_INFINITY
+) {
     if (!astronaut.isLanded) {
         astronaut.velocity.y += gravity;
-        astronaut.position.y += astronaut.velocity.y;
-        astronaut.position.x += astronaut.velocity.x;
+        if (astronaut.velocity.y > maxFallSpeed) {
+            astronaut.velocity.y = maxFallSpeed;
+        }
     }
 }

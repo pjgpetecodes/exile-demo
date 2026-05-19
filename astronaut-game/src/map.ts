@@ -1,3 +1,5 @@
+import { assignEntityId } from './game.js';
+
 export type MapBlock = {
     x: number; // tile x
     y: number; // tile y
@@ -32,7 +34,9 @@ function resolveColor(color: string | [number, number, number]): [number, number
 export async function loadMapBlocks() {
     await loadColorAliases(); // Ensure color aliases are loaded
     const res = await fetch('./src/assets/world_map.json');
-    mapBlocks = await res.json();
+    const arr = await res.json();
+    // Assign entityId to each block using global assignEntityId
+    mapBlocks = arr.map((block: any) => assignEntityId(block));
     mapLoaded = true;
 }
 
@@ -102,7 +106,8 @@ export function drawMap(
     camera: { x: number, y: number },
     spriteMap: any,
     spriteSheets: CanvasImageSource[],
-    SPRITE_SCALE: number
+    SPRITE_SCALE: number,
+    blocks?: MapBlock[] // Optional: blocks to draw instead of global mapBlocks
 ) {
     if (!spriteMap || !mapLoaded) return;
 
@@ -115,7 +120,10 @@ export function drawMap(
     const minX = camera.x - tileW, maxX = camera.x + ctx.canvas.width + tileW;
     const minY = camera.y - tileH, maxY = camera.y + ctx.canvas.height + tileH;
 
-    for (const block of mapBlocks) {
+    // Use provided blocks array or global mapBlocks
+    const blocksToDraw = blocks || mapBlocks;
+
+    for (const block of blocksToDraw) {
         // Only draw visible blocks
         if (
             block.x + tileW < minX || block.x > maxX ||
