@@ -1,5 +1,100 @@
 import { Door } from './door.js';
 
+function getSpriteRectByType(spriteMap: any, type: string) {
+    if (spriteMap instanceof Array) {
+        for (let row = 0; row < spriteMap.length; row++) {
+            for (let col = 0; col < spriteMap[row].length; col++) {
+                if (spriteMap[row][col].name === type) {
+                    return spriteMap[row][col];
+                }
+            }
+        }
+        return null;
+    }
+    return spriteMap[type] || null;
+}
+
+function getEntityRotation(entity: any): number {
+    if (typeof entity.rotation !== 'number') {
+        return 1;
+    }
+    return entity.rotation;
+}
+
+function isEntitySolid(entity: any): boolean {
+    if (entity.collision === false) {
+        return false;
+    }
+    if (entity instanceof Door && entity.open) {
+        return false;
+    }
+    return true;
+}
+
+function isSolidSpritePixelAtWorld(
+    x: number,
+    y: number,
+    entity: any,
+    rect: { x: number; y: number; w: number; h: number },
+    SPRITE_SCALE: number,
+    spriteSheetCtx?: CanvasRenderingContext2D
+): boolean {
+    const tileW = rect.w * SPRITE_SCALE;
+    const tileH = rect.h * SPRITE_SCALE;
+    const centerX = entity.x + tileW / 2;
+    const centerY = entity.y + tileH / 2;
+
+    let localX = x - centerX;
+    let localY = y - centerY;
+    const rotation = getEntityRotation(entity);
+
+    if (rotation >= 2 && rotation <= 4) {
+        const angle = -((rotation - 1) * Math.PI / 2);
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        const rotatedX = localX * cos - localY * sin;
+        const rotatedY = localX * sin + localY * cos;
+        localX = rotatedX;
+        localY = rotatedY;
+    } else if (rotation === 5) {
+        localX = -localX;
+    } else if (rotation === 6) {
+        localY = -localY;
+    } else if (rotation === 7) {
+        localX = -localX;
+        localY = -localY;
+    }
+
+    const drawX = localX + tileW / 2;
+    const drawY = localY + tileH / 2;
+    if (
+        drawX < 0 ||
+        drawX >= tileW ||
+        drawY < 0 ||
+        drawY >= tileH
+    ) {
+        return false;
+    }
+
+    const pixelX = Math.floor(drawX / SPRITE_SCALE);
+    const pixelY = Math.floor(drawY / SPRITE_SCALE);
+    if (
+        pixelX < 0 ||
+        pixelX >= rect.w ||
+        pixelY < 0 ||
+        pixelY >= rect.h
+    ) {
+        return false;
+    }
+
+    if (!spriteSheetCtx) {
+        return true;
+    }
+
+    const alpha = spriteSheetCtx.getImageData(rect.x + pixelX, rect.y + pixelY, 1, 1).data[3];
+    return alpha > 0;
+}
+
 // After loading the sprite sheet, convert black pixels to transparent
 export function makeBlackTransparent(img: HTMLImageElement, callback: (result: HTMLCanvasElement) => void) {
     const tempCanvas = document.createElement('canvas');
@@ -153,48 +248,34 @@ export function getSolidBlockAtWorld(
 ): any {
     x = Math.round(x);
     y = Math.round(y);
+    const spriteSheetCtx = (window as any)._spriteSheetCtx as CanvasRenderingContext2D | undefined;
     // Check map blocks
     for (const b of mapBlocks) {
-        const tileW = 32 * SPRITE_SCALE;
-        const tileH = 32 * SPRITE_SCALE;
-        // --- DEBUG: Log greenBBox and test point if present ---
-        if (b.greenBBox) {
-            const bbox = b.greenBBox;
-            const inside = x >= bbox.worldMinX && x < bbox.worldMaxX && y >= bbox.worldMinY && y < bbox.worldMaxY;
-            console.log('[DEBUG][greenBBox] Block', b.type, 'entityId', b.entityId, 'greenBBox:', bbox, 'Test point:', {x, y}, 'Inside:', inside);
+        if (!isEntitySolid(b)) {
+            continue;
         }
-        if (
-            x >= b.x && x < b.x + tileW &&
-            y >= b.y && y < b.y + tileH
-        ) {
-            // Only treat as solid if collision is not explicitly false
-            if (b.collision !== false) {
-                // --- DEBUG: Log which block is returned ---
-                console.log('[DEBUG] Returning solid map block:', b.type, 'entityId', b.entityId);
-                return b;
-            }
+        const rect = getSpriteRectByType(spriteMap, b.type);
+        if (rect && isSolidSpritePixelAtWorld(x, y, b, rect, SPRITE_SCALE, spriteSheetCtx)) {
+            return b;
         }
     }
     // Check doors
     for (const d of doorEntities) {
-        const tileW = 32 * SPRITE_SCALE;
-        const tileH = 32 * SPRITE_SCALE;
-        if (
-            x >= d.x && x < d.x + tileW &&
-            y >= d.y && y < d.y + tileH
-        ) {
-            // Only collide if door is closed (assume open property)
-            if (!d.open) return d;
+        if (!isEntitySolid(d)) {
+            continue;
+        }
+        const rect = getSpriteRectByType(spriteMap, d.type);
+        if (rect && isSolidSpritePixelAtWorld(x, y, d, rect, SPRITE_SCALE, spriteSheetCtx)) {
+            return d;
         }
     }
     // Check buttons (treat as solid)
     for (const btn of buttonEntities) {
-        const tileW = 32 * SPRITE_SCALE;
-        const tileH = 32 * SPRITE_SCALE;
-        if (
-            x >= btn.x && x < btn.x + tileW &&
-            y >= btn.y && y < btn.y + tileH
-        ) {
+        if (!isEntitySolid(btn)) {
+            continue;
+        }
+        const rect = getSpriteRectByType(spriteMap, btn.type);
+        if (rect && isSolidSpritePixelAtWorld(x, y, btn, rect, SPRITE_SCALE, spriteSheetCtx)) {
             return btn;
         }
     }

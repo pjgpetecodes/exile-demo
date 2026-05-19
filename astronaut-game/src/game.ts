@@ -1,7 +1,7 @@
 // Main entry point for the astronaut game
 import { Astronaut, GameState } from './types/index.js';
 import {
-    astronaut, resetAstronaut, flipAstronaut, handleAstronautMovement,
+    astronaut, resetAstronaut, flipAstronaut, handleAstronautMovement, applyLandingMomentum, getAstronautCollisionOffsets,
     walkSpeed, facingLeft, upPressed, downPressed, leftPressed, rightPressed,
     checkAstronautCollisions
 } from './astronaut.js';
@@ -16,6 +16,7 @@ import { Collectable } from './collectable.js';
 import { makeBlackTransparent, remapSpritePalette, calculateSpriteCollisionBoundingBoxes, 
     calculateAstronautSpriteBoundingBoxes, getSolidBlockAtWorld, getAnyBlockAtWorld, 
     drawEntities } from './utilities.js';
+import { MOVEMENT_SETTINGS } from './settings.js';
 import {
     SPRITE_ROW, SPRITE_COL_STAND, SPRITE_COL_FLY_RIGHT, SPRITE_COL_FLY_DIAGONAL,
     SPRITE_COL_FLY_FLOAT, SPRITE_COL_FLY_DOWN, SPRITE_COL_WALK_START, SPRITE_COL_WALK_RIGHT1,
@@ -103,7 +104,7 @@ if (!canvas || !ctx) {
 
 let gameState: GameState & { debugMode: boolean } = {
     astronaut,
-    gravity: 0.04, // reduced gravity from 0.09 to 0.04 for gentler fall
+    gravity: MOVEMENT_SETTINGS.gravity,
     trail: [],
     isRunning: true,
     debugMode: false
@@ -494,186 +495,13 @@ async function gameLoop() {
     }
 
     // --- Controls: Upward and horizontal movement ---
-    // Determine if walking should be allowed (block if button collision or door collision)
-    let allowWalking = true;
-    let collidedButton: Button | undefined = undefined;
-    let doorCollision: Door | undefined = undefined; // Track any door collision for opening
-
-    if (gameState.astronaut.isLanded && walkSpeed > 0) {
-        // Use astronaut's tightest bounding box for collision
-        const spriteRect = getSpriteRectFromMap(SPRITE_ROW, SPRITE_COL_STAND);
-        const bbox = astronautBoundingBoxes["stand"] || { minX: 0, minY: 0, maxX: spriteRect.w - 1, maxY: spriteRect.h - 1, width: spriteRect.w, height: spriteRect.h };
-        const astroW = bbox.width * SPRITE_SCALE;
-        const astroH = bbox.height * SPRITE_SCALE;
-        let intendedX = gameState.astronaut.position.x;
-        if (leftPressed) intendedX -= walkSpeed;
-        if (rightPressed) intendedX += walkSpeed;
-        let intendedY = gameState.astronaut.position.y;
-
-        // --- Rotation-aware bounding box calculation ---
-        // Assume astronaut.rotation is 0 (no rotation) unless you have a rotation property.
-        // If you have a rotation property, use it here. For now, we use 0.
-        const rotation = (gameState.astronaut as any).rotation || 0;
-
-        // Calculate the four corners of the bounding box before rotation
-        const cx = intendedX;
-        const cy = intendedY;
-        const halfW = astroW / 2;
-        const halfH = astroH / 2;
-        let corners = [
-            { x: cx - halfW, y: cy - halfH },
-            { x: cx + halfW, y: cy - halfH },
-            { x: cx + halfW, y: cy + halfH },
-            { x: cx - halfW, y: cy + halfH }
-        ];
-
-        // Apply rotation if needed (in radians)
-        if (rotation !== 0) {
-            const angle = rotation * (Math.PI / 2); // 1=90deg, 2=180deg, etc.
-            corners = corners.map(pt => {
-                const dx = pt.x - cx;
-                const dy = pt.y - cy;
-                return {
-                    x: cx + dx * Math.cos(angle) - dy * Math.sin(angle),
-                    y: cy + dx * Math.sin(angle) + dy * Math.cos(angle)
-                };
-            });
-        }
-
-        // Compute AABB of rotated bounding box for collision checks
-        const xs = corners.map(pt => pt.x);
-        const ys = corners.map(pt => pt.y);
-        const astroLeft = Math.min(...xs);
-        const astroRight = Math.max(...xs);
-        const astroTop = Math.min(...ys);
-        const astroBottom = Math.max(...ys);
-
-        // Check for button collision
-        for (const b of buttonEntities) {
-            const tileW = 32 * SPRITE_SCALE;
-            const tileH = 32 * SPRITE_SCALE;
-            const btnLeft = b.x;
-            const btnRight = b.x + tileW;
-            const btnTop = b.y;
-            const btnBottom = b.y + tileH;
-            if (
-                astroLeft < btnRight &&
-                astroRight > btnLeft &&
-                astroTop < btnBottom &&
-                astroBottom > btnTop
-            ) {
-                allowWalking = false;
-                collidedButton = b;
-                break;
-            }
-        }
-        // Check for door collision (horizontal doors only, unlocked)
-        for (const d of doorEntities) {
-            if (d.type === "door_horizontal" && !d.locked) {
-                const tileW = 32 * SPRITE_SCALE;
-                const tileH = 32 * SPRITE_SCALE;
-                const doorLeft = d.x;
-                const doorRight = d.x + tileW;
-                const doorTop = d.y;
-                const doorBottom = d.y + tileH;
-                if (
-                    astroLeft < doorRight &&
-                    astroRight > doorLeft &&
-                    astroTop < doorBottom &&
-                    astroBottom > doorTop
-                ) {
-                    doorCollision = d;
-                    break;
-                }
-            }
-        }
-    } else {
-        // Also check for door collision while flying or not walking
-        // Use astronaut's tightest bounding box at current position
-        const spriteRect = getSpriteRectFromMap(SPRITE_ROW, SPRITE_COL_STAND);
-        const bbox = astronautBoundingBoxes["stand"] || { minX: 0, minY: 0, maxX: spriteRect.w - 1, maxY: spriteRect.h - 1, width: spriteRect.w, height: spriteRect.h };
-        const astroW = bbox.width * SPRITE_SCALE;
-        const astroH = bbox.height * SPRITE_SCALE;
-        // --- Rotation-aware bounding box calculation for flying ---
-        const rotation = (gameState.astronaut as any).rotation || 0;
-        const cx = gameState.astronaut.position.x;
-        const cy = gameState.astronaut.position.y;
-        const halfW = astroW / 2;
-        const halfH = astroH / 2;
-        let corners = [
-            { x: cx - halfW, y: cy - halfH },
-            { x: cx + halfW, y: cy - halfH },
-            { x: cx + halfW, y: cy + halfH },
-            { x: cx - halfW, y: cy + halfH }
-        ];
-        if (rotation !== 0) {
-            const angle = rotation * (Math.PI / 2);
-            corners = corners.map(pt => {
-                const dx = pt.x - cx;
-                const dy = pt.y - cy;
-                return {
-                    x: cx + dx * Math.cos(angle) - dy * Math.sin(angle),
-                    y: cy + dx * Math.sin(angle) + dy * Math.cos(angle)
-                };
-            });
-        }
-        const xs = corners.map(pt => pt.x);
-        const ys = corners.map(pt => pt.y);
-        const astroLeft = Math.min(...xs);
-        const astroRight = Math.max(...xs);
-        const astroTop = Math.min(...ys);
-        const astroBottom = Math.max(...ys);
-
-        for (const d of doorEntities) {
-            if (d.type === "door_horizontal" && !d.locked) {
-                const tileW = 32 * SPRITE_SCALE;
-                const tileH = 32 * SPRITE_SCALE;
-                const doorLeft = d.x;
-                const doorRight = d.x + tileW;
-                const doorTop = d.y;
-                const doorBottom = d.y + tileH;
-                if (
-                    astroLeft < doorRight &&
-                    astroRight > doorLeft &&
-                    astroTop < doorBottom &&
-                    astroBottom > doorTop
-                ) {
-                    doorCollision = d;
-                    break;
-                }
-            }
-        }
-    }
-    handleAstronautMovement(keys, allowWalking);
-
-    // --- Button logic: toggle linked doors if collision occurred ---
-    if (collidedButton && Array.isArray(collidedButton.linkedDoors)) {
-        const now = performance.now();
-        const lastPress = buttonPressTimestamps.get(collidedButton) || 0;
-        if (now - lastPress > 500) { // 0.5 seconds debounce
-            for (const doorID of collidedButton.linkedDoors) {
-                const door = doorEntities.find(d => d.doorID === doorID);
-                if (door) {
-                    door.locked = !door.locked;
-                }
-            }
-            buttonPressTimestamps.set(collidedButton, now);
-            // Play button_on sound
-            try { buttonOnSound.currentTime = 0; buttonOnSound.play(); } catch {}
-        }
-    }
-
-    // --- Door animation logic for walking ---
-    // Open door if collided (landed or flying) and not already animating
-    if (doorCollision && !doorCollision.animating) {
-        doorCollision.animating = true;
-        if (typeof (doorCollision as any)._originalX === "undefined") {
-            (doorCollision as any)._originalX = doorCollision.x;
-        }
-        (doorCollision as any)._animationDirection = "open";
-        (doorCollision as any)._animationTimer = 0;
-        (doorCollision as any)._closeDelay = 0;
-    }
+    const movementStartX = gameState.astronaut.position.x;
+    const movementStartY = gameState.astronaut.position.y;
+    handleAstronautMovement(keys, true);
+    const movementTargetX = astronaut.position.x;
+    const movementTargetY = astronaut.position.y;
+    astronaut.position.x = movementStartX;
+    astronaut.position.y = movementStartY;
 
     // --- Door animation update ---
     for (const door of doorEntities) {
@@ -700,26 +528,92 @@ async function gameLoop() {
     }
 
     // --- Gravity ---
-    applyGravity(astronaut, gameState.gravity);
+    applyGravity(
+        astronaut,
+        gameState.gravity,
+        downPressed ? MOVEMENT_SETTINGS.flyDownTerminalVelocity : MOVEMENT_SETTINGS.fallTerminalVelocity
+    );
+    const wasLanded = gameState.astronaut.isLanded;
+    const horizontalVelocityBeforeResolution = astronaut.velocity.x;
 
     // --- Move astronaut by velocity with collision detection ---
-    // Only apply velocity if NOT landed
-    let nextX = gameState.astronaut.position.x;
-    let nextY = gameState.astronaut.position.y;
+    let nextX = movementTargetX;
+    let nextY = movementTargetY;
     if (!gameState.astronaut.isLanded) {
         nextX += astronaut.velocity.x;
         nextY += astronaut.velocity.y;
     }
 
-    checkAstronautCollisions(buttonEntities, spriteMap, SPRITE_SCALE, mapBlocks, doorEntities, nextX, nextY, gameState);
+    const collisionState = checkAstronautCollisions(
+        buttonEntities,
+        spriteMap,
+        SPRITE_SCALE,
+        mapBlocks,
+        doorEntities,
+        movementStartX,
+        movementStartY,
+        nextX,
+        nextY,
+        gameState
+    );
 
-    // --- Door animation update ---
-    for (const door of doorEntities) {
-        door.updateAnimation(doorOpenSound, doorCloseSound);
+    gameState.astronaut.position.x = collisionState.nextX;
+    gameState.astronaut.position.y = collisionState.nextY;
+    astronaut.velocity.x = collisionState.velocityX;
+    astronaut.velocity.y = collisionState.velocityY;
+    gameState.astronaut.isLanded = collisionState.isLanded;
+    gameState.astronaut.isFlying = !collisionState.isLanded;
+    if (!wasLanded && collisionState.isLanded) {
+        const carriedHorizontalMotion = collisionState.nextX - movementStartX;
+        const landingMomentumSource = Math.abs(carriedHorizontalMotion) > Math.abs(horizontalVelocityBeforeResolution)
+            ? carriedHorizontalMotion
+            : horizontalVelocityBeforeResolution;
+        applyLandingMomentum(landingMomentumSource);
+        astronaut.velocity.x = 0;
+        astronaut.velocity.y = 0;
+        flyDownTransitioning = false;
+        flyDownTransitionStep = 0;
+        flyDownTransitionTimer = 0;
+        flyHoldTimer = 0;
+        flyDir = null;
+        flySwitching = false;
+        flySwitchStep = 0;
+        flySwitchTimer = 0;
+        lastFlySpriteCol = SPRITE_COL_STAND;
     }
 
-    gameState.astronaut.position.x = nextX;
-    gameState.astronaut.position.y = nextY;
+    const collidedButton = collisionState.touchedButton;
+    const doorCollision = collisionState.touchedDoor;
+
+    if (collidedButton && Array.isArray(collidedButton.linkedDoors)) {
+        const now = performance.now();
+        const lastPress = buttonPressTimestamps.get(collidedButton) || 0;
+        if (now - lastPress > 500) {
+            for (const doorID of collidedButton.linkedDoors) {
+                const door = doorEntities.find(d => d.doorID === doorID);
+                if (door) {
+                    door.locked = !door.locked;
+                }
+            }
+            buttonPressTimestamps.set(collidedButton, now);
+            try { buttonOnSound.currentTime = 0; buttonOnSound.play(); } catch {}
+        }
+    }
+
+    if (
+        doorCollision &&
+        doorCollision.type === "door_horizontal" &&
+        !doorCollision.locked &&
+        !doorCollision.animating
+    ) {
+        doorCollision.animating = true;
+        if (typeof (doorCollision as any)._originalX === "undefined") {
+            (doorCollision as any)._originalX = doorCollision.x;
+        }
+        (doorCollision as any)._animationDirection = "open";
+        (doorCollision as any)._animationTimer = 0;
+        (doorCollision as any)._closeDelay = 0;
+    }
 
     // Ensure astronaut position is always integer pixels
     gameState.astronaut.position.x = Math.round(gameState.astronaut.position.x);
@@ -1034,41 +928,21 @@ async function gameLoop() {
         gameState.astronaut.isLanded &&
         walkSpeed > 0
     ) {
-        // Check if there is a block below the astronaut's feet
-        const tileHDraw = 32; // Not used for block lookup
-        const feetY = gameState.astronaut.position.y + tileHDraw / 2;
-        // --- Use up-to-date door positions for collision ---
-        const blockBelow = getSolidBlockAtWorld(
-            gameState.astronaut.position.x,
-            feetY + 1,
-            spriteMap,
-            SPRITE_SCALE,
-            mapBlocks,
-            doorEntities,
-            buttonEntities
-        );
-        if (!blockBelow) {
-            // No block below: set to flying
-            gameState.astronaut.isLanded = false;
-            gameState.astronaut.isFlying = true;
-        } else {
-            // Debug: Show walking branch taken (momentum or key)
-            if (gameState.debugMode) {
-                //console.log('WALKING: isLanded && walkSpeed > 0');
-            }
-            walkAnimTimer += 1 / 60;
-            if (walkAnimTimer > 0.05) { // slower frame rate
-                walkAnimFrame++;
-                if (walkAnimFrame > SPRITE_COL_WALK_END) walkAnimFrame = SPRITE_COL_WALK_START;
-                walkAnimTimer = 0;
-            }
-            spriteCol = walkAnimFrame;
-            flyHoldTimer = 0;
-            flyDir = null;
-            flySwitching = false;
-            flySwitchStep = 0;
-            flySwitchTimer = 0;
+        if (gameState.debugMode) {
+            //console.log('WALKING: isLanded && walkSpeed > 0');
         }
+        walkAnimTimer += 1 / 60;
+        if (walkAnimTimer > 0.05) { // slower frame rate
+            walkAnimFrame++;
+            if (walkAnimFrame > SPRITE_COL_WALK_END) walkAnimFrame = SPRITE_COL_WALK_START;
+            walkAnimTimer = 0;
+        }
+        spriteCol = walkAnimFrame;
+        flyHoldTimer = 0;
+        flyDir = null;
+        flySwitching = false;
+        flySwitchStep = 0;
+        flySwitchTimer = 0;
     } else if (gameState.astronaut.isLanded) {
         spriteCol = SPRITE_COL_STAND;
         walkAnimFrame = SPRITE_COL_WALK_START;
@@ -1227,8 +1101,8 @@ async function gameLoop() {
                 astronaut.velocity.y = 0; // Clear velocity on teleport
                 // If teleporting into the air (not on ground), set isFlying so gravity applies
                 // We'll check for ground below the feet
-                const tileHDraw = 32;
-                const feetY = teleportTarget.y + tileHDraw / 2;
+                const astronautOffsets = getAstronautCollisionOffsets();
+                const feetY = teleportTarget.y + astronautOffsets.bottom;
                 const blockBelow = getSolidBlockAtWorld(
                     teleportTarget.x,
                     feetY + 1,

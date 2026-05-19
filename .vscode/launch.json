@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Launch Astronaut Game",
+      "type": "pwa-msedge",
+      "request": "launch",
+      "url": "http://localhost:3001",
+      "webRoot": "${workspaceFolder}\\astronaut-game",
+      "sourceMaps": true,
+      "preLaunchTask": "dev astronaut-game"
+    }
+  ]
+}

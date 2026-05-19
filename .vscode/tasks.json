@@ -1,0 +1,52 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build astronaut-game",
+      "type": "shell",
+      "command": "npm run build",
+      "options": {
+        "cwd": "${workspaceFolder}\\astronaut-game"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": "$tsc"
+    },
+    {
+      "label": "dev server astronaut-game",
+      "type": "shell",
+      "command": "npm run dev",
+      "isBackground": true,
+      "options": {
+        "cwd": "${workspaceFolder}\\astronaut-game"
+      },
+      "problemMatcher": {
+        "owner": "custom",
+        "pattern": {
+          "regexp": "(.*)",
+          "message": 1
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "Starting compilation in watch mode|\\[Browsersync\\] Access URLs:",
+          "endsPattern": "Found 0 errors\\. Watching for file changes\\."
+        }
+      }
+    },
+    {
+      "label": "dev astronaut-game",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "dev server astronaut-game",
+        "open astronaut-game browser"
+      ]
+    },
+    {
+      "label": "open astronaut-game browser",
+      "type": "shell",
+      "command": "Start-Process 'http://localhost:3001'"
+    }
+  ]
+}
