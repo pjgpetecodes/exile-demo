@@ -1,3 +1,4 @@
+import { Button } from './button.js';
 import { Door } from './door.js';
 
 function getSpriteRectByType(spriteMap: any, type: string) {
@@ -31,6 +32,28 @@ function isEntitySolid(entity: any): boolean {
     return true;
 }
 
+function getEntitySpriteGeometry(
+    entity: any,
+    rect: { x: number; y: number; w: number; h: number },
+    SPRITE_SCALE: number
+) {
+    const sourceX = rect.x;
+    const sourceY = rect.y;
+    const sourceW = entity.cropLeftHalf ? Math.floor(rect.w / 2) : rect.w;
+    const sourceH = rect.h;
+    const drawW = sourceW * SPRITE_SCALE;
+    const drawH = sourceH * SPRITE_SCALE;
+
+    return {
+        sourceX,
+        sourceY,
+        sourceW,
+        sourceH,
+        drawW,
+        drawH
+    };
+}
+
 function isSolidSpritePixelAtWorld(
     x: number,
     y: number,
@@ -39,10 +62,9 @@ function isSolidSpritePixelAtWorld(
     SPRITE_SCALE: number,
     spriteSheetCtx?: CanvasRenderingContext2D
 ): boolean {
-    const tileW = rect.w * SPRITE_SCALE;
-    const tileH = rect.h * SPRITE_SCALE;
-    const centerX = entity.x + tileW / 2;
-    const centerY = entity.y + tileH / 2;
+    const geometry = getEntitySpriteGeometry(entity, rect, SPRITE_SCALE);
+    const centerX = entity.x + geometry.drawW / 2;
+    const centerY = entity.y + geometry.drawH / 2;
 
     let localX = x - centerX;
     let localY = y - centerY;
@@ -65,13 +87,13 @@ function isSolidSpritePixelAtWorld(
         localY = -localY;
     }
 
-    const drawX = localX + tileW / 2;
-    const drawY = localY + tileH / 2;
+    const drawX = localX + geometry.drawW / 2;
+    const drawY = localY + geometry.drawH / 2;
     if (
         drawX < 0 ||
-        drawX >= tileW ||
+        drawX >= geometry.drawW ||
         drawY < 0 ||
-        drawY >= tileH
+        drawY >= geometry.drawH
     ) {
         return false;
     }
@@ -80,9 +102,9 @@ function isSolidSpritePixelAtWorld(
     const pixelY = Math.floor(drawY / SPRITE_SCALE);
     if (
         pixelX < 0 ||
-        pixelX >= rect.w ||
+        pixelX >= geometry.sourceW ||
         pixelY < 0 ||
-        pixelY >= rect.h
+        pixelY >= geometry.sourceH
     ) {
         return false;
     }
@@ -91,7 +113,7 @@ function isSolidSpritePixelAtWorld(
         return true;
     }
 
-    const alpha = spriteSheetCtx.getImageData(rect.x + pixelX, rect.y + pixelY, 1, 1).data[3];
+    const alpha = spriteSheetCtx.getImageData(geometry.sourceX + pixelX, geometry.sourceY + pixelY, 1, 1).data[3];
     return alpha > 0;
 }
 
@@ -213,13 +235,16 @@ export function getAnyBlockAtWorld(
     }
     // Check buttons
     for (const btn of buttonEntities) {
-        const tileW = 32 * SPRITE_SCALE;
-        const tileH = 32 * SPRITE_SCALE;
-        if (
-            x >= btn.x && x < btn.x + tileW &&
-            y >= btn.y && y < btn.y + tileH
-        ) {
-            return btn;
+        const parts = btn instanceof Button ? btn.getCollisionParts() : [btn];
+        for (const part of parts) {
+            const tileW = 32 * SPRITE_SCALE;
+            const tileH = 32 * SPRITE_SCALE;
+            if (
+                x >= part.x && x < part.x + tileW &&
+                y >= part.y && y < part.y + tileH
+            ) {
+                return btn;
+            }
         }
     }
     // Check creatures
@@ -274,9 +299,15 @@ export function getSolidBlockAtWorld(
         if (!isEntitySolid(btn)) {
             continue;
         }
-        const rect = getSpriteRectByType(spriteMap, btn.type);
-        if (rect && isSolidSpritePixelAtWorld(x, y, btn, rect, SPRITE_SCALE, spriteSheetCtx)) {
-            return btn;
+        const parts = btn instanceof Button ? btn.getCollisionParts() : [btn];
+        for (const part of parts) {
+            if (!isEntitySolid(part)) {
+                continue;
+            }
+            const rect = getSpriteRectByType(spriteMap, part.type);
+            if (rect && isSolidSpritePixelAtWorld(x, y, part, rect, SPRITE_SCALE, spriteSheetCtx)) {
+                return btn;
+            }
         }
     }
     return undefined;
@@ -552,77 +583,83 @@ export function drawEntities(
     const minY = camera.y - tileH, maxY = camera.y + ctx.canvas.height + tileH;
 
     for (const entity of entities) {
-        if (
-            entity.x + tileW < minX || entity.x > maxX ||
-            entity.y + tileH < minY || entity.y > maxY
-        ) continue;
+        const renderParts = entity instanceof Button ? entity.getRenderParts() : [entity];
 
-        const rect = rectMap[entity.type];
-        if (!rect) continue;
+        for (const renderPart of renderParts) {
+            const geometry = getEntitySpriteGeometry(renderPart, rectMap[renderPart.type] || { x: 0, y: 0, w: 32, h: 32 }, SPRITE_SCALE);
+            if (
+                renderPart.x + geometry.drawW < minX || renderPart.x > maxX ||
+                renderPart.y + geometry.drawH < minY || renderPart.y > maxY
+            ) continue;
 
-        let paletteIdx = 0;
-        let paletteDebug = "";
-        // Use instanceof Door to check for Door entities
-        if (entity instanceof Door) {
-            if (entity.locked === true && typeof entity.palette_locked === "number") {
-                paletteIdx = entity.palette_locked;
-                paletteDebug = `DOOR locked: true, using palette_locked (${paletteIdx})`;
-            } else if (entity.locked === false && typeof entity.palette_unlocked === "number") {
-                paletteIdx = entity.palette_unlocked;
-                paletteDebug = `DOOR locked: false, using palette_unlocked (${paletteIdx})`;
-            } else if (typeof entity.palette === "number") {
-                paletteIdx = entity.palette;
-                paletteDebug = `DOOR fallback, using palette (${paletteIdx})`;
+            const rect = rectMap[renderPart.type];
+            if (!rect) continue;
+            const partGeometry = getEntitySpriteGeometry(renderPart, rect, SPRITE_SCALE);
+
+            let paletteIdx = 0;
+            let paletteDebug = "";
+            // Use instanceof Door to check for Door entities
+            if (entity instanceof Door) {
+                if (entity.locked === true && typeof entity.palette_locked === "number") {
+                    paletteIdx = entity.palette_locked;
+                    paletteDebug = `DOOR locked: true, using palette_locked (${paletteIdx})`;
+                } else if (entity.locked === false && typeof entity.palette_unlocked === "number") {
+                    paletteIdx = entity.palette_unlocked;
+                    paletteDebug = `DOOR locked: false, using palette_unlocked (${paletteIdx})`;
+                } else if (typeof renderPart.palette === "number") {
+                    paletteIdx = renderPart.palette;
+                    paletteDebug = `DOOR fallback, using palette (${paletteIdx})`;
+                }
+            } else if (typeof renderPart.palette === "number" && renderPart.palette >= 0 && renderPart.palette < spriteSheets.length) {
+                paletteIdx = renderPart.palette;
             }
-        } else if (typeof entity.palette === "number" && entity.palette >= 0 && entity.palette < spriteSheets.length) {
-            paletteIdx = entity.palette;
-        }
-        const sheet = spriteSheets[paletteIdx] || spriteSheets[0];
+            const sheet = spriteSheets[paletteIdx] || spriteSheets[0];
 
-        // --- DEBUG: Draw palette info above door ---
-        if (
-            entity instanceof Door &&
-            ctx && ctx.canvas && (window as any).DEBUG_DOOR_PALETTE
-        ) {
+            // --- DEBUG: Draw palette info above door ---
+            if (
+                entity instanceof Door &&
+                ctx && ctx.canvas && (window as any).DEBUG_DOOR_PALETTE
+            ) {
+                ctx.save();
+                ctx.font = "12px monospace";
+                ctx.fillStyle = "#f0f";
+                ctx.fillText(
+                    `locked:${entity.locked} paletteIdx:${paletteIdx}`,
+                    entity.x - camera.x,
+                    entity.y - camera.y - 8
+                );
+                ctx.fillStyle = "#0ff";
+                ctx.fillText(
+                    paletteDebug,
+                    entity.x - camera.x,
+                    entity.y - camera.y - 20
+                );
+                ctx.restore();
+            }
+
             ctx.save();
-            ctx.font = "12px monospace";
-            ctx.fillStyle = "#f0f";
-            ctx.fillText(
-                `locked:${entity.locked} paletteIdx:${paletteIdx}`,
-                entity.x - camera.x,
-                entity.y - camera.y - 8
-            );
-            ctx.fillStyle = "#0ff";
-            ctx.fillText(
-                paletteDebug,
-                entity.x - camera.x,
-                entity.y - camera.y - 20
+            const drawX = renderPart.x - camera.x;
+            const drawY = renderPart.y - camera.y;
+            ctx.translate(drawX + partGeometry.drawW / 2, drawY + partGeometry.drawH / 2);
+            if (renderPart.rotation) {
+                if (renderPart.rotation >= 1 && renderPart.rotation <= 4) {
+                    ctx.rotate(((renderPart.rotation - 1) * Math.PI) / 2);
+                } else if (renderPart.rotation === 5) {
+                    ctx.scale(-1, 1);
+                } else if (renderPart.rotation === 6) {
+                    ctx.scale(1, -1);
+                } else if (renderPart.rotation === 7) {
+                    ctx.scale(-1, -1);
+                }
+            }
+
+            ctx.drawImage(
+                sheet,
+                partGeometry.sourceX, partGeometry.sourceY, partGeometry.sourceW, partGeometry.sourceH,
+                -partGeometry.drawW / 2, -partGeometry.drawH / 2,
+                partGeometry.drawW, partGeometry.drawH
             );
             ctx.restore();
         }
-
-        ctx.save();
-        const drawX = entity.x - camera.x;
-        const drawY = entity.y - camera.y;
-        ctx.translate(drawX + tileW / 2, drawY + tileH / 2);
-        if (entity.rotation) {
-            if (entity.rotation >= 1 && entity.rotation <= 4) {
-                ctx.rotate(((entity.rotation - 1) * Math.PI) / 2);
-            } else if (entity.rotation === 5) {
-                ctx.scale(-1, 1);
-            } else if (entity.rotation === 6) {
-                ctx.scale(1, -1);
-            } else if (entity.rotation === 7) {
-                ctx.scale(-1, -1);
-            }
-        }
-
-        ctx.drawImage(
-            sheet,
-            rect.x, rect.y, rect.w, rect.h,
-            -tileW / 2, -tileH / 2,
-            tileW, tileH
-        );
-        ctx.restore();
     }
 }

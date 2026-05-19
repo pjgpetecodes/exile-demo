@@ -1,7 +1,7 @@
 // Main entry point for the astronaut game
 import { Astronaut, GameState, Position } from './types/index.js';
 import {
-    astronaut, resetAstronaut, flipAstronaut, handleAstronautMovement, applyLandingMomentum, getAstronautCollisionOffsets,
+    astronaut, resetAstronaut, flipAstronaut, handleAstronautMovement, applyLandingMomentum, getAstronautCollisionOffsets, setAstronautCollisionProfile,
     walkSpeed, facingLeft, upPressed, downPressed, leftPressed, rightPressed,
     checkAstronautCollisions
 } from './astronaut.js';
@@ -167,6 +167,24 @@ let storedCollectables: Collectable[] = [];
 let inventoryCycleIndex = -1;
 let throwAngleDegrees = 20;
 
+function getCurrentAstronautCollisionProfile() {
+    if (astronaut.isLanded) {
+        return 'stand';
+    }
+
+    if (downPressed && (leftPressed || rightPressed)) {
+        return 'fly_down';
+    }
+    if (leftPressed || rightPressed) {
+        return upPressed ? 'fly_diagonal' : 'fly_right';
+    }
+    if (Math.abs(astronaut.velocity.x) > 0.01) {
+        return 'fly_float';
+    }
+
+    return upPressed ? 'fly_diagonal' : 'fly_float';
+}
+
 // --- Button press debounce state ---
 const buttonPressTimestamps: WeakMap<Button, number> = new WeakMap();
 
@@ -181,6 +199,19 @@ async function loadButtons() {
     const res = await fetch('./src/assets/buttons.json');
     const arr = await res.json();
     buttonEntities = arr.map((data: any) => assignEntityId(new Button(data)));
+    syncButtonStatesToDoors();
+}
+
+function syncButtonStatesToDoors() {
+    for (const button of buttonEntities) {
+        if (!Array.isArray(button.linkedDoors) || button.linkedDoors.length === 0) {
+            continue;
+        }
+
+        button.active = button.linkedDoors.some((doorID) =>
+            doorEntities.some((door) => door.doorID === doorID && door.locked)
+        );
+    }
 }
 async function loadDoors() {
     const res = await fetch('./src/assets/doors.json');
@@ -522,6 +553,7 @@ async function gameLoop() {
     const movementTargetY = astronaut.position.y;
     astronaut.position.x = movementStartX;
     astronaut.position.y = movementStartY;
+    setAstronautCollisionProfile(getCurrentAstronautCollisionProfile());
 
     // --- Door animation update ---
     for (const door of doorEntities) {
@@ -615,6 +647,7 @@ async function gameLoop() {
                     door.locked = !door.locked;
                 }
             }
+            syncButtonStatesToDoors();
             buttonPressTimestamps.set(collidedButton, now);
             try { buttonOnSound.currentTime = 0; buttonOnSound.play(); } catch {}
         }

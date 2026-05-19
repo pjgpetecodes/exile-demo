@@ -25,6 +25,7 @@ export let upPressed = false;
 export let downPressed = false;
 export let leftPressed = false;
 export let rightPressed = false;
+let currentCollisionProfile = 'stand';
 
 type MovementModifiers = {
     walkSpeedScale?: number;
@@ -39,6 +40,11 @@ export function resetAstronaut() {
     astronaut.isLanded = true;
     walkSpeed = 0;
     facingLeft = false;
+    currentCollisionProfile = 'stand';
+}
+
+export function setAstronautCollisionProfile(profile: string) {
+    currentCollisionProfile = profile;
 }
 
 export function applyLandingMomentum(horizontalVelocity: number) {
@@ -216,7 +222,8 @@ type CollisionState = {
 export function getAstronautCollisionOffsets() {
     const tileW = 32 * SPRITE_SCALE;
     const tileH = 32 * SPRITE_SCALE;
-    const bbox = (window as any).astronautWorldBoundingBoxes?.stand;
+    const astronautWorldBoundingBoxes = (window as any).astronautWorldBoundingBoxes;
+    const bbox = astronautWorldBoundingBoxes?.[currentCollisionProfile];
     if (!bbox) {
         return {
             left: -tileW / 2,
