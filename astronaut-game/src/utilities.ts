@@ -1,5 +1,6 @@
 import { Button } from './button.js';
 import { Door } from './door.js';
+import { resolveAnimatedPaletteIndex } from './palette-cycle.js';
 
 function getSpriteRectByType(spriteMap: any, type: string) {
     if (spriteMap instanceof Array) {
@@ -613,6 +614,15 @@ export function drawEntities(
             } else if (typeof renderPart.palette === "number" && renderPart.palette >= 0 && renderPart.palette < spriteSheets.length) {
                 paletteIdx = renderPart.palette;
             }
+            const animatedPaletteCycle = entity instanceof Button && renderPart.type !== entity.type
+                ? undefined
+                : entity.paletteCycle;
+            paletteIdx = resolveAnimatedPaletteIndex(
+                renderPart.type,
+                animatedPaletteCycle,
+                paletteIdx,
+                spriteSheets.length
+            );
             const sheet = spriteSheets[paletteIdx] || spriteSheets[0];
 
             // --- DEBUG: Draw palette info above door ---

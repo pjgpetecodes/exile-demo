@@ -1,4 +1,4 @@
-import { Position } from './types/index.js';
+import { PaletteCycleSettings, Position } from './types/index.js';
 
 export class Collectable {
     x: number;
@@ -19,6 +19,7 @@ export class Collectable {
     velocity: Position;
     astronautCollisionIgnoreFrames: number;
     entityId?: number;
+    paletteCycle?: PaletteCycleSettings;
 
     constructor(data: any) {
         this.x = data.x;
@@ -38,6 +39,7 @@ export class Collectable {
         this.isGrounded = data.isGrounded ?? false;
         this.velocity = data.velocity ?? { x: 0, y: 0 };
         this.astronautCollisionIgnoreFrames = data.astronautCollisionIgnoreFrames ?? 0;
+        this.paletteCycle = data.paletteCycle;
     }
 
     collect() {

@@ -4,7 +4,8 @@ import { Button } from './button.js';
 import { Door } from './door.js';
 import { Creature } from './creature.js';
 import { Collectable } from './collectable.js';
-import { Position } from './types/index.js';
+import { PaletteCycleSettings, Position } from './types/index.js';
+import { buildDefaultPaletteCycle, getEffectivePaletteCycle } from './palette-cycle.js';
 
 export type DesignerCategory = 'world' | 'buttons' | 'doors' | 'creatures' | 'collectables';
 export type DesignerMode = 'edit' | 'preview';
@@ -24,6 +25,7 @@ export type ButtonSaveData = {
     pressOffset?: number;
     boxOffsetX?: number;
     boxOffsetY?: number;
+    paletteCycle?: PaletteCycleSettings;
 };
 
 export type DoorSaveData = {
@@ -40,6 +42,7 @@ export type DoorSaveData = {
     palette_locked?: number | null;
     palette_unlocked?: number | null;
     collision?: boolean;
+    paletteCycle?: PaletteCycleSettings;
 };
 
 export type CreatureSaveData = {
@@ -49,6 +52,7 @@ export type CreatureSaveData = {
     palette?: number;
     rotation?: number;
     state?: Record<string, unknown>;
+    paletteCycle?: PaletteCycleSettings;
 };
 
 export type CollectableSaveData = {
@@ -68,6 +72,7 @@ export type CollectableSaveData = {
     isGrounded?: boolean;
     velocity?: Position;
     astronautCollisionIgnoreFrames?: number;
+    paletteCycle?: PaletteCycleSettings;
 };
 
 export type RawWorldData = {
@@ -271,7 +276,8 @@ function toMapBlockData(block: MapBlock): MapBlock {
         type: block.type,
         collision: block.collision !== false,
         palette: typeof block.palette === 'number' ? block.palette : 0,
-        rotation: normalizeRotation(block.rotation) as MapBlock['rotation']
+        rotation: normalizeRotation(block.rotation) as MapBlock['rotation'],
+        ...(block.paletteCycle ? { paletteCycle: deepClone(block.paletteCycle) } : {})
     };
 }
 
@@ -289,7 +295,8 @@ function toButtonData(button: any): ButtonSaveData {
         collision: button.collision !== false,
         pressOffset: button.pressOffset ?? 2,
         boxOffsetX: button.boxOffsetX ?? 12,
-        boxOffsetY: button.boxOffsetY ?? 0
+        boxOffsetY: button.boxOffsetY ?? 0,
+        ...(button.paletteCycle ? { paletteCycle: deepClone(button.paletteCycle) } : {})
     };
 }
 
@@ -307,7 +314,8 @@ function toDoorData(door: any): DoorSaveData {
         open: door.open ?? false,
         palette_locked: typeof door.palette_locked === 'number' ? door.palette_locked : null,
         palette_unlocked: typeof door.palette_unlocked === 'number' ? door.palette_unlocked : null,
-        collision: door.collision !== false
+        collision: door.collision !== false,
+        ...(door.paletteCycle ? { paletteCycle: deepClone(door.paletteCycle) } : {})
     };
 }
 
@@ -318,7 +326,8 @@ function toCreatureData(creature: any): CreatureSaveData {
         type: creature.type,
         palette: creature.palette ?? 0,
         rotation: normalizeRotation(creature.rotation),
-        state: deepClone(creature.state ?? {})
+        state: deepClone(creature.state ?? {}),
+        ...(creature.paletteCycle ? { paletteCycle: deepClone(creature.paletteCycle) } : {})
     };
 }
 
@@ -339,7 +348,8 @@ function toCollectableData(collectable: any): CollectableSaveData {
         stored: collectable.stored ?? false,
         isGrounded: collectable.isGrounded ?? false,
         velocity: deepClone(collectable.velocity ?? { x: 0, y: 0 }),
-        astronautCollisionIgnoreFrames: collectable.astronautCollisionIgnoreFrames ?? 0
+        astronautCollisionIgnoreFrames: collectable.astronautCollisionIgnoreFrames ?? 0,
+        ...(collectable.paletteCycle ? { paletteCycle: deepClone(collectable.paletteCycle) } : {})
     };
 }
 
@@ -447,6 +457,16 @@ function parseDoorIds(value: string) {
         .split(',')
         .map((entry) => Number(entry.trim()))
         .filter((entry) => Number.isFinite(entry));
+}
+
+function parsePaletteCyclePalettes(value: string, paletteCount: number) {
+    return [...new Set(
+        value
+            .split(',')
+            .map((entry) => Number(entry.trim()))
+            .filter((entry) => Number.isFinite(entry) && entry >= 0 && entry < paletteCount)
+            .map((entry) => Math.round(entry))
+    )];
 }
 
 function isFormTarget(target: EventTarget | null) {
@@ -1725,6 +1745,63 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 entity.palette = clamp(Math.round(value), 0, paletteCount - 1);
             });
         });
+        const effectivePaletteCycle = getEffectivePaletteCycle(entity.type, entity.paletteCycle, paletteCount);
+        if (effectivePaletteCycle) {
+            const isTeleporterDefault = entity.type === 'teleporter_pad' && !entity.paletteCycle;
+            if (isTeleporterDefault) {
+                const summary = document.createElement('div');
+                summary.className = 'world-designer-summary';
+                summary.textContent = 'Teleporters cycle palettes by default.';
+                container.appendChild(summary);
+            } else {
+                addCheckboxInspector(container, 'Timed palette cycle', !!entity.paletteCycle, (checked) => {
+                    runMutation('Updated timed palette cycle.', () => {
+                        entity.paletteCycle = checked
+                            ? entity.paletteCycle ?? buildDefaultPaletteCycle(entity.palette ?? 0, paletteCount)
+                            : undefined;
+                    });
+                });
+            }
+            addTextInspector(
+                container,
+                'Cycle palettes (comma separated)',
+                effectivePaletteCycle.palettes.join(', '),
+                (value) => {
+                    const palettes = parsePaletteCyclePalettes(value, paletteCount);
+                    runMutation('Updated palette cycle palettes.', () => {
+                        if (palettes.length === 0) {
+                            entity.paletteCycle = undefined;
+                            return;
+                        }
+                        entity.paletteCycle = {
+                            palettes,
+                            intervalMs: entity.paletteCycle?.intervalMs ?? effectivePaletteCycle.intervalMs
+                        };
+                    });
+                }
+            );
+            addNumberInspector(
+                container,
+                'Cycle interval (seconds)',
+                Number((effectivePaletteCycle.intervalMs / 1000).toFixed(3)),
+                (value) => {
+                    runMutation('Updated palette cycle interval.', () => {
+                        entity.paletteCycle = {
+                            palettes: entity.paletteCycle?.palettes ?? effectivePaletteCycle.palettes,
+                            intervalMs: Math.max(50, Math.round(Math.max(0.05, value) * 1000))
+                        };
+                    });
+                },
+                0.1
+            );
+        } else {
+            addCheckboxInspector(container, 'Timed palette cycle', false, (checked) => {
+                if (!checked) return;
+                runMutation('Enabled timed palette cycle.', () => {
+                    entity.paletteCycle = buildDefaultPaletteCycle(entity.palette ?? 0, paletteCount);
+                });
+            });
+        }
         if ('collision' in entity) {
             addCheckboxInspector(container, 'Collision enabled', entity.collision !== false, (checked) => {
                 runMutation('Updated collision flag.', () => {
@@ -1897,7 +1974,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     storable: true,
                     affectsAstronaut: true,
                     collision: block.collision !== false,
-                    collected: false
+                    collected: false,
+                    paletteCycle: block.paletteCycle ? deepClone(block.paletteCycle) : undefined
                 });
                 getCategoryArray('collectables').push(collectable);
                 setSelections([{ category: 'collectables', entity: collectable }]);
@@ -1920,7 +1998,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     type: collectable.type,
                     palette: collectable.palette ?? 0,
                     rotation: normalizeRotation(collectable.defaultRotation ?? collectable.rotation) as MapBlock['rotation'],
-                    collision: collectable.collision !== false
+                    collision: collectable.collision !== false,
+                    paletteCycle: collectable.paletteCycle ? deepClone(collectable.paletteCycle) : undefined
                 };
                 getCategoryArray('world').push(block);
                 setSelections([{ category: 'world', entity: block }]);

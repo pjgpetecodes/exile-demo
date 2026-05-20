@@ -3,6 +3,12 @@ export interface Position {
     y: number;
 }
 
+export interface PaletteCycleSettings {
+    palettes: number[];
+    intervalMs: number;
+    offsetMs?: number;
+}
+
 export interface Astronaut {
     position: Position;
     isFlying: boolean;

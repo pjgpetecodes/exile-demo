@@ -1,4 +1,6 @@
 import { assignEntityId } from './game.js';
+import { resolveAnimatedPaletteIndex } from './palette-cycle.js';
+import { PaletteCycleSettings } from './types/index.js';
 
 export type MapBlock = {
     x: number; // tile x
@@ -6,6 +8,7 @@ export type MapBlock = {
     type: string; // allow any block type, not just 'floor_grass' | 'floor_plain_half'
     collision: boolean;
     palette?: string | number;
+    paletteCycle?: PaletteCycleSettings;
     rotation?: 1 | 2 | 3 | 4 | 5 | 6 | 7;
 };
 
@@ -141,10 +144,13 @@ export function drawMap(
         const rect = rectMap[block.type];
         if (!rect) continue;
 
-        let paletteIdx = 0;
-        if (typeof block.palette === "number" && block.palette >= 0 && block.palette < spriteSheets.length) {
-            paletteIdx = block.palette;
-        }
+        const basePalette = typeof block.palette === "number" ? block.palette : 0;
+        const paletteIdx = resolveAnimatedPaletteIndex(
+            block.type,
+            block.paletteCycle,
+            basePalette,
+            spriteSheets.length
+        );
         const sheet = spriteSheets[paletteIdx] || spriteSheets[0];
 
         ctx.save();

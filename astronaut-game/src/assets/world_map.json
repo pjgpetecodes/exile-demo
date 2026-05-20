@@ -576,43 +576,76 @@
     "rotation": 1
   },
   {
-    "x": 4832,
-    "y": 1568,
+    "x": 4500,
+    "y": 1583,
     "type": "ship_9",
     "collision": true,
     "palette": 4,
     "rotation": 1
   },
   {
-    "x": 4832,
-    "y": 1638,
+    "x": 4500,
+    "y": 1654,
     "type": "ship_9",
     "collision": true,
     "palette": 4,
     "rotation": 6
   },
   {
-    "x": 4903,
-    "y": 1568,
+    "x": 4570,
+    "y": 1583,
     "type": "ship_13",
     "collision": true,
     "palette": 4,
     "rotation": 6
   },
   {
-    "x": 4903,
-    "y": 1638,
+    "x": 4571,
+    "y": 1654,
     "type": "teleporter",
     "collision": true,
     "palette": 4,
     "rotation": 6
   },
   {
-    "x": 4921,
-    "y": 1616,
+    "x": 4589,
+    "y": 1634,
     "type": "teleporter_pad",
-    "collision": true,
+    "collision": false,
     "palette": 4,
-    "rotation": 6
+    "rotation": 6,
+    "paletteCycle": {
+      "palettes": [
+        0,
+        1,
+        2,
+        9
+      ],
+      "intervalMs": 100
+    }
+  },
+  {
+    "x": 4639,
+    "y": 1583,
+    "type": "ship_7",
+    "collision": true,
+    "palette": 6,
+    "rotation": 1
+  },
+  {
+    "x": 5115,
+    "y": 1801,
+    "type": "ship_10",
+    "collision": true,
+    "palette": 6,
+    "rotation": 1
+  },
+  {
+    "x": 4706,
+    "y": 1530,
+    "type": "ship_15",
+    "collision": true,
+    "palette": 6,
+    "rotation": 3
   }
 ]
