@@ -48,3 +48,8 @@ export const MOVEMENT_SETTINGS = {
     throwGuideDotsPerBurst: 2,
     throwGuideDotSize: 2.2
 } as const;
+
+export const VIEWPORT_SETTINGS = {
+    defaultWidth: 1000,
+    defaultHeight: 675
+} as const;

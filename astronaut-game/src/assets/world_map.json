@@ -647,5 +647,21 @@
     "collision": true,
     "palette": 6,
     "rotation": 3
+  },
+  {
+    "x": 4496,
+    "y": 1725,
+    "type": "ship_1",
+    "collision": true,
+    "palette": 10,
+    "rotation": 1
+  },
+  {
+    "x": 4496,
+    "y": 1794,
+    "type": "ship_1",
+    "collision": true,
+    "palette": 10,
+    "rotation": 6
   }
 ]

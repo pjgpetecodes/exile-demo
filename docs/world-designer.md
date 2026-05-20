@@ -109,12 +109,12 @@ Selected items can be:
 The designer now includes:
 
 - a live sprite preview
-- a sprite grid picker
+- a sprite grid picker in a collapsed accordion
 
 You can:
 
 - choose a sprite by name from the dropdown
-- click **Choose from sprite grid**
+- open the **Choose from sprite grid** accordion
 - click a sprite in the grid to select it
 - drag a sprite from the grid onto the world to place it
 
@@ -125,6 +125,7 @@ You can:
 - **right mouse drag** = pan camera
 - **Center on astronaut** = recenters the editor on the live astronaut
 - **Focus selection** = centers the camera on the current selection
+- **Expand viewport to window** = temporarily grows the game viewport to fill the browser window while keeping the same world center
 
 ### Overview map
 
@@ -151,6 +152,7 @@ Switch the mode from **Edit** to **Preview** to inspect the world without editin
 
 Useful preview toggles:
 
+- **Expand viewport to window**
 - **Show collision outlines**
 - **Show sprite outlines (F)**
 - **Disable collision during preview**
@@ -223,6 +225,7 @@ After multi-selecting:
 
 - drag one selected object to move the whole group
 - use duplicate / delete on the whole group
+- use **Ctrl+C** and **Ctrl+V** to copy and paste the whole selection
 - auto-pan can occur when dragging toward the edge of the screen
 
 ## Keyboard shortcuts
@@ -230,14 +233,17 @@ After multi-selecting:
 - **`** = show / hide designer
 - **1** = select tool
 - **2** = place tool
-- **V** = toggle edit / preview
+- **M** = toggle edit / preview
 - **R** = rotate selection
 - **Delete** = delete selection
+- **Ctrl+C** = copy selection
+- **Ctrl+V** = paste selection
 - **Ctrl+D** = duplicate selection
 - **Arrow keys** = nudge selection
 - **Shift+Arrow** = larger nudge
 - **G** = toggle grid snap
 - **F** = toggle sprite outlines
+- **Alt+Enter** = toggle expanded viewport, even if the designer panel is hidden
 - **Ctrl+S** = preview before save
 - **Ctrl+Z** = undo
 - **Ctrl+Y** or **Ctrl+Shift+Z** = redo

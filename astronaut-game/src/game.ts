@@ -17,7 +17,7 @@ import { Collectable } from './collectable.js';
 import { makeBlackTransparent, remapSpritePalette, calculateSpriteCollisionBoundingBoxes, 
     calculateAstronautSpriteBoundingBoxes, getSolidBlockAtWorld, getAnyBlockAtWorld, 
     drawEntities } from './utilities.js';
-import { MOVEMENT_SETTINGS } from './settings.js';
+import { MOVEMENT_SETTINGS, VIEWPORT_SETTINGS } from './settings.js';
 import {
     SPRITE_ROW, SPRITE_COL_STAND, SPRITE_COL_FLY_RIGHT, SPRITE_COL_FLY_DIAGONAL,
     SPRITE_COL_FLY_FLOAT, SPRITE_COL_FLY_DOWN, SPRITE_COL_WALK_START, SPRITE_COL_WALK_RIGHT1,
@@ -89,6 +89,7 @@ window.addEventListener('mousemove', (e) => {
 });
 
 window.addEventListener('keydown', (e) => {
+    if (isDesignerOpen()) return;
     if (e.key === "Tab") {
         e.preventDefault(); // Prevent tab from bubbling to browser
         flipAstronaut();
@@ -113,6 +114,9 @@ const ctx = canvas.getContext('2d');
 if (!canvas || !ctx) {
     throw new Error('Canvas or 2D context not found');
 }
+
+canvas.width = VIEWPORT_SETTINGS.defaultWidth;
+canvas.height = VIEWPORT_SETTINGS.defaultHeight;
 
 let gameState: GameState & { debugMode: boolean } = {
     astronaut,
@@ -148,6 +152,7 @@ let lastFlyFlipSprite = false; // Track the currently displayed flying flip stat
 type TeleportLocation = { x: number, y: number };
 const teleportLocations: TeleportLocation[] = [];
 let teleportSlot = 0;
+let defaultTeleportLocation: TeleportLocation = { ...getAstronautStartPosition() };
 let teleporting = false;
 let teleportAnimFrame = 0;
 let teleportPhase: 'none' | 'out' | 'in' = 'none';
@@ -172,6 +177,18 @@ function resetFlyDownAnimationState() {
     flyDownTransitionTimer = 0;
     flyDownTravelDir = null;
     flyDownMode = null;
+}
+
+function syncDefaultTeleportLocation(position: Position) {
+    defaultTeleportLocation = {
+        x: Math.round(position.x),
+        y: Math.round(position.y)
+    };
+}
+
+function updateAstronautStartPosition(position: Position, applyToAstronaut: boolean = false) {
+    setAstronautStartPosition(position, applyToAstronaut);
+    syncDefaultTeleportLocation(position);
 }
 
 function rememberLastFlyPose(col: number, flip: boolean) {
@@ -234,6 +251,7 @@ let showBlackBackgroundBlocks = false; // c key
 let hideBlackBackgroundBlocks = false; // v key
 
 window.addEventListener('keydown', (e) => {
+    if (isDesignerOpen()) return;
     if (e.key === 'c' && !prevKeys['c']) {
         showBlackBackgroundBlocks = !showBlackBackgroundBlocks;
     }
@@ -264,6 +282,19 @@ let throwGuideDots: ThrowGuideDot[] = [];
 let throwGuideDotEmitTimer = 0;
 let worldDesigner: WorldDesigner | null = null;
 const STARFIELD_HEIGHT = Math.min(MAP_HEIGHT, 2000);
+
+function isDesignerOpen() {
+    return !!worldDesigner?.isActive();
+}
+
+window.addEventListener('keydown', (event) => {
+    if (event.altKey && event.key === 'Enter' && !event.repeat) {
+        event.preventDefault();
+        if (worldDesigner) {
+            worldDesigner.setViewportExpanded(!worldDesigner.isViewportExpanded());
+        }
+    }
+});
 
 function getCurrentAstronautCollisionProfile() {
     if (astronaut.isLanded) {
@@ -329,7 +360,7 @@ async function loadCollectables() {
 
 async function loadAstronautStartPosition() {
     const data = await fetchFreshJson<Position>('./src/assets/astronaut_start.json');
-    setAstronautStartPosition(data, true);
+    updateAstronautStartPosition(data, true);
 }
 
 function syncCollectableRuntimeState() {
@@ -480,7 +511,7 @@ function replaceRawWorldData(data: RawWorldData) {
     buttonEntities = data.buttons.map((button) => assignEntityId(new Button(button)));
     creatureEntities = data.creatures.map((creature) => assignEntityId(new Creature(creature)));
     collectableEntities = data.collectables.map((collectable) => assignEntityId(new Collectable(collectable)));
-    setAstronautStartPosition(data.astronautStart, true);
+    updateAstronautStartPosition(data.astronautStart, true);
     afterWorldDataMutated();
 }
 
@@ -728,7 +759,7 @@ async function init() {
                         x: astronaut.position.x,
                         y: astronaut.position.y
                     }),
-                    setAstronautStartPosition,
+                    setAstronautStartPosition: updateAstronautStartPosition,
                     getShowSpriteOutlines: () => showWorldBoundingBoxes,
                     setShowSpriteOutlines: (value: boolean) => {
                         showWorldBoundingBoxes = value;
@@ -808,7 +839,7 @@ async function gameLoop() {
     let flipVertical = false;
 
     // --- Teleport memory logic ---
-    if (keys['r'] && !prevKeys['r']) {
+    if (!isDesignerOpen() && keys['r'] && !prevKeys['r']) {
         // Save up to 6 locations, overwrite oldest if full
         if (teleportLocations.length < 6) {
             teleportLocations.push({ x: astronaut.position.x, y: astronaut.position.y });
@@ -819,14 +850,14 @@ async function gameLoop() {
         // Play remember sound
         try { rememberSound.currentTime = 0; rememberSound.play(); } catch {}
     }
-    if (keys['t'] && !prevKeys['t']) {
+    if (!isDesignerOpen() && keys['t'] && !prevKeys['t']) {
         let loc: TeleportLocation | null = null;
         if (teleportLocations.length > 0) {
             // Use the most recent (last) location
             loc = teleportLocations.pop()!;
             if (teleportSlot > teleportLocations.length) teleportSlot = teleportLocations.length;
         } else {
-            loc = { x: 222, y: 845 };
+            loc = { ...defaultTeleportLocation };
         }
         if (loc && !teleporting) {
             teleporting = true;
@@ -2316,6 +2347,7 @@ function updateAndDrawThrowGuide(context: CanvasRenderingContext2D, camera: Posi
 let showTightBoundingBoxes = false; // Red sprite-based bounding boxes
 let showWorldBoundingBoxes = false; // Green world-coordinate bounding boxes
 window.addEventListener('keydown', (e) => {
+    if (isDesignerOpen()) return;
     if (e.key === 'b') showTightBoundingBoxes = !showTightBoundingBoxes;
     if (e.key === 'f') showWorldBoundingBoxes = !showWorldBoundingBoxes;
     if (e.key === 'd') gameState.debugMode = !gameState.debugMode;

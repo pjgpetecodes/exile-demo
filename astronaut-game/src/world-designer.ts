@@ -118,6 +118,8 @@ export interface WorldDesignerHost {
 export interface WorldDesigner {
     isActive(): boolean;
     isPreviewMode(): boolean;
+    isViewportExpanded(): boolean;
+    setViewportExpanded(expanded: boolean): void;
     getCamera(): Position;
     getLayerVisibility(): LayerVisibility;
     shouldShowCollisionOverlay(): boolean;
@@ -142,6 +144,11 @@ type PickerDrag = {
     type: string;
     palette: number;
     rotation: number;
+};
+
+type ClipboardEntry = {
+    category: DesignerCategory;
+    data: MapBlock | ButtonSaveData | DoorSaveData | CreatureSaveData | CollectableSaveData;
 };
 
 type SavePreviewFile = {
@@ -193,6 +200,7 @@ type DesignerState = {
     pickerDrag: PickerDrag | null;
     pickerDragCanvas: Position | null;
     savePreviewOpen: boolean;
+    viewportExpanded: boolean;
     undoStack: RawWorldData[];
     redoStack: RawWorldData[];
     lastSavedSnapshot: RawWorldData;
@@ -206,8 +214,7 @@ type ControlRefs = {
     typeSelect: HTMLSelectElement;
     spritePreviewCanvas: HTMLCanvasElement;
     spritePreviewMeta: HTMLDivElement;
-    spritePickerToggle: HTMLButtonElement;
-    spritePicker: HTMLDivElement;
+    spritePicker: HTMLDetailsElement;
     spritePickerGrid: HTMLDivElement;
     rotationSelect: HTMLSelectElement;
     paletteSelect: HTMLSelectElement;
@@ -224,6 +231,7 @@ type ControlRefs = {
     focusButton: HTMLButtonElement;
     convertButton: HTMLButtonElement;
     focusAstronautButton: HTMLButtonElement;
+    expandViewportCheckbox: HTMLInputElement;
     addAtCenterButton: HTMLButtonElement;
     setAstronautStartButton: HTMLButtonElement;
     showCollisionCheckbox: HTMLInputElement;
@@ -618,16 +626,34 @@ function createDesignerStyles() {
             word-break: break-word;
         }
         .world-designer-sprite-picker {
-            display: none;
-            max-height: 280px;
-            overflow: auto;
-            padding: 8px;
             border-radius: 8px;
             background: rgba(15, 23, 42, 0.85);
             border: 1px solid rgba(148, 163, 184, 0.2);
+            overflow: hidden;
         }
-        .world-designer-sprite-picker.open {
-            display: block;
+        .world-designer-sprite-picker summary {
+            cursor: pointer;
+            padding: 8px 10px;
+            color: #f8fafc;
+            user-select: none;
+            list-style: none;
+        }
+        .world-designer-sprite-picker summary::-webkit-details-marker {
+            display: none;
+        }
+        .world-designer-sprite-picker summary::before {
+            content: '▸';
+            display: inline-block;
+            margin-right: 8px;
+            transition: transform 0.15s ease;
+        }
+        .world-designer-sprite-picker[open] summary::before {
+            transform: rotate(90deg);
+        }
+        .world-designer-sprite-picker-body {
+            max-height: 280px;
+            overflow: auto;
+            padding: 0 8px 8px;
         }
         .world-designer-sprite-picker-grid {
             display: grid;
@@ -762,6 +788,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         pickerDrag: null,
         pickerDragCanvas: null,
         savePreviewOpen: false,
+        viewportExpanded: false,
         undoStack: [],
         redoStack: [],
         lastSavedSnapshot: initialSnapshot
@@ -798,10 +825,12 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                         <canvas class="world-designer-sprite-canvas" data-role="sprite-preview" width="72" height="72"></canvas>
                         <div class="world-designer-sprite-meta" data-role="sprite-preview-meta"></div>
                     </div>
-                    <button type="button" data-role="sprite-picker-toggle">Choose from sprite grid</button>
-                    <div class="world-designer-sprite-picker" data-role="sprite-picker">
-                        <div class="world-designer-sprite-picker-grid" data-role="sprite-picker-grid"></div>
-                    </div>
+                    <details class="world-designer-sprite-picker" data-role="sprite-picker">
+                        <summary>Choose from sprite grid</summary>
+                        <div class="world-designer-sprite-picker-body">
+                            <div class="world-designer-sprite-picker-grid" data-role="sprite-picker-grid"></div>
+                        </div>
+                    </details>
                 </div>
                 <label class="world-designer-field">Rotation<select data-role="rotation"></select></label>
                 <label class="world-designer-field">Palette<select data-role="palette"></select></label>
@@ -826,6 +855,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         </div>
         <div class="world-designer-section">
             <h3>Preview toggles</h3>
+            <label class="world-designer-checkbox"><input type="checkbox" data-role="expand-viewport" /> Expand viewport to window</label>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="show-collision" /> Show collision outlines</label>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="show-sprite-outlines" /> Show sprite outlines (F)</label>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="disable-preview-collision" /> Disable collision during preview</label>
@@ -841,8 +871,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             <h3>Keyboard shortcuts</h3>
             <ul class="world-designer-shortcuts">
                 <li><strong>\`</strong> show/hide panel</li>
-                <li><strong>1</strong> select tool, <strong>2</strong> place tool, <strong>V</strong> toggle preview mode</li>
-                <li><strong>R</strong> rotate selection, <strong>Delete</strong> remove selection, <strong>Ctrl+D</strong> duplicate</li>
+                <li><strong>1</strong> select tool, <strong>2</strong> place tool, <strong>M</strong> toggle preview mode</li>
+                <li><strong>Alt+Enter</strong> toggle expanded viewport</li>
+                <li><strong>R</strong> rotate selection, <strong>Delete</strong> remove selection, <strong>Ctrl+C</strong> copy, <strong>Ctrl+V</strong> paste, <strong>Ctrl+D</strong> duplicate</li>
                 <li><strong>Arrow keys</strong> nudge selected item, <strong>Shift+Arrow</strong> larger nudge</li>
                 <li><strong>F</strong> toggle sprite outlines, <strong>G</strong> toggle grid snap, <strong>Ctrl+S</strong> preview before save</li>
                 <li><strong>Ctrl+Z</strong> undo, <strong>Ctrl+Y</strong> or <strong>Ctrl+Shift+Z</strong> redo</li>
@@ -875,8 +906,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         typeSelect: root.querySelector('[data-role="type"]') as HTMLSelectElement,
         spritePreviewCanvas: root.querySelector('[data-role="sprite-preview"]') as HTMLCanvasElement,
         spritePreviewMeta: root.querySelector('[data-role="sprite-preview-meta"]') as HTMLDivElement,
-        spritePickerToggle: root.querySelector('[data-role="sprite-picker-toggle"]') as HTMLButtonElement,
-        spritePicker: root.querySelector('[data-role="sprite-picker"]') as HTMLDivElement,
+        spritePicker: root.querySelector('[data-role="sprite-picker"]') as HTMLDetailsElement,
         spritePickerGrid: root.querySelector('[data-role="sprite-picker-grid"]') as HTMLDivElement,
         rotationSelect: root.querySelector('[data-role="rotation"]') as HTMLSelectElement,
         paletteSelect: root.querySelector('[data-role="palette"]') as HTMLSelectElement,
@@ -893,6 +923,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         focusButton: root.querySelector('[data-role="focus"]') as HTMLButtonElement,
         convertButton: root.querySelector('[data-role="convert"]') as HTMLButtonElement,
         focusAstronautButton: root.querySelector('[data-role="focus-astronaut"]') as HTMLButtonElement,
+        expandViewportCheckbox: root.querySelector('[data-role="expand-viewport"]') as HTMLInputElement,
         addAtCenterButton: root.querySelector('[data-role="add-center"]') as HTMLButtonElement,
         setAstronautStartButton: root.querySelector('[data-role="set-start"]') as HTMLButtonElement,
         showCollisionCheckbox: root.querySelector('[data-role="show-collision"]') as HTMLInputElement,
@@ -916,6 +947,20 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     const dragGhostCanvas = document.createElement('canvas');
     dragGhostCanvas.width = Math.ceil(dragGhostTargetSize);
     dragGhostCanvas.height = Math.ceil(dragGhostTargetSize);
+    let clipboardEntries: ClipboardEntry[] = [];
+    const initialCanvasSize = {
+        width: host.canvas.width,
+        height: host.canvas.height
+    };
+    const initialCanvasStyle = {
+        position: host.canvas.style.position,
+        inset: host.canvas.style.inset,
+        width: host.canvas.style.width,
+        height: host.canvas.style.height,
+        margin: host.canvas.style.margin,
+        zIndex: host.canvas.style.zIndex
+    };
+    const initialBodyOverflow = document.body.style.overflow;
 
     function getSnapshot() {
         return serializeWorldData(host.getRawWorldData());
@@ -1098,6 +1143,50 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             .getRawWorldData()
             .doors
             .reduce((maxDoorId, door) => Math.max(maxDoorId, door.doorID ?? -1), -1) + 1;
+    }
+
+    function serializeSelectionEntity(selection: Selection): ClipboardEntry['data'] {
+        return deepClone(selection.category === 'world'
+            ? toMapBlockData(selection.entity)
+            : selection.category === 'buttons'
+                ? toButtonData(selection.entity)
+                : selection.category === 'doors'
+                    ? toDoorData(selection.entity)
+                    : selection.category === 'creatures'
+                        ? toCreatureData(selection.entity)
+                        : toCollectableData(selection.entity));
+    }
+
+    function createSelectionEntity(
+        category: DesignerCategory,
+        data: ClipboardEntry['data']
+    ) {
+        if (category === 'world') {
+            return data as MapBlock;
+        }
+        if (category === 'buttons') {
+            return new Button(data as ButtonSaveData);
+        }
+        if (category === 'doors') {
+            return new Door({ ...(data as DoorSaveData), doorID: getNextDoorId() });
+        }
+        if (category === 'creatures') {
+            return new Creature(data as CreatureSaveData);
+        }
+        return new Collectable(data as CollectableSaveData);
+    }
+
+    function createPastedSelections(entries: ClipboardEntry[], offsetX: number, offsetY: number) {
+        const pastedSelections: Selection[] = [];
+        for (const entry of entries) {
+            const clone = deepClone(entry.data);
+            clone.x += offsetX;
+            clone.y += offsetY;
+            const entity = createSelectionEntity(entry.category, clone);
+            getCategoryArray(entry.category).push(entity);
+            pastedSelections.push({ category: entry.category, entity });
+        }
+        return pastedSelections;
     }
 
     function placeAtWorld(worldX: number, worldY: number) {
@@ -1350,44 +1439,39 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const selections = getSelectedItems();
         if (selections.length === 0) return;
         runMutation('Duplicated selection.', () => {
-            const duplicatedSelections: Selection[] = [];
-            for (const source of selections) {
-                const clone = deepClone(source.category === 'world'
-                    ? toMapBlockData(source.entity)
-                    : source.category === 'buttons'
-                        ? toButtonData(source.entity)
-                        : source.category === 'doors'
-                            ? toDoorData(source.entity)
-                            : source.category === 'creatures'
-                                ? toCreatureData(source.entity)
-                                : toCollectableData(source.entity));
-
-                clone.x += 12;
-                clone.y += 12;
-
-                if (source.category === 'world') {
-                    const entity = clone as MapBlock;
-                    getCategoryArray('world').push(entity);
-                    duplicatedSelections.push({ category: 'world', entity });
-                } else if (source.category === 'buttons') {
-                    const entity = new Button(clone);
-                    getCategoryArray('buttons').push(entity);
-                    duplicatedSelections.push({ category: 'buttons', entity });
-                } else if (source.category === 'doors') {
-                    const entity = new Door({ ...clone, doorID: getNextDoorId() });
-                    getCategoryArray('doors').push(entity);
-                    duplicatedSelections.push({ category: 'doors', entity });
-                } else if (source.category === 'creatures') {
-                    const entity = new Creature(clone);
-                    getCategoryArray('creatures').push(entity);
-                    duplicatedSelections.push({ category: 'creatures', entity });
-                } else {
-                    const entity = new Collectable(clone);
-                    getCategoryArray('collectables').push(entity);
-                    duplicatedSelections.push({ category: 'collectables', entity });
-                }
-            }
+            const duplicatedSelections = createPastedSelections(
+                selections.map((selection) => ({
+                    category: selection.category,
+                    data: serializeSelectionEntity(selection)
+                })),
+                12,
+                12
+            );
             setSelections(duplicatedSelections);
+        });
+    }
+
+    function copySelection() {
+        const selections = getSelectedItems();
+        if (selections.length === 0) {
+            setStatus('Nothing selected to copy.', 'neutral');
+            return;
+        }
+        clipboardEntries = selections.map((selection) => ({
+            category: selection.category,
+            data: serializeSelectionEntity(selection)
+        }));
+        setStatus(`Copied ${clipboardEntries.length} object${clipboardEntries.length === 1 ? '' : 's'}.`, 'neutral');
+    }
+
+    function pasteSelection() {
+        if (clipboardEntries.length === 0) {
+            setStatus('Nothing copied yet.', 'neutral');
+            return;
+        }
+        runMutation('Pasted selection.', () => {
+            const pastedSelections = createPastedSelections(clipboardEntries, 12, 12);
+            setSelections(pastedSelections);
         });
     }
 
@@ -1914,6 +1998,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     function refreshPanel() {
         refs.root.classList.toggle('world-designer-hidden', !state.active);
         refs.activeToggle.textContent = state.active ? 'Hide panel' : 'Show panel';
+        refs.expandViewportCheckbox.checked = state.viewportExpanded;
         refs.modeSelect.value = state.mode;
         refs.toolSelect.value = state.tool;
         refs.categorySelect.value = state.category;
@@ -1925,8 +2010,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.showSpriteOutlineCheckbox.checked = host.getShowSpriteOutlines();
         refs.disablePreviewCollisionCheckbox.checked = state.disableCollisionInPreview;
         refs.disablePreviewCollisionCheckbox.disabled = state.mode !== 'preview';
-        refs.spritePicker.classList.toggle('open', state.spritePickerOpen);
-        refs.spritePickerToggle.textContent = state.spritePickerOpen ? 'Hide sprite grid' : 'Choose from sprite grid';
+        refs.spritePicker.open = state.spritePickerOpen;
 
         for (const [category, checkbox] of Object.entries(refs.layerCheckboxes) as Array<[DesignerCategory, HTMLInputElement]>) {
             checkbox.checked = state.layerVisibility[category];
@@ -1938,6 +2022,55 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         updateSelectionSummary();
         refreshInspector();
         refreshStatus();
+    }
+
+    function applyViewportSize(width: number, height: number) {
+        const currentCenter = {
+            x: state.camera.x + host.canvas.width / 2,
+            y: state.camera.y + host.canvas.height / 2
+        };
+        host.canvas.width = Math.max(1, Math.round(width));
+        host.canvas.height = Math.max(1, Math.round(height));
+        state.camera = host.clampCamera({
+            x: currentCenter.x - host.canvas.width / 2,
+            y: currentCenter.y - host.canvas.height / 2
+        });
+    }
+
+    function resizeExpandedViewport() {
+        if (!state.viewportExpanded) return;
+        applyViewportSize(window.innerWidth, window.innerHeight);
+        host.canvas.style.width = `${window.innerWidth}px`;
+        host.canvas.style.height = `${window.innerHeight}px`;
+    }
+
+    function setViewportExpanded(expanded: boolean) {
+        if (state.viewportExpanded === expanded) {
+            return;
+        }
+
+        state.viewportExpanded = expanded;
+        if (expanded) {
+            host.canvas.style.position = 'fixed';
+            host.canvas.style.inset = '0';
+            host.canvas.style.margin = '0';
+            host.canvas.style.zIndex = '9000';
+            document.body.style.overflow = 'hidden';
+            resizeExpandedViewport();
+            setStatus('Expanded the game viewport to fill the window for designer work.', 'neutral');
+        } else {
+            host.canvas.style.position = initialCanvasStyle.position;
+            host.canvas.style.inset = initialCanvasStyle.inset;
+            host.canvas.style.width = initialCanvasStyle.width;
+            host.canvas.style.height = initialCanvasStyle.height;
+            host.canvas.style.margin = initialCanvasStyle.margin;
+            host.canvas.style.zIndex = initialCanvasStyle.zIndex;
+            document.body.style.overflow = initialBodyOverflow;
+            applyViewportSize(initialCanvasSize.width, initialCanvasSize.height);
+            setStatus('Restored the game viewport to its normal size.', 'neutral');
+        }
+
+        refreshPanel();
     }
 
     function updateSelectionFromInspectorState() {
@@ -2287,6 +2420,16 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             duplicateSelection();
             return;
         }
+        if (event.ctrlKey && event.key.toLowerCase() === 'c') {
+            event.preventDefault();
+            copySelection();
+            return;
+        }
+        if (event.ctrlKey && event.key.toLowerCase() === 'v') {
+            event.preventDefault();
+            pasteSelection();
+            return;
+        }
 
         switch (event.key) {
             case '1':
@@ -2299,8 +2442,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 refreshPanel();
                 event.preventDefault();
                 return;
-            case 'v':
-            case 'V':
+            case 'm':
+            case 'M':
                 state.mode = state.mode === 'edit' ? 'preview' : 'edit';
                 refreshPanel();
                 event.preventDefault();
@@ -2463,9 +2606,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
         setCurrentType(refs.typeSelect.value);
     });
-    refs.spritePickerToggle.addEventListener('click', () => {
-        state.spritePickerOpen = !state.spritePickerOpen;
-        refreshPanel();
+    refs.spritePicker.addEventListener('toggle', () => {
+        state.spritePickerOpen = refs.spritePicker.open;
     });
     refs.rotationSelect.addEventListener('change', () => {
         const rotation = normalizeRotation(Number(refs.rotationSelect.value));
@@ -2527,6 +2669,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         focusOnCurrentWorldPosition();
         setStatus('Centered view on the astronaut.', 'neutral');
     });
+    refs.expandViewportCheckbox.addEventListener('change', () => {
+        setViewportExpanded(refs.expandViewportCheckbox.checked);
+    });
     refs.addAtCenterButton.addEventListener('click', () => {
         runMutation(`Placed new ${CATEGORY_LABELS[state.category].toLowerCase()} at the view center.`, () => {
             placeAtWorld(
@@ -2565,6 +2710,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     window.addEventListener('mousemove', handleCanvasMouseMove);
     window.addEventListener('mouseup', handleCanvasMouseUp);
     window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('resize', resizeExpandedViewport);
 
     refreshSelectOptions();
     refreshPanel();
@@ -2575,6 +2721,12 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         },
         isPreviewMode() {
             return state.active && state.mode === 'preview';
+        },
+        isViewportExpanded() {
+            return state.viewportExpanded;
+        },
+        setViewportExpanded(expanded: boolean) {
+            setViewportExpanded(expanded);
         },
         getCamera() {
             return state.camera;
@@ -2716,6 +2868,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             ctx.restore();
         },
         destroy() {
+            setViewportExpanded(false);
             refs.overviewCanvas.removeEventListener('mousedown', handleOverviewMouseDown);
             refs.overviewCanvas.removeEventListener('mousemove', handleOverviewMouseMove);
             refs.overviewCanvas.removeEventListener('mouseup', handleOverviewMouseUp);
@@ -2724,6 +2877,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             window.removeEventListener('mousemove', handleCanvasMouseMove);
             window.removeEventListener('mouseup', handleCanvasMouseUp);
             window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('resize', resizeExpandedViewport);
             root.remove();
             modal.remove();
             styles.remove();
