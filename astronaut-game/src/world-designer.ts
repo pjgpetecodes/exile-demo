@@ -201,6 +201,7 @@ type PersistedDesignerUiState = {
     camera: Position;
     hasOpenedOnce: boolean;
     spritePickerOpen: boolean;
+    spritePickerFilter: string;
     viewportExpanded: boolean;
     soundEnabled: boolean;
     paletteDesignerOpen: boolean;
@@ -250,6 +251,7 @@ type DesignerState = {
     overviewHoverWorld: Position | null;
     hasOpenedOnce: boolean;
     spritePickerOpen: boolean;
+    spritePickerFilter: string;
     pickerDrag: PickerDrag | null;
     pickerDragCanvas: Position | null;
     savePreviewOpen: boolean;
@@ -275,6 +277,7 @@ type ControlRefs = {
     spritePreviewCanvas: HTMLCanvasElement;
     spritePreviewMeta: HTMLDivElement;
     spritePicker: HTMLDetailsElement;
+    spritePickerFilter: HTMLInputElement;
     spritePickerGrid: HTMLDivElement;
     rotationSelect: HTMLSelectElement;
     paletteSelect: HTMLSelectElement;
@@ -733,22 +736,30 @@ function createDesignerStyles() {
         }
         .world-designer-sprite-picker-body {
             max-height: 280px;
-            overflow: auto;
+            overflow-x: hidden;
+            overflow-y: auto;
             padding: 0 8px 8px;
+            box-sizing: border-box;
+            min-width: 0;
         }
         .world-designer-sprite-picker-grid {
             display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
             gap: 8px;
+            width: 100%;
+            min-width: 0;
         }
         .world-designer-sprite-option {
             display: flex;
             flex-direction: column;
             align-items: center;
             gap: 4px;
+            width: 100%;
+            box-sizing: border-box;
             padding: 6px;
             min-width: 0;
             text-align: center;
+            overflow: hidden;
         }
         .world-designer-sprite-option.selected {
             border-color: rgba(56, 189, 248, 0.9);
@@ -1047,6 +1058,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         overviewHoverWorld: null,
         hasOpenedOnce: persistedState?.hasOpenedOnce ?? (persistedState?.active ?? false),
         spritePickerOpen: persistedState?.spritePickerOpen ?? false,
+        spritePickerFilter: persistedState?.spritePickerFilter ?? '',
         pickerDrag: null,
         pickerDragCanvas: null,
         savePreviewOpen: false,
@@ -1102,6 +1114,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     <details class="world-designer-sprite-picker" data-role="sprite-picker">
                         <summary>Choose from sprite grid</summary>
                         <div class="world-designer-sprite-picker-body">
+                            <label class="world-designer-field world-designer-grid-wide">Filter sprites<input type="text" data-role="sprite-picker-filter" placeholder="Type to filter sprite names" /></label>
                             <div class="world-designer-sprite-picker-grid" data-role="sprite-picker-grid"></div>
                         </div>
                     </details>
@@ -1225,6 +1238,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         spritePreviewCanvas: root.querySelector('[data-role="sprite-preview"]') as HTMLCanvasElement,
         spritePreviewMeta: root.querySelector('[data-role="sprite-preview-meta"]') as HTMLDivElement,
         spritePicker: root.querySelector('[data-role="sprite-picker"]') as HTMLDetailsElement,
+        spritePickerFilter: root.querySelector('[data-role="sprite-picker-filter"]') as HTMLInputElement,
         spritePickerGrid: root.querySelector('[data-role="sprite-picker-grid"]') as HTMLDivElement,
         rotationSelect: root.querySelector('[data-role="rotation"]') as HTMLSelectElement,
         paletteSelect: root.querySelector('[data-role="palette"]') as HTMLSelectElement,
@@ -1319,6 +1333,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 camera: { ...state.camera },
                 hasOpenedOnce: state.hasOpenedOnce,
                 spritePickerOpen: state.spritePickerOpen,
+                spritePickerFilter: state.spritePickerFilter,
                 viewportExpanded: state.viewportExpanded,
                 soundEnabled: host.getSoundEnabled(),
                 paletteDesignerOpen: state.paletteDesignerOpen,
@@ -1621,6 +1636,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
     function renderSpritePickerGrid() {
         const currentType = getCurrentType();
+        const filter = state.spritePickerFilter.trim().toLowerCase();
         for (const entry of spriteCatalog) {
             let button = spritePickerButtons.get(entry.name);
             if (!button) {
@@ -1664,6 +1680,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 refs.spritePickerGrid.appendChild(button);
             }
 
+            const matchesFilter = filter.length === 0 || entry.name.toLowerCase().includes(filter);
+            button.hidden = !matchesFilter;
+            button.style.display = matchesFilter ? '' : 'none';
             button.classList.toggle('selected', entry.name === currentType);
             button.classList.toggle('dragging', state.pickerDrag?.type === entry.name);
             const canvas = button.querySelector('canvas');
@@ -2950,6 +2969,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.disablePreviewCollisionCheckbox.checked = state.disableCollisionInPreview;
         refs.disablePreviewCollisionCheckbox.disabled = state.mode !== 'preview';
         refs.spritePicker.open = state.spritePickerOpen;
+        refs.spritePickerFilter.value = state.spritePickerFilter;
 
         for (const [category, checkbox] of Object.entries(refs.layerCheckboxes) as Array<[DesignerCategory, HTMLInputElement]>) {
             checkbox.checked = state.layerVisibility[category];
@@ -3663,6 +3683,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     });
     refs.spritePicker.addEventListener('toggle', () => {
         state.spritePickerOpen = refs.spritePicker.open;
+    });
+    refs.spritePickerFilter.addEventListener('input', () => {
+        state.spritePickerFilter = refs.spritePickerFilter.value;
+        renderSpritePickerGrid();
+        persistDesignerUiState();
     });
     refs.rotationSelect.addEventListener('change', () => {
         const rotation = normalizeRotation(Number(refs.rotationSelect.value));

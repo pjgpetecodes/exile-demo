@@ -7,6 +7,14 @@ import {
     checkAstronautCollisions
 } from './astronaut.js';
 import { applyGravity } from './gravity.js';
+import {
+    applyDynamicObjectGravity,
+    applyDynamicObjectGroundFriction,
+    getDynamicObjectBounceRestitution,
+    getDynamicObjectHeadBounceLaunchSpeed,
+    getDynamicObjectPushedVelocity,
+    getDynamicObjectPushScale
+} from './object-physics.js';
 import { clearMapSpriteCache, mapBlocks, mapLoaded, loadMapBlocks, drawMap, getBlockAtWorld, shouldMaskAstronaut } from './map.js';
 import { initStars, updateAndDrawStars } from './stars.js';
 import { emitJetpackDots, updateAndDrawJetpackDots, resetJetpackDotEmitTimer } from './jetpack.js';
@@ -40,6 +48,20 @@ let palettes: Array<{ from: [number, number, number], to: [number, number, numbe
 let remappedSpriteSheets: CanvasImageSource[] = [];
 let colorAliases: Record<string, [number, number, number]> = {};
 const customPalettePreviewCache = new Map<string, CanvasImageSource>();
+const COLLECTABLE_PHYSICS_SETTINGS = {
+    gravity: MOVEMENT_SETTINGS.collectableGravity,
+    terminalVelocity: MOVEMENT_SETTINGS.collectableTerminalVelocity,
+    bounceRestitution: MOVEMENT_SETTINGS.collectableBounceRestitution,
+    bounceMinImpactSpeed: MOVEMENT_SETTINGS.collectableBounceMinImpactSpeed,
+    bounceWeightPenaltyPerUnit: MOVEMENT_SETTINGS.collectableBounceWeightPenaltyPerUnit,
+    groundFriction: MOVEMENT_SETTINGS.collectableGroundFriction,
+    pushVelocityMultiplier: MOVEMENT_SETTINGS.collectablePushVelocityMultiplier,
+    pushMaxSpeed: MOVEMENT_SETTINGS.collectablePushMaxSpeed,
+    pushResistancePerUnit: MOVEMENT_SETTINGS.collectablePushResistancePerUnit,
+    pushMinScale: MOVEMENT_SETTINGS.collectablePushMinScale,
+    headBounceMinImpactSpeed: MOVEMENT_SETTINGS.headBounceMinImpactSpeed,
+    headBounceMaxLaunchSpeed: MOVEMENT_SETTINGS.collectableHeadBounceMaxLaunchSpeed
+} as const;
 
 function deepClone<T>(value: T): T {
     return JSON.parse(JSON.stringify(value));
@@ -2325,57 +2347,6 @@ function moveCollectableVertically(collectable: Collectable, amount: number) {
     return moved;
 }
 
-function getCollectablePushScale(collectable: Collectable) {
-    return Math.max(
-        MOVEMENT_SETTINGS.collectablePushMinScale,
-        1 - collectable.weight * MOVEMENT_SETTINGS.collectablePushResistancePerUnit
-    );
-}
-
-function getCollectableBounceRestitution(collectable: Collectable, impactSpeed: number) {
-    if (
-        impactSpeed < MOVEMENT_SETTINGS.collectableBounceMinImpactSpeed ||
-        MOVEMENT_SETTINGS.collectableBounceRestitution <= 0
-    ) {
-        return 0;
-    }
-
-    const weightScale = Math.max(
-        0,
-        1 - collectable.weight * MOVEMENT_SETTINGS.collectableBounceWeightPenaltyPerUnit
-    );
-    if (weightScale === 0) {
-        return 0;
-    }
-
-    const impactScale = Math.max(
-        0,
-        Math.min(
-            1,
-            (impactSpeed - MOVEMENT_SETTINGS.collectableBounceMinImpactSpeed) /
-            Math.max(0.001, MOVEMENT_SETTINGS.collectableTerminalVelocity - MOVEMENT_SETTINGS.collectableBounceMinImpactSpeed)
-        )
-    );
-
-    return MOVEMENT_SETTINGS.collectableBounceRestitution * weightScale * (0.75 + impactScale * 0.25);
-}
-
-function getCollectableHeadBounceLaunchSpeed(collectable: Collectable, impactSpeed: number) {
-    if (impactSpeed < MOVEMENT_SETTINGS.headBounceMinImpactSpeed) {
-        return 0;
-    }
-
-    const bounceRestitution = getCollectableBounceRestitution(collectable, impactSpeed);
-    if (bounceRestitution <= 0) {
-        return 0;
-    }
-
-    return Math.min(
-        MOVEMENT_SETTINGS.collectableHeadBounceMaxLaunchSpeed,
-        impactSpeed * bounceRestitution
-    );
-}
-
 function resolveAstronautCollectableCollisions(horizontalMovement: number, verticalMovement: number) {
     for (const collectable of collectableEntities) {
         if (!isLooseCollectable(collectable)) continue;
@@ -2401,7 +2372,7 @@ function resolveAstronautCollectableCollisions(horizontalMovement: number, verti
                     : 1;
             const pushAmount = Math.ceil(overlapX);
             if (horizontalMovement !== 0) {
-                const pushScale = getCollectablePushScale(collectable);
+                const pushScale = getDynamicObjectPushScale(collectable, COLLECTABLE_PHYSICS_SETTINGS);
                 const requestedPush = Math.max(1, Math.ceil(pushAmount * pushScale));
                 const moved = moveCollectableHorizontally(collectable, horizontalDirection * requestedPush);
                 const remaining = pushAmount - Math.abs(moved);
@@ -2410,14 +2381,11 @@ function resolveAstronautCollectableCollisions(horizontalMovement: number, verti
                     astronaut.velocity.x = 0;
                 }
 
-                const pushedVelocity = Math.max(
-                    -MOVEMENT_SETTINGS.collectablePushMaxSpeed,
-                    Math.min(
-                        MOVEMENT_SETTINGS.collectablePushMaxSpeed,
-                        horizontalMovement * MOVEMENT_SETTINGS.collectablePushVelocityMultiplier * getCollectablePushScale(collectable)
-                    )
+                collectable.velocity.x = getDynamicObjectPushedVelocity(
+                    horizontalMovement,
+                    collectable,
+                    COLLECTABLE_PHYSICS_SETTINGS
                 );
-                collectable.velocity.x = pushedVelocity;
             } else {
                 gameState.astronaut.position.x -= horizontalDirection * pushAmount;
                 astronaut.velocity.x = 0;
@@ -2428,7 +2396,11 @@ function resolveAstronautCollectableCollisions(horizontalMovement: number, verti
             gameState.astronaut.isLanded = true;
         } else if (verticalMovement < 0) {
             const impactSpeed = Math.max(Math.abs(verticalMovement), Math.abs(astronaut.velocity.y));
-            const launchSpeed = getCollectableHeadBounceLaunchSpeed(collectable, impactSpeed);
+            const launchSpeed = getDynamicObjectHeadBounceLaunchSpeed(
+                collectable,
+                impactSpeed,
+                COLLECTABLE_PHYSICS_SETTINGS
+            );
             const liftAmount = Math.ceil(overlapY);
             const desiredLift = Math.min(liftAmount, Math.ceil(launchSpeed));
             const movedUp = desiredLift > 0 ? Math.abs(moveCollectableVertically(collectable, -desiredLift)) : 0;
@@ -2459,10 +2431,7 @@ function updateSingleCollectablePhysics(collectable: Collectable) {
     }
 
     const collisionBounds = getEntityCollisionBounds(collectable);
-    collectable.velocity.y = Math.min(
-        collectable.velocity.y + MOVEMENT_SETTINGS.collectableGravity,
-        MOVEMENT_SETTINGS.collectableTerminalVelocity
-    );
+    applyDynamicObjectGravity(collectable, COLLECTABLE_PHYSICS_SETTINGS);
 
     const targetX = collectable.x + collectable.velocity.x;
     const targetY = collectable.y + collectable.velocity.y;
@@ -2492,7 +2461,11 @@ function updateSingleCollectablePhysics(collectable: Collectable) {
             } else {
                 if (verticalDirection === 'bottom') {
                     const impactSpeed = collectable.velocity.y;
-                    const bounceRestitution = getCollectableBounceRestitution(collectable, impactSpeed);
+                    const bounceRestitution = getDynamicObjectBounceRestitution(
+                        collectable,
+                        impactSpeed,
+                        COLLECTABLE_PHYSICS_SETTINGS
+                    );
                     if (bounceRestitution > 0) {
                         collectable.velocity.y = -impactSpeed * bounceRestitution;
                         bounced = true;
@@ -2512,8 +2485,12 @@ function updateSingleCollectablePhysics(collectable: Collectable) {
     if (!grounded && !bounced && collectable.velocity.y >= 0) {
         const snapAmount = getFloorSnapAmount(nextX, nextY, collisionBounds);
         if (snapAmount > 0) {
-            const snapImpactSpeed = collectable.velocity.y + snapAmount * MOVEMENT_SETTINGS.collectableGravity * 2;
-            const bounceRestitution = getCollectableBounceRestitution(collectable, snapImpactSpeed);
+            const snapImpactSpeed = collectable.velocity.y + snapAmount * COLLECTABLE_PHYSICS_SETTINGS.gravity * 2;
+            const bounceRestitution = getDynamicObjectBounceRestitution(
+                collectable,
+                snapImpactSpeed,
+                COLLECTABLE_PHYSICS_SETTINGS
+            );
             nextY += snapAmount;
             if (bounceRestitution > 0) {
                 collectable.velocity.y = -snapImpactSpeed * bounceRestitution;
@@ -2530,10 +2507,7 @@ function updateSingleCollectablePhysics(collectable: Collectable) {
     collectable.isGrounded = grounded;
 
     if (grounded) {
-        collectable.velocity.x *= 1 - MOVEMENT_SETTINGS.collectableGroundFriction;
-        if (Math.abs(collectable.velocity.x) < 0.05) {
-            collectable.velocity.x = 0;
-        }
+        applyDynamicObjectGroundFriction(collectable, COLLECTABLE_PHYSICS_SETTINGS);
     }
 }
 

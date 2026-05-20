@@ -142,11 +142,13 @@ The designer now includes:
 
 - a live sprite preview
 - a sprite grid picker in a collapsed accordion
+- a text filter for narrowing sprite names in the grid
 
 You can:
 
 - choose a sprite by name from the dropdown
 - open the **Choose from sprite grid** accordion
+- type in the filter box to narrow the grid
 - click a sprite in the grid to select it
 - drag a sprite from the grid onto the world to place it
 

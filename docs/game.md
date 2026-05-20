@@ -58,6 +58,7 @@ The repository includes VS Code launch/task settings.
 - Gravity is intentionally light.
 - Doors can be linked to buttons.
 - Collectables can be placed in the world and configured in the designer.
+- Loose objects now use a shared weight-and-speed-driven physics model for falling, bouncing, throwing, pushing, and astronaut impacts.
 - The astronaut start position is stored separately in `astronaut_start.json`.
 
 ## Important asset files
