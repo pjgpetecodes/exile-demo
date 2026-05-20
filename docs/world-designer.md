@@ -67,6 +67,7 @@ When a single item is selected, the inspector shows editable properties such as:
 - rotation
 - palette
 - collision
+- astronaut masking for world items
 - item-specific settings
 
 ## Core workflows
@@ -169,6 +170,8 @@ Useful preview toggles:
 - **Show sprite outlines (F)**
 - **Disable collision during preview**
 - per-layer visibility toggles
+
+For **world items**, **Collision enabled** and **Mask astronaut** are separate controls. A decorative sprite can be non-colliding and still draw in front of the astronaut when masking is enabled. `black_background` items default to staying behind the astronaut unless you explicitly enable masking.
 
 ## 7. Save workflow
 

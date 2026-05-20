@@ -1,5 +1,5 @@
 import { MAP_HEIGHT, MAP_WIDTH, SPRITE_SCALE } from './constants.js';
-import { MapBlock } from './map.js';
+import { MapBlock, shouldMaskAstronaut } from './map.js';
 import { Button } from './button.js';
 import { Door } from './door.js';
 import { Creature } from './creature.js';
@@ -322,6 +322,7 @@ function toMapBlockData(block: MapBlock): MapBlock {
         y: block.y,
         type: block.type,
         collision: block.collision !== false,
+        maskAstronaut: shouldMaskAstronaut(block),
         palette: typeof block.palette === 'number' ? block.palette : 0,
         rotation: normalizeRotation(block.rotation) as MapBlock['rotation'],
         ...(block.paletteCycle ? { paletteCycle: deepClone(block.paletteCycle) } : {})
@@ -1432,6 +1433,16 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         updateSelectionFromInspectorState();
     }
 
+    function setWorldAstronautMask(maskAstronaut: boolean) {
+        const worldSelections = getSelectedItems().filter((selection) => selection.category === 'world');
+        if (worldSelections.length === 0) return;
+        runMutation(`Updated astronaut masking${maskAstronaut ? '' : ' off'}.`, () => {
+            for (const selection of worldSelections) {
+                selection.entity.maskAstronaut = maskAstronaut;
+            }
+        });
+    }
+
     function addContextMenuPaletteSubmenu(disabled = false) {
         const selection = state.contextMenu.primarySelection;
         const currentPalette = selection && 'palette' in selection.entity && typeof selection.entity.palette === 'number'
@@ -1570,7 +1581,13 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         addContextMenuAction('Delete', deleteSelection, selectedItems.length === 0);
         addContextMenuAction('Focus selection', focusSelection, selectedItems.length === 0);
 
-        if (selection.category === 'doors') {
+        if (selection.category === 'world') {
+            addContextMenuDivider();
+            addContextMenuAction(
+                shouldMaskAstronaut(selection.entity) ? 'Stop masking astronaut' : 'Mask astronaut',
+                () => setWorldAstronautMask(!shouldMaskAstronaut(selection.entity))
+            );
+        } else if (selection.category === 'doors') {
             addContextMenuDivider();
             addContextMenuAction(
                 (selection.entity.defaultLocked ?? selection.entity.locked ?? false) ? 'Set unlocked by default' : 'Set locked by default',
@@ -1681,6 +1698,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 y,
                 type,
                 collision: true,
+                maskAstronaut: false,
                 palette: state.palette,
                 rotation: state.rotation as MapBlock['rotation']
             };
@@ -2387,6 +2405,17 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             addCheckboxInspector(container, 'Collision enabled', entity.collision !== false, (checked) => {
                 runMutation('Updated collision flag.', () => {
                     entity.collision = checked;
+                    if (category === 'world' && !checked && typeof entity.maskAstronaut !== 'boolean') {
+                        entity.maskAstronaut = entity.type === 'black_background' ? false : true;
+                    }
+                });
+            });
+        }
+
+        if (category === 'world') {
+            addCheckboxInspector(container, 'Mask astronaut', shouldMaskAstronaut(entity), (checked) => {
+                runMutation('Updated astronaut masking.', () => {
+                    entity.maskAstronaut = checked;
                 });
             });
         }
@@ -2634,6 +2663,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     palette: collectable.palette ?? 0,
                     rotation: normalizeRotation(collectable.defaultRotation ?? collectable.rotation) as MapBlock['rotation'],
                     collision: collectable.collision !== false,
+                    maskAstronaut: collectable.collision === false,
                     paletteCycle: collectable.paletteCycle ? deepClone(collectable.paletteCycle) : undefined
                 };
                 getCategoryArray('world').push(block);

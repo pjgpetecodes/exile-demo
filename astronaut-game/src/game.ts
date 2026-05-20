@@ -7,7 +7,7 @@ import {
     checkAstronautCollisions
 } from './astronaut.js';
 import { applyGravity } from './gravity.js';
-import { mapBlocks, mapLoaded, loadMapBlocks, drawMap, getBlockAtWorld } from './map.js';
+import { mapBlocks, mapLoaded, loadMapBlocks, drawMap, getBlockAtWorld, shouldMaskAstronaut } from './map.js';
 import { initStars, updateAndDrawStars } from './stars.js';
 import { emitJetpackDots, updateAndDrawJetpackDots, resetJetpackDotEmitTimer } from './jetpack.js';
 import { Button } from './button.js';
@@ -899,16 +899,18 @@ async function gameLoop() {
             creatures: true,
             collectables: true
         };
+    const mapBlocksToDraw = !layerVisibility.world
+        ? []
+        : hideBlackBackgroundBlocks
+            ? mapBlocks.filter(b => b.type !== 'black_background')
+            : mapBlocks;
+    const mapBlocksBehindAstronaut = mapBlocksToDraw.filter((block) => !shouldMaskAstronaut(block));
+    const mapBlocksMaskAstronaut = mapBlocksToDraw.filter((block) => shouldMaskAstronaut(block));
+
     if (spriteSheet && spriteSheet.complete) {
         if (layerVisibility.doors) {
             drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, doorEntities);
         }
-        // Use a filtered array for drawing if hiding black_background blocks
-        const mapBlocksToDraw = !layerVisibility.world
-            ? []
-            : hideBlackBackgroundBlocks
-                ? mapBlocks.filter(b => b.type !== 'black_background')
-                : mapBlocks;
         // Draw map blocks (replace mapBlocks with mapBlocksToDraw in overlays below as well)
         // Patch: temporarily override mapBlocks for drawMap by monkey-patching global (not ideal, but drawMap uses global)
         // Instead, draw overlays and highlights using mapBlocksToDraw, but call drawMap as usual
@@ -959,7 +961,7 @@ async function gameLoop() {
         }
         // Draw map blocks (drawMap uses global mapBlocks, so black_background blocks will be hidden only if not present in mapBlocks)
         // To hide, we need to patch drawMap to accept a blocks array, or temporarily monkey-patch global. For now, just draw overlays using mapBlocksToDraw.
-        drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksToDraw);
+        drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksBehindAstronaut);
         if (layerVisibility.buttons) {
             drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, buttonEntities);
         }
@@ -980,6 +982,9 @@ async function gameLoop() {
 
     if (worldDesigner?.isActive()) {
         drawAstronautInWorld(ctx!, camera, spriteCol, flipSprite, flipVertical);
+        if (mapBlocksMaskAstronaut.length > 0) {
+            drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut);
+        }
         if (heldCollectable) {
             drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, [heldCollectable]);
         }
@@ -1551,6 +1556,9 @@ async function gameLoop() {
             );
         }
         ctx!.restore();
+        if (mapBlocksMaskAstronaut.length > 0) {
+            drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut);
+        }
         teleportAnimFrame++;
 
         if (teleportPhase === 'out' && teleportAnimFrame >= TELEPORT_ANIM_FRAMES) {
@@ -1643,6 +1651,10 @@ async function gameLoop() {
             }
         }
         ctx!.restore();
+
+        if (mapBlocksMaskAstronaut.length > 0) {
+            drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut);
+        }
 
         // --- Draw tight bounding boxes for world map sprites with collision ---
         if (showTightBoundingBoxes && spriteSheet && spriteSheet.complete) {

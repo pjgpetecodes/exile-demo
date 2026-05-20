@@ -7,6 +7,7 @@ export type MapBlock = {
     y: number; // tile y
     type: string; // allow any block type, not just 'floor_grass' | 'floor_plain_half'
     collision: boolean;
+    maskAstronaut?: boolean;
     palette?: string | number;
     paletteCycle?: PaletteCycleSettings;
     rotation?: 1 | 2 | 3 | 4 | 5 | 6 | 7;
@@ -14,6 +15,16 @@ export type MapBlock = {
 
 export let mapBlocks: MapBlock[] = [];
 export let mapLoaded = false;
+
+export function shouldMaskAstronaut(block: Pick<MapBlock, 'type' | 'collision' | 'maskAstronaut'>) {
+    if (typeof block.maskAstronaut === 'boolean') {
+        return block.maskAstronaut;
+    }
+    if (block.type === 'black_background') {
+        return false;
+    }
+    return block.collision === false;
+}
 
 // New: Color alias map and loader
 let colorAliases: Record<string, [number, number, number]> = {};
