@@ -1685,6 +1685,22 @@ async function gameLoop() {
     } else if (
         !gameState.astronaut.isLanded &&
         !keys['q'] && !keys['w'] &&
+        gameState.astronaut.velocity.y < -0.01 &&
+        Math.abs(gameState.astronaut.velocity.x) <= 0.01
+    ) {
+        // Show the upright stand pose while flying straight up.
+        spriteCol = SPRITE_COL_STAND;
+        flipSprite = facingLeft;
+        resetFlyDownAnimationState();
+        walkAnimFrame = SPRITE_COL_WALK_START;
+        walkAnimTimer = 0;
+        flyHoldTimer = 0;
+        flyDir = null;
+        resetFlySwitchAnimationState();
+        rememberLastFlyPose(spriteCol, flipSprite);
+    } else if (
+        !gameState.astronaut.isLanded &&
+        !keys['q'] && !keys['w'] &&
         Math.abs(gameState.astronaut.velocity.x) > 0.01
     ) {
         // Show fly_float sprite if flying with sideways momentum and no q/w pressed
