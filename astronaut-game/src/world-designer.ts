@@ -97,6 +97,20 @@ export type PaletteRemapEntry = {
 };
 
 export type PaletteDefinition = PaletteRemapEntry[];
+export type SpriteSheetNormalizationReplacement = {
+    from: [number, number, number];
+    toAlias: string;
+    to: [number, number, number];
+    count: number;
+};
+
+export type SpriteSheetNormalizationReport = {
+    spriteCount: number;
+    scannedPixels: number;
+    changedPixels: number;
+    changedSourceColors: number;
+    replacements: SpriteSheetNormalizationReplacement[];
+};
 
 export interface WorldDesignerHost {
     canvas: HTMLCanvasElement;
@@ -135,6 +149,8 @@ export interface WorldDesignerHost {
     clampCamera(camera: Position): Position;
     saveWorldData(data: RawWorldData): Promise<void>;
     savePaletteDefinitions(palettes: PaletteDefinition[], worldData?: RawWorldData): Promise<void>;
+    previewSpriteSheetNormalization(): Promise<SpriteSheetNormalizationReport>;
+    normalizeSpriteSheetColors(): Promise<SpriteSheetNormalizationReport>;
 }
 
 export interface WorldDesigner {
@@ -292,6 +308,7 @@ type ControlRefs = {
     activeToggle: HTMLButtonElement;
     paletteDesignerToggle: HTMLButtonElement;
     savePreviewButton: HTMLButtonElement;
+    normalizeSpriteSheetButton: HTMLButtonElement;
     deleteButton: HTMLButtonElement;
     duplicateButton: HTMLButtonElement;
     focusButton: HTMLButtonElement;
@@ -308,6 +325,7 @@ type ControlRefs = {
     disablePreviewCollisionCheckbox: HTMLInputElement;
     layerCheckboxes: Record<DesignerCategory, HTMLInputElement>;
     modal: HTMLDivElement;
+    modalTitle: HTMLHeadingElement;
     modalBody: HTMLDivElement;
     modalClose: HTMLButtonElement;
     modalConfirm: HTMLButtonElement;
@@ -1146,6 +1164,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 <button type="button" data-role="delete">Delete selection</button>
                 <button type="button" data-role="focus">Focus selection</button>
                 <button type="button" data-role="convert">Convert</button>
+                <button type="button" data-role="normalize-sprite-sheet">Normalize sprite colors</button>
                 <button type="button" data-role="save-preview">Preview before save</button>
             </div>
         </div>
@@ -1190,7 +1209,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     modal.innerHTML = `
         <div class="world-designer-modal-card">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
-                <h2 style="margin:0;">Preview before save</h2>
+                <h2 style="margin:0;" data-role="modal-title">Preview before save</h2>
                 <button type="button" data-role="modal-close">Close</button>
             </div>
             <div data-role="modal-body"></div>
@@ -1262,6 +1281,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         activeToggle: root.querySelector('[data-role="active-toggle"]') as HTMLButtonElement,
         paletteDesignerToggle: root.querySelector('[data-role="palette-designer-toggle"]') as HTMLButtonElement,
         savePreviewButton: root.querySelector('[data-role="save-preview"]') as HTMLButtonElement,
+        normalizeSpriteSheetButton: root.querySelector('[data-role="normalize-sprite-sheet"]') as HTMLButtonElement,
         deleteButton: root.querySelector('[data-role="delete"]') as HTMLButtonElement,
         duplicateButton: root.querySelector('[data-role="duplicate"]') as HTMLButtonElement,
         focusButton: root.querySelector('[data-role="focus"]') as HTMLButtonElement,
@@ -1284,6 +1304,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             collectables: root.querySelector('[data-layer="collectables"]') as HTMLInputElement
         },
         modal,
+        modalTitle: modal.querySelector('[data-role="modal-title"]') as HTMLHeadingElement,
         modalBody: modal.querySelector('[data-role="modal-body"]') as HTMLDivElement,
         modalClose: modal.querySelector('[data-role="modal-close"]') as HTMLButtonElement,
         modalConfirm: modal.querySelector('[data-role="modal-confirm"]') as HTMLButtonElement,
@@ -1304,6 +1325,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     };
     const spritePickerButtons = new Map<string, HTMLButtonElement>();
     const dragGhostPadding = 8;
+    let modalConfirmAction: (() => void | Promise<void>) | null = null;
+
+    function formatRgb(color: [number, number, number]) {
+        return `${color[0]}, ${color[1]}, ${color[2]}`;
+    }
     const dragGhostTargetSize = TILE_SIZE + dragGhostPadding * 2;
     const dragGhostCanvas = document.createElement('canvas');
     dragGhostCanvas.width = Math.ceil(dragGhostTargetSize);
@@ -2651,6 +2677,38 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.modalConfirm.disabled = preview.errors.length > 0 || changedFiles.length === 0;
     }
 
+    function renderSpriteSheetNormalizationPreview(report: SpriteSheetNormalizationReport) {
+        refs.modalBody.innerHTML = '';
+
+        const summary = document.createElement('div');
+        summary.innerHTML = `
+            <p>This will rewrite <strong>sprite_sheet.png</strong> by snapping sprite pixels to the nearest proper color from <strong>colors.json</strong>.</p>
+            <p>Only pixels inside the sprite rectangles from <strong>exile_sprites_map.json</strong> are touched. Grid lines and separators are left unchanged.</p>
+            <p><strong>${report.changedPixels}</strong> of <strong>${report.scannedPixels}</strong> scanned sprite pixels will change across <strong>${report.changedSourceColors}</strong> off-palette source colors in <strong>${report.spriteCount}</strong> mapped sprite slots.</p>
+        `;
+        refs.modalBody.appendChild(summary);
+
+        if (report.replacements.length > 0) {
+            const title = document.createElement('h3');
+            title.textContent = 'Most common replacements';
+            refs.modalBody.appendChild(title);
+
+            const list = document.createElement('ul');
+            for (const replacement of report.replacements.slice(0, 12)) {
+                const item = document.createElement('li');
+                item.textContent = `${formatRgb(replacement.from)} -> ${replacement.toAlias} (${formatRgb(replacement.to)}) x ${replacement.count}`;
+                list.appendChild(item);
+            }
+            refs.modalBody.appendChild(list);
+        } else {
+            const note = document.createElement('p');
+            note.textContent = 'The sprite sheet already matches the proper palette colors in all mapped sprite areas.';
+            refs.modalBody.appendChild(note);
+        }
+
+        refs.modalConfirm.disabled = report.changedPixels === 0;
+    }
+
     async function saveFromPreview() {
         const preview = getSavePreview();
         if (preview.errors.length > 0) {
@@ -2681,7 +2739,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 host.resetAstronautToPosition(liveAstronautPosition);
             }
             updateDirtyState();
-            closeSavePreview();
+            closeModal();
             setStatus(
                 astronautStartChanged
                     ? 'Saved designer changes, including the astronaut start position.'
@@ -2697,14 +2755,60 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
     }
 
+    async function normalizeSpriteSheetColors() {
+        try {
+            refs.modalConfirm.disabled = true;
+            setStatus('Normalizing sprite sheet colors...', 'neutral');
+            const report = await host.normalizeSpriteSheetColors();
+            closeModal();
+            setStatus(
+                report.changedPixels === 0
+                    ? 'sprite_sheet.png already matches the proper palette colors in mapped sprite areas.'
+                    : `Normalized ${report.changedPixels} sprite pixel${report.changedPixels === 1 ? '' : 's'} in sprite_sheet.png. Grid lines were left untouched.`,
+                'success'
+            );
+        } catch (error) {
+            refs.modalConfirm.disabled = false;
+            setStatus(
+                error instanceof Error ? error.message : 'Failed to normalize sprite_sheet.png.',
+                'error'
+            );
+        }
+    }
+
+    async function openSpriteSheetNormalizationPreview() {
+        refs.modalTitle.textContent = 'Normalize sprite sheet colors';
+        refs.modalConfirm.textContent = 'Normalize sprite sheet';
+        refs.modalBody.innerHTML = '<p>Analyzing sprite_sheet.png...</p>';
+        refs.modalConfirm.disabled = true;
+        refs.modal.classList.add('open');
+        modalConfirmAction = () => normalizeSpriteSheetColors();
+
+        try {
+            const report = await host.previewSpriteSheetNormalization();
+            renderSpriteSheetNormalizationPreview(report);
+        } catch (error) {
+            refs.modal.classList.remove('open');
+            modalConfirmAction = null;
+            setStatus(
+                error instanceof Error ? error.message : 'Failed to analyze sprite_sheet.png.',
+                'error'
+            );
+        }
+    }
+
     function openSavePreview() {
         state.savePreviewOpen = true;
+        refs.modalTitle.textContent = 'Preview before save';
+        refs.modalConfirm.textContent = 'Save changes';
         renderSavePreview();
+        modalConfirmAction = () => saveFromPreview();
         refs.modal.classList.add('open');
     }
 
-    function closeSavePreview() {
+    function closeModal() {
         state.savePreviewOpen = false;
+        modalConfirmAction = null;
         refs.modal.classList.remove('open');
     }
 
@@ -3536,6 +3640,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         if (isFormTarget(event.target)) return;
 
         if (event.key === 'Escape') {
+            if (refs.modal.classList.contains('open')) {
+                closeModal();
+                event.preventDefault();
+                return;
+            }
             closeContextMenu();
         }
 
@@ -3645,7 +3754,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         state.active = nextActive;
         closeContextMenu();
         if (!state.active) {
-            closeSavePreview();
+            closeModal();
             refreshPanel();
             return;
         }
@@ -3905,13 +4014,18 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     refs.setAstronautStartButton.addEventListener('click', () => {
         setAstronautStartToViewCenter();
     });
-    refs.modalClose.addEventListener('click', closeSavePreview);
+    refs.normalizeSpriteSheetButton.addEventListener('click', () => {
+        void openSpriteSheetNormalizationPreview();
+    });
+    refs.modalClose.addEventListener('click', closeModal);
     refs.modalConfirm.addEventListener('click', () => {
-        void saveFromPreview();
+        if (modalConfirmAction) {
+            void modalConfirmAction();
+        }
     });
     refs.modal.addEventListener('click', (event) => {
         if (event.target === refs.modal) {
-            closeSavePreview();
+            closeModal();
         }
     });
     refs.contextMenu.addEventListener('contextmenu', (event) => {

@@ -33,7 +33,15 @@ import {
     SPRITE_SCALE, rememberSound, teleportSound, buttonOnSound, doorOpenSound, doorCloseSound, getSound, saveSound, ouchSounds,
     getSoundEnabled, setSoundEnabled, toggleSoundEnabled
 } from './constants.js';
-import { createWorldDesigner, LayerVisibility, PaletteDefinition, RawWorldData, SpriteCatalogEntry, WorldDesigner } from './world-designer.js';
+import {
+    createWorldDesigner,
+    LayerVisibility,
+    PaletteDefinition,
+    RawWorldData,
+    SpriteCatalogEntry,
+    SpriteSheetNormalizationReport,
+    WorldDesigner
+} from './world-designer.js';
 
 // Instead of dynamic import, fetch the JSON file at runtime for browser compatibility
 let spriteMap: any;
@@ -718,7 +726,7 @@ async function saveWorldData(data: RawWorldData) {
     }
 }
 
-async function getDesignerSaveError(res: Response, fallbackMessage: string) {
+async function getDesignerSaveError(res: Response, fallbackMessage: string, unavailableMessage?: string) {
     let message = fallbackMessage;
     try {
         const text = await res.text();
@@ -739,7 +747,7 @@ async function getDesignerSaveError(res: Response, fallbackMessage: string) {
     }
 
     if (res.status === 404) {
-        return 'Palette saving is unavailable because the local save server is out of date. Restart the dev/save server on port 3001 and try again.';
+        return unavailableMessage ?? 'This designer save feature is unavailable because the local save server is out of date. Restart the dev/save server on port 3001 and try again.';
     }
 
     return message;
@@ -760,6 +768,33 @@ async function savePaletteDefinitions(paletteDefinitions: PaletteDefinition[], w
         throw new Error(await getDesignerSaveError(res, 'Failed to save palette data.'));
     }
     applyPaletteDefinitions(paletteDefinitions);
+}
+
+async function postSpriteSheetNormalization(dryRun: boolean): Promise<SpriteSheetNormalizationReport> {
+    const res = await fetch('http://localhost:3001/normalize-sprite-sheet', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ dryRun })
+    });
+    if (!res.ok) {
+        throw new Error(await getDesignerSaveError(
+            res,
+            dryRun ? 'Failed to analyze sprite_sheet.png.' : 'Failed to normalize sprite_sheet.png.',
+            'Sprite-sheet normalization is unavailable because the local save server is out of date. Restart the dev/save server on port 3001 and try again.'
+        ));
+    }
+    const payload = await res.json() as { report: SpriteSheetNormalizationReport };
+    return payload.report;
+}
+
+async function previewSpriteSheetNormalization() {
+    return postSpriteSheetNormalization(true);
+}
+
+async function normalizeSpriteSheetColors() {
+    return postSpriteSheetNormalization(false);
 }
 
 // --- Map rendering and update logic ---
@@ -910,7 +945,9 @@ async function init() {
                     getPaletteCount: () => Math.max(remappedSpriteSheets.length, palettes.length, 1),
                     clampCamera,
                     saveWorldData,
-                    savePaletteDefinitions
+                    savePaletteDefinitions,
+                    previewSpriteSheetNormalization,
+                    normalizeSpriteSheetColors
                 });
                 gameLoop();
             };

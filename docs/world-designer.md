@@ -219,6 +219,20 @@ If you explicitly changed the astronaut start marker, that updated start positio
 
 The designer validates some common mistakes before save, including missing button-to-door links.
 
+## 9. Normalize sprite sheet colors
+
+Use **Normalize sprite colors** when `sprite_sheet.png` contains near-miss colors such as `255,251,251` instead of `255,255,255`.
+
+1. Click **Normalize sprite colors**
+2. Review the confirmation summary
+3. Click **Normalize sprite sheet**
+
+This snaps sprite pixels in `sprite_sheet.png` to the nearest proper color from `colors.json`.
+
+- it only touches sprite rectangles listed in `exile_sprites_map.json`
+- it does **not** touch the atlas grid lines or separators
+- it writes the updated `sprite_sheet.png` back through the local save server
+
 ## Linking buttons to doors
 
 Buttons and doors are linked by numeric IDs.
