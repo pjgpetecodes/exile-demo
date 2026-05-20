@@ -31,7 +31,7 @@
         "background": {
           "activeOnStart": true,
           "beginsPattern": ".",
-          "endsPattern": "\\[Browsersync\\] Access URLs:|Found 0 errors\\. Watching for file changes\\."
+          "endsPattern": "\\[Browsersync\\] Access URLs:"
         }
       }
     },

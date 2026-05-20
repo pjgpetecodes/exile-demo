@@ -1083,7 +1083,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         hasOpenedOnce: persistedState?.hasOpenedOnce ?? (persistedState?.active ?? false),
         spritePickerOpen: persistedState?.spritePickerOpen ?? false,
         spritePickerFilter: persistedState?.spritePickerFilter ?? '',
-        magnifierEnabled: persistedState?.magnifierEnabled ?? true,
+        magnifierEnabled: persistedState?.magnifierEnabled ?? false,
         pickerDrag: null,
         pickerDragCanvas: null,
         savePreviewOpen: false,

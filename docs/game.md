@@ -31,7 +31,7 @@ The repository includes VS Code launch/task settings.
 
 - Press **F5**
 - Choose **Launch Astronaut Game** if VS Code asks
-- The game should open once in Edge at `http://localhost:3000`
+- The game should open once in Chrome at `http://localhost:3000`
 
 ## Player controls
 
