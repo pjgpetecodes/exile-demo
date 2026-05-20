@@ -633,14 +633,6 @@
     "rotation": 1
   },
   {
-    "x": 5115,
-    "y": 1801,
-    "type": "ship_10",
-    "collision": true,
-    "palette": 6,
-    "rotation": 1
-  },
-  {
     "x": 4706,
     "y": 1530,
     "type": "ship_15",
@@ -649,7 +641,7 @@
     "rotation": 3
   },
   {
-    "x": 4496,
+    "x": 4501,
     "y": 1725,
     "type": "ship_1",
     "collision": true,
@@ -657,11 +649,123 @@
     "rotation": 1
   },
   {
-    "x": 4496,
+    "x": 4501,
     "y": 1794,
     "type": "ship_1",
     "collision": true,
     "palette": 10,
     "rotation": 6
+  },
+  {
+    "x": 4775,
+    "y": 1530,
+    "type": "ship_15",
+    "collision": true,
+    "palette": 6,
+    "rotation": 6
+  },
+  {
+    "x": 4843,
+    "y": 1583,
+    "type": "ship_7",
+    "collision": true,
+    "palette": 6,
+    "rotation": 5
+  },
+  {
+    "x": 4913,
+    "y": 1582,
+    "type": "ship_12",
+    "collision": true,
+    "palette": 4,
+    "rotation": 5
+  },
+  {
+    "x": 4913,
+    "y": 1653,
+    "type": "ship_12",
+    "collision": true,
+    "palette": 4,
+    "rotation": 7
+  },
+  {
+    "x": 4572,
+    "y": 1794,
+    "type": "ship_1",
+    "collision": true,
+    "palette": 10,
+    "rotation": 3
+  },
+  {
+    "x": 4572,
+    "y": 1725,
+    "type": "ship_1",
+    "collision": true,
+    "palette": 10,
+    "rotation": 5
+  },
+  {
+    "x": 4642,
+    "y": 1725,
+    "type": "ship_9",
+    "collision": true,
+    "palette": 4,
+    "rotation": 1
+  },
+  {
+    "x": 4641,
+    "y": 1707,
+    "type": "ship_15",
+    "collision": true,
+    "palette": 6,
+    "rotation": 5
+  },
+  {
+    "x": 4642,
+    "y": 1796,
+    "type": "ship_9",
+    "collision": true,
+    "palette": 4,
+    "rotation": 6
+  },
+  {
+    "x": 4711,
+    "y": 1796,
+    "type": "ship_7",
+    "collision": true,
+    "palette": 6,
+    "rotation": 6
+  },
+  {
+    "x": 4712,
+    "y": 1726,
+    "type": "ship_7",
+    "collision": true,
+    "palette": 6,
+    "rotation": 1
+  },
+  {
+    "x": 4714,
+    "y": 1707,
+    "type": "ship_15",
+    "collision": true,
+    "palette": 6,
+    "rotation": 1
+  },
+  {
+    "x": 4782,
+    "y": 1707,
+    "type": "thruster",
+    "collision": true,
+    "palette": 9,
+    "rotation": 5
+  },
+  {
+    "x": 4782,
+    "y": 1672,
+    "type": "thruster",
+    "collision": true,
+    "palette": 9,
+    "rotation": 3
   }
 ]

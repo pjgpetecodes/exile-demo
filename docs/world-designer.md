@@ -105,6 +105,8 @@ Selected items can be:
 - duplicated
 - deleted
 - rotated
+- added to or removed from the current selection with **Shift+click**
+- added with **Shift+drag** marquee selection
 
 ## 3. Use the sprite picker
 
@@ -124,7 +126,8 @@ You can:
 
 ### Main view
 
-- **right-click a placed object** = open the context menu for quick actions such as rotate, palette changes, copy, duplicate, delete, and door/button default-state toggles
+- **right-click a placed object** = open the context menu for quick actions such as rotate, a **Palette** submenu showing every palette with previews, copy, duplicate, delete, and door/button default-state toggles
+- **right-click empty space** = open a context menu to paste the copied selection there, set the astronaut start there, or move the live astronaut there
 - **right mouse drag on empty space** = pan camera
 - **Center on astronaut** = recenters the editor on the live astronaut
 - **Focus selection** = centers the camera on the current selection

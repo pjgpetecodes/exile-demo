@@ -188,6 +188,7 @@ type PersistedDesignerUiState = {
 
 type ContextMenuState = {
     screen: Position | null;
+    world: Position | null;
     primarySelection: Selection | null;
 };
 
@@ -216,11 +217,13 @@ type DesignerState = {
     lastPointerCanvas: Position | null;
     dragStartSnapshot: RawWorldData | null;
     panningView: boolean;
+    pendingRightPan: boolean;
     panStartCanvas: Position | null;
     panStartCamera: Position | null;
     marqueeSelecting: boolean;
     marqueeStartWorld: Position | null;
     marqueeCurrentWorld: Position | null;
+    marqueeAdditive: boolean;
     overviewDragging: boolean;
     overviewHoverWorld: Position | null;
     hasOpenedOnce: boolean;
@@ -786,6 +789,76 @@ function createDesignerStyles() {
             border-top: 1px solid rgba(148, 163, 184, 0.2);
             margin: 6px 0;
         }
+        .world-designer-context-submenu {
+            margin: 2px 0;
+        }
+        .world-designer-context-submenu > summary {
+            display: block;
+            border-radius: 6px;
+            color: #f8fafc;
+            padding: 8px 10px;
+            cursor: pointer;
+            list-style: none;
+            user-select: none;
+        }
+        .world-designer-context-submenu > summary::-webkit-details-marker {
+            display: none;
+        }
+        .world-designer-context-submenu > summary:hover {
+            background: rgba(51, 65, 85, 0.95);
+        }
+        .world-designer-context-submenu > summary::after {
+            content: '▸';
+            float: right;
+            color: #cbd5e1;
+        }
+        .world-designer-context-submenu[open] > summary::after {
+            content: '▾';
+        }
+        .world-designer-context-submenu-body {
+            display: grid;
+            gap: 4px;
+            max-height: 220px;
+            overflow: auto;
+            padding: 4px 0 4px 12px;
+        }
+        .world-designer-context-palette-option {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+            text-align: left;
+            margin: 0;
+            border: 0;
+            border-radius: 6px;
+            background: transparent;
+            color: #f8fafc;
+            padding: 6px 8px;
+        }
+        .world-designer-context-palette-option:hover {
+            background: rgba(51, 65, 85, 0.95);
+        }
+        .world-designer-context-palette-option.selected {
+            background: rgba(14, 116, 144, 0.25);
+            box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.35);
+        }
+        .world-designer-context-palette-canvas {
+            width: 36px;
+            height: 36px;
+            flex: 0 0 auto;
+            border-radius: 4px;
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            background:
+                linear-gradient(45deg, rgba(148, 163, 184, 0.12) 25%, transparent 25%, transparent 75%, rgba(148, 163, 184, 0.12) 75%),
+                linear-gradient(45deg, rgba(148, 163, 184, 0.12) 25%, transparent 25%, transparent 75%, rgba(148, 163, 184, 0.12) 75%),
+                rgba(2, 6, 23, 0.95);
+            background-position: 0 0, 6px 6px, 0 0;
+            background-size: 12px 12px;
+            image-rendering: pixelated;
+        }
+        .world-designer-context-palette-label {
+            color: #cbd5e1;
+        }
         .world-designer-pre {
             margin: 8px 0 12px;
             padding: 10px;
@@ -884,6 +957,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         marqueeSelecting: false,
         marqueeStartWorld: null,
         marqueeCurrentWorld: null,
+        marqueeAdditive: false,
         overviewDragging: false,
         overviewHoverWorld: null,
         hasOpenedOnce: persistedState?.hasOpenedOnce ?? (persistedState?.active ?? false),
@@ -894,8 +968,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         viewportExpanded: false,
         contextMenu: {
             screen: null,
+            world: null,
             primarySelection: null
         },
+        pendingRightPan: false,
         suppressContextMenuOnce: false,
         undoStack: [],
         redoStack: [],
@@ -1273,6 +1349,20 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refreshPanel();
     }
 
+    function mergeSelections(existing: Selection[], incoming: Selection[]) {
+        const merged = [...existing];
+        for (const selection of incoming) {
+            if (!merged.some((item) => areSameSelection(item, selection))) {
+                merged.push(selection);
+            }
+        }
+        return merged;
+    }
+
+    function removeSelection(existing: Selection[], target: Selection) {
+        return existing.filter((item) => !areSameSelection(item, target));
+    }
+
     function removeSelectedFromArray() {
         const selections = getSelectedItems();
         for (const selection of selections) {
@@ -1286,6 +1376,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
     function closeContextMenu() {
         state.contextMenu.screen = null;
+        state.contextMenu.world = null;
         state.contextMenu.primarySelection = null;
         refs.contextMenu.classList.remove('open');
         refs.contextMenuBody.innerHTML = '';
@@ -1314,8 +1405,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         button.disabled = disabled;
         button.addEventListener('click', () => {
             if (disabled) return;
-            closeContextMenu();
             onClick();
+            closeContextMenu();
         });
         refs.contextMenuBody.appendChild(button);
     }
@@ -1324,17 +1415,111 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.contextMenuBody.appendChild(document.createElement('hr'));
     }
 
-    function changePaletteSelection(delta: number) {
+    function getContextMenuWorldPosition() {
+        return state.contextMenu.world;
+    }
+
+    function setPaletteSelection(palette: number) {
         const selections = getSelectedItems();
         if (selections.length === 0) return;
-        runMutation(`Adjusted palette ${delta > 0 ? 'up' : 'down'}.`, () => {
+        const clampedPalette = clamp(palette, 0, paletteCount - 1);
+        runMutation(`Set palette to ${clampedPalette}.`, () => {
             for (const selection of selections) {
                 if (!('palette' in selection.entity)) continue;
-                const currentPalette = typeof selection.entity.palette === 'number' ? selection.entity.palette : 0;
-                selection.entity.palette = clamp(currentPalette + delta, 0, paletteCount - 1);
+                selection.entity.palette = clampedPalette;
             }
         });
         updateSelectionFromInspectorState();
+    }
+
+    function addContextMenuPaletteSubmenu(disabled = false) {
+        const selection = state.contextMenu.primarySelection;
+        const currentPalette = selection && 'palette' in selection.entity && typeof selection.entity.palette === 'number'
+            ? selection.entity.palette
+            : 0;
+        const previewType = selection?.entity.type ?? getCurrentType();
+        const previewRotation = selection?.entity.rotation ?? state.rotation;
+
+        const details = document.createElement('details');
+        details.className = 'world-designer-context-submenu';
+        details.open = false;
+
+        const summary = document.createElement('summary');
+        summary.textContent = `Palette (${currentPalette})`;
+        if (disabled) {
+            summary.style.opacity = '0.45';
+            summary.style.cursor = 'default';
+        }
+        details.appendChild(summary);
+
+        if (!disabled) {
+            const body = document.createElement('div');
+            body.className = 'world-designer-context-submenu-body';
+            for (let palette = 0; palette < paletteCount; palette += 1) {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'world-designer-context-palette-option';
+                if (palette === currentPalette) {
+                    button.classList.add('selected');
+                }
+
+                const canvas = document.createElement('canvas');
+                canvas.className = 'world-designer-context-palette-canvas';
+                canvas.width = 36;
+                canvas.height = 36;
+                renderSpritePreviewCanvas(canvas, previewType, palette, normalizeRotation(previewRotation));
+                button.appendChild(canvas);
+
+                const label = document.createElement('span');
+                label.className = 'world-designer-context-palette-label';
+                label.textContent = `Palette ${palette}`;
+                button.appendChild(label);
+
+                button.addEventListener('click', () => {
+                    closeContextMenu();
+                    setPaletteSelection(palette);
+                });
+                body.appendChild(button);
+            }
+            details.appendChild(body);
+        }
+
+        refs.contextMenuBody.appendChild(details);
+    }
+
+    function pasteSelectionAtWorld(world: Position) {
+        if (clipboardEntries.length === 0) {
+            setStatus('Nothing copied yet.', 'neutral');
+            return;
+        }
+        const target = resolvePlacementPosition(world.x, world.y);
+        const xs = clipboardEntries.map((entry) => entry.data.x);
+        const ys = clipboardEntries.map((entry) => entry.data.y);
+        const sourceCenter = {
+            x: (Math.min(...xs) + Math.max(...xs)) / 2,
+            y: (Math.min(...ys) + Math.max(...ys)) / 2
+        };
+        runMutation('Pasted selection at cursor.', () => {
+            const pastedSelections = createPastedSelections(
+                clipboardEntries,
+                target.x - sourceCenter.x,
+                target.y - sourceCenter.y
+            );
+            setSelections(pastedSelections);
+        });
+    }
+
+    function setAstronautStartAtWorldPosition(world: Position) {
+        const target = resolvePlacementPosition(world.x, world.y);
+        runMutation('Updated astronaut start position.', () => {
+            host.setAstronautStartPosition(target);
+        });
+    }
+
+    function moveLiveAstronautToWorldPosition(world: Position) {
+        const target = resolvePlacementPosition(world.x, world.y);
+        host.resetAstronautToPosition(target);
+        setStatus('Moved the live astronaut to the clicked position.', 'success');
     }
 
     function toggleDoorLockedDefault() {
@@ -1373,12 +1558,13 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             x: event.clientX,
             y: event.clientY
         };
+        const point = getCanvasPoint(event);
+        state.contextMenu.world = screenToWorld(point.x, point.y);
         refs.contextMenuBody.innerHTML = '';
 
         const selectedItems = getSelectedItems();
         addContextMenuAction('Rotate', rotateSelection, selectedItems.length === 0);
-        addContextMenuAction('Palette +1', () => changePaletteSelection(1), selectedItems.length === 0);
-        addContextMenuAction('Palette -1', () => changePaletteSelection(-1), selectedItems.length === 0);
+        addContextMenuPaletteSubmenu(selectedItems.length === 0);
         addContextMenuAction('Copy', copySelection, selectedItems.length === 0);
         addContextMenuAction('Duplicate', duplicateSelection, selectedItems.length === 0);
         addContextMenuAction('Delete', deleteSelection, selectedItems.length === 0);
@@ -1402,6 +1588,34 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             );
         }
 
+        refs.contextMenu.classList.add('open');
+        positionContextMenu();
+    }
+
+    function openEmptyContextMenu(event: MouseEvent, world: Position) {
+        state.contextMenu.primarySelection = null;
+        state.contextMenu.screen = {
+            x: event.clientX,
+            y: event.clientY
+        };
+        state.contextMenu.world = world;
+        refs.contextMenuBody.innerHTML = '';
+        addContextMenuAction('Paste copied selection here', () => {
+            const target = getContextMenuWorldPosition();
+            if (!target) return;
+            pasteSelectionAtWorld(target);
+        }, clipboardEntries.length === 0);
+        addContextMenuDivider();
+        addContextMenuAction('Set astronaut start here', () => {
+            const target = getContextMenuWorldPosition();
+            if (!target) return;
+            setAstronautStartAtWorldPosition(target);
+        });
+        addContextMenuAction('Move live astronaut here', () => {
+            const target = getContextMenuWorldPosition();
+            if (!target) return;
+            moveLiveAstronautToWorldPosition(target);
+        });
         refs.contextMenu.classList.add('open');
         positionContextMenu();
     }
@@ -2533,11 +2747,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 event.preventDefault();
                 return;
             }
-            state.suppressContextMenuOnce = true;
-            state.panningView = true;
+            state.pendingRightPan = true;
+            state.panningView = false;
             state.panStartCanvas = point;
             state.panStartCamera = { ...state.camera };
-            setStatus('Panning editor view.', 'neutral');
             return;
         }
 
@@ -2555,6 +2768,29 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             state.marqueeSelecting = true;
             state.marqueeStartWorld = world;
             state.marqueeCurrentWorld = world;
+            state.marqueeAdditive = event.shiftKey;
+            return;
+        }
+
+        if (event.shiftKey) {
+            const currentSelections = getSelectedItems();
+            if (isSelected(hit)) {
+                const remainingSelections = removeSelection(currentSelections, hit);
+                const nextPrimary = state.selection && areSameSelection(state.selection, hit)
+                    ? (remainingSelections[remainingSelections.length - 1] ?? null)
+                    : state.selection;
+                setSelections(remainingSelections, nextPrimary);
+                setStatus(
+                    remainingSelections.length > 0
+                        ? `Removed object from selection. ${remainingSelections.length} selected.`
+                        : 'Selection cleared.',
+                    'neutral'
+                );
+            } else {
+                const mergedSelections = mergeSelections(currentSelections, [hit]);
+                setSelections(mergedSelections, hit);
+                setStatus(`Added object to selection. ${mergedSelections.length} selected.`, 'neutral');
+            }
             return;
         }
 
@@ -2577,6 +2813,18 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 x: state.panStartCamera.x - (point.x - state.panStartCanvas.x),
                 y: state.panStartCamera.y - (point.y - state.panStartCanvas.y)
             });
+            return;
+        }
+
+        if (state.pendingRightPan && state.panStartCanvas) {
+            const deltaX = point.x - state.panStartCanvas.x;
+            const deltaY = point.y - state.panStartCanvas.y;
+            if (Math.hypot(deltaX, deltaY) >= 6) {
+                state.pendingRightPan = false;
+                state.suppressContextMenuOnce = true;
+                state.panningView = true;
+                setStatus('Panning editor view.', 'neutral');
+            }
             return;
         }
 
@@ -2603,6 +2851,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
         if (state.panningView) {
             state.panningView = false;
+            state.pendingRightPan = false;
             state.panStartCanvas = null;
             state.panStartCamera = null;
             state.lastPointerCanvas = null;
@@ -2610,15 +2859,25 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             return;
         }
 
+        if (state.pendingRightPan) {
+            state.pendingRightPan = false;
+            state.panStartCanvas = null;
+            state.panStartCamera = null;
+        }
+
         if (state.marqueeSelecting && state.marqueeStartWorld && state.marqueeCurrentWorld) {
             const selections = getSelectionsInRect(state.marqueeStartWorld, state.marqueeCurrentWorld);
+            const nextSelections = state.marqueeAdditive
+                ? mergeSelections(getSelectedItems(), selections)
+                : selections;
             state.marqueeSelecting = false;
             state.marqueeStartWorld = null;
             state.marqueeCurrentWorld = null;
-            setSelections(selections, selections[0] ?? null);
+            state.marqueeAdditive = false;
+            setSelections(nextSelections, selections[0] ?? nextSelections[0] ?? null);
             setStatus(
-                selections.length > 0
-                    ? `Selected ${selections.length} object${selections.length === 1 ? '' : 's'}.`
+                nextSelections.length > 0
+                    ? `Selected ${nextSelections.length} object${nextSelections.length === 1 ? '' : 's'}.`
                     : 'Nothing selected.',
                 'neutral'
             );
@@ -2686,15 +2945,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
     function handleKeyDown(event: KeyboardEvent) {
         if (event.key === '`') {
-            state.active = !state.active;
-            if (!state.active) {
-                closeSavePreview();
-            } else if (!state.hasOpenedOnce) {
-                focusOnCurrentWorldPosition();
-                state.hasOpenedOnce = true;
-            }
+            setDesignerActive(!state.active);
             setStatus(state.active ? 'Designer panel restored.' : 'Designer panel hidden. Press ` to restore.', 'neutral');
-            refreshPanel();
             return;
         }
 
@@ -2797,6 +3049,22 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
     }
 
+    function setDesignerActive(nextActive: boolean) {
+        if (state.active === nextActive) return;
+        state.active = nextActive;
+        closeContextMenu();
+        if (!state.active) {
+            closeSavePreview();
+            refreshPanel();
+            return;
+        }
+        // Re-sync to the current live view each time the panel is restored so
+        // the world does not jump back to an older stored designer camera.
+        focusOnCurrentWorldPosition();
+        state.hasOpenedOnce = true;
+        refreshPanel();
+    }
+
     function drawOverview() {
         const ctx = refs.overviewCanvas.getContext('2d');
         if (!ctx) return;
@@ -2886,14 +3154,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     refs.activeToggle.addEventListener('click', () => {
-        state.active = !state.active;
-        if (!state.active) {
-            closeSavePreview();
-        } else if (!state.hasOpenedOnce) {
-            focusOnCurrentWorldPosition();
-            state.hasOpenedOnce = true;
-        }
-        refreshPanel();
+        setDesignerActive(!state.active);
     });
 
     refs.modeSelect.addEventListener('change', () => {
@@ -3042,7 +3303,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             if (hit) {
                 openContextMenu(hit, event);
             } else {
-                closeContextMenu();
+                openEmptyContextMenu(event, world);
             }
         }
     });
