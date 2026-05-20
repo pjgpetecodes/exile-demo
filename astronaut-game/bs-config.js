@@ -1,4 +1,5 @@
 module.exports = {
+    open: false,
     server: {
         baseDir: ['./', './dist', './src'],
         middleware: [
