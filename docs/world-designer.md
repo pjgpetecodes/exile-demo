@@ -92,6 +92,8 @@ You can also use:
 - **Place at view center**
 - drag a sprite directly from the sprite grid onto the world
 
+If **Snap rough placement to 32px grid** is enabled, you can tune the grid with **Grid offset X/Y**. Use **Use selection / view center** to align the snap origin to the current selection, or to the current camera center when nothing is selected.
+
 ## 2. Select and edit an existing item
 
 1. Switch to **Select / move**

@@ -167,5 +167,35 @@
       "from": "White",
       "to": "Black"
     }
+  ],
+  [
+    {
+      "from": "Green",
+      "to": "Cyan"
+    },
+    {
+      "from": "White",
+      "to": "Green"
+    }
+  ],
+  [
+    {
+      "from": "White",
+      "to": "Yellow"
+    }
+  ],
+  [
+    {
+      "from": "White",
+      "to": "Magenta"
+    },
+    {
+      "from": "Green",
+      "to": "White"
+    },
+    {
+      "from": "Red",
+      "to": "Green"
+    }
   ]
 ]

@@ -541,14 +541,15 @@ function drawWorldBoundingBoxOverlay(
         : hideBlackBackgroundBlocks
             ? mapBlocks.filter((b) => b.type !== 'black_background')
             : mapBlocks;
+    const collectablesToDraw = worldDesigner?.isActive() && !worldDesigner.isPreviewMode()
+        ? collectableEntities.filter((collectable) => !collectable.held)
+        : collectableEntities.filter((collectable) => !collectable.stored && !collectable.collected);
     mapBlocksToDraw.forEach(drawWorldBBox);
     if (layerVisibility.doors) doorEntities.forEach(drawWorldBBox);
     if (layerVisibility.buttons) buttonEntities.forEach(drawWorldBBox);
     if (layerVisibility.creatures) creatureEntities.forEach(drawWorldBBox);
     if (layerVisibility.collectables) {
-        collectableEntities
-            .filter((collectable) => !collectable.stored && !collectable.collected)
-            .forEach(drawWorldBBox);
+        collectablesToDraw.forEach(drawWorldBBox);
     }
     context.restore();
 }
@@ -1138,13 +1139,16 @@ async function gameLoop() {
             drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureEntities);
         }
         if (layerVisibility.collectables) {
+            const collectablesToDraw = worldDesigner?.isActive() && !worldDesigner.isPreviewMode()
+                ? collectableEntities.filter((collectable) => !collectable.held)
+                : collectableEntities.filter((collectable) => !collectable.stored && !collectable.held && !collectable.collected);
             drawEntities(
                 ctx!,
                 camera,
                 spriteMap,
                 remappedSpriteSheets,
                 SPRITE_SCALE,
-                collectableEntities.filter(collectable => !collectable.stored && !collectable.held && !collectable.collected)
+                collectablesToDraw
             );
         }
     }

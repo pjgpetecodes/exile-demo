@@ -210,6 +210,8 @@ type PersistedDesignerUiState = {
     palette: number;
     typeByCategory: Record<DesignerCategory, string>;
     snapToGrid: boolean;
+    snapOffsetX: number;
+    snapOffsetY: number;
     nudgeAmount: number;
     showCollisionOverlay: boolean;
     disableCollisionInPreview: boolean;
@@ -241,6 +243,8 @@ type DesignerState = {
     palette: number;
     typeByCategory: Record<DesignerCategory, string>;
     snapToGrid: boolean;
+    snapOffsetX: number;
+    snapOffsetY: number;
     nudgeAmount: number;
     showCollisionOverlay: boolean;
     disableCollisionInPreview: boolean;
@@ -300,6 +304,9 @@ type ControlRefs = {
     rotationSelect: HTMLSelectElement;
     paletteSelect: HTMLSelectElement;
     snapCheckbox: HTMLInputElement;
+    snapOffsetXInput: HTMLInputElement;
+    snapOffsetYInput: HTMLInputElement;
+    snapOffsetCaptureButton: HTMLButtonElement;
     nudgeInput: HTMLInputElement;
     status: HTMLDivElement;
     selectionSummary: HTMLDivElement;
@@ -567,6 +574,15 @@ function applyPosition(entity: any, x: number, y: number) {
 
 function snapCoordinate(value: number) {
     return Math.round(value / 32) * 32;
+}
+
+function normalizeSnapOffset(value: number) {
+    const rounded = Math.round(value);
+    return ((rounded % 32) + 32) % 32;
+}
+
+function snapCoordinateToOffset(value: number, offset: number) {
+    return Math.round((value - offset) / 32) * 32 + offset;
 }
 
 function parseDoorIds(value: string) {
@@ -1053,6 +1069,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         palette: clamp(typeof persistedState?.palette === 'number' ? persistedState.palette : 0, 0, paletteCount - 1),
         typeByCategory: restoredTypeByCategory,
         snapToGrid: persistedState?.snapToGrid ?? false,
+        snapOffsetX: normalizeSnapOffset(Number(persistedState?.snapOffsetX) || 0),
+        snapOffsetY: normalizeSnapOffset(Number(persistedState?.snapOffsetY) || 0),
         nudgeAmount: clamp(Number(persistedState?.nudgeAmount) || 1, 1, 64),
         showCollisionOverlay: persistedState?.showCollisionOverlay ?? false,
         disableCollisionInPreview: persistedState?.disableCollisionInPreview ?? false,
@@ -1154,6 +1172,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 </div>
             </div>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="snap" /> Snap rough placement to 32px grid</label>
+            <div class="world-designer-grid" style="margin-top:8px;">
+                <label class="world-designer-field">Grid offset X<input type="number" min="0" max="31" step="1" value="0" data-role="snap-offset-x" /></label>
+                <label class="world-designer-field">Grid offset Y<input type="number" min="0" max="31" step="1" value="0" data-role="snap-offset-y" /></label>
+                <button type="button" data-role="snap-offset-capture">Use selection / view center</button>
+            </div>
             <label class="world-designer-field">Arrow-key nudge size<input type="number" min="1" max="64" step="1" value="1" data-role="nudge" /></label>
             <div class="world-designer-actions">
                 <button type="button" data-role="focus-astronaut">Center on astronaut</button>
@@ -1273,6 +1296,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         rotationSelect: root.querySelector('[data-role="rotation"]') as HTMLSelectElement,
         paletteSelect: root.querySelector('[data-role="palette"]') as HTMLSelectElement,
         snapCheckbox: root.querySelector('[data-role="snap"]') as HTMLInputElement,
+        snapOffsetXInput: root.querySelector('[data-role="snap-offset-x"]') as HTMLInputElement,
+        snapOffsetYInput: root.querySelector('[data-role="snap-offset-y"]') as HTMLInputElement,
+        snapOffsetCaptureButton: root.querySelector('[data-role="snap-offset-capture"]') as HTMLButtonElement,
         nudgeInput: root.querySelector('[data-role="nudge"]') as HTMLInputElement,
         status: root.querySelector('[data-role="status"]') as HTMLDivElement,
         selectionSummary: root.querySelector('[data-role="selection-summary"]') as HTMLDivElement,
@@ -1364,6 +1390,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 palette: state.palette,
                 typeByCategory: deepClone(state.typeByCategory),
                 snapToGrid: state.snapToGrid,
+                snapOffsetX: state.snapOffsetX,
+                snapOffsetY: state.snapOffsetY,
                 nudgeAmount: state.nudgeAmount,
                 showCollisionOverlay: state.showCollisionOverlay,
                 disableCollisionInPreview: state.disableCollisionInPreview,
@@ -1837,9 +1865,18 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
     function resolvePlacementPosition(worldX: number, worldY: number) {
         return {
-            x: state.snapToGrid ? snapCoordinate(worldX) : Math.round(worldX),
-            y: state.snapToGrid ? snapCoordinate(worldY) : Math.round(worldY)
+            x: state.snapToGrid ? snapCoordinateToOffset(worldX, state.snapOffsetX) : Math.round(worldX),
+            y: state.snapToGrid ? snapCoordinateToOffset(worldY, state.snapOffsetY) : Math.round(worldY)
         };
+    }
+
+    function setSnapOffsets(x: number, y: number) {
+        state.snapOffsetX = normalizeSnapOffset(x);
+        state.snapOffsetY = normalizeSnapOffset(y);
+    }
+
+    function setSnapOffsetsFromPosition(position: Position) {
+        setSnapOffsets(position.x, position.y);
     }
 
     function areSameSelection(left: Selection, right: Selection) {
@@ -2440,10 +2477,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
         for (const dragItem of state.dragItems) {
             const targetX = state.snapToGrid
-                ? snapCoordinate(dragItem.startX + deltaX)
+                ? snapCoordinateToOffset(dragItem.startX + deltaX, state.snapOffsetX)
                 : dragItem.startX + deltaX;
             const targetY = state.snapToGrid
-                ? snapCoordinate(dragItem.startY + deltaY)
+                ? snapCoordinateToOffset(dragItem.startY + deltaY, state.snapOffsetY)
                 : dragItem.startY + deltaY;
             applyPosition(dragItem.selection.entity, targetX, targetY);
         }
@@ -3171,6 +3208,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.rotationSelect.value = String(state.rotation);
         refs.paletteSelect.value = String(state.palette);
         refs.snapCheckbox.checked = state.snapToGrid;
+        refs.snapOffsetXInput.value = String(state.snapOffsetX);
+        refs.snapOffsetYInput.value = String(state.snapOffsetY);
         refs.nudgeInput.value = String(state.nudgeAmount);
         refs.showCollisionCheckbox.checked = state.showCollisionOverlay;
         refs.showSpriteOutlineCheckbox.checked = host.getShowSpriteOutlines();
@@ -3957,6 +3996,34 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     });
     refs.snapCheckbox.addEventListener('change', () => {
         state.snapToGrid = refs.snapCheckbox.checked;
+        persistDesignerUiState();
+    });
+    refs.snapOffsetXInput.addEventListener('change', () => {
+        setSnapOffsets(Number(refs.snapOffsetXInput.value) || 0, state.snapOffsetY);
+        refs.snapOffsetXInput.value = String(state.snapOffsetX);
+        persistDesignerUiState();
+    });
+    refs.snapOffsetYInput.addEventListener('change', () => {
+        setSnapOffsets(state.snapOffsetX, Number(refs.snapOffsetYInput.value) || 0);
+        refs.snapOffsetYInput.value = String(state.snapOffsetY);
+        persistDesignerUiState();
+    });
+    refs.snapOffsetCaptureButton.addEventListener('click', () => {
+        const sourceSelection = getSelectedItems()[0];
+        if (sourceSelection) {
+            setSnapOffsetsFromPosition(sourceSelection.entity);
+            refreshPanel();
+            setStatus('Aligned the snap grid offset to the current selection.', 'neutral');
+            return;
+        }
+
+        const viewCenter = {
+            x: Math.round(state.camera.x + host.canvas.width / 2),
+            y: Math.round(state.camera.y + host.canvas.height / 2)
+        };
+        setSnapOffsetsFromPosition(viewCenter);
+        refreshPanel();
+        setStatus('Aligned the snap grid offset to the current view center.', 'neutral');
     });
     refs.nudgeInput.addEventListener('change', () => {
         state.nudgeAmount = clamp(Number(refs.nudgeInput.value) || 1, 1, 64);
