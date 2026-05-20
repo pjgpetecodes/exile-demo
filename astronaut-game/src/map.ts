@@ -1,4 +1,5 @@
 import { assignEntityId } from './game.js';
+import { SPRITE_SCALE as DEFAULT_SPRITE_SCALE } from './constants.js';
 import { resolveAnimatedPaletteIndex } from './palette-cycle.js';
 import { PaletteCycleSettings } from './types/index.js';
 
@@ -15,6 +16,121 @@ export type MapBlock = {
 
 export let mapBlocks: MapBlock[] = [];
 export let mapLoaded = false;
+
+type BlockBucketMap = Map<string, MapBlock[]>;
+
+const MAP_BLOCK_TILE_SIZE = 32 * DEFAULT_SPRITE_SCALE;
+let mapBlocksWithoutBlackBackground: MapBlock[] = [];
+let mapBlocksBehindAstronaut: MapBlock[] = [];
+let mapBlocksBehindAstronautWithoutBlackBackground: MapBlock[] = [];
+let mapBlocksMaskAstronaut: MapBlock[] = [];
+let blackBackgroundBlocks: MapBlock[] = [];
+let allMapBlockBuckets: BlockBucketMap = new Map();
+let mapBlocksWithoutBlackBackgroundBuckets: BlockBucketMap = new Map();
+let mapBlocksBehindAstronautBuckets: BlockBucketMap = new Map();
+let mapBlocksBehindAstronautWithoutBlackBackgroundBuckets: BlockBucketMap = new Map();
+let mapBlocksMaskAstronautBuckets: BlockBucketMap = new Map();
+let blackBackgroundBlockBuckets: BlockBucketMap = new Map();
+const spriteRectMapCache = new WeakMap<object, Record<string, any>>();
+
+function getBucketKey(column: number, row: number) {
+    return `${column},${row}`;
+}
+
+function buildBlockBuckets(blocks: MapBlock[]) {
+    const buckets: BlockBucketMap = new Map();
+    for (const block of blocks) {
+        const column = Math.floor(block.x / MAP_BLOCK_TILE_SIZE);
+        const row = Math.floor(block.y / MAP_BLOCK_TILE_SIZE);
+        const key = getBucketKey(column, row);
+        const bucket = buckets.get(key);
+        if (bucket) {
+            bucket.push(block);
+        } else {
+            buckets.set(key, [block]);
+        }
+    }
+    return buckets;
+}
+
+export function rebuildMapBlockRenderCache() {
+    mapBlocksWithoutBlackBackground = mapBlocks.filter((block) => block.type !== 'black_background');
+    mapBlocksBehindAstronaut = mapBlocks.filter((block) => !shouldMaskAstronaut(block));
+    mapBlocksBehindAstronautWithoutBlackBackground = mapBlocksBehindAstronaut.filter((block) => block.type !== 'black_background');
+    mapBlocksMaskAstronaut = mapBlocks.filter((block) => shouldMaskAstronaut(block));
+    blackBackgroundBlocks = mapBlocks.filter((block) => block.type === 'black_background');
+
+    allMapBlockBuckets = buildBlockBuckets(mapBlocks);
+    mapBlocksWithoutBlackBackgroundBuckets = buildBlockBuckets(mapBlocksWithoutBlackBackground);
+    mapBlocksBehindAstronautBuckets = buildBlockBuckets(mapBlocksBehindAstronaut);
+    mapBlocksBehindAstronautWithoutBlackBackgroundBuckets = buildBlockBuckets(mapBlocksBehindAstronautWithoutBlackBackground);
+    mapBlocksMaskAstronautBuckets = buildBlockBuckets(mapBlocksMaskAstronaut);
+    blackBackgroundBlockBuckets = buildBlockBuckets(blackBackgroundBlocks);
+}
+
+export function getRenderableMapBlocks(hideBlackBackground = false) {
+    return hideBlackBackground ? mapBlocksWithoutBlackBackground : mapBlocks;
+}
+
+export function getMapBlocksBehindAstronaut(hideBlackBackground = false) {
+    return hideBlackBackground ? mapBlocksBehindAstronautWithoutBlackBackground : mapBlocksBehindAstronaut;
+}
+
+export function getMapBlocksMaskAstronaut() {
+    return mapBlocksMaskAstronaut;
+}
+
+export function getBlackBackgroundBlocks() {
+    return blackBackgroundBlocks;
+}
+
+function getBucketMapForBlocks(blocks?: MapBlock[]) {
+    if (!blocks || blocks === mapBlocks) {
+        return allMapBlockBuckets;
+    }
+    if (blocks === mapBlocksWithoutBlackBackground) {
+        return mapBlocksWithoutBlackBackgroundBuckets;
+    }
+    if (blocks === mapBlocksBehindAstronaut) {
+        return mapBlocksBehindAstronautBuckets;
+    }
+    if (blocks === mapBlocksBehindAstronautWithoutBlackBackground) {
+        return mapBlocksBehindAstronautWithoutBlackBackgroundBuckets;
+    }
+    if (blocks === mapBlocksMaskAstronaut) {
+        return mapBlocksMaskAstronautBuckets;
+    }
+    if (blocks === blackBackgroundBlocks) {
+        return blackBackgroundBlockBuckets;
+    }
+    return null;
+}
+
+function getBucketedBlocksInViewport(
+    buckets: BlockBucketMap,
+    camera: { x: number, y: number },
+    width: number,
+    height: number,
+    tileW: number,
+    tileH: number
+) {
+    const minColumn = Math.floor((camera.x - tileW) / MAP_BLOCK_TILE_SIZE);
+    const maxColumn = Math.floor((camera.x + width + tileW) / MAP_BLOCK_TILE_SIZE);
+    const minRow = Math.floor((camera.y - tileH) / MAP_BLOCK_TILE_SIZE);
+    const maxRow = Math.floor((camera.y + height + tileH) / MAP_BLOCK_TILE_SIZE);
+    const visibleBlocks: MapBlock[] = [];
+
+    for (let row = minRow; row <= maxRow; row += 1) {
+        for (let column = minColumn; column <= maxColumn; column += 1) {
+            const bucket = buckets.get(getBucketKey(column, row));
+            if (bucket) {
+                visibleBlocks.push(...bucket);
+            }
+        }
+    }
+
+    return visibleBlocks;
+}
 
 export function shouldMaskAstronaut(block: Pick<MapBlock, 'type' | 'collision' | 'maskAstronaut'>) {
     if (typeof block.maskAstronaut === 'boolean') {
@@ -58,6 +174,7 @@ export async function loadMapBlocks() {
     const arr = await fetchFreshJson<any[]>('./src/assets/world_map.json');
     // Assign entityId to each block using global assignEntityId
     mapBlocks = arr.map((block: any) => assignEntityId(block));
+    rebuildMapBlockRenderCache();
     mapLoaded = true;
 }
 
@@ -70,27 +187,13 @@ export function getBlockAtWorld(
 ): MapBlock | undefined {
     x = Math.round(x);
     y = Math.round(y);
+    const tileW = 32 * SPRITE_SCALE;
+    const tileH = 32 * SPRITE_SCALE;
+    const column = Math.floor(x / MAP_BLOCK_TILE_SIZE);
+    const row = Math.floor(y / MAP_BLOCK_TILE_SIZE);
+    const candidates = allMapBlockBuckets.get(getBucketKey(column, row)) ?? [];
 
-    for (const b of mapBlocks) {
-        // Lookup the sprite rect for this block type
-        let rect = null;
-        if (spriteMap instanceof Array) {
-            outer: for (let row = 0; row < spriteMap.length; row++) {
-                for (let col = 0; col < spriteMap[row].length; col++) {
-                    if (spriteMap[row][col].name === b.type) {
-                        rect = spriteMap[row][col];
-                        break outer;
-                    }
-                }
-            }
-        } else if (spriteMap[b.type]) {
-            rect = spriteMap[b.type];
-        }
-        if (!rect) continue;
-
-        // All sprites are 32x32, scale by SPRITE_SCALE
-        const tileW = 32 * SPRITE_SCALE;
-        const tileH = 32 * SPRITE_SCALE;
+    for (const b of candidates) {
         if (
             x >= b.x && x < b.x + tileW &&
             y >= b.y && y < b.y + tileH &&
@@ -125,6 +228,19 @@ function buildSpriteRectMap(spriteMap: any) {
     return rectMap;
 }
 
+function getSpriteRectMap(spriteMap: any) {
+    if (!spriteMap || typeof spriteMap !== 'object') {
+        return buildSpriteRectMap(spriteMap);
+    }
+    const cachedRectMap = spriteRectMapCache.get(spriteMap);
+    if (cachedRectMap) {
+        return cachedRectMap;
+    }
+    const rectMap = buildSpriteRectMap(spriteMap);
+    spriteRectMapCache.set(spriteMap, rectMap);
+    return rectMap;
+}
+
 // Draw map blocks
 export function drawMap(
     ctx: CanvasRenderingContext2D,
@@ -136,8 +252,7 @@ export function drawMap(
 ) {
     if (!spriteMap || !mapLoaded) return;
 
-    // Build rect lookup map once per draw
-    const rectMap = buildSpriteRectMap(spriteMap);
+    const rectMap = getSpriteRectMap(spriteMap);
 
     // Only draw blocks in camera viewport (+1 tile margin)
     const tileW = 32 * SPRITE_SCALE;
@@ -145,8 +260,10 @@ export function drawMap(
     const minX = camera.x - tileW, maxX = camera.x + ctx.canvas.width + tileW;
     const minY = camera.y - tileH, maxY = camera.y + ctx.canvas.height + tileH;
 
-    // Use provided blocks array or global mapBlocks
-    const blocksToDraw = blocks || mapBlocks;
+    const bucketMap = getBucketMapForBlocks(blocks);
+    const blocksToDraw = bucketMap
+        ? getBucketedBlocksInViewport(bucketMap, camera, ctx.canvas.width, ctx.canvas.height, tileW, tileH)
+        : (blocks || mapBlocks);
 
     for (const block of blocksToDraw) {
         // Only draw visible blocks
