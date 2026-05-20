@@ -124,7 +124,8 @@ You can:
 
 ### Main view
 
-- **right mouse drag** = pan camera
+- **right-click a placed object** = open the context menu for quick actions such as rotate, palette changes, copy, duplicate, delete, and door/button default-state toggles
+- **right mouse drag on empty space** = pan camera
 - **Center on astronaut** = recenters the editor on the live astronaut
 - **Focus selection** = centers the camera on the current selection
 - **Expand viewport to window** = temporarily grows the game viewport to fill the browser window while keeping the same world center

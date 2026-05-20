@@ -186,6 +186,11 @@ type PersistedDesignerUiState = {
     soundEnabled: boolean;
 };
 
+type ContextMenuState = {
+    screen: Position | null;
+    primarySelection: Selection | null;
+};
+
 type DesignerState = {
     active: boolean;
     mode: DesignerMode;
@@ -224,6 +229,8 @@ type DesignerState = {
     pickerDragCanvas: Position | null;
     savePreviewOpen: boolean;
     viewportExpanded: boolean;
+    contextMenu: ContextMenuState;
+    suppressContextMenuOnce: boolean;
     undoStack: RawWorldData[];
     redoStack: RawWorldData[];
     lastSavedSnapshot: RawWorldData;
@@ -267,6 +274,8 @@ type ControlRefs = {
     modalBody: HTMLDivElement;
     modalClose: HTMLButtonElement;
     modalConfirm: HTMLButtonElement;
+    contextMenu: HTMLDivElement;
+    contextMenuBody: HTMLDivElement;
 };
 
 const HISTORY_LIMIT = 100;
@@ -740,6 +749,43 @@ function createDesignerStyles() {
             gap: 8px;
             margin-top: 12px;
         }
+        .world-designer-context-menu {
+            position: fixed;
+            z-index: 10001;
+            display: none;
+            min-width: 220px;
+            border-radius: 10px;
+            background: rgba(15, 23, 42, 0.96);
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+            padding: 6px;
+        }
+        .world-designer-context-menu.open {
+            display: block;
+        }
+        .world-designer-context-menu button {
+            display: block;
+            width: 100%;
+            text-align: left;
+            margin: 0;
+            border: 0;
+            border-radius: 6px;
+            background: transparent;
+            color: #f8fafc;
+            padding: 8px 10px;
+        }
+        .world-designer-context-menu button:hover {
+            background: rgba(51, 65, 85, 0.95);
+        }
+        .world-designer-context-menu button:disabled {
+            opacity: 0.45;
+            cursor: default;
+        }
+        .world-designer-context-menu hr {
+            border: 0;
+            border-top: 1px solid rgba(148, 163, 184, 0.2);
+            margin: 6px 0;
+        }
         .world-designer-pre {
             margin: 8px 0 12px;
             padding: 10px;
@@ -846,6 +892,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         pickerDragCanvas: null,
         savePreviewOpen: false,
         viewportExpanded: false,
+        contextMenu: {
+            screen: null,
+            primarySelection: null
+        },
+        suppressContextMenuOnce: false,
         undoStack: [],
         redoStack: [],
         lastSavedSnapshot: initialSnapshot
@@ -957,6 +1008,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     `;
     document.body.appendChild(modal);
 
+    const contextMenu = document.createElement('div');
+    contextMenu.className = 'world-designer-context-menu';
+    contextMenu.innerHTML = '<div data-role="context-menu-body"></div>';
+    document.body.appendChild(contextMenu);
+
     const refs: ControlRefs = {
         root,
         modeSelect: root.querySelector('[data-role="mode"]') as HTMLSelectElement,
@@ -1000,7 +1056,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         modal,
         modalBody: modal.querySelector('[data-role="modal-body"]') as HTMLDivElement,
         modalClose: modal.querySelector('[data-role="modal-close"]') as HTMLButtonElement,
-        modalConfirm: modal.querySelector('[data-role="modal-confirm"]') as HTMLButtonElement
+        modalConfirm: modal.querySelector('[data-role="modal-confirm"]') as HTMLButtonElement,
+        contextMenu,
+        contextMenuBody: contextMenu.querySelector('[data-role="context-menu-body"]') as HTMLDivElement
     };
     const spritePickerButtons = new Map<string, HTMLButtonElement>();
     const dragGhostPadding = 8;
@@ -1224,6 +1282,128 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 arr.splice(index, 1);
             }
         }
+    }
+
+    function closeContextMenu() {
+        state.contextMenu.screen = null;
+        state.contextMenu.primarySelection = null;
+        refs.contextMenu.classList.remove('open');
+        refs.contextMenuBody.innerHTML = '';
+    }
+
+    function positionContextMenu() {
+        if (!state.contextMenu.screen) return;
+        const viewportPadding = 12;
+        const rect = refs.contextMenu.getBoundingClientRect();
+        const left = Math.min(
+            state.contextMenu.screen.x,
+            window.innerWidth - rect.width - viewportPadding
+        );
+        const top = Math.min(
+            state.contextMenu.screen.y,
+            window.innerHeight - rect.height - viewportPadding
+        );
+        refs.contextMenu.style.left = `${Math.max(viewportPadding, left)}px`;
+        refs.contextMenu.style.top = `${Math.max(viewportPadding, top)}px`;
+    }
+
+    function addContextMenuAction(label: string, onClick: () => void, disabled = false) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = label;
+        button.disabled = disabled;
+        button.addEventListener('click', () => {
+            if (disabled) return;
+            closeContextMenu();
+            onClick();
+        });
+        refs.contextMenuBody.appendChild(button);
+    }
+
+    function addContextMenuDivider() {
+        refs.contextMenuBody.appendChild(document.createElement('hr'));
+    }
+
+    function changePaletteSelection(delta: number) {
+        const selections = getSelectedItems();
+        if (selections.length === 0) return;
+        runMutation(`Adjusted palette ${delta > 0 ? 'up' : 'down'}.`, () => {
+            for (const selection of selections) {
+                if (!('palette' in selection.entity)) continue;
+                const currentPalette = typeof selection.entity.palette === 'number' ? selection.entity.palette : 0;
+                selection.entity.palette = clamp(currentPalette + delta, 0, paletteCount - 1);
+            }
+        });
+        updateSelectionFromInspectorState();
+    }
+
+    function toggleDoorLockedDefault() {
+        const selection = state.contextMenu.primarySelection;
+        if (!selection || selection.category !== 'doors') return;
+        runMutation('Toggled door locked default.', () => {
+            const nextLocked = !(selection.entity.defaultLocked ?? selection.entity.locked ?? false);
+            selection.entity.defaultLocked = nextLocked;
+            selection.entity.locked = nextLocked;
+        });
+    }
+
+    function toggleDoorOpenDefault() {
+        const selection = state.contextMenu.primarySelection;
+        if (!selection || selection.category !== 'doors') return;
+        runMutation('Toggled door open default.', () => {
+            const nextOpen = !(selection.entity.defaultOpen ?? selection.entity.open ?? false);
+            selection.entity.defaultOpen = nextOpen;
+            selection.entity.open = nextOpen;
+        });
+    }
+
+    function toggleButtonActiveDefault() {
+        const selection = state.contextMenu.primarySelection;
+        if (!selection || selection.category !== 'buttons') return;
+        runMutation('Toggled button active default.', () => {
+            const nextActive = !(selection.entity.defaultActive ?? selection.entity.active ?? false);
+            selection.entity.defaultActive = nextActive;
+            selection.entity.active = nextActive;
+        });
+    }
+
+    function openContextMenu(selection: Selection, event: MouseEvent) {
+        state.contextMenu.primarySelection = selection;
+        state.contextMenu.screen = {
+            x: event.clientX,
+            y: event.clientY
+        };
+        refs.contextMenuBody.innerHTML = '';
+
+        const selectedItems = getSelectedItems();
+        addContextMenuAction('Rotate', rotateSelection, selectedItems.length === 0);
+        addContextMenuAction('Palette +1', () => changePaletteSelection(1), selectedItems.length === 0);
+        addContextMenuAction('Palette -1', () => changePaletteSelection(-1), selectedItems.length === 0);
+        addContextMenuAction('Copy', copySelection, selectedItems.length === 0);
+        addContextMenuAction('Duplicate', duplicateSelection, selectedItems.length === 0);
+        addContextMenuAction('Delete', deleteSelection, selectedItems.length === 0);
+        addContextMenuAction('Focus selection', focusSelection, selectedItems.length === 0);
+
+        if (selection.category === 'doors') {
+            addContextMenuDivider();
+            addContextMenuAction(
+                (selection.entity.defaultLocked ?? selection.entity.locked ?? false) ? 'Set unlocked by default' : 'Set locked by default',
+                toggleDoorLockedDefault
+            );
+            addContextMenuAction(
+                (selection.entity.defaultOpen ?? selection.entity.open ?? false) ? 'Set closed by default' : 'Set open by default',
+                toggleDoorOpenDefault
+            );
+        } else if (selection.category === 'buttons') {
+            addContextMenuDivider();
+            addContextMenuAction(
+                (selection.entity.defaultActive ?? selection.entity.active ?? false) ? 'Set inactive by default' : 'Set active by default',
+                toggleButtonActiveDefault
+            );
+        }
+
+        refs.contextMenu.classList.add('open');
+        positionContextMenu();
     }
 
     function getNextDoorId() {
@@ -2340,9 +2520,20 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         if (state.pickerDrag) return;
         const point = getCanvasPoint(event);
         state.lastPointerCanvas = point;
+        closeContextMenu();
+
+        const world = screenToWorld(point.x, point.y);
 
         if (event.button === 2) {
-            event.preventDefault();
+            const hit = getEntityAt(world.x, world.y);
+            if (hit) {
+                state.suppressContextMenuOnce = false;
+                const menuSelections = isSelected(hit) ? getSelectedItems() : [hit];
+                setSelections(menuSelections, hit);
+                event.preventDefault();
+                return;
+            }
+            state.suppressContextMenuOnce = true;
             state.panningView = true;
             state.panStartCanvas = point;
             state.panStartCamera = { ...state.camera };
@@ -2351,8 +2542,6 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
 
         if (event.button !== 0) return;
-
-        const world = screenToWorld(point.x, point.y);
         if (state.tool === 'place') {
             runMutation(`Placed new ${CATEGORY_LABELS[state.category].toLowerCase()}.`, () => {
                 placeAtWorld(world.x, world.y);
@@ -2481,6 +2670,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
     function handleOverviewMouseDown(event: MouseEvent) {
         if (event.button !== 0) return;
+        closeContextMenu();
         updateOverviewHover(event);
         state.overviewDragging = true;
         moveCameraToWorldCenter(state.overviewHoverWorld!.x, state.overviewHoverWorld!.y);
@@ -2510,6 +2700,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
         if (!state.active) return;
         if (isFormTarget(event.target)) return;
+
+        if (event.key === 'Escape') {
+            closeContextMenu();
+        }
 
         if (event.ctrlKey && event.key.toLowerCase() === 's') {
             event.preventDefault();
@@ -2593,6 +2787,13 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 event.preventDefault();
                 return;
             }
+        }
+    }
+
+    function handleWindowMouseDown(event: MouseEvent) {
+        if (!refs.contextMenu.classList.contains('open')) return;
+        if (!(event.target instanceof Node) || !refs.contextMenu.contains(event.target)) {
+            closeContextMenu();
         }
     }
 
@@ -2814,6 +3015,12 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             closeSavePreview();
         }
     });
+    refs.contextMenu.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+    });
+    refs.contextMenu.addEventListener('mousedown', (event) => {
+        event.stopPropagation();
+    });
     refs.overviewCanvas.addEventListener('mousedown', handleOverviewMouseDown);
     refs.overviewCanvas.addEventListener('mousemove', handleOverviewMouseMove);
     refs.overviewCanvas.addEventListener('mouseleave', () => {
@@ -2824,6 +3031,19 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     host.canvas.addEventListener('contextmenu', (event) => {
         if (state.active && state.mode === 'edit') {
             event.preventDefault();
+            if (state.suppressContextMenuOnce) {
+                state.suppressContextMenuOnce = false;
+                closeContextMenu();
+                return;
+            }
+            const point = getCanvasPoint(event);
+            const world = screenToWorld(point.x, point.y);
+            const hit = getEntityAt(world.x, world.y);
+            if (hit) {
+                openContextMenu(hit, event);
+            } else {
+                closeContextMenu();
+            }
         }
     });
     host.canvas.addEventListener('mousedown', handleCanvasMouseDown);
@@ -2831,6 +3051,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     window.addEventListener('mousemove', handleCanvasMouseMove);
     window.addEventListener('mouseup', handleCanvasMouseUp);
     window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('mousedown', handleWindowMouseDown);
     window.addEventListener('resize', resizeExpandedViewport);
 
     refreshSelectOptions();
@@ -2993,6 +3214,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         },
         destroy() {
             setViewportExpanded(false);
+            closeContextMenu();
             refs.overviewCanvas.removeEventListener('mousedown', handleOverviewMouseDown);
             refs.overviewCanvas.removeEventListener('mousemove', handleOverviewMouseMove);
             refs.overviewCanvas.removeEventListener('mouseup', handleOverviewMouseUp);
@@ -3001,6 +3223,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             window.removeEventListener('mousemove', handleCanvasMouseMove);
             window.removeEventListener('mouseup', handleCanvasMouseUp);
             window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('mousedown', handleWindowMouseDown);
             window.removeEventListener('resize', resizeExpandedViewport);
             root.remove();
             modal.remove();
