@@ -45,7 +45,7 @@
   },
   {
     "x": 4725,
-    "y": 1634,
+    "y": 1640,
     "type": "grenade",
     "palette": 14,
     "rotation": 6,
@@ -58,7 +58,7 @@
     "collision": true,
     "held": false,
     "stored": false,
-    "isGrounded": false,
+    "isGrounded": true,
     "velocity": {
       "x": 0,
       "y": 0
@@ -67,7 +67,7 @@
   },
   {
     "x": 4726,
-    "y": 2229,
+    "y": 2234,
     "type": "stand",
     "palette": 4,
     "rotation": 5,
@@ -80,7 +80,7 @@
     "collision": true,
     "held": false,
     "stored": false,
-    "isGrounded": false,
+    "isGrounded": true,
     "velocity": {
       "x": 0,
       "y": 0
@@ -89,7 +89,7 @@
   },
   {
     "x": 4262,
-    "y": 1899,
+    "y": 1901,
     "type": "grenade",
     "palette": 14,
     "rotation": 6,
@@ -102,7 +102,7 @@
     "collision": true,
     "held": false,
     "stored": false,
-    "isGrounded": false,
+    "isGrounded": true,
     "velocity": {
       "x": 0,
       "y": 0
@@ -111,7 +111,7 @@
   },
   {
     "x": 4236,
-    "y": 1899,
+    "y": 1901,
     "type": "grenade",
     "palette": 14,
     "rotation": 6,
@@ -124,7 +124,7 @@
     "collision": true,
     "held": false,
     "stored": false,
-    "isGrounded": false,
+    "isGrounded": true,
     "velocity": {
       "x": 0,
       "y": 0

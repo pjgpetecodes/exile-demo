@@ -76,7 +76,7 @@
     { "name": "ship_13", 				"x": 331,	"y": 100, 	"w": 32, 	"h": 32, 	"palette": 0 },
     { "name": "ship_14",				"x": 364,	"y": 100, 	"w": 32, 	"h": 32, 	"palette": 0 },
     { "name": "ship_15",				"x": 397,	"y": 100, 	"w": 32, 	"h": 32, 	"palette": 0 },
-    { "name": "door_horizontal",		"x": 430,	"y": 100, 	"w": 32, 	"h": 32, 	"palette": 0 },
+    { "name": "door_horizontal",		"x": 430,	"y": 100, 	"w": 32, 	"h": 31, 	"palette": 0 },
     { "name": "door_vertical",			"x": 463,	"y": 100, 	"w": 32, 	"h": 32, 	"palette": 0 },
     { "name": "strut", 					"x": 496,  	"y": 100,  	"w": 32, 	"h": 32, 	"palette": 0 },
     { "name": "key1", 					"x": 529,  	"y": 100,  	"w": 32, 	"h": 32, 	"palette": 0 },
