@@ -10,6 +10,7 @@ export class Collectable {
     collected: boolean;
     name: string;
     weight: number;
+    pickupEnabled: boolean;
     storable: boolean;
     affectsAstronaut: boolean;
     collision: boolean;
@@ -31,6 +32,7 @@ export class Collectable {
         this.collected = data.collected ?? false;
         this.name = data.name ?? "";
         this.weight = data.weight ?? 0;
+        this.pickupEnabled = data.pickupEnabled ?? true;
         this.storable = data.storable ?? false;
         this.affectsAstronaut = data.affectsAstronaut ?? true;
         this.collision = data.collision ?? true;

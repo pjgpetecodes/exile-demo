@@ -28,7 +28,7 @@ It saves back into the JSON files in `astronaut-game\src\assets`.
 
 The designer starts hidden by default.
 
-The designer now remembers its UI state in browser storage, including the active tool, mode, category, sprite choice, palette, camera, and viewport expansion.
+The designer now remembers its UI state in browser storage, including the active tool, mode, category, sprite choice, palette, camera, viewport expansion, and palette-flyout selection.
 
 ## What the designer saves
 
@@ -40,6 +40,7 @@ When you save, the editor writes back to:
 - `creatures.json`
 - `collectables.json`
 - `astronaut_start.json`
+- `palettes.json`
 
 ## Designer layout
 
@@ -109,7 +110,33 @@ Selected items can be:
 - added to or removed from the current selection with **Shift+click**
 - added with **Shift+drag** marquee selection
 
-## 3. Use the sprite picker
+For **collectables**, the inspector also lets you control **Weight**, **Can be picked up**, **Storable**, and **Affects astronaut**.
+
+A cannon-style object should usually be authored as:
+
+- a collectable
+- **Collision enabled**
+- **Can be picked up** off
+- a higher **Weight**
+
+## 3. Edit palettes
+
+Use the **Palettes** button beside the normal palette selector to open the palette flyout.
+
+In the flyout you can:
+
+- select a palette index
+- preview it against a chosen sprite
+- add or remove remap rows
+- create a new palette
+- clone the selected palette
+- save changes to `palettes.json`
+
+Palette edits are global. Changing palette `N` updates every object using palette `N`.
+
+Deleting a palette is blocked while any authored object still uses that palette index.
+
+## 4. Use the sprite picker
 
 The designer now includes:
 
@@ -123,7 +150,7 @@ You can:
 - click a sprite in the grid to select it
 - drag a sprite from the grid onto the world to place it
 
-## 4. Move around the world
+## 5. Move around the world
 
 ### Main view
 
@@ -138,7 +165,7 @@ You can:
 
 - **left mouse drag** = move the main editor camera
 
-## 5. Set the astronaut start position
+## 6. Set the astronaut start position
 
 There are two related concepts:
 
@@ -158,7 +185,7 @@ To set the saved start:
 
 The start point is shown with a visible **START** marker in both the main view and the overview.
 
-## 6. Preview mode
+## 7. Preview mode
 
 Switch the mode from **Edit** to **Preview** to inspect the world without editing.
 
@@ -173,7 +200,7 @@ Useful preview toggles:
 
 For **world items**, **Collision enabled** and **Mask astronaut** are separate controls. A decorative sprite can be non-colliding and still draw in front of the astronaut when masking is enabled. `black_background` items default to staying behind the astronaut unless you explicitly enable masking.
 
-## 7. Save workflow
+## 8. Save workflow
 
 Saving uses a review step.
 

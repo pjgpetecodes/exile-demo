@@ -7,7 +7,7 @@ import {
     checkAstronautCollisions
 } from './astronaut.js';
 import { applyGravity } from './gravity.js';
-import { mapBlocks, mapLoaded, loadMapBlocks, drawMap, getBlockAtWorld, shouldMaskAstronaut } from './map.js';
+import { clearMapSpriteCache, mapBlocks, mapLoaded, loadMapBlocks, drawMap, getBlockAtWorld, shouldMaskAstronaut } from './map.js';
 import { initStars, updateAndDrawStars } from './stars.js';
 import { emitJetpackDots, updateAndDrawJetpackDots, resetJetpackDotEmitTimer } from './jetpack.js';
 import { Button } from './button.js';
@@ -25,7 +25,7 @@ import {
     SPRITE_SCALE, rememberSound, teleportSound, buttonOnSound, doorOpenSound, doorCloseSound, getSound, saveSound, ouchSounds,
     getSoundEnabled, setSoundEnabled, toggleSoundEnabled
 } from './constants.js';
-import { createWorldDesigner, LayerVisibility, RawWorldData, SpriteCatalogEntry, WorldDesigner } from './world-designer.js';
+import { createWorldDesigner, LayerVisibility, PaletteDefinition, RawWorldData, SpriteCatalogEntry, WorldDesigner } from './world-designer.js';
 
 // Instead of dynamic import, fetch the JSON file at runtime for browser compatibility
 let spriteMap: any;
@@ -35,9 +35,15 @@ async function loadSpriteMap() {
     spriteMap = await res.json();
 }
 
-let palettes: any[] = [];
+let rawPaletteDefinitions: PaletteDefinition[] = [];
+let palettes: Array<{ from: [number, number, number], to: [number, number, number] }[]> = [];
 let remappedSpriteSheets: CanvasImageSource[] = [];
 let colorAliases: Record<string, [number, number, number]> = {};
+const customPalettePreviewCache = new Map<string, CanvasImageSource>();
+
+function deepClone<T>(value: T): T {
+    return JSON.parse(JSON.stringify(value));
+}
 
 async function fetchFreshJson<T>(url: string): Promise<T> {
     const separator = url.includes('?') ? '&' : '?';
@@ -62,14 +68,32 @@ function resolveColor(color: string | [number, number, number]): [number, number
 
 async function loadPalettes() {
     await loadColorAliases();
-    const rawPalettes = await fetchFreshJson<any[]>('./src/assets/palettes.json');
-    // Map aliases to RGB arrays
-    palettes = rawPalettes.map((palette: any[]) =>
+    rawPaletteDefinitions = await fetchFreshJson<PaletteDefinition[]>('./src/assets/palettes.json');
+    palettes = rawPaletteDefinitions.map((palette) =>
         palette.map(({ from, to }) => ({
             from: resolveColor(from),
             to: resolveColor(to)
         }))
     );
+}
+
+function rebuildRemappedSpriteSheets() {
+    if (!spriteSheet) return;
+    customPalettePreviewCache.clear();
+    clearMapSpriteCache();
+    remappedSpriteSheets = palettes.map((palette) => remapSpritePalette(spriteSheet, palette));
+    astronautSpriteSource = remappedSpriteSheets[1] || remappedSpriteSheets[0] || spriteSheet;
+}
+
+function applyPaletteDefinitions(definitions: PaletteDefinition[]) {
+    rawPaletteDefinitions = deepClone(definitions);
+    palettes = rawPaletteDefinitions.map((palette) =>
+        palette.map(({ from, to }) => ({
+            from: resolveColor(from),
+            to: resolveColor(to)
+        }))
+    );
+    rebuildRemappedSpriteSheets();
 }
 
 window.addEventListener('keydown', (event) => {
@@ -571,6 +595,25 @@ function drawSpritePreview(
         return false;
     }
 
+    return drawSpritePreviewWithSheet(context, type, sheet, rotation, clearFirst, targetSize);
+}
+
+function drawSpritePreviewWithSheet(
+    context: CanvasRenderingContext2D,
+    type: string,
+    sheet: CanvasImageSource,
+    rotation: number = 1,
+    clearFirst: boolean = true,
+    targetSize?: number
+) {
+    const rect = findSpriteRectByType(type);
+    if (!rect) {
+        if (clearFirst) {
+            context.clearRect(0, 0, context.canvas.width, context.canvas.height);
+        }
+        return false;
+    }
+
     const padding = 8;
     const previewWidth = targetSize ?? context.canvas.width;
     const previewHeight = targetSize ?? context.canvas.height;
@@ -613,6 +656,33 @@ function drawSpritePreview(
     return true;
 }
 
+function drawCustomPalettePreview(
+    context: CanvasRenderingContext2D,
+    type: string,
+    paletteDefinition: PaletteDefinition,
+    rotation: number = 1,
+    clearFirst: boolean = true,
+    targetSize?: number
+) {
+    if (!spriteSheet) {
+        if (clearFirst) {
+            context.clearRect(0, 0, context.canvas.width, context.canvas.height);
+        }
+        return false;
+    }
+    const cacheKey = JSON.stringify(paletteDefinition);
+    let sheet = customPalettePreviewCache.get(cacheKey);
+    if (!sheet) {
+        const resolvedPalette = paletteDefinition.map(({ from, to }) => ({
+            from: resolveColor(from),
+            to: resolveColor(to)
+        }));
+        sheet = remapSpritePalette(spriteSheet, resolvedPalette);
+        customPalettePreviewCache.set(cacheKey, sheet);
+    }
+    return drawSpritePreviewWithSheet(context, type, sheet, rotation, clearFirst, targetSize);
+}
+
 async function saveWorldData(data: RawWorldData) {
     const res = await fetch('http://localhost:3001/save-world-data', {
         method: 'POST',
@@ -622,9 +692,52 @@ async function saveWorldData(data: RawWorldData) {
         body: JSON.stringify(data)
     });
     if (!res.ok) {
-        const payload = await res.text();
-        throw new Error(payload || 'Failed to save world data.');
+        throw new Error(await getDesignerSaveError(res, 'Failed to save world data.'));
     }
+}
+
+async function getDesignerSaveError(res: Response, fallbackMessage: string) {
+    let message = fallbackMessage;
+    try {
+        const text = await res.text();
+        if (text) {
+            try {
+                const payload = JSON.parse(text) as { error?: string };
+                if (payload?.error) {
+                    message = payload.error;
+                } else {
+                    message = text;
+                }
+            } catch {
+                message = text;
+            }
+        }
+    } catch {
+        message = fallbackMessage;
+    }
+
+    if (res.status === 404) {
+        return 'Palette saving is unavailable because the local save server is out of date. Restart the dev/save server on port 3001 and try again.';
+    }
+
+    return message;
+}
+
+async function savePaletteDefinitions(paletteDefinitions: PaletteDefinition[], worldData?: RawWorldData) {
+    const res = await fetch('http://localhost:3001/save-designer-assets', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            palettes: paletteDefinitions,
+            ...(worldData ? { worldData } : {})
+        })
+    });
+    if (!res.ok) {
+        throw new Error(await getDesignerSaveError(res, 'Failed to save palette data.'));
+    }
+    applyPaletteDefinitions(paletteDefinitions);
 }
 
 // --- Map rendering and update logic ---
@@ -654,14 +767,7 @@ async function init() {
                 const tempCtx = tempCanvas.getContext('2d');
                 tempCtx!.drawImage(spriteSheet, 0, 0);
                 (window as any)._spriteSheetCtx = tempCtx;
-                // Generate remapped sprite sheets for each palette
-                remappedSpriteSheets = palettes.map((palette: any, idx: number) =>
-                    idx === 0
-                        ? spriteSheet // Palette 0: always original
-                        : remapSpritePalette(spriteSheet, palette)
-                );
-                // Use palettes[1] for astronaut, fallback to original if not present
-                astronautSpriteSource = remappedSpriteSheets[1] || spriteSheet;
+                rebuildRemappedSpriteSheets();
 
                 // --- Calculate tightest collision bounding boxes at startup ---
                 const boundingBoxes = await calculateSpriteCollisionBoundingBoxes(
@@ -776,9 +882,13 @@ async function init() {
                     getSpriteTypes,
                     getSpriteCatalog,
                     drawSpritePreview,
+                    drawCustomPalettePreview,
+                    getPaletteDefinitions: () => deepClone(rawPaletteDefinitions),
+                    getColorAliases: () => deepClone(colorAliases),
                     getPaletteCount: () => Math.max(remappedSpriteSheets.length, palettes.length, 1),
                     clampCamera,
-                    saveWorldData
+                    saveWorldData,
+                    savePaletteDefinitions
                 });
                 gameLoop();
             };
@@ -1976,6 +2086,7 @@ function getNearestPickupCollectable() {
 
     for (const collectable of collectableEntities) {
         if (!isLooseCollectable(collectable)) continue;
+        if (collectable.pickupEnabled === false) continue;
         if (!isCollectableNearAstronaut(collectable)) continue;
         const bounds = getEntityCollisionBounds(collectable);
         const collectableCenter = getEntityCenter(collectable.x, collectable.y, bounds);
@@ -2161,9 +2272,53 @@ function moveCollectableHorizontally(collectable: Collectable, amount: number) {
     for (let step = 0; step < Math.abs(amount); step++) {
         const nextX = collectable.x + direction;
         if (collidesAtSide(nextX, collectable.y, collisionBounds, side)) {
-            break;
+            let steppedUp = false;
+            for (let stepHeight = 1; stepHeight <= MOVEMENT_SETTINGS.collectablePushStepUpHeight; stepHeight++) {
+                const candidateY = collectable.y - stepHeight;
+                if (collidesAtSide(nextX, candidateY, collisionBounds, side)) {
+                    continue;
+                }
+                if (collidesAtSide(nextX, candidateY, collisionBounds, 'top')) {
+                    continue;
+                }
+                if (!collidesAtSide(nextX, candidateY, collisionBounds, 'bottom')) {
+                    continue;
+                }
+
+                collectable.x = nextX;
+                collectable.y = candidateY;
+                collectable.isGrounded = true;
+                moved += direction;
+                steppedUp = true;
+                break;
+            }
+
+            if (!steppedUp) {
+                break;
+            }
+            continue;
         }
         collectable.x = nextX;
+        moved += direction;
+    }
+
+    return moved;
+}
+
+function moveCollectableVertically(collectable: Collectable, amount: number) {
+    if (amount === 0) return 0;
+
+    const direction = amount > 0 ? 1 : -1;
+    const collisionBounds = getEntityCollisionBounds(collectable);
+    const side = direction > 0 ? 'bottom' : 'top';
+    let moved = 0;
+
+    for (let step = 0; step < Math.abs(amount); step++) {
+        const nextY = collectable.y + direction;
+        if (collidesAtSide(collectable.x, nextY, collisionBounds, side)) {
+            break;
+        }
+        collectable.y = nextY;
         moved += direction;
     }
 
@@ -2205,13 +2360,28 @@ function getCollectableBounceRestitution(collectable: Collectable, impactSpeed: 
     return MOVEMENT_SETTINGS.collectableBounceRestitution * weightScale * (0.75 + impactScale * 0.25);
 }
 
-function resolveAstronautCollectableCollisions(horizontalMovement: number, verticalMovement: number) {
-    const astronautRect = getAstronautRect();
+function getCollectableHeadBounceLaunchSpeed(collectable: Collectable, impactSpeed: number) {
+    if (impactSpeed < MOVEMENT_SETTINGS.headBounceMinImpactSpeed) {
+        return 0;
+    }
 
+    const bounceRestitution = getCollectableBounceRestitution(collectable, impactSpeed);
+    if (bounceRestitution <= 0) {
+        return 0;
+    }
+
+    return Math.min(
+        MOVEMENT_SETTINGS.collectableHeadBounceMaxLaunchSpeed,
+        impactSpeed * bounceRestitution
+    );
+}
+
+function resolveAstronautCollectableCollisions(horizontalMovement: number, verticalMovement: number) {
     for (const collectable of collectableEntities) {
         if (!isLooseCollectable(collectable)) continue;
         if (collectable.astronautCollisionIgnoreFrames > 0) continue;
 
+        const astronautRect = getAstronautRect();
         const bounds = getEntityCollisionBounds(collectable);
         const collectableRect = getEntityRect(collectable.x, collectable.y, bounds);
         const overlapX = Math.min(astronautRect.right, collectableRect.right) - Math.max(astronautRect.left, collectableRect.left) + 1;
@@ -2221,32 +2391,62 @@ function resolveAstronautCollectableCollisions(horizontalMovement: number, verti
             continue;
         }
 
-        if (horizontalMovement !== 0 && Math.abs(horizontalMovement) >= Math.abs(verticalMovement)) {
+        const shouldResolveHorizontally = overlapX <= overlapY;
+
+        if (shouldResolveHorizontally) {
+            const horizontalDirection = horizontalMovement !== 0
+                ? Math.sign(horizontalMovement)
+                : ((astronautRect.left + astronautRect.right) / 2) < ((collectableRect.left + collectableRect.right) / 2)
+                    ? -1
+                    : 1;
             const pushAmount = Math.ceil(overlapX);
-            const pushScale = getCollectablePushScale(collectable);
-            const requestedPush = Math.max(1, Math.ceil(pushAmount * pushScale));
-            const moved = moveCollectableHorizontally(collectable, Math.sign(horizontalMovement) * requestedPush);
-            const remaining = pushAmount - Math.abs(moved);
-            if (remaining > 0) {
-                gameState.astronaut.position.x -= Math.sign(horizontalMovement) * remaining;
+            if (horizontalMovement !== 0) {
+                const pushScale = getCollectablePushScale(collectable);
+                const requestedPush = Math.max(1, Math.ceil(pushAmount * pushScale));
+                const moved = moveCollectableHorizontally(collectable, horizontalDirection * requestedPush);
+                const remaining = pushAmount - Math.abs(moved);
+                if (remaining > 0) {
+                    gameState.astronaut.position.x -= horizontalDirection * remaining;
+                    astronaut.velocity.x = 0;
+                }
+
+                const pushedVelocity = Math.max(
+                    -MOVEMENT_SETTINGS.collectablePushMaxSpeed,
+                    Math.min(
+                        MOVEMENT_SETTINGS.collectablePushMaxSpeed,
+                        horizontalMovement * MOVEMENT_SETTINGS.collectablePushVelocityMultiplier * getCollectablePushScale(collectable)
+                    )
+                );
+                collectable.velocity.x = pushedVelocity;
+            } else {
+                gameState.astronaut.position.x -= horizontalDirection * pushAmount;
                 astronaut.velocity.x = 0;
             }
-
-            const pushedVelocity = Math.max(
-                -MOVEMENT_SETTINGS.collectablePushMaxSpeed,
-                Math.min(
-                    MOVEMENT_SETTINGS.collectablePushMaxSpeed,
-                    horizontalMovement * MOVEMENT_SETTINGS.collectablePushVelocityMultiplier * pushScale
-                )
-            );
-            collectable.velocity.x = pushedVelocity;
         } else if (verticalMovement > 0) {
             gameState.astronaut.position.y -= Math.ceil(overlapY);
             astronaut.velocity.y = 0;
             gameState.astronaut.isLanded = true;
         } else if (verticalMovement < 0) {
-            gameState.astronaut.position.y += Math.ceil(overlapY);
-            astronaut.velocity.y = 0;
+            const impactSpeed = Math.max(Math.abs(verticalMovement), Math.abs(astronaut.velocity.y));
+            const launchSpeed = getCollectableHeadBounceLaunchSpeed(collectable, impactSpeed);
+            const liftAmount = Math.ceil(overlapY);
+            const desiredLift = Math.min(liftAmount, Math.ceil(launchSpeed));
+            const movedUp = desiredLift > 0 ? Math.abs(moveCollectableVertically(collectable, -desiredLift)) : 0;
+            const remaining = liftAmount - movedUp;
+
+            astronaut.velocity.y = Math.max(astronaut.velocity.y, 0);
+
+            if (movedUp > 0) {
+                collectable.isGrounded = false;
+                collectable.velocity.y = Math.min(
+                    collectable.velocity.y,
+                    -launchSpeed
+                );
+            }
+
+            if (remaining > 0) {
+                gameState.astronaut.position.y += remaining;
+            }
         }
     }
 }

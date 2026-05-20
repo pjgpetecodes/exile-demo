@@ -12,6 +12,7 @@ const ASSET_FILES = {
     collectables: path.join(ROOT, 'src', 'assets', 'collectables.json'),
     astronautStart: path.join(ROOT, 'src', 'assets', 'astronaut_start.json')
 };
+const PALETTES_FILE = path.join(ROOT, 'src', 'assets', 'palettes.json');
 
 function sendJson(res, statusCode, payload) {
     res.writeHead(statusCode, {
@@ -44,6 +45,22 @@ function validatePayload(payload) {
     }
 }
 
+function validatePalettesPayload(payload) {
+    if (!Array.isArray(payload)) {
+        throw new Error('Palette payload must be an array.');
+    }
+    for (const [paletteIndex, palette] of payload.entries()) {
+        if (!Array.isArray(palette)) {
+            throw new Error(`Palette ${paletteIndex} must be an array.`);
+        }
+        for (const [entryIndex, entry] of palette.entries()) {
+            if (!entry || typeof entry !== 'object' || typeof entry.from !== 'string' || typeof entry.to !== 'string') {
+                throw new Error(`Palette ${paletteIndex} entry ${entryIndex} must be an object with string from/to values.`);
+            }
+        }
+    }
+}
+
 async function writeJsonFile(filePath, value) {
     const tempPath = `${filePath}.tmp`;
     const json = `${JSON.stringify(value, null, 2)}\n`;
@@ -72,7 +89,7 @@ const server = http.createServer(async (req, res) => {
         return;
     }
 
-    if (req.method !== 'POST' || req.url !== '/save-world-data') {
+    if (req.method !== 'POST' || !['/save-world-data', '/save-designer-assets'].includes(req.url)) {
         sendJson(res, 404, { error: 'Not found.' });
         return;
     }
@@ -92,19 +109,36 @@ const server = http.createServer(async (req, res) => {
     req.on('end', async () => {
         try {
             const payload = JSON.parse(body || '{}');
-            validatePayload(payload);
+            const filesToWrite = [];
 
-            await Promise.all(
-                Object.entries(ASSET_FILES).map(([key, filePath]) => writeJsonFile(filePath, payload[key]))
-            );
+            if (req.url === '/save-world-data') {
+                validatePayload(payload);
+                filesToWrite.push(
+                    ...Object.entries(ASSET_FILES).map(([key, filePath]) => [filePath, payload[key]])
+                );
+            } else {
+                if (!payload || typeof payload !== 'object') {
+                    throw new Error('Request body must be a JSON object.');
+                }
+                validatePalettesPayload(payload.palettes);
+                filesToWrite.push([PALETTES_FILE, payload.palettes]);
+                if (payload.worldData !== undefined) {
+                    validatePayload(payload.worldData);
+                    filesToWrite.push(
+                        ...Object.entries(ASSET_FILES).map(([key, filePath]) => [filePath, payload.worldData[key]])
+                    );
+                }
+            }
+
+            await Promise.all(filesToWrite.map(([filePath, value]) => writeJsonFile(filePath, value)));
 
             sendJson(res, 200, {
                 ok: true,
-                files: Object.values(ASSET_FILES).map((filePath) => path.basename(filePath))
+                files: filesToWrite.map(([filePath]) => path.basename(filePath))
             });
         } catch (error) {
             sendJson(res, 400, {
-                error: error instanceof Error ? error.message : 'Failed to save world data.'
+                error: error instanceof Error ? error.message : 'Failed to save designer assets.'
             });
         }
     });

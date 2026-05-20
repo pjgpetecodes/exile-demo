@@ -64,6 +64,7 @@ export type CollectableSaveData = {
     collected?: boolean;
     name?: string;
     weight?: number;
+    pickupEnabled?: boolean;
     storable?: boolean;
     affectsAstronaut?: boolean;
     collision?: boolean;
@@ -90,6 +91,13 @@ export type SpriteCatalogEntry = {
     palette: number;
 };
 
+export type PaletteRemapEntry = {
+    from: string;
+    to: string;
+};
+
+export type PaletteDefinition = PaletteRemapEntry[];
+
 export interface WorldDesignerHost {
     canvas: HTMLCanvasElement;
     getRawWorldData(): RawWorldData;
@@ -113,9 +121,20 @@ export interface WorldDesignerHost {
         clearFirst?: boolean,
         targetSize?: number
     ): boolean;
+    drawCustomPalettePreview(
+        ctx: CanvasRenderingContext2D,
+        type: string,
+        paletteDefinition: PaletteDefinition,
+        rotation?: number,
+        clearFirst?: boolean,
+        targetSize?: number
+    ): boolean;
+    getPaletteDefinitions(): PaletteDefinition[];
+    getColorAliases(): Record<string, [number, number, number]>;
     getPaletteCount(): number;
     clampCamera(camera: Position): Position;
     saveWorldData(data: RawWorldData): Promise<void>;
+    savePaletteDefinitions(palettes: PaletteDefinition[], worldData?: RawWorldData): Promise<void>;
 }
 
 export interface WorldDesigner {
@@ -155,7 +174,7 @@ type ClipboardEntry = {
 };
 
 type SavePreviewFile = {
-    key: keyof RawWorldData;
+    key: keyof RawWorldData | 'palettes';
     label: string;
     changed: boolean;
     json: string;
@@ -184,6 +203,9 @@ type PersistedDesignerUiState = {
     spritePickerOpen: boolean;
     viewportExpanded: boolean;
     soundEnabled: boolean;
+    paletteDesignerOpen: boolean;
+    selectedPaletteIndex: number;
+    palettePreviewType: string;
 };
 
 type ContextMenuState = {
@@ -232,6 +254,11 @@ type DesignerState = {
     pickerDragCanvas: Position | null;
     savePreviewOpen: boolean;
     viewportExpanded: boolean;
+    paletteDesignerOpen: boolean;
+    selectedPaletteIndex: number;
+    palettePreviewType: string;
+    paletteDefinitions: PaletteDefinition[];
+    lastSavedPaletteDefinitions: PaletteDefinition[];
     contextMenu: ContextMenuState;
     suppressContextMenuOnce: boolean;
     undoStack: RawWorldData[];
@@ -258,6 +285,7 @@ type ControlRefs = {
     inspector: HTMLDivElement;
     overviewCanvas: HTMLCanvasElement;
     activeToggle: HTMLButtonElement;
+    paletteDesignerToggle: HTMLButtonElement;
     savePreviewButton: HTMLButtonElement;
     deleteButton: HTMLButtonElement;
     duplicateButton: HTMLButtonElement;
@@ -279,6 +307,18 @@ type ControlRefs = {
     modalConfirm: HTMLButtonElement;
     contextMenu: HTMLDivElement;
     contextMenuBody: HTMLDivElement;
+    paletteFlyout: HTMLDivElement;
+    paletteFlyoutClose: HTMLButtonElement;
+    paletteList: HTMLSelectElement;
+    paletteUsage: HTMLDivElement;
+    palettePreviewCanvas: HTMLCanvasElement;
+    palettePreviewTypeSelect: HTMLSelectElement;
+    paletteMappings: HTMLDivElement;
+    paletteNewButton: HTMLButtonElement;
+    paletteCloneButton: HTMLButtonElement;
+    paletteDeleteButton: HTMLButtonElement;
+    paletteAddMappingButton: HTMLButtonElement;
+    paletteSaveButton: HTMLButtonElement;
 };
 
 const HISTORY_LIMIT = 100;
@@ -300,6 +340,7 @@ const SAVE_FILE_LABELS: Record<keyof RawWorldData, string> = {
     collectables: 'collectables.json',
     astronautStart: 'astronaut_start.json'
 };
+const PALETTE_FILE_LABEL = 'palettes.json';
 
 function clamp(value: number, min: number, max: number) {
     return Math.min(Math.max(value, min), max);
@@ -389,6 +430,7 @@ function toCollectableData(collectable: any): CollectableSaveData {
         collected: collectable.collected ?? false,
         name: collectable.name ?? '',
         weight: typeof collectable.weight === 'number' ? collectable.weight : 0,
+        pickupEnabled: collectable.pickupEnabled ?? true,
         storable: collectable.storable ?? false,
         affectsAstronaut: collectable.affectsAstronaut ?? true,
         collision: collectable.collision !== false,
@@ -874,7 +916,43 @@ function createDesignerStyles() {
         .world-designer-hidden {
             display: none !important;
         }
-    `;
+        .world-designer-flyout {
+            position: fixed;
+            top: 8px;
+            right: 384px;
+            width: 360px;
+            max-height: calc(100vh - 16px);
+            overflow: auto;
+            z-index: 9998;
+            background: rgba(10, 16, 22, 0.96);
+            color: #f1f5f9;
+            border: 1px solid rgba(148, 163, 184, 0.4);
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+            padding: 12px;
+            backdrop-filter: blur(10px);
+        }
+        .world-designer-flyout-hidden {
+            display: none !important;
+        }
+        .world-designer-palette-preview {
+            width: 100%;
+            height: 120px;
+        }
+        .world-designer-palette-list {
+            min-height: 160px;
+        }
+        .world-designer-palette-mappings {
+            display: grid;
+            gap: 8px;
+        }
+        .world-designer-palette-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+            gap: 8px;
+            align-items: end;
+        }
+        `;
     document.head.appendChild(style);
     return style;
 }
@@ -888,7 +966,10 @@ function clearPreviewCanvas(canvas: HTMLCanvasElement) {
 export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     const spriteTypes = [...host.getSpriteTypes()].sort();
     const spriteCatalog = host.getSpriteCatalog();
-    const paletteCount = Math.max(host.getPaletteCount(), 1);
+    const colorAliasNames = Object.keys(host.getColorAliases());
+    let paletteCount = Math.max(host.getPaletteCount(), 1);
+    const initialPaletteDefinitions = deepClone(host.getPaletteDefinitions());
+    paletteCount = Math.max(paletteCount, initialPaletteDefinitions.length, 1);
     const styles = createDesignerStyles();
     const initialSnapshot = serializeWorldData(host.getRawWorldData());
     const loadPersistedState = (): PersistedDesignerUiState | null => {
@@ -922,6 +1003,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         })
         : host.clampCamera({ x: 0, y: 0 });
     const restoredViewportExpanded = persistedState?.viewportExpanded === true;
+    const palettePreviewType = spriteTypes.includes(persistedState?.palettePreviewType ?? '')
+        ? persistedState!.palettePreviewType
+        : defaultTypeByCategory.world;
     if (typeof persistedState?.soundEnabled === 'boolean') {
         host.setSoundEnabled(persistedState.soundEnabled);
     }
@@ -967,6 +1051,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         pickerDragCanvas: null,
         savePreviewOpen: false,
         viewportExpanded: false,
+        paletteDesignerOpen: persistedState?.paletteDesignerOpen ?? false,
+        selectedPaletteIndex: clamp(typeof persistedState?.selectedPaletteIndex === 'number' ? persistedState.selectedPaletteIndex : 0, 0, paletteCount - 1),
+        palettePreviewType,
+        paletteDefinitions: initialPaletteDefinitions,
+        lastSavedPaletteDefinitions: deepClone(initialPaletteDefinitions),
         contextMenu: {
             screen: null,
             world: null,
@@ -1018,7 +1107,13 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     </details>
                 </div>
                 <label class="world-designer-field">Rotation<select data-role="rotation"></select></label>
-                <label class="world-designer-field">Palette<select data-role="palette"></select></label>
+                <div class="world-designer-field">
+                    <label>Palette</label>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <select data-role="palette" style="flex:1 1 auto;"></select>
+                        <button type="button" data-role="palette-designer-toggle">Edit</button>
+                    </div>
+                </div>
             </div>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="snap" /> Snap rough placement to 32px grid</label>
             <label class="world-designer-field">Arrow-key nudge size<input type="number" min="1" max="64" step="1" value="1" data-role="nudge" /></label>
@@ -1090,6 +1185,37 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     contextMenu.innerHTML = '<div data-role="context-menu-body"></div>';
     document.body.appendChild(contextMenu);
 
+    const paletteFlyout = document.createElement('div');
+    paletteFlyout.className = 'world-designer-flyout world-designer-flyout-hidden';
+    paletteFlyout.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+            <h2 style="margin:0;">Palette Designer</h2>
+            <button type="button" data-role="palette-flyout-close">Close</button>
+        </div>
+        <div class="world-designer-summary" data-role="palette-usage"></div>
+        <div class="world-designer-grid">
+            <label class="world-designer-field world-designer-grid-wide">Palette<select class="world-designer-palette-list" size="8" data-role="palette-list"></select></label>
+            <div class="world-designer-actions world-designer-grid-wide">
+                <button type="button" data-role="palette-new">New</button>
+                <button type="button" data-role="palette-clone">Clone</button>
+                <button type="button" data-role="palette-delete">Delete</button>
+                <button type="button" data-role="palette-save">Save palettes</button>
+            </div>
+            <label class="world-designer-field world-designer-grid-wide">Preview sprite<select data-role="palette-preview-type"></select></label>
+            <div class="world-designer-grid-wide">
+                <canvas class="world-designer-sprite-canvas world-designer-palette-preview" data-role="palette-preview-canvas" width="320" height="120"></canvas>
+            </div>
+        </div>
+        <div class="world-designer-section">
+            <h3>Color remaps</h3>
+            <div class="world-designer-palette-mappings" data-role="palette-mappings"></div>
+            <div class="world-designer-actions" style="margin-top:8px;">
+                <button type="button" data-role="palette-add-mapping">Add remap</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(paletteFlyout);
+
     const refs: ControlRefs = {
         root,
         modeSelect: root.querySelector('[data-role="mode"]') as HTMLSelectElement,
@@ -1109,6 +1235,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         inspector: root.querySelector('[data-role="inspector"]') as HTMLDivElement,
         overviewCanvas: root.querySelector('[data-role="overview"]') as HTMLCanvasElement,
         activeToggle: root.querySelector('[data-role="active-toggle"]') as HTMLButtonElement,
+        paletteDesignerToggle: root.querySelector('[data-role="palette-designer-toggle"]') as HTMLButtonElement,
         savePreviewButton: root.querySelector('[data-role="save-preview"]') as HTMLButtonElement,
         deleteButton: root.querySelector('[data-role="delete"]') as HTMLButtonElement,
         duplicateButton: root.querySelector('[data-role="duplicate"]') as HTMLButtonElement,
@@ -1135,7 +1262,19 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         modalClose: modal.querySelector('[data-role="modal-close"]') as HTMLButtonElement,
         modalConfirm: modal.querySelector('[data-role="modal-confirm"]') as HTMLButtonElement,
         contextMenu,
-        contextMenuBody: contextMenu.querySelector('[data-role="context-menu-body"]') as HTMLDivElement
+        contextMenuBody: contextMenu.querySelector('[data-role="context-menu-body"]') as HTMLDivElement,
+        paletteFlyout,
+        paletteFlyoutClose: paletteFlyout.querySelector('[data-role="palette-flyout-close"]') as HTMLButtonElement,
+        paletteList: paletteFlyout.querySelector('[data-role="palette-list"]') as HTMLSelectElement,
+        paletteUsage: paletteFlyout.querySelector('[data-role="palette-usage"]') as HTMLDivElement,
+        palettePreviewCanvas: paletteFlyout.querySelector('[data-role="palette-preview-canvas"]') as HTMLCanvasElement,
+        palettePreviewTypeSelect: paletteFlyout.querySelector('[data-role="palette-preview-type"]') as HTMLSelectElement,
+        paletteMappings: paletteFlyout.querySelector('[data-role="palette-mappings"]') as HTMLDivElement,
+        paletteNewButton: paletteFlyout.querySelector('[data-role="palette-new"]') as HTMLButtonElement,
+        paletteCloneButton: paletteFlyout.querySelector('[data-role="palette-clone"]') as HTMLButtonElement,
+        paletteDeleteButton: paletteFlyout.querySelector('[data-role="palette-delete"]') as HTMLButtonElement,
+        paletteAddMappingButton: paletteFlyout.querySelector('[data-role="palette-add-mapping"]') as HTMLButtonElement,
+        paletteSaveButton: paletteFlyout.querySelector('[data-role="palette-save"]') as HTMLButtonElement
     };
     const spritePickerButtons = new Map<string, HTMLButtonElement>();
     const dragGhostPadding = 8;
@@ -1181,7 +1320,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 hasOpenedOnce: state.hasOpenedOnce,
                 spritePickerOpen: state.spritePickerOpen,
                 viewportExpanded: state.viewportExpanded,
-                soundEnabled: host.getSoundEnabled()
+                soundEnabled: host.getSoundEnabled(),
+                paletteDesignerOpen: state.paletteDesignerOpen,
+                selectedPaletteIndex: state.selectedPaletteIndex,
+                palettePreviewType: state.palettePreviewType
             };
             window.localStorage.setItem(DESIGNER_STATE_STORAGE_KEY, JSON.stringify(payload));
         } catch {
@@ -1219,6 +1361,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.typeSelect.innerHTML = spriteTypes
             .map((type) => `<option value="${type}">${type}</option>`)
             .join('');
+        refs.palettePreviewTypeSelect.innerHTML = spriteTypes
+            .map((type) => `<option value="${type}">${type}</option>`)
+            .join('');
         refs.rotationSelect.innerHTML = Array.from({ length: 7 }, (_, index) => {
             const value = index + 1;
             return `<option value="${value}">${value}</option>`;
@@ -1226,6 +1371,232 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.paletteSelect.innerHTML = Array.from({ length: paletteCount }, (_, index) => {
             return `<option value="${index}">${index}</option>`;
         }).join('');
+    }
+
+    function syncPaletteCount() {
+        paletteCount = Math.max(state.paletteDefinitions.length, 1);
+        state.palette = clamp(state.palette, 0, paletteCount - 1);
+        state.selectedPaletteIndex = clamp(state.selectedPaletteIndex, 0, paletteCount - 1);
+    }
+
+    function paletteDefinitionsEqual(left: PaletteDefinition[], right: PaletteDefinition[]) {
+        return stableStringify(left) === stableStringify(right);
+    }
+
+    function getPaletteUsageCounts() {
+        const usageCounts = Array.from({ length: paletteCount }, () => 0);
+        const addUsage = (value?: number | null) => {
+            if (typeof value !== 'number' || value < 0 || value >= usageCounts.length) return;
+            usageCounts[value] += 1;
+        };
+        const data = host.getRawWorldData();
+        for (const block of data.worldMap) addUsage(typeof block.palette === 'number' ? block.palette : 0);
+        for (const button of data.buttons) {
+            addUsage(typeof button.palette === 'number' ? button.palette : 0);
+            addUsage(typeof button.boxPalette === 'number' ? button.boxPalette : null);
+        }
+        for (const door of data.doors) {
+            addUsage(typeof door.palette === 'number' ? door.palette : 0);
+            addUsage(typeof door.palette_locked === 'number' ? door.palette_locked : null);
+            addUsage(typeof door.palette_unlocked === 'number' ? door.palette_unlocked : null);
+        }
+        for (const creature of data.creatures) addUsage(typeof creature.palette === 'number' ? creature.palette : 0);
+        for (const collectable of data.collectables) addUsage(typeof collectable.palette === 'number' ? collectable.palette : 0);
+        return usageCounts;
+    }
+
+    function shiftPaletteReferences(snapshot: RawWorldData, removedIndex: number) {
+        const adjust = (value?: number | null) => {
+            if (typeof value !== 'number') return value;
+            return value > removedIndex ? value - 1 : value;
+        };
+        const nextSnapshot = deepClone(snapshot);
+        nextSnapshot.worldMap.forEach((block) => {
+            if (typeof block.palette === 'number') {
+                block.palette = adjust(block.palette) as number;
+            }
+        });
+        nextSnapshot.buttons.forEach((button) => {
+            if (typeof button.palette === 'number') button.palette = adjust(button.palette) as number;
+            if (typeof button.boxPalette === 'number') button.boxPalette = adjust(button.boxPalette) as number;
+        });
+        nextSnapshot.doors.forEach((door) => {
+            if (typeof door.palette === 'number') door.palette = adjust(door.palette) as number;
+            if (typeof door.palette_locked === 'number') door.palette_locked = adjust(door.palette_locked) as number;
+            if (typeof door.palette_unlocked === 'number') door.palette_unlocked = adjust(door.palette_unlocked) as number;
+        });
+        nextSnapshot.creatures.forEach((creature) => {
+            if (typeof creature.palette === 'number') creature.palette = adjust(creature.palette) as number;
+        });
+        nextSnapshot.collectables.forEach((collectable) => {
+            if (typeof collectable.palette === 'number') collectable.palette = adjust(collectable.palette) as number;
+        });
+        return nextSnapshot;
+    }
+
+    function renderPalettePreview() {
+        const paletteDefinition = state.paletteDefinitions[state.selectedPaletteIndex] ?? [];
+        const ctx = refs.palettePreviewCanvas.getContext('2d');
+        if (!ctx) return;
+        host.drawCustomPalettePreview(ctx, state.palettePreviewType, paletteDefinition, 1, true);
+    }
+
+    function updatePaletteUsageSummary() {
+        const usageCounts = getPaletteUsageCounts();
+        const selectedUsage = usageCounts[state.selectedPaletteIndex] ?? 0;
+        refs.paletteUsage.textContent = `Palette ${state.selectedPaletteIndex} — ${selectedUsage} object${selectedUsage === 1 ? '' : 's'} currently use this index.${paletteDefinitionsEqual(state.paletteDefinitions, state.lastSavedPaletteDefinitions) ? '' : ' Unsaved palette changes.'}`;
+    }
+
+    function renderPaletteMappings() {
+        refs.paletteMappings.innerHTML = '';
+        const paletteDefinition = state.paletteDefinitions[state.selectedPaletteIndex] ?? [];
+        for (const [index, entry] of paletteDefinition.entries()) {
+            const row = document.createElement('div');
+            row.className = 'world-designer-palette-row';
+
+            const fromField = document.createElement('label');
+            fromField.className = 'world-designer-field';
+            fromField.textContent = 'Base color';
+            const fromSelect = document.createElement('select');
+            fromSelect.innerHTML = colorAliasNames.map((name) => `<option value="${name}">${name}</option>`).join('');
+            fromSelect.value = entry.from;
+            fromSelect.addEventListener('change', () => {
+                paletteDefinition[index].from = fromSelect.value;
+                renderPalettePreview();
+                updatePaletteUsageSummary();
+            });
+            fromField.appendChild(fromSelect);
+
+            const toField = document.createElement('label');
+            toField.className = 'world-designer-field';
+            toField.textContent = 'New color';
+            const toSelect = document.createElement('select');
+            toSelect.innerHTML = colorAliasNames.map((name) => `<option value="${name}">${name}</option>`).join('');
+            toSelect.value = entry.to;
+            toSelect.addEventListener('change', () => {
+                paletteDefinition[index].to = toSelect.value;
+                renderPalettePreview();
+                updatePaletteUsageSummary();
+            });
+            toField.appendChild(toSelect);
+
+            const removeButton = document.createElement('button');
+            removeButton.type = 'button';
+            removeButton.textContent = 'Remove';
+            removeButton.addEventListener('click', () => {
+                paletteDefinition.splice(index, 1);
+                refreshPaletteDesigner();
+            });
+
+            row.appendChild(fromField);
+            row.appendChild(toField);
+            row.appendChild(removeButton);
+            refs.paletteMappings.appendChild(row);
+        }
+    }
+
+    function refreshPaletteDesigner() {
+        syncPaletteCount();
+        const usageCounts = getPaletteUsageCounts();
+        refs.paletteFlyout.classList.toggle('world-designer-flyout-hidden', !state.paletteDesignerOpen || !state.active);
+        refs.paletteDesignerToggle.textContent = state.paletteDesignerOpen ? 'Palettes ✓' : 'Palettes';
+        refs.palettePreviewTypeSelect.value = state.palettePreviewType;
+        refs.paletteList.innerHTML = state.paletteDefinitions
+            .map((_, index) => `<option value="${index}">Palette ${index} (${usageCounts[index] ?? 0} use${(usageCounts[index] ?? 0) === 1 ? '' : 's'})</option>`)
+            .join('');
+        refs.paletteList.value = String(state.selectedPaletteIndex);
+        refs.paletteCloneButton.disabled = state.paletteDefinitions.length === 0;
+        refs.paletteDeleteButton.disabled = state.paletteDefinitions.length <= 1;
+        renderPaletteMappings();
+        renderPalettePreview();
+        updatePaletteUsageSummary();
+    }
+
+    function createNewPalette() {
+        state.paletteDefinitions.push([]);
+        syncPaletteCount();
+        state.selectedPaletteIndex = state.paletteDefinitions.length - 1;
+        state.palette = clamp(state.palette, 0, paletteCount - 1);
+        refreshSelectOptions();
+        refreshPaletteDesigner();
+        refreshPanel();
+    }
+
+    function cloneSelectedPalette() {
+        const paletteDefinition = state.paletteDefinitions[state.selectedPaletteIndex];
+        if (!paletteDefinition) return;
+        state.paletteDefinitions.push(deepClone(paletteDefinition));
+        syncPaletteCount();
+        state.selectedPaletteIndex = state.paletteDefinitions.length - 1;
+        refreshSelectOptions();
+        refreshPaletteDesigner();
+        refreshPanel();
+    }
+
+    async function deleteSelectedPalette() {
+        if (state.paletteDefinitions.length <= 1) {
+            setStatus('At least one palette must remain.', 'error');
+            return;
+        }
+        const usageCounts = getPaletteUsageCounts();
+        const removedIndex = state.selectedPaletteIndex;
+        if ((usageCounts[removedIndex] ?? 0) > 0) {
+            setStatus('Cannot delete a palette that is currently in use.', 'error');
+            return;
+        }
+
+        let worldDataToSave: RawWorldData | undefined;
+        if (removedIndex < state.paletteDefinitions.length - 1) {
+            if (state.dirty) {
+                setStatus('Save world changes before deleting a middle palette.', 'error');
+                return;
+            }
+            worldDataToSave = shiftPaletteReferences(getSnapshot(), removedIndex);
+        }
+
+        const nextPaletteDefinitions = state.paletteDefinitions.filter((_, index) => index !== removedIndex);
+        try {
+            setStatus('Saving palette changes...', 'neutral');
+            await host.savePaletteDefinitions(nextPaletteDefinitions, worldDataToSave);
+            state.paletteDefinitions = deepClone(nextPaletteDefinitions);
+            state.lastSavedPaletteDefinitions = deepClone(nextPaletteDefinitions);
+            if (worldDataToSave) {
+                host.replaceRawWorldData(worldDataToSave);
+                state.selection = null;
+                state.selectedItems = [];
+                state.lastSavedSnapshot = serializeWorldData(worldDataToSave);
+                updateDirtyState();
+            }
+            syncPaletteCount();
+            state.selectedPaletteIndex = clamp(state.selectedPaletteIndex, 0, paletteCount - 1);
+            refreshSelectOptions();
+            refreshPaletteDesigner();
+            refreshPanel();
+            setStatus('Deleted palette and saved palette assets.', 'success');
+        } catch (error) {
+            setStatus(
+                error instanceof Error ? error.message : 'Failed to delete palette.',
+                'error'
+            );
+        }
+    }
+
+    async function savePaletteDesigner() {
+        try {
+            setStatus('Saving palette definitions...', 'neutral');
+            await host.savePaletteDefinitions(state.paletteDefinitions);
+            state.lastSavedPaletteDefinitions = deepClone(state.paletteDefinitions);
+            syncPaletteCount();
+            refreshSelectOptions();
+            refreshPaletteDesigner();
+            refreshPanel();
+            setStatus('Saved palette definitions.', 'success');
+        } catch (error) {
+            setStatus(
+                error instanceof Error ? error.message : 'Failed to save palette definitions.',
+                'error'
+            );
+        }
     }
 
     function renderSpritePreviewCanvas(canvas: HTMLCanvasElement, type: string, palette: number, rotation: number) {
@@ -1338,6 +1709,15 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         return getSelectedItems().some((item) => areSameSelection(item, selection));
     }
 
+    function syncPalettePreviewTypeFromSelection(selection: Selection | null) {
+        if (!state.paletteDesignerOpen || !selection) {
+            return;
+        }
+        if (spriteTypes.includes(selection.entity.type)) {
+            state.palettePreviewType = selection.entity.type;
+        }
+    }
+
     function setSelections(selections: Selection[], primary: Selection | null = selections[0] ?? null) {
         state.selectedItems = selections;
         state.selection = primary;
@@ -1347,6 +1727,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             state.palette = primary.entity.palette ?? 0;
             state.typeByCategory[primary.category] = primary.entity.type;
         }
+        syncPalettePreviewTypeFromSelection(primary);
         refreshPanel();
     }
 
@@ -1771,6 +2152,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             rotation: state.rotation,
             name: type,
             weight: 0.2,
+            pickupEnabled: true,
             storable: true,
             affectsAstronaut: true,
             collision: true,
@@ -2042,6 +2424,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const errors: string[] = [];
         const spriteTypeSet = new Set(spriteTypes);
         const paletteMax = paletteCount - 1;
+        const palettesChanged = !paletteDefinitionsEqual(state.paletteDefinitions, state.lastSavedPaletteDefinitions);
 
         const doorIds = new Set<number>();
         const duplicateDoorIds = new Set<number>();
@@ -2084,7 +2467,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             errors.push('Astronaut start position must have numeric x and y values.');
         }
 
-        const files = (Object.keys(snapshot) as Array<keyof RawWorldData>).map((key) => {
+        const files: SavePreviewFile[] = (Object.keys(snapshot) as Array<keyof RawWorldData>).map((key) => {
             const currentJson = stableStringify(snapshot[key]);
             const previousJson = stableStringify(state.lastSavedSnapshot[key]);
             return {
@@ -2093,6 +2476,12 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 changed: currentJson !== previousJson,
                 json: currentJson
             };
+        });
+        files.push({
+            key: 'palettes',
+            label: PALETTE_FILE_LABEL,
+            changed: palettesChanged,
+            json: stableStringify(state.paletteDefinitions)
         });
 
         return { files, errors };
@@ -2152,8 +2541,18 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const astronautStartChanged =
             snapshot.astronautStart.x !== state.lastSavedSnapshot.astronautStart.x ||
             snapshot.astronautStart.y !== state.lastSavedSnapshot.astronautStart.y;
+        const palettesChanged = !paletteDefinitionsEqual(state.paletteDefinitions, state.lastSavedPaletteDefinitions);
+        const worldChanged = !snapshotsEqual(snapshot, state.lastSavedSnapshot);
         try {
-            await host.saveWorldData(snapshot);
+            if (palettesChanged) {
+                await host.savePaletteDefinitions(state.paletteDefinitions, worldChanged ? snapshot : undefined);
+                state.lastSavedPaletteDefinitions = deepClone(state.paletteDefinitions);
+                syncPaletteCount();
+                refreshSelectOptions();
+                refreshPaletteDesigner();
+            } else {
+                await host.saveWorldData(snapshot);
+            }
             state.lastSavedSnapshot = snapshot;
             if (!astronautStartChanged) {
                 host.resetAstronautToPosition(liveAstronautPosition);
@@ -2503,6 +2902,16 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     entity.weight = Number.isFinite(value) ? value : 0;
                 });
             }, 0.1);
+            addCheckboxInspector(container, 'Can be picked up', entity.pickupEnabled ?? true, (checked) => {
+                runMutation('Updated pickup-enabled flag.', () => {
+                    entity.pickupEnabled = checked;
+                    if (!checked) {
+                        entity.storable = false;
+                        entity.held = false;
+                        entity.stored = false;
+                    }
+                });
+            });
             addCheckboxInspector(container, 'Collected by default', entity.collected ?? false, (checked) => {
                 runMutation('Updated collectable state.', () => {
                     entity.collected = checked;
@@ -2511,6 +2920,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             addCheckboxInspector(container, 'Storable', entity.storable ?? false, (checked) => {
                 runMutation('Updated storable flag.', () => {
                     entity.storable = checked;
+                    if (checked) {
+                        entity.pickupEnabled = true;
+                    }
                 });
             });
             addCheckboxInspector(container, 'Affects astronaut', entity.affectsAstronaut ?? true, (checked) => {
@@ -2548,6 +2960,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         renderSpritePickerGrid();
         updateSelectionSummary();
         refreshInspector();
+        refreshPaletteDesigner();
         refreshStatus();
         persistDesignerUiState();
     }
@@ -2635,6 +3048,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     rotation: normalizeRotation(block.rotation),
                     name: block.type,
                     weight: 0.2,
+                    pickupEnabled: true,
                     storable: true,
                     affectsAstronaut: true,
                     collision: block.collision !== false,
@@ -3186,6 +3600,41 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     refs.activeToggle.addEventListener('click', () => {
         setDesignerActive(!state.active);
     });
+    refs.paletteDesignerToggle.addEventListener('click', () => {
+        state.paletteDesignerOpen = !state.paletteDesignerOpen;
+        refreshPanel();
+    });
+    refs.paletteFlyoutClose.addEventListener('click', () => {
+        state.paletteDesignerOpen = false;
+        refreshPanel();
+    });
+    refs.paletteList.addEventListener('change', () => {
+        state.selectedPaletteIndex = clamp(Number(refs.paletteList.value) || 0, 0, paletteCount - 1);
+        refreshPaletteDesigner();
+        persistDesignerUiState();
+    });
+    refs.palettePreviewTypeSelect.addEventListener('change', () => {
+        state.palettePreviewType = refs.palettePreviewTypeSelect.value;
+        refreshPaletteDesigner();
+        persistDesignerUiState();
+    });
+    refs.paletteNewButton.addEventListener('click', createNewPalette);
+    refs.paletteCloneButton.addEventListener('click', cloneSelectedPalette);
+    refs.paletteDeleteButton.addEventListener('click', () => {
+        void deleteSelectedPalette();
+    });
+    refs.paletteAddMappingButton.addEventListener('click', () => {
+        const paletteDefinition = state.paletteDefinitions[state.selectedPaletteIndex];
+        if (!paletteDefinition) return;
+        paletteDefinition.push({
+            from: colorAliasNames[0] ?? 'White',
+            to: colorAliasNames[0] ?? 'White'
+        });
+        refreshPaletteDesigner();
+    });
+    refs.paletteSaveButton.addEventListener('click', () => {
+        void savePaletteDesigner();
+    });
 
     refs.modeSelect.addEventListener('change', () => {
         state.mode = refs.modeSelect.value as DesignerMode;
@@ -3518,6 +3967,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             window.removeEventListener('resize', resizeExpandedViewport);
             root.remove();
             modal.remove();
+            paletteFlyout.remove();
             styles.remove();
         }
     };

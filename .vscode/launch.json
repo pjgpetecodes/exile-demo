@@ -8,7 +8,8 @@
       "url": "http://localhost:3000",
       "webRoot": "${workspaceFolder}\\astronaut-game",
       "sourceMaps": true,
-      "preLaunchTask": "dev astronaut-game"
+      "preLaunchTask": "dev astronaut-game",
+      "postDebugTask": "stop astronaut-game dev"
     }
   ]
 }

@@ -1,55 +1,145 @@
 [
+  [],
   [
+    {
+      "from": "White",
+      "to": "Yellow"
+    },
+    {
+      "from": "Red",
+      "to": "Magenta"
+    },
+    {
+      "from": "Green",
+      "to": "White"
+    }
   ],
   [
-    { "from": "White", "to": "Yellow" },
-    { "from": "Red", "to": "Magenta" },
-    { "from": "Green", "to": "White" }
+    {
+      "from": "White",
+      "to": "Black"
+    }
   ],
   [
-    { "from": "White", "to": "Black" }
+    {
+      "from": "Green",
+      "to": "Magenta"
+    },
+    {
+      "from": "White",
+      "to": "Yellow"
+    }
   ],
   [
-    { "from": "Green", "to": "Magenta" },
-    { "from": "White", "to": "Yellow" }
+    {
+      "from": "White",
+      "to": "Yellow"
+    },
+    {
+      "from": "Green",
+      "to": "Cyan"
+    }
   ],
   [
-    { "from": "White", "to": "Yellow" },
-    { "from": "Green", "to": "Cyan" }
+    {
+      "from": "Green",
+      "to": "Cyan"
+    }
   ],
   [
-    { "from": "Green", "to": "Cyan" }
+    {
+      "from": "White",
+      "to": "Yellow"
+    },
+    {
+      "from": "Green",
+      "to": "Magenta"
+    }
   ],
   [
-    { "from": "White", "to": "Yellow" },
-    { "from": "Green", "to": "Magenta" }
+    {
+      "from": "White",
+      "to": "Yellow"
+    },
+    {
+      "from": "Green",
+      "to": "Cyan"
+    }
   ],
   [
-    { "from": "White", "to": "Yellow" },
-    { "from": "Green", "to": "Cyan" }
+    {
+      "from": "White",
+      "to": "Magenta"
+    },
+    {
+      "from": "Green",
+      "to": "White"
+    },
+    {
+      "from": "Red",
+      "to": "Yellow"
+    }
   ],
   [
-    { "from": "White", "to": "Magenta"},
-    { "from": "Green", "to": "White" },
-    { "from": "Red", "to": "Yellow" }
+    {
+      "from": "Green",
+      "to": "Yellow"
+    },
+    {
+      "from": "White",
+      "to": "Red"
+    }
   ],
   [
-    { "from": "Green", "to": "Yellow"},
-    { "from": "White", "to": "Red" }
+    {
+      "from": "White",
+      "to": "Blue"
+    },
+    {
+      "from": "Green",
+      "to": "White"
+    },
+    {
+      "from": "Red",
+      "to": "Green"
+    }
   ],
   [
-    { "from": "White", "to": "Blue" },
-    { "from": "Green", "to": "White" },
-    { "from": "Red", "to": "Green" }
+    {
+      "from": "Green",
+      "to": "Yellow"
+    },
+    {
+      "from": "White",
+      "to": "Green"
+    },
+    {
+      "from": "Red",
+      "to": "Cyan"
+    }
   ],
   [
-    { "from": "Green", "to": "Yellow" },
-    { "from": "White", "to": "Green" },
-    { "from": "Red", "to": "Cyan" }
+    {
+      "from": "Green",
+      "to": "Yellow"
+    },
+    {
+      "from": "White",
+      "to": "Black"
+    },
+    {
+      "from": "Red",
+      "to": "Cyan"
+    }
   ],
   [
-    { "from": "Green", "to": "Yellow" },
-    { "from": "White", "to": "Black" },
-    { "from": "Red", "to": "Cyan" }
+    {
+      "from": "White",
+      "to": "Black"
+    },
+    {
+      "from": "Green",
+      "to": "Magenta"
+    }
   ]
 ]

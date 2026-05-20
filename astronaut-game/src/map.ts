@@ -105,6 +105,10 @@ export function getBlockAtWorld(
 // Utility: Cache for filtered sprites (black-to-transparent)
 const filteredSpriteCache = new Map<string, HTMLCanvasElement>();
 
+export function clearMapSpriteCache() {
+    filteredSpriteCache.clear();
+}
+
 // Utility: Build a rect lookup map for fast access
 function buildSpriteRectMap(spriteMap: any) {
     const rectMap: Record<string, any> = {};
