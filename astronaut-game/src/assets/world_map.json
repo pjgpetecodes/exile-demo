@@ -1132,5 +1132,23 @@
     "maskAstronaut": false,
     "palette": 16,
     "rotation": 5
+  },
+  {
+    "x": 4637,
+    "y": 2149,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 16,
+    "rotation": 3
+  },
+  {
+    "x": 4638,
+    "y": 2080,
+    "type": "grass",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 16,
+    "rotation": 6
   }
 ]

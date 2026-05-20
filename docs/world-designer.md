@@ -197,8 +197,11 @@ Useful preview toggles:
 - **Expand viewport to window**
 - **Show collision outlines**
 - **Show sprite outlines (F)**
+- **Show magnifier (X)**
 - **Disable collision during preview**
 - per-layer visibility toggles
+
+The magnifier follows the mouse over the main canvas so you can inspect individual pixels more easily while authoring or previewing.
 
 For **world items**, **Collision enabled** and **Mask astronaut** are separate controls. A decorative sprite can be non-colliding and still draw in front of the astronaut when masking is enabled. `black_background` items default to staying behind the astronaut unless you explicitly enable masking.
 
@@ -292,6 +295,7 @@ After multi-selecting:
 - **Shift+Arrow** = larger nudge
 - **G** = toggle grid snap
 - **F** = toggle sprite outlines
+- **X** = toggle magnifier
 - **Alt+Enter** = toggle expanded viewport, even if the designer panel is hidden
 - **Ctrl+S** = preview before save
 - **Ctrl+Z** = undo

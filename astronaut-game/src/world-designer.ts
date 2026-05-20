@@ -202,6 +202,7 @@ type PersistedDesignerUiState = {
     hasOpenedOnce: boolean;
     spritePickerOpen: boolean;
     spritePickerFilter: string;
+    magnifierEnabled: boolean;
     viewportExpanded: boolean;
     soundEnabled: boolean;
     paletteDesignerOpen: boolean;
@@ -252,6 +253,7 @@ type DesignerState = {
     hasOpenedOnce: boolean;
     spritePickerOpen: boolean;
     spritePickerFilter: string;
+    magnifierEnabled: boolean;
     pickerDrag: PickerDrag | null;
     pickerDragCanvas: Position | null;
     savePreviewOpen: boolean;
@@ -302,6 +304,7 @@ type ControlRefs = {
     setAstronautStartButton: HTMLButtonElement;
     showCollisionCheckbox: HTMLInputElement;
     showSpriteOutlineCheckbox: HTMLInputElement;
+    magnifierCheckbox: HTMLInputElement;
     disablePreviewCollisionCheckbox: HTMLInputElement;
     layerCheckboxes: Record<DesignerCategory, HTMLInputElement>;
     modal: HTMLDivElement;
@@ -327,6 +330,9 @@ type ControlRefs = {
 const HISTORY_LIMIT = 100;
 const TILE_SIZE = 32 * SPRITE_SCALE;
 const DESIGNER_STATE_STORAGE_KEY = 'exile.world-designer-state.v1';
+const MAGNIFIER_SIZE = 160;
+const MAGNIFIER_ZOOM = 6;
+const MAGNIFIER_CURSOR_OFFSET = 26;
 const CATEGORY_LABELS: Record<DesignerCategory, string> = {
     world: 'World items',
     buttons: 'Buttons',
@@ -1059,6 +1065,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         hasOpenedOnce: persistedState?.hasOpenedOnce ?? (persistedState?.active ?? false),
         spritePickerOpen: persistedState?.spritePickerOpen ?? false,
         spritePickerFilter: persistedState?.spritePickerFilter ?? '',
+        magnifierEnabled: persistedState?.magnifierEnabled ?? true,
         pickerDrag: null,
         pickerDragCanvas: null,
         savePreviewOpen: false,
@@ -1153,6 +1160,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             <label class="world-designer-checkbox"><input type="checkbox" data-role="expand-viewport" /> Expand viewport to window</label>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="show-collision" /> Show collision outlines</label>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="show-sprite-outlines" /> Show sprite outlines (F)</label>
+            <label class="world-designer-checkbox"><input type="checkbox" data-role="magnifier-enabled" /> Show magnifier</label>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="disable-preview-collision" /> Disable collision during preview</label>
             <div class="world-designer-grid">
                 <label class="world-designer-checkbox"><input type="checkbox" checked data-layer="world" /> World</label>
@@ -1170,7 +1178,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 <li><strong>Alt+Enter</strong> toggle expanded viewport</li>
                 <li><strong>R</strong> rotate selection, <strong>Delete</strong> remove selection, <strong>Ctrl+C</strong> copy, <strong>Ctrl+V</strong> paste, <strong>Ctrl+D</strong> duplicate</li>
                 <li><strong>Arrow keys</strong> nudge selected item, <strong>Shift+Arrow</strong> larger nudge</li>
-                <li><strong>F</strong> toggle sprite outlines, <strong>G</strong> toggle grid snap, <strong>Ctrl+S</strong> preview before save</li>
+                <li><strong>F</strong> toggle sprite outlines, <strong>G</strong> toggle grid snap, <strong>X</strong> toggle magnifier, <strong>Ctrl+S</strong> preview before save</li>
                 <li><strong>Ctrl+Z</strong> undo, <strong>Ctrl+Y</strong> or <strong>Ctrl+Shift+Z</strong> redo</li>
             </ul>
         </div>
@@ -1228,6 +1236,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         </div>
     `;
     document.body.appendChild(paletteFlyout);
+    const magnifierCanvas = document.createElement('canvas');
+    magnifierCanvas.width = Math.max(1, Math.round(MAGNIFIER_SIZE / MAGNIFIER_ZOOM));
+    magnifierCanvas.height = Math.max(1, Math.round(MAGNIFIER_SIZE / MAGNIFIER_ZOOM));
 
     const refs: ControlRefs = {
         root,
@@ -1263,6 +1274,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         setAstronautStartButton: root.querySelector('[data-role="set-start"]') as HTMLButtonElement,
         showCollisionCheckbox: root.querySelector('[data-role="show-collision"]') as HTMLInputElement,
         showSpriteOutlineCheckbox: root.querySelector('[data-role="show-sprite-outlines"]') as HTMLInputElement,
+        magnifierCheckbox: root.querySelector('[data-role="magnifier-enabled"]') as HTMLInputElement,
         disablePreviewCollisionCheckbox: root.querySelector('[data-role="disable-preview-collision"]') as HTMLInputElement,
         layerCheckboxes: {
             world: root.querySelector('[data-layer="world"]') as HTMLInputElement,
@@ -1334,6 +1346,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 hasOpenedOnce: state.hasOpenedOnce,
                 spritePickerOpen: state.spritePickerOpen,
                 spritePickerFilter: state.spritePickerFilter,
+                magnifierEnabled: state.magnifierEnabled,
                 viewportExpanded: state.viewportExpanded,
                 soundEnabled: host.getSoundEnabled(),
                 paletteDesignerOpen: state.paletteDesignerOpen,
@@ -1690,6 +1703,97 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 renderSpritePreviewCanvas(canvas, entry.name, state.palette, 1);
             }
         }
+    }
+
+    function drawMagnifier(ctx: CanvasRenderingContext2D) {
+        if (!state.active || !state.magnifierEnabled || !state.lastPointerCanvas) {
+            return;
+        }
+
+        const sampleWidth = magnifierCanvas.width;
+        const sampleHeight = magnifierCanvas.height;
+        const sourceX = clamp(
+            Math.round(state.lastPointerCanvas.x - sampleWidth / 2),
+            0,
+            Math.max(0, host.canvas.width - sampleWidth)
+        );
+        const sourceY = clamp(
+            Math.round(state.lastPointerCanvas.y - sampleHeight / 2),
+            0,
+            Math.max(0, host.canvas.height - sampleHeight)
+        );
+
+        const magnifierCtx = magnifierCanvas.getContext('2d');
+        if (!magnifierCtx) {
+            return;
+        }
+        magnifierCtx.clearRect(0, 0, magnifierCanvas.width, magnifierCanvas.height);
+        magnifierCtx.imageSmoothingEnabled = false;
+        magnifierCtx.drawImage(
+            host.canvas,
+            sourceX,
+            sourceY,
+            sampleWidth,
+            sampleHeight,
+            0,
+            0,
+            magnifierCanvas.width,
+            magnifierCanvas.height
+        );
+
+        const radius = MAGNIFIER_SIZE / 2;
+        const lensX = clamp(
+            state.lastPointerCanvas.x + MAGNIFIER_CURSOR_OFFSET,
+            radius + 8,
+            host.canvas.width - radius - 8
+        );
+        const lensY = clamp(
+            state.lastPointerCanvas.y + MAGNIFIER_CURSOR_OFFSET,
+            radius + 8,
+            host.canvas.height - radius - 8
+        );
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(lensX, lensY, radius, 0, Math.PI * 2);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+        ctx.fill();
+        ctx.clip();
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(
+            magnifierCanvas,
+            0,
+            0,
+            magnifierCanvas.width,
+            magnifierCanvas.height,
+            lensX - radius,
+            lensY - radius,
+            MAGNIFIER_SIZE,
+            MAGNIFIER_SIZE
+        );
+        ctx.restore();
+
+        ctx.save();
+        ctx.strokeStyle = '#f8fafc';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(lensX, lensY, radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(56, 189, 248, 0.95)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(lensX - 12, lensY);
+        ctx.lineTo(lensX + 12, lensY);
+        ctx.moveTo(lensX, lensY - 12);
+        ctx.lineTo(lensX, lensY + 12);
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.78)';
+        ctx.fillRect(lensX - radius, lensY + radius - 22, 72, 20);
+        ctx.fillStyle = '#e2e8f0';
+        ctx.font = '11px system-ui, sans-serif';
+        ctx.fillText(`${MAGNIFIER_ZOOM}x`, lensX - radius + 8, lensY + radius - 8);
+        ctx.restore();
     }
 
     function getCategoryArray(category: DesignerCategory): any[] {
@@ -2966,6 +3070,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.nudgeInput.value = String(state.nudgeAmount);
         refs.showCollisionCheckbox.checked = state.showCollisionOverlay;
         refs.showSpriteOutlineCheckbox.checked = host.getShowSpriteOutlines();
+        refs.magnifierCheckbox.checked = state.magnifierEnabled;
         refs.disablePreviewCollisionCheckbox.checked = state.disableCollisionInPreview;
         refs.disablePreviewCollisionCheckbox.disabled = state.mode !== 'preview';
         refs.spritePicker.open = state.spritePickerOpen;
@@ -3264,13 +3369,19 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function handleCanvasMouseMove(event: MouseEvent) {
-        if (!state.active || state.mode !== 'edit') return;
+        if (!state.active) return;
+        const isOverCanvas = isEventOverCanvas(event);
         if (state.pickerDrag) {
-            state.pickerDragCanvas = isEventOverCanvas(event) ? getCanvasPoint(event) : null;
+            state.pickerDragCanvas = isOverCanvas ? getCanvasPoint(event) : null;
+            return;
+        }
+        if (!isOverCanvas && !state.dragging && !state.panningView && !state.pendingRightPan) {
+            state.lastPointerCanvas = null;
             return;
         }
         const point = getCanvasPoint(event);
         state.lastPointerCanvas = point;
+        if (state.mode !== 'edit') return;
 
         if (state.panningView && state.panStartCanvas && state.panStartCamera) {
             state.camera = host.clampCamera({
@@ -3302,6 +3413,13 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         if (state.dragging) {
             updateDraggedItems(point);
         }
+    }
+
+    function handleCanvasMouseLeave() {
+        if (state.dragging || state.panningView || state.pendingRightPan || state.pickerDrag) {
+            return;
+        }
+        state.lastPointerCanvas = null;
     }
 
     function handleCanvasMouseUp(event?: MouseEvent) {
@@ -3475,6 +3593,15 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             case 'g':
             case 'G':
                 state.snapToGrid = !state.snapToGrid;
+                refreshPanel();
+                event.preventDefault();
+                return;
+            case 'x':
+            case 'X':
+                state.magnifierEnabled = !state.magnifierEnabled;
+                if (!state.magnifierEnabled) {
+                    state.lastPointerCanvas = null;
+                }
                 refreshPanel();
                 event.preventDefault();
                 return;
@@ -3732,6 +3859,13 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     refs.showSpriteOutlineCheckbox.addEventListener('change', () => {
         host.setShowSpriteOutlines(refs.showSpriteOutlineCheckbox.checked);
     });
+    refs.magnifierCheckbox.addEventListener('change', () => {
+        state.magnifierEnabled = refs.magnifierCheckbox.checked;
+        if (!state.magnifierEnabled) {
+            state.lastPointerCanvas = null;
+        }
+        persistDesignerUiState();
+    });
     refs.disablePreviewCollisionCheckbox.addEventListener('change', () => {
         state.disableCollisionInPreview = refs.disablePreviewCollisionCheckbox.checked;
     });
@@ -3813,6 +3947,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     });
     host.canvas.addEventListener('mousedown', handleCanvasMouseDown);
     host.canvas.addEventListener('mousemove', handleCanvasMouseMove);
+    host.canvas.addEventListener('mouseleave', handleCanvasMouseLeave);
     window.addEventListener('mousemove', handleCanvasMouseMove);
     window.addEventListener('mouseup', handleCanvasMouseUp);
     window.addEventListener('keydown', handleKeyDown);
@@ -3976,6 +4111,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             ctx.font = '12px system-ui, sans-serif';
             ctx.fillText('START', startScreenX + 14, startScreenY - 14);
             ctx.restore();
+
+            drawMagnifier(ctx);
         },
         destroy() {
             setViewportExpanded(false);
@@ -3985,6 +4122,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             refs.overviewCanvas.removeEventListener('mouseup', handleOverviewMouseUp);
             host.canvas.removeEventListener('mousedown', handleCanvasMouseDown);
             host.canvas.removeEventListener('mousemove', handleCanvasMouseMove);
+            host.canvas.removeEventListener('mouseleave', handleCanvasMouseLeave);
             window.removeEventListener('mousemove', handleCanvasMouseMove);
             window.removeEventListener('mouseup', handleCanvasMouseUp);
             window.removeEventListener('keydown', handleKeyDown);
