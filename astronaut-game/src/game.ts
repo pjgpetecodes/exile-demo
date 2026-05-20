@@ -15,7 +15,19 @@ import {
     getDynamicObjectPushedVelocity,
     getDynamicObjectPushScale
 } from './object-physics.js';
-import { clearMapSpriteCache, mapBlocks, mapLoaded, loadMapBlocks, drawMap, getBlockAtWorld, shouldMaskAstronaut } from './map.js';
+import {
+    clearMapSpriteCache,
+    mapBlocks,
+    mapLoaded,
+    loadMapBlocks,
+    drawMap,
+    getBlockAtWorld,
+    getBlackBackgroundBlocks,
+    getMapBlocksBehindAstronaut,
+    getMapBlocksMaskAstronaut,
+    getRenderableMapBlocks,
+    rebuildMapBlockRenderCache
+} from './map.js';
 import { initStars, updateAndDrawStars } from './stars.js';
 import { emitJetpackDots, updateAndDrawJetpackDots, resetJetpackDotEmitTimer } from './jetpack.js';
 import { Button } from './button.js';
@@ -481,6 +493,7 @@ function rebuildBlockInstanceBoundingBoxes() {
 function afterWorldDataMutated() {
     syncButtonStatesToDoors();
     syncCollectableRuntimeState();
+    rebuildMapBlockRenderCache();
     rebuildBlockInstanceBoundingBoxes();
 }
 
@@ -1071,11 +1084,16 @@ async function gameLoop() {
         };
     const mapBlocksToDraw = !layerVisibility.world
         ? []
-        : hideBlackBackgroundBlocks
-            ? mapBlocks.filter(b => b.type !== 'black_background')
-            : mapBlocks;
-    const mapBlocksBehindAstronaut = mapBlocksToDraw.filter((block) => !shouldMaskAstronaut(block));
-    const mapBlocksMaskAstronaut = mapBlocksToDraw.filter((block) => shouldMaskAstronaut(block));
+        : getRenderableMapBlocks(hideBlackBackgroundBlocks);
+    const mapBlocksBehindAstronaut = !layerVisibility.world
+        ? []
+        : getMapBlocksBehindAstronaut(hideBlackBackgroundBlocks);
+    const mapBlocksMaskAstronaut = !layerVisibility.world
+        ? []
+        : getMapBlocksMaskAstronaut();
+    const blackBackgroundBlocksToHighlight = showBlackBackgroundBlocks && !hideBlackBackgroundBlocks
+        ? getBlackBackgroundBlocks()
+        : [];
 
     if (spriteSheet && spriteSheet.complete) {
         if (layerVisibility.doors) {
@@ -1090,42 +1108,40 @@ async function gameLoop() {
             ctx!.save();
             ctx!.strokeStyle = 'cyan';
             ctx!.lineWidth = 2;
-            for (const block of mapBlocksToDraw) {
-                if (block.type === 'black_background') {
-                    const bbox = blockInstanceRotatedBoundingBoxes.get(block);
-                    const scale = SPRITE_SCALE;
-                    const tileW = 32 * scale;
-                    const tileH = 32 * scale;
-                    // Center of the sprite
-                    const drawX = block.x - camera.x + tileW / 2;
-                    const drawY = block.y - camera.y + tileH / 2;
-                    ctx!.save();
-                    ctx!.translate(drawX, drawY);
-                    // Apply rotation if present
-                    if (block.rotation) {
-                        if (block.rotation >= 1 && block.rotation <= 4) {
-                            ctx!.rotate(((block.rotation - 1) * Math.PI) / 2);
-                        } else if (block.rotation === 5) {
-                            ctx!.scale(-1, 1);
-                        } else if (block.rotation === 6) {
-                            ctx!.scale(1, -1);
-                        } else if (block.rotation === 7) {
-                            ctx!.scale(-1, -1);
-                        }
+            for (const block of blackBackgroundBlocksToHighlight) {
+                const bbox = blockInstanceRotatedBoundingBoxes.get(block);
+                const scale = SPRITE_SCALE;
+                const tileW = 32 * scale;
+                const tileH = 32 * scale;
+                // Center of the sprite
+                const drawX = block.x - camera.x + tileW / 2;
+                const drawY = block.y - camera.y + tileH / 2;
+                ctx!.save();
+                ctx!.translate(drawX, drawY);
+                // Apply rotation if present
+                if (block.rotation) {
+                    if (block.rotation >= 1 && block.rotation <= 4) {
+                        ctx!.rotate(((block.rotation - 1) * Math.PI) / 2);
+                    } else if (block.rotation === 5) {
+                        ctx!.scale(-1, 1);
+                    } else if (block.rotation === 6) {
+                        ctx!.scale(1, -1);
+                    } else if (block.rotation === 7) {
+                        ctx!.scale(-1, -1);
                     }
-                    // Draw bbox relative to sprite center
-                    if (bbox) {
-                        const x = -tileW / 2 + bbox.minX * scale;
-                        const y = -tileH / 2 + bbox.minY * scale;
-                        const w = bbox.width * scale;
-                        const h = bbox.height * scale;
-                        ctx!.strokeRect(x, y, w, h);
-                    } else {
-                        // fallback: draw full tile
-                        ctx!.strokeRect(-tileW / 2, -tileH / 2, tileW, tileH);
-                    }
-                    ctx!.restore();
                 }
+                // Draw bbox relative to sprite center
+                if (bbox) {
+                    const x = -tileW / 2 + bbox.minX * scale;
+                    const y = -tileH / 2 + bbox.minY * scale;
+                    const w = bbox.width * scale;
+                    const h = bbox.height * scale;
+                    ctx!.strokeRect(x, y, w, h);
+                } else {
+                    // fallback: draw full tile
+                    ctx!.strokeRect(-tileW / 2, -tileH / 2, tileW, tileH);
+                }
+                ctx!.restore();
             }
             ctx!.restore();
         }
@@ -1666,6 +1682,22 @@ async function gameLoop() {
                 walkAnimTimer = 0;
             }
         }
+    } else if (
+        !gameState.astronaut.isLanded &&
+        !keys['q'] && !keys['w'] &&
+        gameState.astronaut.velocity.y < -0.01 &&
+        Math.abs(gameState.astronaut.velocity.x) <= 0.01
+    ) {
+        // Show the upright stand pose while flying straight up.
+        spriteCol = SPRITE_COL_STAND;
+        flipSprite = facingLeft;
+        resetFlyDownAnimationState();
+        walkAnimFrame = SPRITE_COL_WALK_START;
+        walkAnimTimer = 0;
+        flyHoldTimer = 0;
+        flyDir = null;
+        resetFlySwitchAnimationState();
+        rememberLastFlyPose(spriteCol, flipSprite);
     } else if (
         !gameState.astronaut.isLanded &&
         !keys['q'] && !keys['w'] &&

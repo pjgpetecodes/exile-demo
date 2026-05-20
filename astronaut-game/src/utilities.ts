@@ -2,18 +2,40 @@ import { Button } from './button.js';
 import { Door } from './door.js';
 import { resolveAnimatedPaletteIndex } from './palette-cycle.js';
 
-function getSpriteRectByType(spriteMap: any, type: string) {
+const spriteRectMapCache = new WeakMap<object, Record<string, any>>();
+
+function buildSpriteRectMap(spriteMap: any) {
     if (spriteMap instanceof Array) {
+        const rectMap: Record<string, any> = {};
         for (let row = 0; row < spriteMap.length; row++) {
             for (let col = 0; col < spriteMap[row].length; col++) {
-                if (spriteMap[row][col].name === type) {
-                    return spriteMap[row][col];
+                const rect = spriteMap[row][col];
+                if (rect?.name) {
+                    rectMap[rect.name] = rect;
                 }
             }
         }
-        return null;
+        return rectMap;
     }
-    return spriteMap[type] || null;
+    return spriteMap ?? {};
+}
+
+function getSpriteRectMap(spriteMap: any) {
+    if (!spriteMap || typeof spriteMap !== 'object') {
+        return buildSpriteRectMap(spriteMap);
+    }
+    const cachedRectMap = spriteRectMapCache.get(spriteMap);
+    if (cachedRectMap) {
+        return cachedRectMap;
+    }
+    const rectMap = buildSpriteRectMap(spriteMap);
+    spriteRectMapCache.set(spriteMap, rectMap);
+    return rectMap;
+}
+
+function getSpriteRectByType(spriteMap: any, type: string) {
+    const rectMap = getSpriteRectMap(spriteMap);
+    return rectMap[type] || null;
 }
 
 function getEntityRotation(entity: any): number {
@@ -573,10 +595,7 @@ export function drawEntities(
     SPRITE_SCALE: number,
     entities: any[]
 ) {
-    // Build rect lookup map once per draw
-    const rectMap = (spriteMap instanceof Array)
-        ? Object.fromEntries(spriteMap.flat().map((r: any) => [r.name, r]))
-        : spriteMap;
+    const rectMap = getSpriteRectMap(spriteMap);
 
     const tileW = 32 * SPRITE_SCALE;
     const tileH = 32 * SPRITE_SCALE;

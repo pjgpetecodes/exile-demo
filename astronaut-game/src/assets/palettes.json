@@ -197,5 +197,21 @@
       "from": "Red",
       "to": "Green"
     }
+  ],
+  [
+    {
+      "from": "White",
+      "to": "Yellow"
+    },
+    {
+      "from": "Red",
+      "to": "Green"
+    }
+  ],
+  [
+    {
+      "from": "Green",
+      "to": "Yellow"
+    }
   ]
 ]
