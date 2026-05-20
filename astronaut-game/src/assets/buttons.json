@@ -7,7 +7,7 @@
     "boxType": "button_box",
     "boxPalette": 8,
     "rotation": 1,
-    "active": false,
+    "active": true,
     "linkedDoors": [
       0,
       1

@@ -223,6 +223,7 @@ type ControlRefs = {
     duplicateButton: HTMLButtonElement;
     focusButton: HTMLButtonElement;
     convertButton: HTMLButtonElement;
+    focusAstronautButton: HTMLButtonElement;
     addAtCenterButton: HTMLButtonElement;
     setAstronautStartButton: HTMLButtonElement;
     showCollisionCheckbox: HTMLInputElement;
@@ -808,6 +809,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             <label class="world-designer-checkbox"><input type="checkbox" data-role="snap" /> Snap rough placement to 32px grid</label>
             <label class="world-designer-field">Arrow-key nudge size<input type="number" min="1" max="64" step="1" value="1" data-role="nudge" /></label>
             <div class="world-designer-actions">
+                <button type="button" data-role="focus-astronaut">Center on astronaut</button>
                 <button type="button" data-role="add-center">Place at view center</button>
                 <button type="button" data-role="set-start">Set astronaut start to view center</button>
                 <button type="button" data-role="duplicate">Duplicate selection</button>
@@ -890,6 +892,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         duplicateButton: root.querySelector('[data-role="duplicate"]') as HTMLButtonElement,
         focusButton: root.querySelector('[data-role="focus"]') as HTMLButtonElement,
         convertButton: root.querySelector('[data-role="convert"]') as HTMLButtonElement,
+        focusAstronautButton: root.querySelector('[data-role="focus-astronaut"]') as HTMLButtonElement,
         addAtCenterButton: root.querySelector('[data-role="add-center"]') as HTMLButtonElement,
         setAstronautStartButton: root.querySelector('[data-role="set-start"]') as HTMLButtonElement,
         showCollisionCheckbox: root.querySelector('[data-role="show-collision"]') as HTMLInputElement,
@@ -2520,6 +2523,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     refs.duplicateButton.addEventListener('click', duplicateSelection);
     refs.focusButton.addEventListener('click', focusSelection);
     refs.convertButton.addEventListener('click', convertSelection);
+    refs.focusAstronautButton.addEventListener('click', () => {
+        focusOnCurrentWorldPosition();
+        setStatus('Centered view on the astronaut.', 'neutral');
+    });
     refs.addAtCenterButton.addEventListener('click', () => {
         runMutation(`Placed new ${CATEGORY_LABELS[state.category].toLowerCase()} at the view center.`, () => {
             placeAtWorld(

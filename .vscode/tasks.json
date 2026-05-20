@@ -15,7 +15,7 @@
       "problemMatcher": "$tsc"
     },
     {
-      "label": "dev server astronaut-game",
+      "label": "dev astronaut-game",
       "type": "shell",
       "command": "npm run dev",
       "isBackground": true,
@@ -25,28 +25,15 @@
       "problemMatcher": {
         "owner": "custom",
         "pattern": {
-          "regexp": "(.*)",
-          "message": 1
+          "regexp": "^DO_NOT_MATCH_TASK_OUTPUT$",
+          "message": 0
         },
         "background": {
           "activeOnStart": true,
-          "beginsPattern": "Starting compilation in watch mode|\\[Browsersync\\] Access URLs:",
-          "endsPattern": "Found 0 errors\\. Watching for file changes\\."
+          "beginsPattern": ".",
+          "endsPattern": "\\[Browsersync\\] Access URLs:|Found 0 errors\\. Watching for file changes\\."
         }
       }
-    },
-    {
-      "label": "dev astronaut-game",
-      "dependsOrder": "sequence",
-      "dependsOn": [
-        "dev server astronaut-game",
-        "open astronaut-game browser"
-      ]
-    },
-    {
-      "label": "open astronaut-game browser",
-      "type": "shell",
-      "command": "Start-Process 'http://localhost:3001'"
     }
   ]
 }
