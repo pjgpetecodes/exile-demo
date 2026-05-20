@@ -1,12 +1,21 @@
 // Main entry point for the astronaut game
 import { Astronaut, GameState, Position } from './types/index.js';
 import {
-    astronaut, resetAstronaut, flipAstronaut, handleAstronautMovement, applyLandingMomentum, getAstronautCollisionOffsets, setAstronautCollisionProfile,
+    astronaut, resetAstronaut, resetAstronautToPosition, flipAstronaut, handleAstronautMovement, applyLandingMomentum, getAstronautCollisionOffsets, setAstronautCollisionProfile,
+    getAstronautStartPosition, setAstronautStartPosition,
     walkSpeed, facingLeft, upPressed, downPressed, leftPressed, rightPressed,
     checkAstronautCollisions
 } from './astronaut.js';
 import { applyGravity } from './gravity.js';
-import { mapBlocks, mapLoaded, loadMapBlocks, drawMap, getBlockAtWorld } from './map.js';
+import {
+    applyDynamicObjectGravity,
+    applyDynamicObjectGroundFriction,
+    getDynamicObjectBounceRestitution,
+    getDynamicObjectHeadBounceLaunchSpeed,
+    getDynamicObjectPushedVelocity,
+    getDynamicObjectPushScale
+} from './object-physics.js';
+import { clearMapSpriteCache, mapBlocks, mapLoaded, loadMapBlocks, drawMap, getBlockAtWorld, shouldMaskAstronaut } from './map.js';
 import { initStars, updateAndDrawStars } from './stars.js';
 import { emitJetpackDots, updateAndDrawJetpackDots, resetJetpackDotEmitTimer } from './jetpack.js';
 import { Button } from './button.js';
@@ -16,13 +25,23 @@ import { Collectable } from './collectable.js';
 import { makeBlackTransparent, remapSpritePalette, calculateSpriteCollisionBoundingBoxes, 
     calculateAstronautSpriteBoundingBoxes, getSolidBlockAtWorld, getAnyBlockAtWorld, 
     drawEntities } from './utilities.js';
-import { MOVEMENT_SETTINGS } from './settings.js';
+import { MOVEMENT_SETTINGS, VIEWPORT_SETTINGS } from './settings.js';
 import {
     SPRITE_ROW, SPRITE_COL_STAND, SPRITE_COL_FLY_RIGHT, SPRITE_COL_FLY_DIAGONAL,
     SPRITE_COL_FLY_FLOAT, SPRITE_COL_FLY_DOWN, SPRITE_COL_WALK_START, SPRITE_COL_WALK_RIGHT1,
     SPRITE_COL_WALK_RIGHT2, SPRITE_COL_WALK_END, TELEPORT_ANIM_FRAMES, MAP_WIDTH, MAP_HEIGHT,
-    SPRITE_SCALE, rememberSound, teleportSound, buttonOnSound, doorOpenSound, doorCloseSound, getSound, saveSound, ouchSounds
+    SPRITE_SCALE, rememberSound, teleportSound, buttonOnSound, doorOpenSound, doorCloseSound, getSound, saveSound, ouchSounds,
+    getSoundEnabled, setSoundEnabled, toggleSoundEnabled
 } from './constants.js';
+import {
+    createWorldDesigner,
+    LayerVisibility,
+    PaletteDefinition,
+    RawWorldData,
+    SpriteCatalogEntry,
+    SpriteSheetNormalizationReport,
+    WorldDesigner
+} from './world-designer.js';
 
 // Instead of dynamic import, fetch the JSON file at runtime for browser compatibility
 let spriteMap: any;
@@ -32,14 +51,42 @@ async function loadSpriteMap() {
     spriteMap = await res.json();
 }
 
-let palettes: any[] = [];
+let rawPaletteDefinitions: PaletteDefinition[] = [];
+let palettes: Array<{ from: [number, number, number], to: [number, number, number] }[]> = [];
 let remappedSpriteSheets: CanvasImageSource[] = [];
 let colorAliases: Record<string, [number, number, number]> = {};
+const customPalettePreviewCache = new Map<string, CanvasImageSource>();
+const COLLECTABLE_PHYSICS_SETTINGS = {
+    gravity: MOVEMENT_SETTINGS.collectableGravity,
+    terminalVelocity: MOVEMENT_SETTINGS.collectableTerminalVelocity,
+    bounceRestitution: MOVEMENT_SETTINGS.collectableBounceRestitution,
+    bounceMinImpactSpeed: MOVEMENT_SETTINGS.collectableBounceMinImpactSpeed,
+    bounceWeightPenaltyPerUnit: MOVEMENT_SETTINGS.collectableBounceWeightPenaltyPerUnit,
+    groundFriction: MOVEMENT_SETTINGS.collectableGroundFriction,
+    pushVelocityMultiplier: MOVEMENT_SETTINGS.collectablePushVelocityMultiplier,
+    pushMaxSpeed: MOVEMENT_SETTINGS.collectablePushMaxSpeed,
+    pushResistancePerUnit: MOVEMENT_SETTINGS.collectablePushResistancePerUnit,
+    pushMinScale: MOVEMENT_SETTINGS.collectablePushMinScale,
+    headBounceMinImpactSpeed: MOVEMENT_SETTINGS.headBounceMinImpactSpeed,
+    headBounceMaxLaunchSpeed: MOVEMENT_SETTINGS.collectableHeadBounceMaxLaunchSpeed
+} as const;
+
+function deepClone<T>(value: T): T {
+    return JSON.parse(JSON.stringify(value));
+}
+
+async function fetchFreshJson<T>(url: string): Promise<T> {
+    const separator = url.includes('?') ? '&' : '?';
+    const response = await fetch(`${url}${separator}t=${Date.now()}`, { cache: 'no-store' });
+    if (!response.ok) {
+        throw new Error(`Failed to load ${url}: ${response.status} ${response.statusText}`);
+    }
+    return response.json() as Promise<T>;
+}
 
 async function loadColorAliases() {
     if (Object.keys(colorAliases).length > 0) return;
-    const res = await fetch('./src/assets/colors.json');
-    colorAliases = await res.json();
+    colorAliases = await fetchFreshJson('./src/assets/colors.json');
 }
 
 function resolveColor(color: string | [number, number, number]): [number, number, number] {
@@ -51,15 +98,32 @@ function resolveColor(color: string | [number, number, number]): [number, number
 
 async function loadPalettes() {
     await loadColorAliases();
-    const res = await fetch('./src/assets/palettes.json');
-    const rawPalettes = await res.json();
-    // Map aliases to RGB arrays
-    palettes = rawPalettes.map((palette: any[]) =>
+    rawPaletteDefinitions = await fetchFreshJson<PaletteDefinition[]>('./src/assets/palettes.json');
+    palettes = rawPaletteDefinitions.map((palette) =>
         palette.map(({ from, to }) => ({
             from: resolveColor(from),
             to: resolveColor(to)
         }))
     );
+}
+
+function rebuildRemappedSpriteSheets() {
+    if (!spriteSheet) return;
+    customPalettePreviewCache.clear();
+    clearMapSpriteCache();
+    remappedSpriteSheets = palettes.map((palette) => remapSpritePalette(spriteSheet, palette));
+    astronautSpriteSource = remappedSpriteSheets[1] || remappedSpriteSheets[0] || spriteSheet;
+}
+
+function applyPaletteDefinitions(definitions: PaletteDefinition[]) {
+    rawPaletteDefinitions = deepClone(definitions);
+    palettes = rawPaletteDefinitions.map((palette) =>
+        palette.map(({ from, to }) => ({
+            from: resolveColor(from),
+            to: resolveColor(to)
+        }))
+    );
+    rebuildRemappedSpriteSheets();
 }
 
 window.addEventListener('keydown', (event) => {
@@ -80,6 +144,7 @@ window.addEventListener('mousemove', (e) => {
 });
 
 window.addEventListener('keydown', (e) => {
+    if (isDesignerOpen()) return;
     if (e.key === "Tab") {
         e.preventDefault(); // Prevent tab from bubbling to browser
         flipAstronaut();
@@ -88,6 +153,9 @@ window.addEventListener('keydown', (e) => {
 
 // --- Camera ---
 function getCameraOffset() {
+    if (worldDesigner?.isActive()) {
+        return worldDesigner.getCamera();
+    }
     // Center astronaut on screen
     return {
         x: astronaut.position.x - canvas.width / 2,
@@ -101,6 +169,9 @@ const ctx = canvas.getContext('2d');
 if (!canvas || !ctx) {
     throw new Error('Canvas or 2D context not found');
 }
+
+canvas.width = VIEWPORT_SETTINGS.defaultWidth;
+canvas.height = VIEWPORT_SETTINGS.defaultHeight;
 
 let gameState: GameState & { debugMode: boolean } = {
     astronaut,
@@ -126,12 +197,17 @@ let flySwitchTimer = 0;
 let flyDownTransitioning = false;
 let flyDownTransitionStep = 0;
 let flyDownTransitionTimer = 0;
+let flyDownTravelDir: 'left' | 'right' | null = null;
+let flyDownFacingLeft = false;
+let flyDownMode: 'direct' | 'diagonal' | null = null;
 let lastFlySpriteCol = SPRITE_COL_FLY_RIGHT; // Track last flying sprite col
+let lastFlyFlipSprite = false; // Track the currently displayed flying flip state
 
 // --- Teleport memory ---
 type TeleportLocation = { x: number, y: number };
 const teleportLocations: TeleportLocation[] = [];
 let teleportSlot = 0;
+let defaultTeleportLocation: TeleportLocation = { ...getAstronautStartPosition() };
 let teleporting = false;
 let teleportAnimFrame = 0;
 let teleportPhase: 'none' | 'out' | 'in' = 'none';
@@ -144,11 +220,93 @@ let teleportFlipVertical = false;
 const keys: Record<string, boolean> = {};
 let prevKeys: Record<string, boolean> = {}
 
+function resetFlySwitchAnimationState() {
+    flySwitching = false;
+    flySwitchStep = 0;
+    flySwitchTimer = 0;
+}
+
+function resetFlyDownAnimationState() {
+    flyDownTransitioning = false;
+    flyDownTransitionStep = 0;
+    flyDownTransitionTimer = 0;
+    flyDownTravelDir = null;
+    flyDownMode = null;
+}
+
+function syncDefaultTeleportLocation(position: Position) {
+    defaultTeleportLocation = {
+        x: Math.round(position.x),
+        y: Math.round(position.y)
+    };
+}
+
+function updateAstronautStartPosition(position: Position, applyToAstronaut: boolean = false) {
+    setAstronautStartPosition(position, applyToAstronaut);
+    syncDefaultTeleportLocation(position);
+}
+
+function rememberLastFlyPose(col: number, flip: boolean) {
+    lastFlySpriteCol = col;
+    lastFlyFlipSprite = flip;
+}
+
+function getDirectDownTransitionSequence(targetFacingLeft: boolean) {
+    const startCol =
+        lastFlySpriteCol === SPRITE_COL_FLY_RIGHT ||
+        lastFlySpriteCol === SPRITE_COL_FLY_DIAGONAL ||
+        lastFlySpriteCol === SPRITE_COL_FLY_DOWN ||
+        lastFlySpriteCol === SPRITE_COL_FLY_FLOAT
+            ? lastFlySpriteCol
+            : SPRITE_COL_STAND;
+
+    const startFlip =
+        startCol === SPRITE_COL_FLY_DOWN
+            ? lastFlyFlipSprite
+            : startCol === SPRITE_COL_STAND
+                ? targetFacingLeft
+                : lastFlyFlipSprite;
+
+    if (
+        startCol === SPRITE_COL_FLY_RIGHT ||
+        startCol === SPRITE_COL_FLY_DIAGONAL ||
+        startCol === SPRITE_COL_FLY_FLOAT
+    ) {
+        return [
+            { col: startCol, flip: startFlip, flipVertical: false },
+            { col: SPRITE_COL_FLY_DOWN, flip: targetFacingLeft, flipVertical: false },
+            { col: SPRITE_COL_STAND, flip: targetFacingLeft, flipVertical: true }
+        ];
+    }
+
+    return [
+        { col: startCol, flip: startFlip, flipVertical: false },
+        { col: SPRITE_COL_STAND, flip: targetFacingLeft, flipVertical: true }
+    ];
+}
+
+function getHorizontalTravelDirection(keys: Record<string, boolean>): 'left' | 'right' | null {
+    if (keys['q'] && !keys['w']) {
+        return 'left';
+    }
+    if (keys['w'] && !keys['q']) {
+        return 'right';
+    }
+    if (Math.abs(astronaut.velocity.x) > 0.01) {
+        return astronaut.velocity.x < 0 ? 'left' : 'right';
+    }
+    if (leftPressed !== rightPressed) {
+        return leftPressed ? 'left' : 'right';
+    }
+    return null;
+}
+
 // --- Black background block toggles ---
 let showBlackBackgroundBlocks = false; // c key
 let hideBlackBackgroundBlocks = false; // v key
 
 window.addEventListener('keydown', (e) => {
+    if (isDesignerOpen()) return;
     if (e.key === 'c' && !prevKeys['c']) {
         showBlackBackgroundBlocks = !showBlackBackgroundBlocks;
     }
@@ -177,13 +335,35 @@ type ThrowGuideDot = {
 };
 let throwGuideDots: ThrowGuideDot[] = [];
 let throwGuideDotEmitTimer = 0;
+let worldDesigner: WorldDesigner | null = null;
+const STARFIELD_HEIGHT = Math.min(MAP_HEIGHT, 2000);
+
+function isDesignerOpen() {
+    return !!worldDesigner?.isActive();
+}
+
+window.addEventListener('keydown', (event) => {
+    if (event.altKey && event.key === 'Enter' && !event.repeat) {
+        event.preventDefault();
+        if (worldDesigner) {
+            worldDesigner.setViewportExpanded(!worldDesigner.isViewportExpanded());
+        }
+    }
+    if (event.ctrlKey && event.key.toLowerCase() === 'm' && !event.repeat) {
+        event.preventDefault();
+        toggleSoundEnabled();
+    }
+});
 
 function getCurrentAstronautCollisionProfile() {
     if (astronaut.isLanded) {
         return 'stand';
     }
 
-    if (downPressed && (leftPressed || rightPressed)) {
+    if (downPressed && !keys['q'] && !keys['w']) {
+        return 'stand';
+    }
+    if (downPressed && (keys['q'] || keys['w'])) {
         return 'fly_down';
     }
     if (leftPressed || rightPressed) {
@@ -207,8 +387,7 @@ export function assignEntityId(obj: any) {
 }
 
 async function loadButtons() {
-    const res = await fetch('./src/assets/buttons.json');
-    const arr = await res.json();
+    const arr = await fetchFreshJson<any[]>('./src/assets/buttons.json');
     buttonEntities = arr.map((data: any) => assignEntityId(new Button(data)));
     syncButtonStatesToDoors();
 }
@@ -225,22 +404,398 @@ function syncButtonStatesToDoors() {
     }
 }
 async function loadDoors() {
-    const res = await fetch('./src/assets/doors.json');
-    const arr = await res.json();
+    const arr = await fetchFreshJson<any[]>('./src/assets/doors.json');
     doorEntities = arr.map((data: any) => assignEntityId(new Door(data)));
 }
 async function loadCreatures() {
-    const res = await fetch('./src/assets/creatures.json');
-    const arr = await res.json();
+    const arr = await fetchFreshJson<any[]>('./src/assets/creatures.json');
     creatureEntities = arr.map((data: any) => assignEntityId(new Creature(data)));
 }
 async function loadCollectables() {
-    const res = await fetch('./src/assets/collectables.json');
-    const arr = await res.json();
+    const arr = await fetchFreshJson<any[]>('./src/assets/collectables.json');
     collectableEntities = arr.map((data: any) => assignEntityId(new Collectable(data)));
+    syncCollectableRuntimeState();
+}
+
+async function loadAstronautStartPosition() {
+    const data = await fetchFreshJson<Position>('./src/assets/astronaut_start.json');
+    updateAstronautStartPosition(data, true);
+}
+
+function syncCollectableRuntimeState() {
     storedCollectables = collectableEntities.filter(collectable => collectable.stored);
     heldCollectable = collectableEntities.find(collectable => collectable.held) ?? null;
     inventoryCycleIndex = storedCollectables.length > 0 ? storedCollectables.length - 1 : -1;
+}
+
+function findSpriteRectByType(type: string) {
+    if (!spriteMap) return null;
+    if (spriteMap instanceof Array) {
+        for (const row of spriteMap) {
+            for (const sprite of row) {
+                if (sprite.name === type) {
+                    return sprite;
+                }
+            }
+        }
+        return null;
+    }
+    return spriteMap[type] || null;
+}
+
+function assignRotatedBoundingBoxes(arr: any[]) {
+    for (const entity of arr) {
+        const type = entity.type;
+        const rotation = typeof entity.rotation === "number" ? entity.rotation : 0;
+        let bbox =
+            (worldMapRotatedBoundingBoxes[type] && worldMapRotatedBoundingBoxes[type][rotation]) ||
+            worldMapBoundingBoxes[type];
+        if (!bbox) {
+            const rect = findSpriteRectByType(type);
+            if (rect) {
+                bbox = {
+                    minX: 0,
+                    minY: 0,
+                    maxX: rect.w - 1,
+                    maxY: rect.h - 1,
+                    width: rect.w,
+                    height: rect.h
+                };
+            }
+        }
+        if (bbox) {
+            blockInstanceRotatedBoundingBoxes.set(entity, bbox);
+        }
+    }
+}
+
+function rebuildBlockInstanceBoundingBoxes() {
+    blockInstanceRotatedBoundingBoxes = new WeakMap();
+    assignRotatedBoundingBoxes(mapBlocks);
+    assignRotatedBoundingBoxes(doorEntities);
+    assignRotatedBoundingBoxes(buttonEntities);
+    assignRotatedBoundingBoxes(creatureEntities);
+    assignRotatedBoundingBoxes(collectableEntities);
+}
+
+function afterWorldDataMutated() {
+    syncButtonStatesToDoors();
+    syncCollectableRuntimeState();
+    rebuildBlockInstanceBoundingBoxes();
+}
+
+function clampCamera(camera: Position) {
+    return {
+        x: Math.max(0, Math.min(camera.x, Math.max(0, MAP_WIDTH - canvas.width))),
+        y: Math.max(0, Math.min(camera.y, Math.max(0, MAP_HEIGHT - canvas.height)))
+    };
+}
+
+function drawWorldBoundingBoxOverlay(
+    context: CanvasRenderingContext2D,
+    camera: Position,
+    layerVisibility: LayerVisibility = {
+        world: true,
+        buttons: true,
+        doors: true,
+        creatures: true,
+        collectables: true
+    }
+) {
+    context.save();
+    context.strokeStyle = 'lime';
+    context.lineWidth = 2;
+
+    const drawWorldBBox = (entity: any) => {
+        if (!entity.collision) return;
+        const bbox = blockInstanceRotatedBoundingBoxes.get(entity);
+        if (!bbox) return;
+        const scale = SPRITE_SCALE;
+        const tileW = 32 * scale;
+        const tileH = 32 * scale;
+        const drawX = entity.x - camera.x + tileW / 2;
+        const drawY = entity.y - camera.y + tileH / 2;
+        context.save();
+        context.translate(drawX, drawY);
+        if (entity.rotation) {
+            if (entity.rotation >= 1 && entity.rotation <= 4) {
+                context.rotate(((entity.rotation - 1) * Math.PI) / 2);
+            } else if (entity.rotation === 5) {
+                context.scale(-1, 1);
+            } else if (entity.rotation === 6) {
+                context.scale(1, -1);
+            } else if (entity.rotation === 7) {
+                context.scale(-1, -1);
+            }
+        }
+        const x = -tileW / 2 + bbox.minX * scale;
+        const y = -tileH / 2 + bbox.minY * scale;
+        const w = bbox.width * scale;
+        const h = bbox.height * scale;
+        context.strokeRect(x, y, w, h);
+        context.restore();
+    };
+
+    const mapBlocksToDraw = !layerVisibility.world
+        ? []
+        : hideBlackBackgroundBlocks
+            ? mapBlocks.filter((b) => b.type !== 'black_background')
+            : mapBlocks;
+    const collectablesToDraw = worldDesigner?.isActive() && !worldDesigner.isPreviewMode()
+        ? collectableEntities.filter((collectable) => !collectable.held)
+        : collectableEntities.filter((collectable) => !collectable.stored && !collectable.collected);
+    mapBlocksToDraw.forEach(drawWorldBBox);
+    if (layerVisibility.doors) doorEntities.forEach(drawWorldBBox);
+    if (layerVisibility.buttons) buttonEntities.forEach(drawWorldBBox);
+    if (layerVisibility.creatures) creatureEntities.forEach(drawWorldBBox);
+    if (layerVisibility.collectables) {
+        collectablesToDraw.forEach(drawWorldBBox);
+    }
+    context.restore();
+}
+
+function getRawWorldData(): RawWorldData {
+    return {
+        worldMap: mapBlocks as RawWorldData['worldMap'],
+        buttons: buttonEntities as RawWorldData['buttons'],
+        doors: doorEntities as RawWorldData['doors'],
+        creatures: creatureEntities as RawWorldData['creatures'],
+        collectables: collectableEntities as RawWorldData['collectables'],
+        astronautStart: getAstronautStartPosition()
+    };
+}
+
+function replaceRawWorldData(data: RawWorldData) {
+    mapBlocks.splice(0, mapBlocks.length, ...data.worldMap.map((block) => assignEntityId({ ...block })));
+    doorEntities = data.doors.map((door) => assignEntityId(new Door(door)));
+    buttonEntities = data.buttons.map((button) => assignEntityId(new Button(button)));
+    creatureEntities = data.creatures.map((creature) => assignEntityId(new Creature(creature)));
+    collectableEntities = data.collectables.map((collectable) => assignEntityId(new Collectable(collectable)));
+    updateAstronautStartPosition(data.astronautStart, true);
+    afterWorldDataMutated();
+}
+
+function getSpriteTypes() {
+    if (!spriteMap) return [];
+    if (spriteMap instanceof Array) {
+        return spriteMap.flat().map((entry: any) => entry.name).filter(Boolean);
+    }
+    return Object.keys(spriteMap);
+}
+
+function getSpriteCatalog(): SpriteCatalogEntry[] {
+    if (!spriteMap) return [];
+    if (spriteMap instanceof Array) {
+        return spriteMap.flat()
+            .filter((entry: any) => entry?.name)
+            .map((entry: any) => ({
+                name: entry.name,
+                palette: typeof entry.palette === 'number' ? entry.palette : 0
+            }));
+    }
+    return Object.entries(spriteMap).map(([name, entry]: [string, any]) => ({
+        name,
+        palette: typeof entry?.palette === 'number' ? entry.palette : 0
+    }));
+}
+
+function drawSpritePreview(
+    context: CanvasRenderingContext2D,
+    type: string,
+    palette: number,
+    rotation: number = 1,
+    clearFirst: boolean = true,
+    targetSize?: number
+) {
+    const rect = findSpriteRectByType(type);
+    if (!rect || remappedSpriteSheets.length === 0) {
+        if (clearFirst) {
+            context.clearRect(0, 0, context.canvas.width, context.canvas.height);
+        }
+        return false;
+    }
+
+    const paletteIndex = Number.isFinite(palette) && palette >= 0 && palette < remappedSpriteSheets.length
+        ? palette
+        : (typeof rect.palette === 'number' ? rect.palette : 0);
+    const sheet = remappedSpriteSheets[paletteIndex] || remappedSpriteSheets[0];
+    if (!sheet) {
+        if (clearFirst) {
+            context.clearRect(0, 0, context.canvas.width, context.canvas.height);
+        }
+        return false;
+    }
+
+    return drawSpritePreviewWithSheet(context, type, sheet, rotation, clearFirst, targetSize);
+}
+
+function drawSpritePreviewWithSheet(
+    context: CanvasRenderingContext2D,
+    type: string,
+    sheet: CanvasImageSource,
+    rotation: number = 1,
+    clearFirst: boolean = true,
+    targetSize?: number
+) {
+    const rect = findSpriteRectByType(type);
+    if (!rect) {
+        if (clearFirst) {
+            context.clearRect(0, 0, context.canvas.width, context.canvas.height);
+        }
+        return false;
+    }
+
+    const padding = 8;
+    const previewWidth = targetSize ?? context.canvas.width;
+    const previewHeight = targetSize ?? context.canvas.height;
+    const maxWidth = Math.max(1, previewWidth - padding * 2);
+    const maxHeight = Math.max(1, previewHeight - padding * 2);
+    const scale = Math.max(1, Math.min(
+        maxWidth / rect.w,
+        maxHeight / rect.h
+    ));
+    const drawW = rect.w * scale;
+    const drawH = rect.h * scale;
+
+    context.save();
+    if (clearFirst) {
+        context.clearRect(0, 0, context.canvas.width, context.canvas.height);
+    }
+    context.imageSmoothingEnabled = false;
+    context.translate(context.canvas.width / 2, context.canvas.height / 2);
+    if (rotation >= 1 && rotation <= 4) {
+        context.rotate(((rotation - 1) * Math.PI) / 2);
+    } else if (rotation === 5) {
+        context.scale(-1, 1);
+    } else if (rotation === 6) {
+        context.scale(1, -1);
+    } else if (rotation === 7) {
+        context.scale(-1, -1);
+    }
+    context.drawImage(
+        sheet,
+        rect.x,
+        rect.y,
+        rect.w,
+        rect.h,
+        -drawW / 2,
+        -drawH / 2,
+        drawW,
+        drawH
+    );
+    context.restore();
+    return true;
+}
+
+function drawCustomPalettePreview(
+    context: CanvasRenderingContext2D,
+    type: string,
+    paletteDefinition: PaletteDefinition,
+    rotation: number = 1,
+    clearFirst: boolean = true,
+    targetSize?: number
+) {
+    if (!spriteSheet) {
+        if (clearFirst) {
+            context.clearRect(0, 0, context.canvas.width, context.canvas.height);
+        }
+        return false;
+    }
+    const cacheKey = JSON.stringify(paletteDefinition);
+    let sheet = customPalettePreviewCache.get(cacheKey);
+    if (!sheet) {
+        const resolvedPalette = paletteDefinition.map(({ from, to }) => ({
+            from: resolveColor(from),
+            to: resolveColor(to)
+        }));
+        sheet = remapSpritePalette(spriteSheet, resolvedPalette);
+        customPalettePreviewCache.set(cacheKey, sheet);
+    }
+    return drawSpritePreviewWithSheet(context, type, sheet, rotation, clearFirst, targetSize);
+}
+
+async function saveWorldData(data: RawWorldData) {
+    const res = await fetch('http://localhost:3001/save-world-data', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+        throw new Error(await getDesignerSaveError(res, 'Failed to save world data.'));
+    }
+}
+
+async function getDesignerSaveError(res: Response, fallbackMessage: string, unavailableMessage?: string) {
+    let message = fallbackMessage;
+    try {
+        const text = await res.text();
+        if (text) {
+            try {
+                const payload = JSON.parse(text) as { error?: string };
+                if (payload?.error) {
+                    message = payload.error;
+                } else {
+                    message = text;
+                }
+            } catch {
+                message = text;
+            }
+        }
+    } catch {
+        message = fallbackMessage;
+    }
+
+    if (res.status === 404) {
+        return unavailableMessage ?? 'This designer save feature is unavailable because the local save server is out of date. Restart the dev/save server on port 3001 and try again.';
+    }
+
+    return message;
+}
+
+async function savePaletteDefinitions(paletteDefinitions: PaletteDefinition[], worldData?: RawWorldData) {
+    const res = await fetch('http://localhost:3001/save-designer-assets', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            palettes: paletteDefinitions,
+            ...(worldData ? { worldData } : {})
+        })
+    });
+    if (!res.ok) {
+        throw new Error(await getDesignerSaveError(res, 'Failed to save palette data.'));
+    }
+    applyPaletteDefinitions(paletteDefinitions);
+}
+
+async function postSpriteSheetNormalization(dryRun: boolean): Promise<SpriteSheetNormalizationReport> {
+    const res = await fetch('http://localhost:3001/normalize-sprite-sheet', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ dryRun })
+    });
+    if (!res.ok) {
+        throw new Error(await getDesignerSaveError(
+            res,
+            dryRun ? 'Failed to analyze sprite_sheet.png.' : 'Failed to normalize sprite_sheet.png.',
+            'Sprite-sheet normalization is unavailable because the local save server is out of date. Restart the dev/save server on port 3001 and try again.'
+        ));
+    }
+    const payload = await res.json() as { report: SpriteSheetNormalizationReport };
+    return payload.report;
+}
+
+async function previewSpriteSheetNormalization() {
+    return postSpriteSheetNormalization(true);
+}
+
+async function normalizeSpriteSheetColors() {
+    return postSpriteSheetNormalization(false);
 }
 
 // --- Map rendering and update logic ---
@@ -252,7 +807,8 @@ async function init() {
     await loadButtons();
     await loadCreatures();
     await loadCollectables();
-    initStars(() => astronaut.position, canvas);
+    await loadAstronautStartPosition();
+    initStars(MAP_WIDTH, STARFIELD_HEIGHT);
     const img = new Image();
     img.src = './src/assets/sprite_sheet.png';
     img.onload = () => {
@@ -269,14 +825,7 @@ async function init() {
                 const tempCtx = tempCanvas.getContext('2d');
                 tempCtx!.drawImage(spriteSheet, 0, 0);
                 (window as any)._spriteSheetCtx = tempCtx;
-                // Generate remapped sprite sheets for each palette
-                remappedSpriteSheets = palettes.map((palette: any, idx: number) =>
-                    idx === 0
-                        ? spriteSheet // Palette 0: always original
-                        : remapSpritePalette(spriteSheet, palette)
-                );
-                // Use palettes[1] for astronaut, fallback to original if not present
-                astronautSpriteSource = remappedSpriteSheets[1] || spriteSheet;
+                rebuildRemappedSpriteSheets();
 
                 // --- Calculate tightest collision bounding boxes at startup ---
                 const boundingBoxes = await calculateSpriteCollisionBoundingBoxes(
@@ -363,58 +912,44 @@ async function init() {
                     }
                 }
 
-                // --- Store rotated bounding boxes for each block instance ---
-                // Helper to assign bounding box for a list of entities/blocks
-                function assignRotatedBoundingBoxes(arr: any[]) {
-                    for (const entity of arr) {
-                        const type = entity.type;
-                        // Default to 0 if not present
-                        const rotation = typeof entity.rotation === "number" ? entity.rotation : 0;
-                        let bbox =
-                            (worldMapRotatedBoundingBoxes[type] && worldMapRotatedBoundingBoxes[type][rotation]) ||
-                            worldMapBoundingBoxes[type];
-                        // Fallback to default rect if not found
-                        if (!bbox) {
-                            let rect = null;
-                            if (spriteMap instanceof Array) {
-                                outer: for (let row = 0; row < spriteMap.length; row++) {
-                                    for (let col = 0; col < spriteMap[row].length; col++) {
-                                        if (spriteMap[row][col].name === type) {
-                                            rect = spriteMap[row][col];
-                                            break outer;
-                                        }
-                                    }
-                                }
-                            } else if (spriteMap[type]) {
-                                rect = spriteMap[type];
-                            }
-                            if (rect) {
-                                bbox = {
-                                    minX: 0,
-                                    minY: 0,
-                                    maxX: rect.w - 1,
-                                    maxY: rect.h - 1,
-                                    width: rect.w,
-                                    height: rect.h
-                                };
-                            }
-                        }
-                        if (bbox) {
-                            blockInstanceRotatedBoundingBoxes.set(entity, bbox);
-                        }
-                    }
-                }
-                assignRotatedBoundingBoxes(mapBlocks);
-                assignRotatedBoundingBoxes(doorEntities);
-                assignRotatedBoundingBoxes(buttonEntities);
-                assignRotatedBoundingBoxes(creatureEntities);
-                assignRotatedBoundingBoxes(collectableEntities);
+                rebuildBlockInstanceBoundingBoxes();
 
                 // --- Calculate astronaut sprite bounding boxes at startup ---
                 astronautBoundingBoxes = await calculateAstronautSpriteBoundingBoxes(
                     spriteSheet,
                     spriteMap
                 );
+                worldDesigner = createWorldDesigner({
+                    canvas,
+                    getRawWorldData,
+                    replaceRawWorldData,
+                    afterWorldDataMutated,
+                    getFocusWorldPosition: () => ({
+                        x: astronaut.position.x,
+                        y: astronaut.position.y
+                    }),
+                    resetAstronautToPosition,
+                    setAstronautStartPosition: updateAstronautStartPosition,
+                    getSoundEnabled,
+                    setSoundEnabled,
+                    getShowSpriteOutlines: () => showWorldBoundingBoxes,
+                    setShowSpriteOutlines: (value: boolean) => {
+                        showWorldBoundingBoxes = value;
+                    },
+                    drawSpriteOutlineOverlay: drawWorldBoundingBoxOverlay,
+                    getSpriteTypes,
+                    getSpriteCatalog,
+                    drawSpritePreview,
+                    drawCustomPalettePreview,
+                    getPaletteDefinitions: () => deepClone(rawPaletteDefinitions),
+                    getColorAliases: () => deepClone(colorAliases),
+                    getPaletteCount: () => Math.max(remappedSpriteSheets.length, palettes.length, 1),
+                    clampCamera,
+                    saveWorldData,
+                    savePaletteDefinitions,
+                    previewSpriteSheetNormalization,
+                    normalizeSpriteSheetColors
+                });
                 gameLoop();
             };
         });
@@ -428,6 +963,38 @@ init();
 
 function getSpriteRectFromMap(row: number, col: number) {
     return spriteMap[row][col];
+}
+
+function drawAstronautInWorld(
+    context: CanvasRenderingContext2D,
+    camera: Position,
+    spriteCol: number,
+    flipSprite: boolean,
+    flipVertical: boolean
+) {
+    if (!(astronautSpriteSource || spriteSheet) || !(spriteSheet && spriteSheet.complete)) {
+        return;
+    }
+
+    const spriteRect = getSpriteRectFromMap(SPRITE_ROW, spriteCol);
+    const drawW = 32 * SPRITE_SCALE;
+    const drawH = 32 * SPRITE_SCALE;
+
+    context.save();
+    context.translate(
+        astronaut.position.x - camera.x,
+        astronaut.position.y - camera.y
+    );
+    if (flipSprite) context.scale(-1, 1);
+    if (flipVertical) context.scale(1, -1);
+    context.drawImage(
+        astronautSpriteSource || spriteSheet,
+        spriteRect.x, spriteRect.y, spriteRect.w, spriteRect.h,
+        -drawW / 2,
+        -drawH / 2,
+        drawW, drawH
+    );
+    context.restore();
 }
 
 // When drawing the sprite, ensure the canvas is cleared with a transparent background
@@ -450,7 +1017,7 @@ async function gameLoop() {
     let flipVertical = false;
 
     // --- Teleport memory logic ---
-    if (keys['r'] && !prevKeys['r']) {
+    if (!isDesignerOpen() && keys['r'] && !prevKeys['r']) {
         // Save up to 6 locations, overwrite oldest if full
         if (teleportLocations.length < 6) {
             teleportLocations.push({ x: astronaut.position.x, y: astronaut.position.y });
@@ -461,14 +1028,14 @@ async function gameLoop() {
         // Play remember sound
         try { rememberSound.currentTime = 0; rememberSound.play(); } catch {}
     }
-    if (keys['t'] && !prevKeys['t']) {
+    if (!isDesignerOpen() && keys['t'] && !prevKeys['t']) {
         let loc: TeleportLocation | null = null;
         if (teleportLocations.length > 0) {
             // Use the most recent (last) location
             loc = teleportLocations.pop()!;
             if (teleportSlot > teleportLocations.length) teleportSlot = teleportLocations.length;
         } else {
-            loc = { x: 222, y: 845 };
+            loc = { ...defaultTeleportLocation };
         }
         if (loc && !teleporting) {
             teleporting = true;
@@ -484,24 +1051,36 @@ async function gameLoop() {
     }
 
     // --- Draw twinkling stars ---
-    // Use a fixed y cutoff for stars (700px)
-    const tileHeight = 700;
     updateAndDrawStars(
         ctx!,
         camera,
-        () => astronaut.position,
         canvas,
-        tileHeight,
-        MAP_HEIGHT
+        MAP_WIDTH,
+        STARFIELD_HEIGHT
     );
 
     // --- Draw map blocks ---
-    if (spriteSheet && spriteSheet.complete) {
-        drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, doorEntities);
-        // Use a filtered array for drawing if hiding black_background blocks
-        const mapBlocksToDraw = hideBlackBackgroundBlocks
+    const layerVisibility = worldDesigner?.isActive()
+        ? worldDesigner.getLayerVisibility()
+        : {
+            world: true,
+            buttons: true,
+            doors: true,
+            creatures: true,
+            collectables: true
+        };
+    const mapBlocksToDraw = !layerVisibility.world
+        ? []
+        : hideBlackBackgroundBlocks
             ? mapBlocks.filter(b => b.type !== 'black_background')
             : mapBlocks;
+    const mapBlocksBehindAstronaut = mapBlocksToDraw.filter((block) => !shouldMaskAstronaut(block));
+    const mapBlocksMaskAstronaut = mapBlocksToDraw.filter((block) => shouldMaskAstronaut(block));
+
+    if (spriteSheet && spriteSheet.complete) {
+        if (layerVisibility.doors) {
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, doorEntities);
+        }
         // Draw map blocks (replace mapBlocks with mapBlocksToDraw in overlays below as well)
         // Patch: temporarily override mapBlocks for drawMap by monkey-patching global (not ideal, but drawMap uses global)
         // Instead, draw overlays and highlights using mapBlocksToDraw, but call drawMap as usual
@@ -552,17 +1131,40 @@ async function gameLoop() {
         }
         // Draw map blocks (drawMap uses global mapBlocks, so black_background blocks will be hidden only if not present in mapBlocks)
         // To hide, we need to patch drawMap to accept a blocks array, or temporarily monkey-patch global. For now, just draw overlays using mapBlocksToDraw.
-        drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksToDraw);
-        drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, buttonEntities);
-        drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureEntities);
-        drawEntities(
-            ctx!,
-            camera,
-            spriteMap,
-            remappedSpriteSheets,
-            SPRITE_SCALE,
-            collectableEntities.filter(collectable => !collectable.stored && !collectable.held && !collectable.collected)
-        );
+        drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksBehindAstronaut);
+        if (layerVisibility.buttons) {
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, buttonEntities);
+        }
+        if (layerVisibility.creatures) {
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureEntities);
+        }
+        if (layerVisibility.collectables) {
+            const collectablesToDraw = worldDesigner?.isActive() && !worldDesigner.isPreviewMode()
+                ? collectableEntities.filter((collectable) => !collectable.held)
+                : collectableEntities.filter((collectable) => !collectable.stored && !collectable.held && !collectable.collected);
+            drawEntities(
+                ctx!,
+                camera,
+                spriteMap,
+                remappedSpriteSheets,
+                SPRITE_SCALE,
+                collectablesToDraw
+            );
+        }
+    }
+
+    if (worldDesigner?.isActive()) {
+        drawAstronautInWorld(ctx!, camera, spriteCol, flipSprite, flipVertical);
+        if (mapBlocksMaskAstronaut.length > 0) {
+            drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut);
+        }
+        if (heldCollectable) {
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, [heldCollectable]);
+        }
+        worldDesigner.render(ctx!);
+        prevKeys = { ...keys };
+        requestAnimationFrame(gameLoop);
+        return;
     }
 
     // --- Controls: Upward and horizontal movement ---
@@ -647,15 +1249,12 @@ async function gameLoop() {
         applyLandingMomentum(landingMomentumSource);
         astronaut.velocity.x = 0;
         astronaut.velocity.y = 0;
-        flyDownTransitioning = false;
-        flyDownTransitionStep = 0;
-        flyDownTransitionTimer = 0;
+        resetFlyDownAnimationState();
         flyHoldTimer = 0;
         flyDir = null;
-        flySwitching = false;
-        flySwitchStep = 0;
-        flySwitchTimer = 0;
+        resetFlySwitchAnimationState();
         lastFlySpriteCol = SPRITE_COL_STAND;
+        lastFlyFlipSprite = facingLeft;
     }
 
     const collidedButton = collisionState.touchedButton;
@@ -863,53 +1462,7 @@ async function gameLoop() {
     }
     // --- Draw world coordinate bounding boxes for each block in green if enabled ---
     if (showWorldBoundingBoxes) {
-        ctx!.save();
-        ctx!.strokeStyle = 'lime';
-        ctx!.lineWidth = 2;
-        const drawWorldBBox = (entity: any) => {
-            if (!entity.collision) return;
-            let bbox = blockInstanceRotatedBoundingBoxes.get(entity);
-            if (!bbox) return;
-            const scale = SPRITE_SCALE;
-            const tileW = 32 * scale;
-            const tileH = 32 * scale;
-            // Center of the sprite
-            const drawX = entity.x - camera.x + tileW / 2;
-            const drawY = entity.y - camera.y + tileH / 2;
-            ctx!.save();
-            ctx!.translate(drawX, drawY);
-            // Apply rotation if present
-            if (entity.rotation) {
-                if (entity.rotation >= 1 && entity.rotation <= 4) {
-                    ctx!.rotate(((entity.rotation - 1) * Math.PI) / 2);
-                } else if (entity.rotation === 5) {
-                    ctx!.scale(-1, 1);
-                } else if (entity.rotation === 6) {
-                    ctx!.scale(1, -1);
-                } else if (entity.rotation === 7) {
-                    ctx!.scale(-1, -1);
-                }
-            }
-            // Draw bbox relative to sprite center
-            const x = -tileW / 2 + bbox.minX * scale;
-            const y = -tileH / 2 + bbox.minY * scale;
-            const w = bbox.width * scale;
-            const h = bbox.height * scale;
-            ctx!.strokeRect(x, y, w, h);
-            ctx!.restore();
-        };
-        // Use mapBlocksToDraw for overlays
-        const mapBlocksToDraw = hideBlackBackgroundBlocks
-            ? mapBlocks.filter(b => b.type !== 'black_background')
-            : mapBlocks;
-        mapBlocksToDraw.forEach(drawWorldBBox);
-        doorEntities.forEach(drawWorldBBox);
-        buttonEntities.forEach(drawWorldBBox);
-        creatureEntities.forEach(drawWorldBBox);
-        collectableEntities
-            .filter(collectable => !collectable.stored && !collectable.collected)
-            .forEach(drawWorldBBox);
-        ctx!.restore();
+        drawWorldBoundingBoxOverlay(ctx!, camera);
     }
 
     // --- Highlight all black_background blocks if enabled ---
@@ -958,37 +1511,53 @@ async function gameLoop() {
     }
 
     // --- Animate transition to fly_down if flying and down + (q or w) pressed ---
-    if (
+    const horizontalTravelDir = getHorizontalTravelDirection(keys);
+
+    const diagonalDownPressed = !!(
         !gameState.astronaut.isLanded &&
         downPressed &&
+        horizontalTravelDir &&
         (keys['q'] || keys['w'])
+    );
+    const directDownPressed = !gameState.astronaut.isLanded && downPressed && !keys['q'] && !keys['w'];
+
+    if (
+        diagonalDownPressed
     ) {
-        // Determine direction
-        const goingLeft = !!keys['q'];
-        // If not already transitioning, start from current flying sprite
-        if (!flyDownTransitioning) {
-            // Determine which flying sprite we're currently on
-            if (lastFlySpriteCol === SPRITE_COL_FLY_DIAGONAL) {
-                flyDownTransitionStep = 0;
-            } else if (lastFlySpriteCol === SPRITE_COL_FLY_RIGHT) {
-                flyDownTransitionStep = 1;
-            } else {
-                // Default: start from fly_diagonal
-                flyDownTransitionStep = 0;
-            }
+        resetFlyDownAnimationState();
+        spriteCol = SPRITE_COL_FLY_DOWN;
+        flipSprite = horizontalTravelDir === 'right';
+        flyDownMode = 'diagonal';
+        flyDownTravelDir = horizontalTravelDir;
+        flyDownFacingLeft = horizontalTravelDir === 'left';
+        walkAnimFrame = SPRITE_COL_WALK_START;
+        walkAnimTimer = 0;
+        flyHoldTimer = 0;
+        flyDir = null;
+        resetFlySwitchAnimationState();
+        rememberLastFlyPose(spriteCol, flipSprite);
+    }
+    else if (directDownPressed) {
+        const directDownFacingLeft = horizontalTravelDir ? horizontalTravelDir === 'right' : facingLeft;
+        const flyDownSeq = getDirectDownTransitionSequence(directDownFacingLeft);
+
+        if (
+            !flyDownTransitioning ||
+            flyDownMode !== 'direct' ||
+            flyDownFacingLeft !== directDownFacingLeft ||
+            flyDownTravelDir !== horizontalTravelDir
+        ) {
+            flyDownMode = 'direct';
+            flyDownTravelDir = horizontalTravelDir;
+            flyDownFacingLeft = directDownFacingLeft;
+            flyDownTransitionStep = 0;
             flyDownTransitioning = true;
             flyDownTransitionTimer = 0;
         }
 
-        // Animation sequence: fly_diagonal -> fly_right -> fly_down
-        const flyDownSeq = [
-            { col: SPRITE_COL_FLY_DIAGONAL, flip: goingLeft },
-            { col: SPRITE_COL_FLY_RIGHT,    flip: goingLeft },
-            { col: SPRITE_COL_FLY_DOWN,     flip: !goingLeft }
-        ];
-
         spriteCol = flyDownSeq[flyDownTransitionStep].col;
         flipSprite = flyDownSeq[flyDownTransitionStep].flip;
+        flipVertical = flyDownSeq[flyDownTransitionStep].flipVertical;
 
         flyDownTransitionTimer += 1 / 60;
         if (flyDownTransitionStep < flyDownSeq.length - 1 && flyDownTransitionTimer > 0.08) {
@@ -996,20 +1565,12 @@ async function gameLoop() {
             flyDownTransitionTimer = 0;
         }
 
-        // When finished, stay on fly_down
-        if (flyDownTransitionStep === flyDownSeq.length - 1) {
-            flyDownTransitioning = true;
-        }
-
-        // Reset all other flying animation state
         walkAnimFrame = SPRITE_COL_WALK_START;
         walkAnimTimer = 0;
         flyHoldTimer = 0;
         flyDir = null;
-        flySwitching = false;
-        flySwitchStep = 0;
-        flySwitchTimer = 0;
-        lastFlySpriteCol = spriteCol;
+        resetFlySwitchAnimationState();
+        rememberLastFlyPose(spriteCol, flipSprite);
     }
     // --- Walking animation ---
     // Show walking animation if landed and walkSpeed > 0 (even if no keys are pressed)
@@ -1027,28 +1588,21 @@ async function gameLoop() {
             walkAnimTimer = 0;
         }
         spriteCol = walkAnimFrame;
+        resetFlyDownAnimationState();
         flyHoldTimer = 0;
         flyDir = null;
-        flySwitching = false;
-        flySwitchStep = 0;
-        flySwitchTimer = 0;
+        resetFlySwitchAnimationState();
     } else if (gameState.astronaut.isLanded) {
         spriteCol = SPRITE_COL_STAND;
         walkAnimFrame = SPRITE_COL_WALK_START;
         walkAnimTimer = 0;
+        resetFlyDownAnimationState();
         flyHoldTimer = 0;
         flyDir = null;
-        flySwitching = false;
-        flySwitchStep = 0;
-        flySwitchTimer = 0;
+        resetFlySwitchAnimationState();
     } else if (!gameState.astronaut.isLanded && (keys['q'] || keys['w'])) {
         // --- Regular flying logic ---
-        // Only reset flyDownTransition if not holding down
-        if (!downPressed) {
-            flyDownTransitioning = false;
-            flyDownTransitionStep = 0;
-            flyDownTransitionTimer = 0;
-        }
+        resetFlyDownAnimationState();
         // Debug: Show flying branch taken
         if (gameState.debugMode) {
             //console.log('FLYING: !gameState.astronaut.isLanded && (keys[q] || keys[w])');
@@ -1060,12 +1614,10 @@ async function gameLoop() {
             spriteCol = SPRITE_COL_FLY_DIAGONAL;
             flipSprite = currentDir === 'left';
             // Do not reset flyHoldTimer here, so it continues after up is released
-            flySwitching = false;
-            flySwitchStep = 0;
-            flySwitchTimer = 0;
+            resetFlySwitchAnimationState();
             walkAnimFrame = SPRITE_COL_WALK_START;
             walkAnimTimer = 0;
-            lastFlySpriteCol = SPRITE_COL_FLY_DIAGONAL;
+            rememberLastFlyPose(spriteCol, flipSprite);
         } else {
             // Direction change animation (when not holding up)
             if (flyDir && flyDir !== currentDir) {
@@ -1086,6 +1638,7 @@ async function gameLoop() {
                 ];
                 spriteCol = switchSeq[flySwitchStep].col;
                 flipSprite = switchSeq[flySwitchStep].flip;
+                rememberLastFlyPose(spriteCol, flipSprite);
 
                 flySwitchTimer += 1 / 60;
                 if (flySwitchTimer > 0.05) {
@@ -1104,12 +1657,11 @@ async function gameLoop() {
                 if (flyHoldTimer <= 0.25) {
                     spriteCol = SPRITE_COL_FLY_DIAGONAL;
                     flipSprite = flyDir === 'left';
-                    lastFlySpriteCol = SPRITE_COL_FLY_DIAGONAL;
                 } else {
                     spriteCol = SPRITE_COL_FLY_RIGHT;
                     flipSprite = flyDir === 'left';
-                    lastFlySpriteCol = SPRITE_COL_FLY_RIGHT;
                 }
+                rememberLastFlyPose(spriteCol, flipSprite);
                 walkAnimFrame = SPRITE_COL_WALK_START;
                 walkAnimTimer = 0;
             }
@@ -1122,14 +1674,13 @@ async function gameLoop() {
         // Show fly_float sprite if flying with sideways momentum and no q/w pressed
         spriteCol = SPRITE_COL_FLY_FLOAT;
         flipSprite = facingLeft; // use last direction key pressed
+        resetFlyDownAnimationState();
         walkAnimFrame = SPRITE_COL_WALK_START;
         walkAnimTimer = 0;
         flyHoldTimer = 0;
         flyDir = null;
-        flySwitching = false;
-        flySwitchStep = 0;
-        flySwitchTimer = 0;
-        lastFlySpriteCol = SPRITE_COL_FLY_FLOAT;
+        resetFlySwitchAnimationState();
+        rememberLastFlyPose(spriteCol, flipSprite);
     } else {
         // Debug: Show fallback branch taken
         if (gameState.debugMode) {
@@ -1137,11 +1688,10 @@ async function gameLoop() {
         }
         walkAnimFrame = SPRITE_COL_WALK_START;
         walkAnimTimer = 0;
+        resetFlyDownAnimationState();
         flyHoldTimer = 0;
         flyDir = null;
-        flySwitching = false;
-        flySwitchStep = 0;
-        flySwitchTimer = 0;
+        resetFlySwitchAnimationState();
     }
 
     // --- Teleport animation rendering ---
@@ -1179,6 +1729,9 @@ async function gameLoop() {
             );
         }
         ctx!.restore();
+        if (mapBlocksMaskAstronaut.length > 0) {
+            drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut);
+        }
         teleportAnimFrame++;
 
         if (teleportPhase === 'out' && teleportAnimFrame >= TELEPORT_ANIM_FRAMES) {
@@ -1272,6 +1825,10 @@ async function gameLoop() {
         }
         ctx!.restore();
 
+        if (mapBlocksMaskAstronaut.length > 0) {
+            drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut);
+        }
+
         // --- Draw tight bounding boxes for world map sprites with collision ---
         if (showTightBoundingBoxes && spriteSheet && spriteSheet.complete) {
             // Draw for mapBlocks, doorEntities, buttonEntities with collision=true
@@ -1325,6 +1882,37 @@ async function gameLoop() {
 
         if (heldCollectable) {
             drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, [heldCollectable]);
+        }
+
+        if (!getSoundEnabled()) {
+            ctx!.save();
+            ctx!.globalAlpha = 0.55;
+            ctx!.fillStyle = '#020617';
+            ctx!.strokeStyle = '#f8fafc';
+            ctx!.lineWidth = 2;
+            ctx!.beginPath();
+            ctx!.roundRect(canvas.width - 62, 14, 48, 36, 8);
+            ctx!.fill();
+            ctx!.stroke();
+
+            ctx!.fillStyle = '#f8fafc';
+            ctx!.beginPath();
+            ctx!.moveTo(canvas.width - 50, 31);
+            ctx!.lineTo(canvas.width - 42, 31);
+            ctx!.lineTo(canvas.width - 34, 23);
+            ctx!.lineTo(canvas.width - 34, 41);
+            ctx!.lineTo(canvas.width - 42, 33);
+            ctx!.lineTo(canvas.width - 50, 33);
+            ctx!.closePath();
+            ctx!.fill();
+
+            ctx!.beginPath();
+            ctx!.moveTo(canvas.width - 28, 22);
+            ctx!.lineTo(canvas.width - 16, 42);
+            ctx!.moveTo(canvas.width - 16, 22);
+            ctx!.lineTo(canvas.width - 28, 42);
+            ctx!.stroke();
+            ctx!.restore();
         }
     }
 
@@ -1561,6 +2149,7 @@ function getNearestPickupCollectable() {
 
     for (const collectable of collectableEntities) {
         if (!isLooseCollectable(collectable)) continue;
+        if (collectable.pickupEnabled === false) continue;
         if (!isCollectableNearAstronaut(collectable)) continue;
         const bounds = getEntityCollisionBounds(collectable);
         const collectableCenter = getEntityCenter(collectable.x, collectable.y, bounds);
@@ -1746,7 +2335,31 @@ function moveCollectableHorizontally(collectable: Collectable, amount: number) {
     for (let step = 0; step < Math.abs(amount); step++) {
         const nextX = collectable.x + direction;
         if (collidesAtSide(nextX, collectable.y, collisionBounds, side)) {
-            break;
+            let steppedUp = false;
+            for (let stepHeight = 1; stepHeight <= MOVEMENT_SETTINGS.collectablePushStepUpHeight; stepHeight++) {
+                const candidateY = collectable.y - stepHeight;
+                if (collidesAtSide(nextX, candidateY, collisionBounds, side)) {
+                    continue;
+                }
+                if (collidesAtSide(nextX, candidateY, collisionBounds, 'top')) {
+                    continue;
+                }
+                if (!collidesAtSide(nextX, candidateY, collisionBounds, 'bottom')) {
+                    continue;
+                }
+
+                collectable.x = nextX;
+                collectable.y = candidateY;
+                collectable.isGrounded = true;
+                moved += direction;
+                steppedUp = true;
+                break;
+            }
+
+            if (!steppedUp) {
+                break;
+            }
+            continue;
         }
         collectable.x = nextX;
         moved += direction;
@@ -1755,48 +2368,32 @@ function moveCollectableHorizontally(collectable: Collectable, amount: number) {
     return moved;
 }
 
-function getCollectablePushScale(collectable: Collectable) {
-    return Math.max(
-        MOVEMENT_SETTINGS.collectablePushMinScale,
-        1 - collectable.weight * MOVEMENT_SETTINGS.collectablePushResistancePerUnit
-    );
-}
+function moveCollectableVertically(collectable: Collectable, amount: number) {
+    if (amount === 0) return 0;
 
-function getCollectableBounceRestitution(collectable: Collectable, impactSpeed: number) {
-    if (
-        impactSpeed < MOVEMENT_SETTINGS.collectableBounceMinImpactSpeed ||
-        MOVEMENT_SETTINGS.collectableBounceRestitution <= 0
-    ) {
-        return 0;
+    const direction = amount > 0 ? 1 : -1;
+    const collisionBounds = getEntityCollisionBounds(collectable);
+    const side = direction > 0 ? 'bottom' : 'top';
+    let moved = 0;
+
+    for (let step = 0; step < Math.abs(amount); step++) {
+        const nextY = collectable.y + direction;
+        if (collidesAtSide(collectable.x, nextY, collisionBounds, side)) {
+            break;
+        }
+        collectable.y = nextY;
+        moved += direction;
     }
 
-    const weightScale = Math.max(
-        0,
-        1 - collectable.weight * MOVEMENT_SETTINGS.collectableBounceWeightPenaltyPerUnit
-    );
-    if (weightScale === 0) {
-        return 0;
-    }
-
-    const impactScale = Math.max(
-        0,
-        Math.min(
-            1,
-            (impactSpeed - MOVEMENT_SETTINGS.collectableBounceMinImpactSpeed) /
-            Math.max(0.001, MOVEMENT_SETTINGS.collectableTerminalVelocity - MOVEMENT_SETTINGS.collectableBounceMinImpactSpeed)
-        )
-    );
-
-    return MOVEMENT_SETTINGS.collectableBounceRestitution * weightScale * (0.75 + impactScale * 0.25);
+    return moved;
 }
 
 function resolveAstronautCollectableCollisions(horizontalMovement: number, verticalMovement: number) {
-    const astronautRect = getAstronautRect();
-
     for (const collectable of collectableEntities) {
         if (!isLooseCollectable(collectable)) continue;
         if (collectable.astronautCollisionIgnoreFrames > 0) continue;
 
+        const astronautRect = getAstronautRect();
         const bounds = getEntityCollisionBounds(collectable);
         const collectableRect = getEntityRect(collectable.x, collectable.y, bounds);
         const overlapX = Math.min(astronautRect.right, collectableRect.right) - Math.max(astronautRect.left, collectableRect.left) + 1;
@@ -1806,32 +2403,63 @@ function resolveAstronautCollectableCollisions(horizontalMovement: number, verti
             continue;
         }
 
-        if (horizontalMovement !== 0 && Math.abs(horizontalMovement) >= Math.abs(verticalMovement)) {
+        const shouldResolveHorizontally = overlapX <= overlapY;
+
+        if (shouldResolveHorizontally) {
+            const horizontalDirection = horizontalMovement !== 0
+                ? Math.sign(horizontalMovement)
+                : ((astronautRect.left + astronautRect.right) / 2) < ((collectableRect.left + collectableRect.right) / 2)
+                    ? -1
+                    : 1;
             const pushAmount = Math.ceil(overlapX);
-            const pushScale = getCollectablePushScale(collectable);
-            const requestedPush = Math.max(1, Math.ceil(pushAmount * pushScale));
-            const moved = moveCollectableHorizontally(collectable, Math.sign(horizontalMovement) * requestedPush);
-            const remaining = pushAmount - Math.abs(moved);
-            if (remaining > 0) {
-                gameState.astronaut.position.x -= Math.sign(horizontalMovement) * remaining;
+            if (horizontalMovement !== 0) {
+                const pushScale = getDynamicObjectPushScale(collectable, COLLECTABLE_PHYSICS_SETTINGS);
+                const requestedPush = Math.max(1, Math.ceil(pushAmount * pushScale));
+                const moved = moveCollectableHorizontally(collectable, horizontalDirection * requestedPush);
+                const remaining = pushAmount - Math.abs(moved);
+                if (remaining > 0) {
+                    gameState.astronaut.position.x -= horizontalDirection * remaining;
+                    astronaut.velocity.x = 0;
+                }
+
+                collectable.velocity.x = getDynamicObjectPushedVelocity(
+                    horizontalMovement,
+                    collectable,
+                    COLLECTABLE_PHYSICS_SETTINGS
+                );
+            } else {
+                gameState.astronaut.position.x -= horizontalDirection * pushAmount;
                 astronaut.velocity.x = 0;
             }
-
-            const pushedVelocity = Math.max(
-                -MOVEMENT_SETTINGS.collectablePushMaxSpeed,
-                Math.min(
-                    MOVEMENT_SETTINGS.collectablePushMaxSpeed,
-                    horizontalMovement * MOVEMENT_SETTINGS.collectablePushVelocityMultiplier * pushScale
-                )
-            );
-            collectable.velocity.x = pushedVelocity;
         } else if (verticalMovement > 0) {
             gameState.astronaut.position.y -= Math.ceil(overlapY);
             astronaut.velocity.y = 0;
             gameState.astronaut.isLanded = true;
         } else if (verticalMovement < 0) {
-            gameState.astronaut.position.y += Math.ceil(overlapY);
-            astronaut.velocity.y = 0;
+            const impactSpeed = Math.max(Math.abs(verticalMovement), Math.abs(astronaut.velocity.y));
+            const launchSpeed = getDynamicObjectHeadBounceLaunchSpeed(
+                collectable,
+                impactSpeed,
+                COLLECTABLE_PHYSICS_SETTINGS
+            );
+            const liftAmount = Math.ceil(overlapY);
+            const desiredLift = Math.min(liftAmount, Math.ceil(launchSpeed));
+            const movedUp = desiredLift > 0 ? Math.abs(moveCollectableVertically(collectable, -desiredLift)) : 0;
+            const remaining = liftAmount - movedUp;
+
+            astronaut.velocity.y = Math.max(astronaut.velocity.y, 0);
+
+            if (movedUp > 0) {
+                collectable.isGrounded = false;
+                collectable.velocity.y = Math.min(
+                    collectable.velocity.y,
+                    -launchSpeed
+                );
+            }
+
+            if (remaining > 0) {
+                gameState.astronaut.position.y += remaining;
+            }
         }
     }
 }
@@ -1844,10 +2472,7 @@ function updateSingleCollectablePhysics(collectable: Collectable) {
     }
 
     const collisionBounds = getEntityCollisionBounds(collectable);
-    collectable.velocity.y = Math.min(
-        collectable.velocity.y + MOVEMENT_SETTINGS.collectableGravity,
-        MOVEMENT_SETTINGS.collectableTerminalVelocity
-    );
+    applyDynamicObjectGravity(collectable, COLLECTABLE_PHYSICS_SETTINGS);
 
     const targetX = collectable.x + collectable.velocity.x;
     const targetY = collectable.y + collectable.velocity.y;
@@ -1877,7 +2502,11 @@ function updateSingleCollectablePhysics(collectable: Collectable) {
             } else {
                 if (verticalDirection === 'bottom') {
                     const impactSpeed = collectable.velocity.y;
-                    const bounceRestitution = getCollectableBounceRestitution(collectable, impactSpeed);
+                    const bounceRestitution = getDynamicObjectBounceRestitution(
+                        collectable,
+                        impactSpeed,
+                        COLLECTABLE_PHYSICS_SETTINGS
+                    );
                     if (bounceRestitution > 0) {
                         collectable.velocity.y = -impactSpeed * bounceRestitution;
                         bounced = true;
@@ -1897,8 +2526,12 @@ function updateSingleCollectablePhysics(collectable: Collectable) {
     if (!grounded && !bounced && collectable.velocity.y >= 0) {
         const snapAmount = getFloorSnapAmount(nextX, nextY, collisionBounds);
         if (snapAmount > 0) {
-            const snapImpactSpeed = collectable.velocity.y + snapAmount * MOVEMENT_SETTINGS.collectableGravity * 2;
-            const bounceRestitution = getCollectableBounceRestitution(collectable, snapImpactSpeed);
+            const snapImpactSpeed = collectable.velocity.y + snapAmount * COLLECTABLE_PHYSICS_SETTINGS.gravity * 2;
+            const bounceRestitution = getDynamicObjectBounceRestitution(
+                collectable,
+                snapImpactSpeed,
+                COLLECTABLE_PHYSICS_SETTINGS
+            );
             nextY += snapAmount;
             if (bounceRestitution > 0) {
                 collectable.velocity.y = -snapImpactSpeed * bounceRestitution;
@@ -1915,10 +2548,7 @@ function updateSingleCollectablePhysics(collectable: Collectable) {
     collectable.isGrounded = grounded;
 
     if (grounded) {
-        collectable.velocity.x *= 1 - MOVEMENT_SETTINGS.collectableGroundFriction;
-        if (Math.abs(collectable.velocity.x) < 0.05) {
-            collectable.velocity.x = 0;
-        }
+        applyDynamicObjectGroundFriction(collectable, COLLECTABLE_PHYSICS_SETTINGS);
     }
 }
 
@@ -1983,6 +2613,7 @@ function updateAndDrawThrowGuide(context: CanvasRenderingContext2D, camera: Posi
 let showTightBoundingBoxes = false; // Red sprite-based bounding boxes
 let showWorldBoundingBoxes = false; // Green world-coordinate bounding boxes
 window.addEventListener('keydown', (e) => {
+    if (isDesignerOpen()) return;
     if (e.key === 'b') showTightBoundingBoxes = !showTightBoundingBoxes;
     if (e.key === 'f') showWorldBoundingBoxes = !showWorldBoundingBoxes;
     if (e.key === 'd') gameState.debugMode = !gameState.debugMode;

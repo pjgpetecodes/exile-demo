@@ -1,25 +1,47 @@
 import { assignEntityId } from './game.js';
+import { resolveAnimatedPaletteIndex } from './palette-cycle.js';
+import { PaletteCycleSettings } from './types/index.js';
 
 export type MapBlock = {
     x: number; // tile x
     y: number; // tile y
     type: string; // allow any block type, not just 'floor_grass' | 'floor_plain_half'
     collision: boolean;
+    maskAstronaut?: boolean;
     palette?: string | number;
+    paletteCycle?: PaletteCycleSettings;
     rotation?: 1 | 2 | 3 | 4 | 5 | 6 | 7;
 };
 
 export let mapBlocks: MapBlock[] = [];
 export let mapLoaded = false;
 
+export function shouldMaskAstronaut(block: Pick<MapBlock, 'type' | 'collision' | 'maskAstronaut'>) {
+    if (typeof block.maskAstronaut === 'boolean') {
+        return block.maskAstronaut;
+    }
+    if (block.type === 'black_background') {
+        return false;
+    }
+    return block.collision === false;
+}
+
 // New: Color alias map and loader
 let colorAliases: Record<string, [number, number, number]> = {};
 let colorAliasesLoaded = false;
 
+async function fetchFreshJson<T>(url: string): Promise<T> {
+    const separator = url.includes('?') ? '&' : '?';
+    const response = await fetch(`${url}${separator}t=${Date.now()}`, { cache: 'no-store' });
+    if (!response.ok) {
+        throw new Error(`Failed to load ${url}: ${response.status} ${response.statusText}`);
+    }
+    return response.json() as Promise<T>;
+}
+
 async function loadColorAliases() {
     if (colorAliasesLoaded) return;
-    const res = await fetch('./src/assets/colors.json');
-    colorAliases = await res.json();
+    colorAliases = await fetchFreshJson('./src/assets/colors.json');
     colorAliasesLoaded = true;
 }
 
@@ -33,8 +55,7 @@ function resolveColor(color: string | [number, number, number]): [number, number
 
 export async function loadMapBlocks() {
     await loadColorAliases(); // Ensure color aliases are loaded
-    const res = await fetch('./src/assets/world_map.json');
-    const arr = await res.json();
+    const arr = await fetchFreshJson<any[]>('./src/assets/world_map.json');
     // Assign entityId to each block using global assignEntityId
     mapBlocks = arr.map((block: any) => assignEntityId(block));
     mapLoaded = true;
@@ -83,6 +104,10 @@ export function getBlockAtWorld(
 
 // Utility: Cache for filtered sprites (black-to-transparent)
 const filteredSpriteCache = new Map<string, HTMLCanvasElement>();
+
+export function clearMapSpriteCache() {
+    filteredSpriteCache.clear();
+}
 
 // Utility: Build a rect lookup map for fast access
 function buildSpriteRectMap(spriteMap: any) {
@@ -134,10 +159,13 @@ export function drawMap(
         const rect = rectMap[block.type];
         if (!rect) continue;
 
-        let paletteIdx = 0;
-        if (typeof block.palette === "number" && block.palette >= 0 && block.palette < spriteSheets.length) {
-            paletteIdx = block.palette;
-        }
+        const basePalette = typeof block.palette === "number" ? block.palette : 0;
+        const paletteIdx = resolveAnimatedPaletteIndex(
+            block.type,
+            block.paletteCycle,
+            basePalette,
+            spriteSheets.length
+        );
         const sheet = spriteSheets[paletteIdx] || spriteSheets[0];
 
         ctx.save();

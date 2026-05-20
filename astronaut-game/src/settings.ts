@@ -17,6 +17,7 @@ export const MOVEMENT_SETTINGS = {
     landingMomentumFactor: 0.65,
     landingMomentumMinSpeed: 0.35,
     walkStepUpHeight: 6,
+    collectablePushStepUpHeight: 10,
     heldWeightIgnoreThreshold: 0.3,
     heldWeightWalkPenaltyPerUnit: 0.12,
     heldWeightFlyPenaltyPerUnit: 0.1,
@@ -29,10 +30,11 @@ export const MOVEMENT_SETTINGS = {
     collectableGroundFriction: 0.18,
     collectableBounceRestitution: 0.48,
     collectableBounceMinImpactSpeed: 0.35,
-    collectableBounceWeightPenaltyPerUnit: 0.6,
+    collectableBounceWeightPenaltyPerUnit: 0.25,
+    collectableHeadBounceMaxLaunchSpeed: 2.6,
     collectablePushVelocityMultiplier: 1.1,
     collectablePushMaxSpeed: 5,
-    collectablePushResistancePerUnit: 0.35,
+    collectablePushResistancePerUnit: 0.5,
     collectablePushMinScale: 0.2,
     collectablePickupRange: 52,
     collectableInventoryLimit: 5,
@@ -47,4 +49,9 @@ export const MOVEMENT_SETTINGS = {
     throwGuideDotEmitIntervalFrames: 2,
     throwGuideDotsPerBurst: 2,
     throwGuideDotSize: 2.2
+} as const;
+
+export const VIEWPORT_SETTINGS = {
+    defaultWidth: 1000,
+    defaultHeight: 675
 } as const;

@@ -1,28 +1,32 @@
 [
   {
-    "doorID": 0,
-    "name": "main_door_top",
-    "x": 380,
-    "y": 746,
+    "x": 4792,
+    "y": 748,
+    "z": 0,
     "type": "door_horizontal",
     "palette": 0,
     "rotation": 6,
+    "name": "main_door_top",
+    "doorID": 0,
+    "locked": true,
+    "open": false,
     "palette_locked": 11,
     "palette_unlocked": 12,
-    "locked": true,
     "collision": true
   },
   {
-    "doorID": 1,
-    "name": "main_door_bottom",
-    "x": 380,
-    "y": 870,
+    "x": 4792,
+    "y": 872,
+    "z": 0,
     "type": "door_horizontal",
     "palette": 0,
     "rotation": 6,
+    "name": "main_door_bottom",
+    "doorID": 1,
+    "locked": true,
+    "open": false,
     "palette_locked": 11,
     "palette_unlocked": 12,
-    "locked": true,
     "collision": true
   }
 ]

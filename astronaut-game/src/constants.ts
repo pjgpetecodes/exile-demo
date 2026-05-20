@@ -31,3 +31,32 @@ export const ouchSounds = [
     new Audio('./src/assets/ouch_2.wav')
 ];
 
+const SOUND_EFFECTS = [
+    rememberSound,
+    teleportSound,
+    buttonOnSound,
+    doorOpenSound,
+    doorCloseSound,
+    getSound,
+    saveSound,
+    ...ouchSounds
+];
+
+let soundEnabled = true;
+
+export function setSoundEnabled(enabled: boolean) {
+    soundEnabled = enabled;
+    for (const sound of SOUND_EFFECTS) {
+        sound.muted = !enabled;
+    }
+}
+
+export function getSoundEnabled() {
+    return soundEnabled;
+}
+
+export function toggleSoundEnabled() {
+    setSoundEnabled(!soundEnabled);
+    return soundEnabled;
+}
+

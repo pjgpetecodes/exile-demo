@@ -1,4 +1,5 @@
 import { Door } from './door.js';
+import { PaletteCycleSettings } from './types/index.js';
 
 type ButtonPart = {
     x: number;
@@ -19,11 +20,13 @@ export class Button {
     boxPalette: number;
     rotation: number;
     active: boolean;
+    defaultActive: boolean;
     linkedDoors?: number[]; // Array of doorIDs
     collision: boolean;
     pressOffset: number;
     boxOffsetX: number;
     boxOffsetY: number;
+    paletteCycle?: PaletteCycleSettings;
 
     constructor(data: any) {
         this.x = data.x;
@@ -34,11 +37,13 @@ export class Button {
         this.boxPalette = data.boxPalette ?? 0;
         this.rotation = data.rotation ?? 1;
         this.active = data.active ?? false;
+        this.defaultActive = data.active ?? false;
         this.linkedDoors = data.linkedDoors ?? [];
         this.collision = data.collision !== undefined ? data.collision : true;
         this.pressOffset = data.pressOffset ?? 2;
         this.boxOffsetX = data.boxOffsetX ?? 12;
         this.boxOffsetY = data.boxOffsetY ?? 0;
+        this.paletteCycle = data.paletteCycle;
     }
 
     private transformOffset(offsetX: number, offsetY: number) {

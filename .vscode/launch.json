@@ -3,12 +3,15 @@
   "configurations": [
     {
       "name": "Launch Astronaut Game",
-      "type": "pwa-msedge",
+      "type": "pwa-chrome",
       "request": "launch",
-      "url": "http://localhost:3001",
+      "url": "http://localhost:3000",
+      "runtimeExecutable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      "userDataDir": "${workspaceFolder}\\.vscode\\chrome-debug-profile",
       "webRoot": "${workspaceFolder}\\astronaut-game",
       "sourceMaps": true,
-      "preLaunchTask": "dev astronaut-game"
+      "preLaunchTask": "dev astronaut-game",
+      "postDebugTask": "stop astronaut-game dev"
     }
   ]
 }

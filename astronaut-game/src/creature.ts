@@ -1,3 +1,5 @@
+import { PaletteCycleSettings } from './types/index.js';
+
 export class Creature {
     x: number;
     y: number;
@@ -5,6 +7,7 @@ export class Creature {
     palette: number;
     rotation: number;
     state: any;
+    paletteCycle?: PaletteCycleSettings;
 
     constructor(data: any) {
         this.x = data.x;
@@ -13,6 +16,7 @@ export class Creature {
         this.palette = data.palette ?? 0;
         this.rotation = data.rotation ?? 1;
         this.state = data.state ?? {};
+        this.paletteCycle = data.paletteCycle;
     }
 
     // Example: move creature (simple random walk)

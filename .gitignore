@@ -4,3 +4,5 @@ dist
 npm-debug.log
 .env
 .DS_Store
+.vscode/chrome-debug-profile/
+.vscode/msedge-debug-profile/

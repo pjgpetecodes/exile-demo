@@ -1,4 +1,4 @@
-import { Position } from './types/index.js';
+import { PaletteCycleSettings, Position } from './types/index.js';
 
 export class Collectable {
     x: number;
@@ -10,6 +10,7 @@ export class Collectable {
     collected: boolean;
     name: string;
     weight: number;
+    pickupEnabled: boolean;
     storable: boolean;
     affectsAstronaut: boolean;
     collision: boolean;
@@ -19,6 +20,7 @@ export class Collectable {
     velocity: Position;
     astronautCollisionIgnoreFrames: number;
     entityId?: number;
+    paletteCycle?: PaletteCycleSettings;
 
     constructor(data: any) {
         this.x = data.x;
@@ -30,6 +32,7 @@ export class Collectable {
         this.collected = data.collected ?? false;
         this.name = data.name ?? "";
         this.weight = data.weight ?? 0;
+        this.pickupEnabled = data.pickupEnabled ?? true;
         this.storable = data.storable ?? false;
         this.affectsAstronaut = data.affectsAstronaut ?? true;
         this.collision = data.collision ?? true;
@@ -38,6 +41,7 @@ export class Collectable {
         this.isGrounded = data.isGrounded ?? false;
         this.velocity = data.velocity ?? { x: 0, y: 0 };
         this.astronautCollisionIgnoreFrames = data.astronautCollisionIgnoreFrames ?? 0;
+        this.paletteCycle = data.paletteCycle;
     }
 
     collect() {

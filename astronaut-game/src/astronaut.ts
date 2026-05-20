@@ -1,4 +1,4 @@
-import { Astronaut } from './types/index.js';
+import { Astronaut, Position } from './types/index.js';
 import { getSolidBlockAtWorld } from './utilities.js';
 import { MapBlock } from './map.js';
 import { Button } from './button.js';
@@ -6,8 +6,11 @@ import { Door } from './door.js';
 import { SPRITE_SCALE, SPRITE_COL_STAND, SPRITE_ROW } from './constants.js';
 import { MOVEMENT_SETTINGS } from './settings.js';
 
+const DEFAULT_ASTRONAUT_START_POSITION: Position = { x: 400, y: 778 };
+let astronautStartPosition: Position = { ...DEFAULT_ASTRONAUT_START_POSITION };
+
 export let astronaut: Astronaut = {
-    position: { x: 400, y: 778 },
+    position: { ...DEFAULT_ASTRONAUT_START_POSITION },
     velocity: { x: 0, y: 0 },
     isFlying: false,
     isLanded: true,
@@ -34,13 +37,41 @@ type MovementModifiers = {
 
 // Reset astronaut state
 export function resetAstronaut() {
-    astronaut.position = { x: 400, y: 778 };
+    astronaut.position = { ...astronautStartPosition };
     astronaut.velocity = { x: 0, y: 0 };
     astronaut.isFlying = false;
     astronaut.isLanded = true;
     walkSpeed = 0;
     facingLeft = false;
     currentCollisionProfile = 'stand';
+}
+
+export function resetAstronautToPosition(position: Position) {
+    astronaut.position = {
+        x: Math.round(position.x),
+        y: Math.round(position.y)
+    };
+    astronaut.velocity = { x: 0, y: 0 };
+    astronaut.isFlying = false;
+    astronaut.isLanded = true;
+    walkSpeed = 0;
+    facingLeft = false;
+    currentCollisionProfile = 'stand';
+}
+
+export function getAstronautStartPosition() {
+    return { ...astronautStartPosition };
+}
+
+export function setAstronautStartPosition(position: Position, applyToAstronaut: boolean = false) {
+    astronautStartPosition = {
+        x: Math.round(position.x),
+        y: Math.round(position.y)
+    };
+
+    if (applyToAstronaut) {
+        resetAstronaut();
+    }
 }
 
 export function setAstronautCollisionProfile(profile: string) {

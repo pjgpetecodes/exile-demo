@@ -15,7 +15,7 @@
       "problemMatcher": "$tsc"
     },
     {
-      "label": "dev server astronaut-game",
+      "label": "dev astronaut-game",
       "type": "shell",
       "command": "npm run dev",
       "isBackground": true,
@@ -25,28 +25,28 @@
       "problemMatcher": {
         "owner": "custom",
         "pattern": {
-          "regexp": "(.*)",
-          "message": 1
+          "regexp": "^DO_NOT_MATCH_TASK_OUTPUT$",
+          "message": 0
         },
         "background": {
           "activeOnStart": true,
-          "beginsPattern": "Starting compilation in watch mode|\\[Browsersync\\] Access URLs:",
-          "endsPattern": "Found 0 errors\\. Watching for file changes\\."
+          "beginsPattern": ".",
+          "endsPattern": "\\[Browsersync\\] Access URLs:"
         }
       }
     },
     {
-      "label": "dev astronaut-game",
-      "dependsOrder": "sequence",
-      "dependsOn": [
-        "dev server astronaut-game",
-        "open astronaut-game browser"
-      ]
-    },
-    {
-      "label": "open astronaut-game browser",
+      "label": "stop astronaut-game dev",
       "type": "shell",
-      "command": "Start-Process 'http://localhost:3001'"
+      "command": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "$targets = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and (($_.CommandLine -like '*npm run dev*') -or ($_.CommandLine -like '*designer-save-server.cjs*') -or ($_.CommandLine -like '*lite-server --config bs-config.js --no-open*') -or ($_.CommandLine -like '*tsc --watch*') -or ($_.CommandLine -like '*concurrently*astronaut-game*') -or ($_.CommandLine -like '*concurrently*designer-save-server.cjs*')) }; $seen = New-Object 'System.Collections.Generic.HashSet[int]'; function Add-Descendants([int]$processId) { $children = Get-CimInstance Win32_Process -Filter \"ParentProcessId = $processId\"; foreach ($child in $children) { if ($seen.Add([int]$child.ProcessId)) { Add-Descendants([int]$child.ProcessId) } } }; foreach ($target in $targets) { $null = $seen.Add([int]$target.ProcessId); Add-Descendants([int]$target.ProcessId) }; foreach ($processId in ($seen | Sort-Object -Descending)) { try { Stop-Process -Id $processId -ErrorAction Stop } catch {} }"
+      ],
+      "problemMatcher": []
     }
   ]
 }
