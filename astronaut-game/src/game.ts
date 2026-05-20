@@ -1,7 +1,7 @@
 // Main entry point for the astronaut game
 import { Astronaut, GameState, Position } from './types/index.js';
 import {
-    astronaut, resetAstronaut, flipAstronaut, handleAstronautMovement, applyLandingMomentum, getAstronautCollisionOffsets, setAstronautCollisionProfile,
+    astronaut, resetAstronaut, resetAstronautToPosition, flipAstronaut, handleAstronautMovement, applyLandingMomentum, getAstronautCollisionOffsets, setAstronautCollisionProfile,
     getAstronautStartPosition, setAstronautStartPosition,
     walkSpeed, facingLeft, upPressed, downPressed, leftPressed, rightPressed,
     checkAstronautCollisions
@@ -22,7 +22,8 @@ import {
     SPRITE_ROW, SPRITE_COL_STAND, SPRITE_COL_FLY_RIGHT, SPRITE_COL_FLY_DIAGONAL,
     SPRITE_COL_FLY_FLOAT, SPRITE_COL_FLY_DOWN, SPRITE_COL_WALK_START, SPRITE_COL_WALK_RIGHT1,
     SPRITE_COL_WALK_RIGHT2, SPRITE_COL_WALK_END, TELEPORT_ANIM_FRAMES, MAP_WIDTH, MAP_HEIGHT,
-    SPRITE_SCALE, rememberSound, teleportSound, buttonOnSound, doorOpenSound, doorCloseSound, getSound, saveSound, ouchSounds
+    SPRITE_SCALE, rememberSound, teleportSound, buttonOnSound, doorOpenSound, doorCloseSound, getSound, saveSound, ouchSounds,
+    getSoundEnabled, setSoundEnabled, toggleSoundEnabled
 } from './constants.js';
 import { createWorldDesigner, LayerVisibility, RawWorldData, SpriteCatalogEntry, WorldDesigner } from './world-designer.js';
 
@@ -293,6 +294,10 @@ window.addEventListener('keydown', (event) => {
         if (worldDesigner) {
             worldDesigner.setViewportExpanded(!worldDesigner.isViewportExpanded());
         }
+    }
+    if (event.ctrlKey && event.key.toLowerCase() === 'm' && !event.repeat) {
+        event.preventDefault();
+        toggleSoundEnabled();
     }
 });
 
@@ -759,7 +764,10 @@ async function init() {
                         x: astronaut.position.x,
                         y: astronaut.position.y
                     }),
+                    resetAstronautToPosition,
                     setAstronautStartPosition: updateAstronautStartPosition,
+                    getSoundEnabled,
+                    setSoundEnabled,
                     getShowSpriteOutlines: () => showWorldBoundingBoxes,
                     setShowSpriteOutlines: (value: boolean) => {
                         showWorldBoundingBoxes = value;
@@ -1689,6 +1697,37 @@ async function gameLoop() {
 
         if (heldCollectable) {
             drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, [heldCollectable]);
+        }
+
+        if (!getSoundEnabled()) {
+            ctx!.save();
+            ctx!.globalAlpha = 0.55;
+            ctx!.fillStyle = '#020617';
+            ctx!.strokeStyle = '#f8fafc';
+            ctx!.lineWidth = 2;
+            ctx!.beginPath();
+            ctx!.roundRect(canvas.width - 62, 14, 48, 36, 8);
+            ctx!.fill();
+            ctx!.stroke();
+
+            ctx!.fillStyle = '#f8fafc';
+            ctx!.beginPath();
+            ctx!.moveTo(canvas.width - 50, 31);
+            ctx!.lineTo(canvas.width - 42, 31);
+            ctx!.lineTo(canvas.width - 34, 23);
+            ctx!.lineTo(canvas.width - 34, 41);
+            ctx!.lineTo(canvas.width - 42, 33);
+            ctx!.lineTo(canvas.width - 50, 33);
+            ctx!.closePath();
+            ctx!.fill();
+
+            ctx!.beginPath();
+            ctx!.moveTo(canvas.width - 28, 22);
+            ctx!.lineTo(canvas.width - 16, 42);
+            ctx!.moveTo(canvas.width - 16, 22);
+            ctx!.lineTo(canvas.width - 28, 42);
+            ctx!.stroke();
+            ctx!.restore();
         }
     }
 

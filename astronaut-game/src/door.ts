@@ -11,6 +11,8 @@ export class Door {
     doorID: number;
     locked: boolean;
     open: boolean;
+    defaultLocked: boolean;
+    defaultOpen: boolean;
     animating: boolean;
     palette_locked: number | null;
     palette_unlocked: number | null;
@@ -28,6 +30,8 @@ export class Door {
         this.doorID = data.doorID ?? -1;
         this.locked = data.locked ?? false;
         this.open = data.open ?? false;
+        this.defaultLocked = data.locked ?? false;
+        this.defaultOpen = data.open ?? false;
         this.animating = false;
         this.palette_locked = data.palette_locked !== undefined ? data.palette_locked : null;
         this.palette_unlocked = data.palette_unlocked !== undefined ? data.palette_unlocked : null;

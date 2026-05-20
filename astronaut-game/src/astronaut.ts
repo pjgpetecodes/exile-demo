@@ -46,6 +46,19 @@ export function resetAstronaut() {
     currentCollisionProfile = 'stand';
 }
 
+export function resetAstronautToPosition(position: Position) {
+    astronaut.position = {
+        x: Math.round(position.x),
+        y: Math.round(position.y)
+    };
+    astronaut.velocity = { x: 0, y: 0 };
+    astronaut.isFlying = false;
+    astronaut.isLanded = true;
+    walkSpeed = 0;
+    facingLeft = false;
+    currentCollisionProfile = 'stand';
+}
+
 export function getAstronautStartPosition() {
     return { ...astronautStartPosition };
 }

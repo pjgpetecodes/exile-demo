@@ -28,6 +28,8 @@ It saves back into the JSON files in `astronaut-game\src\assets`.
 
 The designer starts hidden by default.
 
+The designer now remembers its UI state in browser storage, including the active tool, mode, category, sprite choice, palette, camera, and viewport expansion.
+
 ## What the designer saves
 
 When you save, the editor writes back to:
@@ -138,6 +140,11 @@ There are two related concepts:
 - the **live astronaut** position
 - the **saved astronaut start** position
 
+To move the live astronaut without changing the saved start:
+
+1. move the camera to the place you want
+2. click **Move live astronaut to view center**
+
 To set the saved start:
 
 1. move the camera to the place you want
@@ -152,6 +159,7 @@ Switch the mode from **Edit** to **Preview** to inspect the world without editin
 
 Useful preview toggles:
 
+- **Sound enabled**
 - **Expand viewport to window**
 - **Show collision outlines**
 - **Show sprite outlines (F)**
@@ -165,6 +173,10 @@ Saving uses a review step.
 1. Click **Preview before save**
 2. Review the changed JSON
 3. Click **Save changes**
+
+If you save while working from a temporary live astronaut position, the designer now resumes from that same live position after save.
+
+If you explicitly changed the astronaut start marker, that updated start position is still saved normally.
 
 The designer validates some common mistakes before save, including missing button-to-door links.
 
@@ -239,6 +251,7 @@ After multi-selecting:
 - **Ctrl+C** = copy selection
 - **Ctrl+V** = paste selection
 - **Ctrl+D** = duplicate selection
+- **Ctrl+M** = toggle sound on/off
 - **Arrow keys** = nudge selection
 - **Shift+Arrow** = larger nudge
 - **G** = toggle grid snap

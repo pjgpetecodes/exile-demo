@@ -96,7 +96,10 @@ export interface WorldDesignerHost {
     replaceRawWorldData(data: RawWorldData): void;
     afterWorldDataMutated(): void;
     getFocusWorldPosition(): Position;
+    resetAstronautToPosition(position: Position): void;
     setAstronautStartPosition(position: Position, applyToAstronaut?: boolean): void;
+    getSoundEnabled(): boolean;
+    setSoundEnabled(enabled: boolean): void;
     getShowSpriteOutlines(): boolean;
     setShowSpriteOutlines(value: boolean): void;
     drawSpriteOutlineOverlay(ctx: CanvasRenderingContext2D, camera: Position, layerVisibility: LayerVisibility): void;
@@ -161,6 +164,26 @@ type SavePreviewFile = {
 type SavePreviewState = {
     files: SavePreviewFile[];
     errors: string[];
+};
+
+type PersistedDesignerUiState = {
+    active: boolean;
+    mode: DesignerMode;
+    tool: DesignerTool;
+    category: DesignerCategory;
+    rotation: number;
+    palette: number;
+    typeByCategory: Record<DesignerCategory, string>;
+    snapToGrid: boolean;
+    nudgeAmount: number;
+    showCollisionOverlay: boolean;
+    disableCollisionInPreview: boolean;
+    layerVisibility: LayerVisibility;
+    camera: Position;
+    hasOpenedOnce: boolean;
+    spritePickerOpen: boolean;
+    viewportExpanded: boolean;
+    soundEnabled: boolean;
 };
 
 type DesignerState = {
@@ -231,7 +254,9 @@ type ControlRefs = {
     focusButton: HTMLButtonElement;
     convertButton: HTMLButtonElement;
     focusAstronautButton: HTMLButtonElement;
+    moveAstronautButton: HTMLButtonElement;
     expandViewportCheckbox: HTMLInputElement;
+    soundEnabledCheckbox: HTMLInputElement;
     addAtCenterButton: HTMLButtonElement;
     setAstronautStartButton: HTMLButtonElement;
     showCollisionCheckbox: HTMLInputElement;
@@ -246,6 +271,7 @@ type ControlRefs = {
 
 const HISTORY_LIMIT = 100;
 const TILE_SIZE = 32 * SPRITE_SCALE;
+const DESIGNER_STATE_STORAGE_KEY = 'exile.world-designer-state.v1';
 const CATEGORY_LABELS: Record<DesignerCategory, string> = {
     world: 'World items',
     buttons: 'Buttons',
@@ -299,7 +325,7 @@ function toButtonData(button: any): ButtonSaveData {
         boxType: button.boxType,
         boxPalette: button.boxPalette ?? 0,
         rotation: normalizeRotation(button.rotation),
-        active: button.active ?? false,
+        active: button.defaultActive ?? button.active ?? false,
         linkedDoors: Array.isArray(button.linkedDoors) ? [...button.linkedDoors] : [],
         collision: button.collision !== false,
         pressOffset: button.pressOffset ?? 2,
@@ -319,8 +345,8 @@ function toDoorData(door: any): DoorSaveData {
         rotation: normalizeRotation(door.rotation),
         name: door.name ?? '',
         doorID: door.doorID ?? -1,
-        locked: door.locked ?? false,
-        open: door.open ?? false,
+        locked: door.defaultLocked ?? door.locked ?? false,
+        open: door.defaultOpen ?? door.open ?? false,
         palette_locked: typeof door.palette_locked === 'number' ? door.palette_locked : null,
         palette_unlocked: typeof door.palette_unlocked === 'number' ? door.palette_unlocked : null,
         collision: door.collision !== false,
@@ -745,26 +771,57 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     const paletteCount = Math.max(host.getPaletteCount(), 1);
     const styles = createDesignerStyles();
     const initialSnapshot = serializeWorldData(host.getRawWorldData());
+    const loadPersistedState = (): PersistedDesignerUiState | null => {
+        try {
+            const raw = window.localStorage.getItem(DESIGNER_STATE_STORAGE_KEY);
+            if (!raw) return null;
+            return JSON.parse(raw) as PersistedDesignerUiState;
+        } catch {
+            return null;
+        }
+    };
+    const persistedState = loadPersistedState();
+    const defaultTypeByCategory = {
+        world: getDefaultType(spriteTypes, 'world'),
+        buttons: getDefaultType(spriteTypes, 'buttons'),
+        doors: getDefaultType(spriteTypes, 'doors'),
+        creatures: getDefaultType(spriteTypes, 'creatures'),
+        collectables: getDefaultType(spriteTypes, 'collectables')
+    };
+    const restoredTypeByCategory: Record<DesignerCategory, string> = {
+        world: spriteTypes.includes(persistedState?.typeByCategory?.world ?? '') ? persistedState!.typeByCategory.world : defaultTypeByCategory.world,
+        buttons: spriteTypes.includes(persistedState?.typeByCategory?.buttons ?? '') ? persistedState!.typeByCategory.buttons : defaultTypeByCategory.buttons,
+        doors: spriteTypes.includes(persistedState?.typeByCategory?.doors ?? '') ? persistedState!.typeByCategory.doors : defaultTypeByCategory.doors,
+        creatures: spriteTypes.includes(persistedState?.typeByCategory?.creatures ?? '') ? persistedState!.typeByCategory.creatures : defaultTypeByCategory.creatures,
+        collectables: spriteTypes.includes(persistedState?.typeByCategory?.collectables ?? '') ? persistedState!.typeByCategory.collectables : defaultTypeByCategory.collectables
+    };
+    const restoredCamera = persistedState?.camera
+        ? host.clampCamera({
+            x: Number.isFinite(persistedState.camera.x) ? persistedState.camera.x : 0,
+            y: Number.isFinite(persistedState.camera.y) ? persistedState.camera.y : 0
+        })
+        : host.clampCamera({ x: 0, y: 0 });
+    const restoredViewportExpanded = persistedState?.viewportExpanded === true;
+    if (typeof persistedState?.soundEnabled === 'boolean') {
+        host.setSoundEnabled(persistedState.soundEnabled);
+    }
     const state: DesignerState = {
-        active: false,
-        mode: 'edit',
-        tool: 'select',
-        category: 'world',
-        rotation: 1,
-        palette: 0,
-        typeByCategory: {
-            world: getDefaultType(spriteTypes, 'world'),
-            buttons: getDefaultType(spriteTypes, 'buttons'),
-            doors: getDefaultType(spriteTypes, 'doors'),
-            creatures: getDefaultType(spriteTypes, 'creatures'),
-            collectables: getDefaultType(spriteTypes, 'collectables')
+        active: persistedState?.active ?? false,
+        mode: persistedState?.mode === 'preview' ? 'preview' : 'edit',
+        tool: persistedState?.tool === 'place' ? 'place' : 'select',
+        category: persistedState?.category && persistedState.category in CATEGORY_LABELS ? persistedState.category : 'world',
+        rotation: normalizeRotation(persistedState?.rotation),
+        palette: clamp(typeof persistedState?.palette === 'number' ? persistedState.palette : 0, 0, paletteCount - 1),
+        typeByCategory: restoredTypeByCategory,
+        snapToGrid: persistedState?.snapToGrid ?? false,
+        nudgeAmount: clamp(Number(persistedState?.nudgeAmount) || 1, 1, 64),
+        showCollisionOverlay: persistedState?.showCollisionOverlay ?? false,
+        disableCollisionInPreview: persistedState?.disableCollisionInPreview ?? false,
+        layerVisibility: {
+            ...buildLayerVisibility(),
+            ...(persistedState?.layerVisibility ?? {})
         },
-        snapToGrid: false,
-        nudgeAmount: 1,
-        showCollisionOverlay: false,
-        disableCollisionInPreview: false,
-        layerVisibility: buildLayerVisibility(),
-        camera: host.clampCamera({ x: 0, y: 0 }),
+        camera: restoredCamera,
         dirty: false,
         status: 'Designer hidden by default. Press ` to open it.',
         statusTone: 'neutral',
@@ -783,8 +840,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         marqueeCurrentWorld: null,
         overviewDragging: false,
         overviewHoverWorld: null,
-        hasOpenedOnce: false,
-        spritePickerOpen: false,
+        hasOpenedOnce: persistedState?.hasOpenedOnce ?? (persistedState?.active ?? false),
+        spritePickerOpen: persistedState?.spritePickerOpen ?? false,
         pickerDrag: null,
         pickerDragCanvas: null,
         savePreviewOpen: false,
@@ -839,6 +896,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             <label class="world-designer-field">Arrow-key nudge size<input type="number" min="1" max="64" step="1" value="1" data-role="nudge" /></label>
             <div class="world-designer-actions">
                 <button type="button" data-role="focus-astronaut">Center on astronaut</button>
+                <button type="button" data-role="move-astronaut">Move live astronaut to view center</button>
                 <button type="button" data-role="add-center">Place at view center</button>
                 <button type="button" data-role="set-start">Set astronaut start to view center</button>
                 <button type="button" data-role="duplicate">Duplicate selection</button>
@@ -855,6 +913,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         </div>
         <div class="world-designer-section">
             <h3>Preview toggles</h3>
+            <label class="world-designer-checkbox"><input type="checkbox" data-role="sound-enabled" /> Sound enabled</label>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="expand-viewport" /> Expand viewport to window</label>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="show-collision" /> Show collision outlines</label>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="show-sprite-outlines" /> Show sprite outlines (F)</label>
@@ -923,7 +982,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         focusButton: root.querySelector('[data-role="focus"]') as HTMLButtonElement,
         convertButton: root.querySelector('[data-role="convert"]') as HTMLButtonElement,
         focusAstronautButton: root.querySelector('[data-role="focus-astronaut"]') as HTMLButtonElement,
+        moveAstronautButton: root.querySelector('[data-role="move-astronaut"]') as HTMLButtonElement,
         expandViewportCheckbox: root.querySelector('[data-role="expand-viewport"]') as HTMLInputElement,
+        soundEnabledCheckbox: root.querySelector('[data-role="sound-enabled"]') as HTMLInputElement,
         addAtCenterButton: root.querySelector('[data-role="add-center"]') as HTMLButtonElement,
         setAstronautStartButton: root.querySelector('[data-role="set-start"]') as HTMLButtonElement,
         showCollisionCheckbox: root.querySelector('[data-role="show-collision"]') as HTMLInputElement,
@@ -964,6 +1025,33 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
     function getSnapshot() {
         return serializeWorldData(host.getRawWorldData());
+    }
+
+    function persistDesignerUiState() {
+        try {
+            const payload: PersistedDesignerUiState = {
+                active: state.active,
+                mode: state.mode,
+                tool: state.tool,
+                category: state.category,
+                rotation: state.rotation,
+                palette: state.palette,
+                typeByCategory: deepClone(state.typeByCategory),
+                snapToGrid: state.snapToGrid,
+                nudgeAmount: state.nudgeAmount,
+                showCollisionOverlay: state.showCollisionOverlay,
+                disableCollisionInPreview: state.disableCollisionInPreview,
+                layerVisibility: deepClone(state.layerVisibility),
+                camera: { ...state.camera },
+                hasOpenedOnce: state.hasOpenedOnce,
+                spritePickerOpen: state.spritePickerOpen,
+                viewportExpanded: state.viewportExpanded,
+                soundEnabled: host.getSoundEnabled()
+            };
+            window.localStorage.setItem(DESIGNER_STATE_STORAGE_KEY, JSON.stringify(payload));
+        } catch {
+            // Ignore storage failures and keep the designer usable.
+        }
     }
 
     function updateDirtyState() {
@@ -1648,12 +1736,24 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
 
         const snapshot = getSnapshot();
+        const liveAstronautPosition = host.getFocusWorldPosition();
+        const astronautStartChanged =
+            snapshot.astronautStart.x !== state.lastSavedSnapshot.astronautStart.x ||
+            snapshot.astronautStart.y !== state.lastSavedSnapshot.astronautStart.y;
         try {
             await host.saveWorldData(snapshot);
             state.lastSavedSnapshot = snapshot;
+            if (!astronautStartChanged) {
+                host.resetAstronautToPosition(liveAstronautPosition);
+            }
             updateDirtyState();
             closeSavePreview();
-            setStatus('Saved designer changes back to the asset JSON files.', 'success');
+            setStatus(
+                astronautStartChanged
+                    ? 'Saved designer changes, including the astronaut start position.'
+                    : 'Saved designer changes and restored the live astronaut to the current working position.',
+                'success'
+            );
             refreshPanel();
         } catch (error) {
             setStatus(
@@ -1898,9 +1998,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
 
         if (category === 'buttons') {
-            addCheckboxInspector(container, 'Active by default', entity.active ?? false, (checked) => {
+            addCheckboxInspector(container, 'Active by default', entity.defaultActive ?? entity.active ?? false, (checked) => {
                 runMutation('Updated button default state.', () => {
                     entity.active = checked;
+                    entity.defaultActive = checked;
                 });
             });
             addTextInspector(container, 'Linked door IDs (comma separated)', (entity.linkedDoors ?? []).join(', '), (value) => {
@@ -1931,14 +2032,16 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     entity.doorID = Math.round(value);
                 });
             });
-            addCheckboxInspector(container, 'Locked by default', entity.locked ?? false, (checked) => {
+            addCheckboxInspector(container, 'Locked by default', entity.defaultLocked ?? entity.locked ?? false, (checked) => {
                 runMutation('Updated door default state.', () => {
                     entity.locked = checked;
+                    entity.defaultLocked = checked;
                 });
             });
-            addCheckboxInspector(container, 'Open by default', entity.open ?? false, (checked) => {
+            addCheckboxInspector(container, 'Open by default', entity.defaultOpen ?? entity.open ?? false, (checked) => {
                 runMutation('Updated door open state.', () => {
                     entity.open = checked;
+                    entity.defaultOpen = checked;
                 });
             });
             addNumberInspector(container, 'Locked palette', typeof entity.palette_locked === 'number' ? entity.palette_locked : -1, (value) => {
@@ -1999,6 +2102,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.root.classList.toggle('world-designer-hidden', !state.active);
         refs.activeToggle.textContent = state.active ? 'Hide panel' : 'Show panel';
         refs.expandViewportCheckbox.checked = state.viewportExpanded;
+        refs.soundEnabledCheckbox.checked = host.getSoundEnabled();
         refs.modeSelect.value = state.mode;
         refs.toolSelect.value = state.tool;
         refs.categorySelect.value = state.category;
@@ -2022,6 +2126,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         updateSelectionSummary();
         refreshInspector();
         refreshStatus();
+        persistDesignerUiState();
     }
 
     function applyViewportSize(width: number, height: number) {
@@ -2219,6 +2324,15 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 y: Math.round(state.camera.y + host.canvas.height / 2)
             }, true);
         });
+    }
+
+    function moveLiveAstronautToViewCenter() {
+        const position = {
+            x: Math.round(state.camera.x + host.canvas.width / 2),
+            y: Math.round(state.camera.y + host.canvas.height / 2)
+        };
+        host.resetAstronautToPosition(position);
+        setStatus('Moved the live astronaut to the center of the current view.', 'success');
     }
 
     function handleCanvasMouseDown(event: MouseEvent) {
@@ -2669,8 +2783,15 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         focusOnCurrentWorldPosition();
         setStatus('Centered view on the astronaut.', 'neutral');
     });
+    refs.moveAstronautButton.addEventListener('click', () => {
+        moveLiveAstronautToViewCenter();
+    });
     refs.expandViewportCheckbox.addEventListener('change', () => {
         setViewportExpanded(refs.expandViewportCheckbox.checked);
+    });
+    refs.soundEnabledCheckbox.addEventListener('change', () => {
+        host.setSoundEnabled(refs.soundEnabledCheckbox.checked);
+        persistDesignerUiState();
     });
     refs.addAtCenterButton.addEventListener('click', () => {
         runMutation(`Placed new ${CATEGORY_LABELS[state.category].toLowerCase()} at the view center.`, () => {
@@ -2713,6 +2834,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     window.addEventListener('resize', resizeExpandedViewport);
 
     refreshSelectOptions();
+    if (restoredViewportExpanded) {
+        setViewportExpanded(true);
+    }
     refreshPanel();
 
     return {

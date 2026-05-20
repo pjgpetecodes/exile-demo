@@ -20,6 +20,7 @@ export class Button {
     boxPalette: number;
     rotation: number;
     active: boolean;
+    defaultActive: boolean;
     linkedDoors?: number[]; // Array of doorIDs
     collision: boolean;
     pressOffset: number;
@@ -36,6 +37,7 @@ export class Button {
         this.boxPalette = data.boxPalette ?? 0;
         this.rotation = data.rotation ?? 1;
         this.active = data.active ?? false;
+        this.defaultActive = data.active ?? false;
         this.linkedDoors = data.linkedDoors ?? [];
         this.collision = data.collision !== undefined ? data.collision : true;
         this.pressOffset = data.pressOffset ?? 2;
