@@ -138,7 +138,11 @@ let flySwitchTimer = 0;
 let flyDownTransitioning = false;
 let flyDownTransitionStep = 0;
 let flyDownTransitionTimer = 0;
+let flyDownTravelDir: 'left' | 'right' | null = null;
+let flyDownFacingLeft = false;
+let flyDownMode: 'direct' | 'diagonal' | null = null;
 let lastFlySpriteCol = SPRITE_COL_FLY_RIGHT; // Track last flying sprite col
+let lastFlyFlipSprite = false; // Track the currently displayed flying flip state
 
 // --- Teleport memory ---
 type TeleportLocation = { x: number, y: number };
@@ -155,6 +159,75 @@ let teleportFlipVertical = false;
 // --- Input state ---
 const keys: Record<string, boolean> = {};
 let prevKeys: Record<string, boolean> = {}
+
+function resetFlySwitchAnimationState() {
+    flySwitching = false;
+    flySwitchStep = 0;
+    flySwitchTimer = 0;
+}
+
+function resetFlyDownAnimationState() {
+    flyDownTransitioning = false;
+    flyDownTransitionStep = 0;
+    flyDownTransitionTimer = 0;
+    flyDownTravelDir = null;
+    flyDownMode = null;
+}
+
+function rememberLastFlyPose(col: number, flip: boolean) {
+    lastFlySpriteCol = col;
+    lastFlyFlipSprite = flip;
+}
+
+function getDirectDownTransitionSequence(targetFacingLeft: boolean) {
+    const startCol =
+        lastFlySpriteCol === SPRITE_COL_FLY_RIGHT ||
+        lastFlySpriteCol === SPRITE_COL_FLY_DIAGONAL ||
+        lastFlySpriteCol === SPRITE_COL_FLY_DOWN ||
+        lastFlySpriteCol === SPRITE_COL_FLY_FLOAT
+            ? lastFlySpriteCol
+            : SPRITE_COL_STAND;
+
+    const startFlip =
+        startCol === SPRITE_COL_FLY_DOWN
+            ? lastFlyFlipSprite
+            : startCol === SPRITE_COL_STAND
+                ? targetFacingLeft
+                : lastFlyFlipSprite;
+
+    if (
+        startCol === SPRITE_COL_FLY_RIGHT ||
+        startCol === SPRITE_COL_FLY_DIAGONAL ||
+        startCol === SPRITE_COL_FLY_FLOAT
+    ) {
+        return [
+            { col: startCol, flip: startFlip, flipVertical: false },
+            { col: SPRITE_COL_FLY_DOWN, flip: targetFacingLeft, flipVertical: false },
+            { col: SPRITE_COL_STAND, flip: targetFacingLeft, flipVertical: true }
+        ];
+    }
+
+    return [
+        { col: startCol, flip: startFlip, flipVertical: false },
+        { col: SPRITE_COL_STAND, flip: targetFacingLeft, flipVertical: true }
+    ];
+}
+
+function getHorizontalTravelDirection(keys: Record<string, boolean>): 'left' | 'right' | null {
+    if (keys['q'] && !keys['w']) {
+        return 'left';
+    }
+    if (keys['w'] && !keys['q']) {
+        return 'right';
+    }
+    if (Math.abs(astronaut.velocity.x) > 0.01) {
+        return astronaut.velocity.x < 0 ? 'left' : 'right';
+    }
+    if (leftPressed !== rightPressed) {
+        return leftPressed ? 'left' : 'right';
+    }
+    return null;
+}
 
 // --- Black background block toggles ---
 let showBlackBackgroundBlocks = false; // c key
@@ -197,7 +270,10 @@ function getCurrentAstronautCollisionProfile() {
         return 'stand';
     }
 
-    if (downPressed && (leftPressed || rightPressed)) {
+    if (downPressed && !keys['q'] && !keys['w']) {
+        return 'stand';
+    }
+    if (downPressed && (keys['q'] || keys['w'])) {
         return 'fly_down';
     }
     if (leftPressed || rightPressed) {
@@ -956,15 +1032,12 @@ async function gameLoop() {
         applyLandingMomentum(landingMomentumSource);
         astronaut.velocity.x = 0;
         astronaut.velocity.y = 0;
-        flyDownTransitioning = false;
-        flyDownTransitionStep = 0;
-        flyDownTransitionTimer = 0;
+        resetFlyDownAnimationState();
         flyHoldTimer = 0;
         flyDir = null;
-        flySwitching = false;
-        flySwitchStep = 0;
-        flySwitchTimer = 0;
+        resetFlySwitchAnimationState();
         lastFlySpriteCol = SPRITE_COL_STAND;
+        lastFlyFlipSprite = facingLeft;
     }
 
     const collidedButton = collisionState.touchedButton;
@@ -1221,37 +1294,53 @@ async function gameLoop() {
     }
 
     // --- Animate transition to fly_down if flying and down + (q or w) pressed ---
-    if (
+    const horizontalTravelDir = getHorizontalTravelDirection(keys);
+
+    const diagonalDownPressed = !!(
         !gameState.astronaut.isLanded &&
         downPressed &&
+        horizontalTravelDir &&
         (keys['q'] || keys['w'])
+    );
+    const directDownPressed = !gameState.astronaut.isLanded && downPressed && !keys['q'] && !keys['w'];
+
+    if (
+        diagonalDownPressed
     ) {
-        // Determine direction
-        const goingLeft = !!keys['q'];
-        // If not already transitioning, start from current flying sprite
-        if (!flyDownTransitioning) {
-            // Determine which flying sprite we're currently on
-            if (lastFlySpriteCol === SPRITE_COL_FLY_DIAGONAL) {
-                flyDownTransitionStep = 0;
-            } else if (lastFlySpriteCol === SPRITE_COL_FLY_RIGHT) {
-                flyDownTransitionStep = 1;
-            } else {
-                // Default: start from fly_diagonal
-                flyDownTransitionStep = 0;
-            }
+        resetFlyDownAnimationState();
+        spriteCol = SPRITE_COL_FLY_DOWN;
+        flipSprite = horizontalTravelDir === 'right';
+        flyDownMode = 'diagonal';
+        flyDownTravelDir = horizontalTravelDir;
+        flyDownFacingLeft = horizontalTravelDir === 'left';
+        walkAnimFrame = SPRITE_COL_WALK_START;
+        walkAnimTimer = 0;
+        flyHoldTimer = 0;
+        flyDir = null;
+        resetFlySwitchAnimationState();
+        rememberLastFlyPose(spriteCol, flipSprite);
+    }
+    else if (directDownPressed) {
+        const directDownFacingLeft = horizontalTravelDir ? horizontalTravelDir === 'right' : facingLeft;
+        const flyDownSeq = getDirectDownTransitionSequence(directDownFacingLeft);
+
+        if (
+            !flyDownTransitioning ||
+            flyDownMode !== 'direct' ||
+            flyDownFacingLeft !== directDownFacingLeft ||
+            flyDownTravelDir !== horizontalTravelDir
+        ) {
+            flyDownMode = 'direct';
+            flyDownTravelDir = horizontalTravelDir;
+            flyDownFacingLeft = directDownFacingLeft;
+            flyDownTransitionStep = 0;
             flyDownTransitioning = true;
             flyDownTransitionTimer = 0;
         }
 
-        // Animation sequence: fly_diagonal -> fly_right -> fly_down
-        const flyDownSeq = [
-            { col: SPRITE_COL_FLY_DIAGONAL, flip: goingLeft },
-            { col: SPRITE_COL_FLY_RIGHT,    flip: goingLeft },
-            { col: SPRITE_COL_FLY_DOWN,     flip: !goingLeft }
-        ];
-
         spriteCol = flyDownSeq[flyDownTransitionStep].col;
         flipSprite = flyDownSeq[flyDownTransitionStep].flip;
+        flipVertical = flyDownSeq[flyDownTransitionStep].flipVertical;
 
         flyDownTransitionTimer += 1 / 60;
         if (flyDownTransitionStep < flyDownSeq.length - 1 && flyDownTransitionTimer > 0.08) {
@@ -1259,20 +1348,12 @@ async function gameLoop() {
             flyDownTransitionTimer = 0;
         }
 
-        // When finished, stay on fly_down
-        if (flyDownTransitionStep === flyDownSeq.length - 1) {
-            flyDownTransitioning = true;
-        }
-
-        // Reset all other flying animation state
         walkAnimFrame = SPRITE_COL_WALK_START;
         walkAnimTimer = 0;
         flyHoldTimer = 0;
         flyDir = null;
-        flySwitching = false;
-        flySwitchStep = 0;
-        flySwitchTimer = 0;
-        lastFlySpriteCol = spriteCol;
+        resetFlySwitchAnimationState();
+        rememberLastFlyPose(spriteCol, flipSprite);
     }
     // --- Walking animation ---
     // Show walking animation if landed and walkSpeed > 0 (even if no keys are pressed)
@@ -1290,28 +1371,21 @@ async function gameLoop() {
             walkAnimTimer = 0;
         }
         spriteCol = walkAnimFrame;
+        resetFlyDownAnimationState();
         flyHoldTimer = 0;
         flyDir = null;
-        flySwitching = false;
-        flySwitchStep = 0;
-        flySwitchTimer = 0;
+        resetFlySwitchAnimationState();
     } else if (gameState.astronaut.isLanded) {
         spriteCol = SPRITE_COL_STAND;
         walkAnimFrame = SPRITE_COL_WALK_START;
         walkAnimTimer = 0;
+        resetFlyDownAnimationState();
         flyHoldTimer = 0;
         flyDir = null;
-        flySwitching = false;
-        flySwitchStep = 0;
-        flySwitchTimer = 0;
+        resetFlySwitchAnimationState();
     } else if (!gameState.astronaut.isLanded && (keys['q'] || keys['w'])) {
         // --- Regular flying logic ---
-        // Only reset flyDownTransition if not holding down
-        if (!downPressed) {
-            flyDownTransitioning = false;
-            flyDownTransitionStep = 0;
-            flyDownTransitionTimer = 0;
-        }
+        resetFlyDownAnimationState();
         // Debug: Show flying branch taken
         if (gameState.debugMode) {
             //console.log('FLYING: !gameState.astronaut.isLanded && (keys[q] || keys[w])');
@@ -1323,12 +1397,10 @@ async function gameLoop() {
             spriteCol = SPRITE_COL_FLY_DIAGONAL;
             flipSprite = currentDir === 'left';
             // Do not reset flyHoldTimer here, so it continues after up is released
-            flySwitching = false;
-            flySwitchStep = 0;
-            flySwitchTimer = 0;
+            resetFlySwitchAnimationState();
             walkAnimFrame = SPRITE_COL_WALK_START;
             walkAnimTimer = 0;
-            lastFlySpriteCol = SPRITE_COL_FLY_DIAGONAL;
+            rememberLastFlyPose(spriteCol, flipSprite);
         } else {
             // Direction change animation (when not holding up)
             if (flyDir && flyDir !== currentDir) {
@@ -1349,6 +1421,7 @@ async function gameLoop() {
                 ];
                 spriteCol = switchSeq[flySwitchStep].col;
                 flipSprite = switchSeq[flySwitchStep].flip;
+                rememberLastFlyPose(spriteCol, flipSprite);
 
                 flySwitchTimer += 1 / 60;
                 if (flySwitchTimer > 0.05) {
@@ -1367,12 +1440,11 @@ async function gameLoop() {
                 if (flyHoldTimer <= 0.25) {
                     spriteCol = SPRITE_COL_FLY_DIAGONAL;
                     flipSprite = flyDir === 'left';
-                    lastFlySpriteCol = SPRITE_COL_FLY_DIAGONAL;
                 } else {
                     spriteCol = SPRITE_COL_FLY_RIGHT;
                     flipSprite = flyDir === 'left';
-                    lastFlySpriteCol = SPRITE_COL_FLY_RIGHT;
                 }
+                rememberLastFlyPose(spriteCol, flipSprite);
                 walkAnimFrame = SPRITE_COL_WALK_START;
                 walkAnimTimer = 0;
             }
@@ -1385,14 +1457,13 @@ async function gameLoop() {
         // Show fly_float sprite if flying with sideways momentum and no q/w pressed
         spriteCol = SPRITE_COL_FLY_FLOAT;
         flipSprite = facingLeft; // use last direction key pressed
+        resetFlyDownAnimationState();
         walkAnimFrame = SPRITE_COL_WALK_START;
         walkAnimTimer = 0;
         flyHoldTimer = 0;
         flyDir = null;
-        flySwitching = false;
-        flySwitchStep = 0;
-        flySwitchTimer = 0;
-        lastFlySpriteCol = SPRITE_COL_FLY_FLOAT;
+        resetFlySwitchAnimationState();
+        rememberLastFlyPose(spriteCol, flipSprite);
     } else {
         // Debug: Show fallback branch taken
         if (gameState.debugMode) {
@@ -1400,11 +1471,10 @@ async function gameLoop() {
         }
         walkAnimFrame = SPRITE_COL_WALK_START;
         walkAnimTimer = 0;
+        resetFlyDownAnimationState();
         flyHoldTimer = 0;
         flyDir = null;
-        flySwitching = false;
-        flySwitchStep = 0;
-        flySwitchTimer = 0;
+        resetFlySwitchAnimationState();
     }
 
     // --- Teleport animation rendering ---
