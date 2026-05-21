@@ -201,6 +201,42 @@ type SavePreviewState = {
     errors: string[];
 };
 
+type Rect = {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+    width: number;
+    height: number;
+};
+
+type ObjectSnapGuide = {
+    axis: 'x' | 'y';
+    mode: 'dock' | 'align';
+    targetRect: Rect;
+    line: {
+        start: Position;
+        end: Position;
+    };
+};
+
+type ObjectSnapMode = 'none' | 'dock' | 'align' | 'both';
+
+type ObjectSnapMatch = {
+    axis: 'x' | 'y';
+    mode: 'dock' | 'align';
+    delta: number;
+    distance: number;
+    alignmentGap: number;
+    guide: ObjectSnapGuide;
+};
+
+type ObjectSnapResolution = {
+    x: ObjectSnapMatch | null;
+    y: ObjectSnapMatch | null;
+    guides: ObjectSnapGuide[];
+};
+
 type PersistedDesignerUiState = {
     active: boolean;
     mode: DesignerMode;
@@ -210,6 +246,7 @@ type PersistedDesignerUiState = {
     palette: number;
     typeByCategory: Record<DesignerCategory, string>;
     snapToGrid: boolean;
+    objectSnapEnabled: boolean;
     snapOffsetX: number;
     snapOffsetY: number;
     nudgeAmount: number;
@@ -243,6 +280,7 @@ type DesignerState = {
     palette: number;
     typeByCategory: Record<DesignerCategory, string>;
     snapToGrid: boolean;
+    objectSnapEnabled: boolean;
     snapOffsetX: number;
     snapOffsetY: number;
     nudgeAmount: number;
@@ -258,6 +296,8 @@ type DesignerState = {
     dragging: boolean;
     dragItems: DragItem[];
     dragAnchorWorld: Position | null;
+    objectSnapGuides: ObjectSnapGuide[];
+    activeObjectSnapMode: ObjectSnapMode;
     lastPointerCanvas: Position | null;
     dragStartSnapshot: RawWorldData | null;
     panningView: boolean;
@@ -304,6 +344,7 @@ type ControlRefs = {
     rotationSelect: HTMLSelectElement;
     paletteSelect: HTMLSelectElement;
     snapCheckbox: HTMLInputElement;
+    objectSnapCheckbox: HTMLInputElement;
     snapOffsetXInput: HTMLInputElement;
     snapOffsetYInput: HTMLInputElement;
     snapOffsetCaptureButton: HTMLButtonElement;
@@ -358,6 +399,8 @@ const DESIGNER_STATE_STORAGE_KEY = 'exile.world-designer-state.v1';
 const MAGNIFIER_SIZE = 160;
 const MAGNIFIER_ZOOM = 6;
 const MAGNIFIER_CURSOR_OFFSET = 26;
+const OBJECT_SNAP_THRESHOLD = 20;
+const OBJECT_SNAP_ALIGNMENT_THRESHOLD = 24;
 const CATEGORY_LABELS: Record<DesignerCategory, string> = {
     world: 'World items',
     buttons: 'Buttons',
@@ -527,20 +570,24 @@ function buildLayerVisibility(): LayerVisibility {
     };
 }
 
-function getEntityRect(entity: any, category: DesignerCategory) {
+function getRectAtPosition(x: number, y: number, category: DesignerCategory): Rect {
     const width = category === 'buttons' ? TILE_SIZE + 14 : TILE_SIZE;
     const height = TILE_SIZE;
     return {
-        left: entity.x,
-        top: entity.y,
-        right: entity.x + width,
-        bottom: entity.y + height,
+        left: x,
+        top: y,
+        right: x + width,
+        bottom: y + height,
         width,
         height
     };
 }
 
-function normalizeRect(start: Position, end: Position) {
+function getEntityRect(entity: any, category: DesignerCategory) {
+    return getRectAtPosition(entity.x, entity.y, category);
+}
+
+function normalizeRect(start: Position, end: Position): Rect {
     const left = Math.min(start.x, end.x);
     const top = Math.min(start.y, end.y);
     const right = Math.max(start.x, end.x);
@@ -583,6 +630,26 @@ function normalizeSnapOffset(value: number) {
 
 function snapCoordinateToOffset(value: number, offset: number) {
     return Math.round((value - offset) / 32) * 32 + offset;
+}
+
+function getRangeGap(startA: number, endA: number, startB: number, endB: number) {
+    if (endA < startB) {
+        return startB - endA;
+    }
+    if (endB < startA) {
+        return startA - endB;
+    }
+    return 0;
+}
+
+function getGuideSpan(startA: number, endA: number, startB: number, endB: number) {
+    const start = Math.max(startA, startB);
+    const end = Math.min(endA, endB);
+    if (end >= start) {
+        return { start, end };
+    }
+    const midpoint = (Math.max(startA, startB) + Math.min(endA, endB)) / 2;
+    return { start: midpoint, end: midpoint };
 }
 
 function parseDoorIds(value: string) {
@@ -1082,6 +1149,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         palette: clamp(typeof persistedState?.palette === 'number' ? persistedState.palette : 0, 0, paletteCount - 1),
         typeByCategory: restoredTypeByCategory,
         snapToGrid: persistedState?.snapToGrid ?? false,
+        objectSnapEnabled: persistedState?.objectSnapEnabled ?? false,
         snapOffsetX: normalizeSnapOffset(Number(persistedState?.snapOffsetX) || 0),
         snapOffsetY: normalizeSnapOffset(Number(persistedState?.snapOffsetY) || 0),
         nudgeAmount: clamp(Number(persistedState?.nudgeAmount) || 1, 1, 64),
@@ -1100,6 +1168,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         dragging: false,
         dragItems: [],
         dragAnchorWorld: null,
+        objectSnapGuides: [],
+        activeObjectSnapMode: (persistedState?.objectSnapEnabled ?? false) ? 'dock' : 'none',
         lastPointerCanvas: null,
         dragStartSnapshot: null,
         panningView: false,
@@ -1185,6 +1255,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 </div>
             </div>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="snap" /> Snap rough placement to 32px grid</label>
+            <label class="world-designer-checkbox"><input type="checkbox" data-role="object-snap" /> Snap to nearby object edges</label>
             <div class="world-designer-grid" style="margin-top:8px;">
                 <label class="world-designer-field">Grid offset X<input type="number" min="0" max="31" step="1" value="0" data-role="snap-offset-x" /></label>
                 <label class="world-designer-field">Grid offset Y<input type="number" min="0" max="31" step="1" value="0" data-role="snap-offset-y" /></label>
@@ -1233,6 +1304,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 <li><strong>Alt+Enter</strong> toggle expanded viewport</li>
                 <li><strong>R</strong> rotate selection, <strong>Delete</strong> remove selection, <strong>Ctrl+C</strong> copy, <strong>Ctrl+V</strong> paste, <strong>Ctrl+D</strong> duplicate</li>
                 <li><strong>Arrow keys</strong> nudge selected item, <strong>Shift+Arrow</strong> larger nudge</li>
+                <li><strong>Ctrl+drag</strong> dock to nearby block edges, <strong>Alt+drag</strong> align matching edges, <strong>Ctrl+Alt+drag</strong> allow both</li>
                 <li><strong>F</strong> toggle sprite outlines, <strong>G</strong> toggle grid snap, <strong>X</strong> toggle magnifier, <strong>Ctrl+S</strong> preview before save</li>
                 <li><strong>Ctrl+Z</strong> undo, <strong>Ctrl+Y</strong> or <strong>Ctrl+Shift+Z</strong> redo</li>
             </ul>
@@ -1309,6 +1381,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         rotationSelect: root.querySelector('[data-role="rotation"]') as HTMLSelectElement,
         paletteSelect: root.querySelector('[data-role="palette"]') as HTMLSelectElement,
         snapCheckbox: root.querySelector('[data-role="snap"]') as HTMLInputElement,
+        objectSnapCheckbox: root.querySelector('[data-role="object-snap"]') as HTMLInputElement,
         snapOffsetXInput: root.querySelector('[data-role="snap-offset-x"]') as HTMLInputElement,
         snapOffsetYInput: root.querySelector('[data-role="snap-offset-y"]') as HTMLInputElement,
         snapOffsetCaptureButton: root.querySelector('[data-role="snap-offset-capture"]') as HTMLButtonElement,
@@ -1403,6 +1476,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 palette: state.palette,
                 typeByCategory: deepClone(state.typeByCategory),
                 snapToGrid: state.snapToGrid,
+                objectSnapEnabled: state.objectSnapEnabled,
                 snapOffsetX: state.snapOffsetX,
                 snapOffsetY: state.snapOffsetY,
                 nudgeAmount: state.nudgeAmount,
@@ -1876,10 +1950,250 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         return host.getRawWorldData().astronautStart;
     }
 
-    function resolvePlacementPosition(worldX: number, worldY: number) {
+    function buildObjectSnapGuide(
+        axis: 'x' | 'y',
+        mode: 'dock' | 'align',
+        movingRect: Rect,
+        targetRect: Rect,
+        targetEdge: 'left' | 'right' | 'top' | 'bottom'
+    ): ObjectSnapGuide {
+        if (axis === 'x') {
+            const span = getGuideSpan(movingRect.top, movingRect.bottom, targetRect.top, targetRect.bottom);
+            const x = targetEdge === 'left' ? targetRect.left : targetRect.right;
+            return {
+                axis,
+                mode,
+                targetRect,
+                line: {
+                    start: { x, y: span.start },
+                    end: { x, y: span.end }
+                }
+            };
+        }
+
+        const span = getGuideSpan(movingRect.left, movingRect.right, targetRect.left, targetRect.right);
+        const y = targetEdge === 'top' ? targetRect.top : targetRect.bottom;
         return {
-            x: state.snapToGrid ? snapCoordinateToOffset(worldX, state.snapOffsetX) : Math.round(worldX),
-            y: state.snapToGrid ? snapCoordinateToOffset(worldY, state.snapOffsetY) : Math.round(worldY)
+            axis,
+            mode,
+            targetRect,
+            line: {
+                start: { x: span.start, y },
+                end: { x: span.end, y }
+            }
+        };
+    }
+
+    function getObjectSnapMode(ctrlKey: boolean, altKey: boolean): ObjectSnapMode {
+        if (ctrlKey && altKey) {
+            return 'both';
+        }
+        if (ctrlKey) {
+            return 'dock';
+        }
+        if (altKey) {
+            return 'align';
+        }
+        return state.objectSnapEnabled ? 'dock' : 'none';
+    }
+
+    function isObjectSnapModeEnabled(mode: ObjectSnapMode, type: 'dock' | 'align') {
+        return mode === 'both' || mode === type;
+    }
+
+    function findObjectSnapMatch(
+        movingRect: Rect,
+        snapMode: ObjectSnapMode,
+        excludedEntities: Set<any> = new Set<any>()
+    ): ObjectSnapResolution {
+        if (snapMode === 'none') {
+            return {
+                x: null,
+                y: null,
+                guides: []
+            };
+        }
+
+        let bestXMatch: ObjectSnapMatch | null = null;
+        let bestYMatch: ObjectSnapMatch | null = null;
+        const movingCenterX = movingRect.left + movingRect.width / 2;
+        const movingCenterY = movingRect.top + movingRect.height / 2;
+
+        function shouldReplaceSnapMatch(current: ObjectSnapMatch | null, next: ObjectSnapMatch) {
+            return !current ||
+                next.distance < current.distance ||
+                (next.distance === current.distance && next.alignmentGap < current.alignmentGap) ||
+                (
+                    next.distance === current.distance &&
+                    next.alignmentGap === current.alignmentGap &&
+                    next.mode === 'dock' &&
+                    current.mode === 'align'
+                );
+        }
+
+        for (const candidate of getHitCandidates()) {
+            if (!state.layerVisibility[candidate.category] || excludedEntities.has(candidate.entity)) {
+                continue;
+            }
+
+            const targetRect = getEntityRect(candidate.entity, candidate.category);
+            const targetCenterX = targetRect.left + targetRect.width / 2;
+            const targetCenterY = targetRect.top + targetRect.height / 2;
+            const horizontalAlignmentGap = getRangeGap(movingRect.left, movingRect.right, targetRect.left, targetRect.right);
+            const verticalAlignmentGap = getRangeGap(movingRect.top, movingRect.bottom, targetRect.top, targetRect.bottom);
+            const candidates: ObjectSnapMatch[] = [];
+
+            if (isObjectSnapModeEnabled(snapMode, 'dock') && horizontalAlignmentGap <= OBJECT_SNAP_ALIGNMENT_THRESHOLD) {
+                const snapAboveTarget = movingCenterY <= targetCenterY;
+                const delta = snapAboveTarget
+                    ? targetRect.top - movingRect.bottom
+                    : targetRect.bottom - movingRect.top;
+                const snappedRect = {
+                    ...movingRect,
+                    top: movingRect.top + delta,
+                    bottom: movingRect.bottom + delta
+                };
+                const distance = Math.abs(delta);
+                if (distance <= OBJECT_SNAP_THRESHOLD) {
+                    candidates.push({
+                        axis: 'y',
+                        mode: 'dock',
+                        delta,
+                        distance,
+                        alignmentGap: horizontalAlignmentGap,
+                        guide: buildObjectSnapGuide(
+                            'y',
+                            'dock',
+                            snappedRect,
+                            targetRect,
+                            snapAboveTarget ? 'top' : 'bottom'
+                        )
+                    });
+                }
+            }
+
+            if (isObjectSnapModeEnabled(snapMode, 'dock') && verticalAlignmentGap <= OBJECT_SNAP_ALIGNMENT_THRESHOLD) {
+                const snapLeftOfTarget = movingCenterX <= targetCenterX;
+                const delta = snapLeftOfTarget
+                    ? targetRect.left - movingRect.right
+                    : targetRect.right - movingRect.left;
+                const snappedRect = {
+                    ...movingRect,
+                    left: movingRect.left + delta,
+                    right: movingRect.right + delta
+                };
+                const distance = Math.abs(delta);
+                if (distance <= OBJECT_SNAP_THRESHOLD) {
+                    candidates.push({
+                        axis: 'x',
+                        mode: 'dock',
+                        delta,
+                        distance,
+                        alignmentGap: verticalAlignmentGap,
+                        guide: buildObjectSnapGuide(
+                            'x',
+                            'dock',
+                            snappedRect,
+                            targetRect,
+                            snapLeftOfTarget ? 'left' : 'right'
+                        )
+                    });
+                }
+            }
+
+            if (isObjectSnapModeEnabled(snapMode, 'align') && horizontalAlignmentGap <= OBJECT_SNAP_ALIGNMENT_THRESHOLD) {
+                const alignToTop = Math.abs(movingRect.top - targetRect.top) <= Math.abs(movingRect.bottom - targetRect.bottom);
+                const delta = alignToTop
+                    ? targetRect.top - movingRect.top
+                    : targetRect.bottom - movingRect.bottom;
+                const snappedRect = {
+                    ...movingRect,
+                    top: movingRect.top + delta,
+                    bottom: movingRect.bottom + delta
+                };
+                const distance = Math.abs(delta);
+                if (distance <= OBJECT_SNAP_THRESHOLD) {
+                    candidates.push({
+                        axis: 'y',
+                        mode: 'align',
+                        delta,
+                        distance,
+                        alignmentGap: horizontalAlignmentGap,
+                        guide: buildObjectSnapGuide(
+                            'y',
+                            'align',
+                            snappedRect,
+                            targetRect,
+                            alignToTop ? 'top' : 'bottom'
+                        )
+                    });
+                }
+            }
+
+            if (isObjectSnapModeEnabled(snapMode, 'align') && verticalAlignmentGap <= OBJECT_SNAP_ALIGNMENT_THRESHOLD) {
+                const alignToLeft = Math.abs(movingRect.left - targetRect.left) <= Math.abs(movingRect.right - targetRect.right);
+                const delta = alignToLeft
+                    ? targetRect.left - movingRect.left
+                    : targetRect.right - movingRect.right;
+                const snappedRect = {
+                    ...movingRect,
+                    left: movingRect.left + delta,
+                    right: movingRect.right + delta
+                };
+                const distance = Math.abs(delta);
+                if (distance <= OBJECT_SNAP_THRESHOLD) {
+                    candidates.push({
+                        axis: 'x',
+                        mode: 'align',
+                        delta,
+                        distance,
+                        alignmentGap: verticalAlignmentGap,
+                        guide: buildObjectSnapGuide(
+                            'x',
+                            'align',
+                            snappedRect,
+                            targetRect,
+                            alignToLeft ? 'left' : 'right'
+                        )
+                    });
+                }
+            }
+
+            for (const candidateMatch of candidates) {
+                if (candidateMatch.axis === 'x') {
+                    if (shouldReplaceSnapMatch(bestXMatch, candidateMatch)) {
+                        bestXMatch = candidateMatch;
+                    }
+                } else if (shouldReplaceSnapMatch(bestYMatch, candidateMatch)) {
+                    bestYMatch = candidateMatch;
+                }
+            }
+        }
+
+        return {
+            x: bestXMatch,
+            y: bestYMatch,
+            guides: [
+                ...(bestXMatch ? [bestXMatch.guide] : []),
+                ...(bestYMatch ? [bestYMatch.guide] : [])
+            ]
+        };
+    }
+
+    function resolvePlacementPosition(
+        worldX: number,
+        worldY: number,
+        category: DesignerCategory = state.category,
+        snapMode: ObjectSnapMode = state.activeObjectSnapMode
+    ) {
+        const baseX = state.snapToGrid ? snapCoordinateToOffset(worldX, state.snapOffsetX) : Math.round(worldX);
+        const baseY = state.snapToGrid ? snapCoordinateToOffset(worldY, state.snapOffsetY) : Math.round(worldY);
+        const movingRect = getRectAtPosition(baseX, baseY, category);
+        const objectSnap = findObjectSnapMatch(movingRect, snapMode);
+        return {
+            x: baseX + (objectSnap.x?.delta ?? 0),
+            y: baseY + (objectSnap.y?.delta ?? 0),
+            guides: objectSnap.guides
         };
     }
 
@@ -1890,6 +2204,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
     function setSnapOffsetsFromPosition(position: Position) {
         setSnapOffsets(position.x, position.y);
+    }
+
+    function updateModifierSnapMode(ctrlKey: boolean, altKey: boolean) {
+        state.activeObjectSnapMode = getObjectSnapMode(ctrlKey, altKey);
     }
 
     function areSameSelection(left: Selection, right: Selection) {
@@ -2540,8 +2858,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         return pastedSelections;
     }
 
-    function placeAtWorld(worldX: number, worldY: number) {
-        const { x, y } = resolvePlacementPosition(worldX, worldY);
+    function placeAtWorld(worldX: number, worldY: number, snapMode: ObjectSnapMode = state.activeObjectSnapMode) {
+        const { x, y } = resolvePlacementPosition(worldX, worldY, state.category, snapMode);
         const type = getCurrentType();
 
         if (state.category === 'world') {
@@ -2709,6 +3027,17 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         };
     }
 
+    function getBoundsFromRects(rects: Rect[]): Rect {
+        return {
+            left: Math.min(...rects.map((rect) => rect.left)),
+            top: Math.min(...rects.map((rect) => rect.top)),
+            right: Math.max(...rects.map((rect) => rect.right)),
+            bottom: Math.max(...rects.map((rect) => rect.bottom)),
+            width: Math.max(...rects.map((rect) => rect.right)) - Math.min(...rects.map((rect) => rect.left)),
+            height: Math.max(...rects.map((rect) => rect.bottom)) - Math.min(...rects.map((rect) => rect.top))
+        };
+    }
+
     function getSelectionsInRect(start: Position, end: Position) {
         const visibleLayers = state.layerVisibility;
         const marqueeRect = normalizeRect(start, end);
@@ -2759,15 +3088,34 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const world = screenToWorld(point.x, point.y);
         const deltaX = world.x - state.dragAnchorWorld.x;
         const deltaY = world.y - state.dragAnchorWorld.y;
-
-        for (const dragItem of state.dragItems) {
-            const targetX = state.snapToGrid
+        const dragTargets = state.dragItems.map((dragItem) => {
+            const x = state.snapToGrid
                 ? snapCoordinateToOffset(dragItem.startX + deltaX, state.snapOffsetX)
                 : dragItem.startX + deltaX;
-            const targetY = state.snapToGrid
+            const y = state.snapToGrid
                 ? snapCoordinateToOffset(dragItem.startY + deltaY, state.snapOffsetY)
                 : dragItem.startY + deltaY;
-            applyPosition(dragItem.selection.entity, targetX, targetY);
+            return {
+                dragItem,
+                x,
+                y,
+                rect: getRectAtPosition(x, y, dragItem.selection.category)
+            };
+        });
+        const excludedEntities = new Set(state.dragItems.map((dragItem) => dragItem.selection.entity));
+        const objectSnap = dragTargets.length > 0
+            ? findObjectSnapMatch(getBoundsFromRects(dragTargets.map((entry) => entry.rect)), state.activeObjectSnapMode, excludedEntities)
+            : { x: null, y: null, guides: [] };
+        const snapDeltaX = objectSnap.x?.delta ?? 0;
+        const snapDeltaY = objectSnap.y?.delta ?? 0;
+        state.objectSnapGuides = objectSnap.guides;
+
+        for (const target of dragTargets) {
+            applyPosition(
+                target.dragItem.selection.entity,
+                target.x + snapDeltaX,
+                target.y + snapDeltaY
+            );
         }
 
         host.afterWorldDataMutated();
@@ -3493,6 +3841,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.rotationSelect.value = String(state.rotation);
         refs.paletteSelect.value = String(state.palette);
         refs.snapCheckbox.checked = state.snapToGrid;
+        refs.objectSnapCheckbox.checked = state.objectSnapEnabled;
         refs.snapOffsetXInput.value = String(state.snapOffsetX);
         refs.snapOffsetYInput.value = String(state.snapOffsetY);
         refs.nudgeInput.value = String(state.nudgeAmount);
@@ -3645,9 +3994,16 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         updateSelectionFromInspectorState();
     }
 
+    function refreshModifierSnapInteraction() {
+        if (state.dragging && state.lastPointerCanvas) {
+            updateDraggedItems(state.lastPointerCanvas, false);
+        }
+    }
+
     function clearPickerDrag() {
         state.pickerDrag = null;
         state.pickerDragCanvas = null;
+        state.objectSnapGuides = [];
         renderSpritePickerGrid();
     }
 
@@ -3712,8 +4068,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
         if (event.button !== 0) return;
         if (state.tool === 'place') {
+            updateModifierSnapMode(event.ctrlKey, event.altKey);
             runMutation(`Placed new ${CATEGORY_LABELS[state.category].toLowerCase()}.`, () => {
-                placeAtWorld(world.x, world.y);
+                placeAtWorld(world.x, world.y, state.activeObjectSnapMode);
             });
             updateSelectionFromInspectorState();
             return;
@@ -3752,6 +4109,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
         const dragSelections = isSelected(hit) ? getSelectedItems() : [hit];
         setSelections(dragSelections, hit);
+        updateModifierSnapMode(event.ctrlKey, event.altKey);
         beginDrag(world, dragSelections);
     }
 
@@ -3768,6 +4126,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
         const point = getCanvasPoint(event);
         state.lastPointerCanvas = point;
+        updateModifierSnapMode(event.ctrlKey, event.altKey);
         if (state.mode !== 'edit') return;
 
         if (state.panningView && state.panStartCanvas && state.panStartCamera) {
@@ -3807,10 +4166,12 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             return;
         }
         state.lastPointerCanvas = null;
+        state.objectSnapGuides = [];
     }
 
     function handleCanvasMouseUp(event?: MouseEvent) {
         if (state.pickerDrag) {
+            updateModifierSnapMode(event?.ctrlKey ?? false, event?.altKey ?? false);
             if (event && isEventOverCanvas(event)) {
                 placeDraggedPickerSprite(getCanvasPoint(event));
             }
@@ -3857,6 +4218,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         state.dragging = false;
         state.dragItems = [];
         state.dragAnchorWorld = null;
+        state.objectSnapGuides = [];
+        state.activeObjectSnapMode = state.objectSnapEnabled ? 'dock' : 'none';
         state.lastPointerCanvas = null;
         if (state.dragStartSnapshot) {
             const before = state.dragStartSnapshot;
@@ -3921,6 +4284,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
         if (!state.active) return;
         if (isFormTarget(event.target)) return;
+
+        if (event.key === 'Control' || event.key === 'Alt') {
+            updateModifierSnapMode(event.ctrlKey, event.altKey);
+            refreshModifierSnapInteraction();
+        }
 
         if (event.key === 'Escape') {
             if (refs.modal.classList.contains('open')) {
@@ -4023,6 +4391,13 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 return;
             }
         }
+    }
+
+    function handleKeyUp(event: KeyboardEvent) {
+        if (!state.active || isFormTarget(event.target)) return;
+        if (event.key !== 'Control' && event.key !== 'Alt') return;
+        updateModifierSnapMode(event.ctrlKey, event.altKey);
+        refreshModifierSnapInteraction();
     }
 
     function handleWindowMouseDown(event: MouseEvent) {
@@ -4136,6 +4511,37 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
     }
 
+    function drawObjectSnapGuide(ctx: CanvasRenderingContext2D, guide: ObjectSnapGuide) {
+        ctx.save();
+        ctx.strokeStyle = '#22d3ee';
+        ctx.fillStyle = guide.mode === 'align'
+            ? 'rgba(167, 139, 250, 0.12)'
+            : 'rgba(34, 211, 238, 0.12)';
+        ctx.strokeStyle = guide.mode === 'align'
+            ? '#a78bfa'
+            : '#22d3ee';
+        ctx.lineWidth = 2;
+        ctx.setLineDash(guide.mode === 'align' ? [2, 4] : [6, 4]);
+        ctx.strokeRect(
+            guide.targetRect.left - state.camera.x,
+            guide.targetRect.top - state.camera.y,
+            guide.targetRect.width,
+            guide.targetRect.height
+        );
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(
+            guide.line.start.x - state.camera.x,
+            guide.line.start.y - state.camera.y
+        );
+        ctx.lineTo(
+            guide.line.end.x - state.camera.x,
+            guide.line.end.y - state.camera.y
+        );
+        ctx.stroke();
+        ctx.restore();
+    }
+
     refs.activeToggle.addEventListener('click', () => {
         setDesignerActive(!state.active);
     });
@@ -4240,6 +4646,16 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     });
     refs.snapCheckbox.addEventListener('change', () => {
         state.snapToGrid = refs.snapCheckbox.checked;
+        persistDesignerUiState();
+    });
+    refs.objectSnapCheckbox.addEventListener('change', () => {
+        state.objectSnapEnabled = refs.objectSnapCheckbox.checked;
+        state.activeObjectSnapMode = state.objectSnapEnabled ? 'dock' : 'none';
+        if (!state.objectSnapEnabled) {
+            state.objectSnapGuides = [];
+        } else {
+            refreshModifierSnapInteraction();
+        }
         persistDesignerUiState();
     });
     refs.snapOffsetXInput.addEventListener('change', () => {
@@ -4376,6 +4792,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     window.addEventListener('mousemove', handleCanvasMouseMove);
     window.addEventListener('mouseup', handleCanvasMouseUp);
     window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('mousedown', handleWindowMouseDown);
     window.addEventListener('resize', resizeExpandedViewport);
 
@@ -4492,9 +4909,13 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 ctx.restore();
             }
 
+            for (const guide of state.objectSnapGuides) {
+                drawObjectSnapGuide(ctx, guide);
+            }
+
             if (state.pickerDrag && state.pickerDragCanvas) {
                 const world = screenToWorld(state.pickerDragCanvas.x, state.pickerDragCanvas.y);
-                const placement = resolvePlacementPosition(world.x, world.y);
+                const placement = resolvePlacementPosition(world.x, world.y, state.pickerDrag.category);
                 const ghostCtx = dragGhostCanvas.getContext('2d');
                 if (ghostCtx) {
                     host.drawSpritePreview(
@@ -4514,6 +4935,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     placement.y - state.camera.y - dragGhostPadding
                 );
                 ctx.restore();
+                for (const guide of placement.guides) {
+                    drawObjectSnapGuide(ctx, guide);
+                }
             }
 
             if (spriteOutlinesVisible) {
@@ -4551,6 +4975,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             window.removeEventListener('mousemove', handleCanvasMouseMove);
             window.removeEventListener('mouseup', handleCanvasMouseUp);
             window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('keyup', handleKeyUp);
             window.removeEventListener('mousedown', handleWindowMouseDown);
             window.removeEventListener('resize', resizeExpandedViewport);
             root.remove();
