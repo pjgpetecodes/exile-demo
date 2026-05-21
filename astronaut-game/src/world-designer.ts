@@ -226,6 +226,7 @@ type PngImportSampleSignature = {
     normalizedSample: Uint8ClampedArray;
     normalizedLabels: Uint16Array;
     foregroundPixelCount: number;
+    matchKey: string;
     foregroundBounds: {
         minX: number;
         minY: number;
@@ -255,6 +256,13 @@ type PngImportDraft = {
     lowConfidenceTileIndexes: number[];
     sourceGridOffsetX: number;
     sourceGridOffsetY: number;
+};
+
+type PngImportProgress = {
+    phase: string;
+    completed: number;
+    total: number;
+    detail: string;
 };
 
 type Rect = {
@@ -467,6 +475,7 @@ const PNG_IMPORT_MAX_TILES = 4096;
 const PNG_IMPORT_PREVIEW_MAX_DIMENSION = 960;
 const PNG_IMPORT_PREVIEW_MIN_TILE_SIZE = 18;
 const PNG_IMPORT_PREVIEW_MAX_TILE_SIZE = 48;
+const pngImportImageCache = new Map<string, Promise<HTMLImageElement>>();
 const MAGNIFIER_SIZE = 160;
 const MAGNIFIER_ZOOM = 6;
 const MAGNIFIER_CURSOR_OFFSET = 26;
@@ -744,6 +753,12 @@ function parseDoorIds(value: string) {
         .filter((entry) => Number.isFinite(entry));
 }
 
+function yieldToUi() {
+    return new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve());
+    });
+}
+
 function parsePaletteCyclePalettes(value: string, paletteCount: number) {
     return [...new Set(
         value
@@ -833,16 +848,54 @@ function createDesignerStyles() {
             flex-wrap: wrap;
             gap: 8px;
         }
-        .world-designer-panel button {
+        .world-designer-panel button,
+        .world-designer-modal-card button {
             border-radius: 6px;
-            border: 1px solid rgba(148, 163, 184, 0.35);
-            background: rgba(30, 41, 59, 0.95);
+            border: 1px solid rgba(96, 165, 250, 0.22);
+            background: linear-gradient(180deg, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.98));
             color: #f8fafc;
-            padding: 6px 10px;
+            padding: 7px 12px;
             cursor: pointer;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 4px 12px rgba(2, 6, 23, 0.22);
+            transition: transform 0.08s ease, background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
         }
-        .world-designer-panel button:hover {
-            background: rgba(51, 65, 85, 0.95);
+        .world-designer-panel button:hover,
+        .world-designer-modal-card button:hover {
+            background: linear-gradient(180deg, rgba(51, 65, 85, 0.98), rgba(30, 41, 59, 0.98));
+            border-color: rgba(96, 165, 250, 0.4);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 6px 16px rgba(2, 6, 23, 0.28);
+        }
+        .world-designer-panel button:active,
+        .world-designer-modal-card button:active {
+            transform: translateY(1px);
+        }
+        .world-designer-panel button:disabled,
+        .world-designer-modal-card button:disabled {
+            opacity: 0.45;
+            cursor: default;
+            transform: none;
+            box-shadow: none;
+        }
+        .world-designer-modal-card .world-designer-button-primary,
+        .world-designer-modal-card .world-designer-button-secondary,
+        .world-designer-modal-card .world-designer-button-subtle {
+            border-color: rgba(96, 165, 250, 0.22);
+            background: linear-gradient(180deg, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.98));
+            color: #f8fafc;
+        }
+        .world-designer-button-primary {
+            background: linear-gradient(180deg, rgba(14, 165, 233, 0.96), rgba(2, 132, 199, 0.96));
+            border-color: rgba(125, 211, 252, 0.5);
+            color: #eff6ff;
+        }
+        .world-designer-button-primary:hover {
+            background: linear-gradient(180deg, rgba(56, 189, 248, 0.98), rgba(14, 165, 233, 0.98));
+        }
+        .world-designer-button-secondary {
+            background: linear-gradient(180deg, rgba(37, 99, 235, 0.18), rgba(15, 23, 42, 0.98));
+        }
+        .world-designer-button-subtle {
+            background: rgba(15, 23, 42, 0.7);
         }
         .world-designer-status {
             margin-top: 6px;
@@ -993,15 +1046,71 @@ function createDesignerStyles() {
             padding: 16px;
             font: 12px/1.4 system-ui, sans-serif;
         }
+        .world-designer-modal-card.world-designer-modal-card-import {
+            width: min(96vw, 1380px);
+            max-height: 92vh;
+        }
         .world-designer-modal-actions {
             display: flex;
             justify-content: flex-end;
             gap: 8px;
             margin-top: 12px;
         }
+        .world-designer-import-layout {
+            display: grid;
+            grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+            gap: 18px;
+            align-items: start;
+        }
+        .world-designer-import-sidebar,
+        .world-designer-import-main {
+            min-width: 0;
+        }
+        .world-designer-import-card {
+            border-radius: 10px;
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            background: rgba(15, 23, 42, 0.55);
+            padding: 12px;
+            margin-bottom: 12px;
+        }
+        .world-designer-import-card:last-child {
+            margin-bottom: 0;
+        }
+        .world-designer-import-progress {
+            display: grid;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .world-designer-import-progress[hidden] {
+            display: none;
+        }
+        .world-designer-import-progress progress {
+            width: 100%;
+            height: 12px;
+            accent-color: #38bdf8;
+        }
+        .world-designer-import-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .world-designer-import-zoom-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+        }
+        .world-designer-import-zoom-label {
+            color: #cbd5e1;
+            min-width: 70px;
+        }
         .world-designer-png-preview-frame {
             margin: 8px 0;
-            max-height: 560px;
+            max-height: 70vh;
+            min-height: 420px;
             overflow: auto;
             border-radius: 8px;
             border: 1px solid rgba(148, 163, 184, 0.25);
@@ -1016,6 +1125,18 @@ function createDesignerStyles() {
             display: block;
             image-rendering: pixelated;
             cursor: crosshair;
+        }
+        .world-designer-png-preview-frame.busy,
+        .world-designer-import-card.busy {
+            opacity: 0.68;
+        }
+        @media (max-width: 1080px) {
+            .world-designer-import-layout {
+                grid-template-columns: 1fr;
+            }
+            .world-designer-png-preview-frame {
+                min-height: 320px;
+            }
         }
         .world-designer-context-menu {
             position: fixed;
@@ -1204,6 +1325,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     let paletteCount = Math.max(host.getPaletteCount(), 1);
     const initialPaletteDefinitions = deepClone(host.getPaletteDefinitions());
     paletteCount = Math.max(paletteCount, initialPaletteDefinitions.length, 1);
+    let pngImportCandidateCache: { key: string; candidates: PngImportCandidate[] } | null = null;
     const styles = createDesignerStyles();
     const initialSnapshot = serializeWorldData(host.getRawWorldData());
     const loadPersistedState = (): PersistedDesignerUiState | null => {
@@ -1969,26 +2091,6 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         };
     }
 
-    function normalizeSampleToForegroundOrigin(sample: Uint8ClampedArray) {
-        const normalizedSample = new Uint8ClampedArray(sample.length);
-        const bounds = getSampleForegroundBounds(sample);
-        if (!bounds) {
-            return normalizedSample;
-        }
-
-        for (let row = 0; row < bounds.height; row += 1) {
-            for (let column = 0; column < bounds.width; column += 1) {
-                const sourceIndex = ((bounds.minY + row) * PNG_IMPORT_SAMPLE_SIZE + bounds.minX + column) * 4;
-                const targetIndex = (row * PNG_IMPORT_SAMPLE_SIZE + column) * 4;
-                normalizedSample[targetIndex] = sample[sourceIndex];
-                normalizedSample[targetIndex + 1] = sample[sourceIndex + 1];
-                normalizedSample[targetIndex + 2] = sample[sourceIndex + 2];
-                normalizedSample[targetIndex + 3] = sample[sourceIndex + 3];
-            }
-        }
-
-        return normalizedSample;
-    }
 
     function buildPaletteInvariantLabelMap(sample: Uint8ClampedArray) {
         const labels = new Uint16Array(sample.length / 4);
@@ -2015,9 +2117,50 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         return labels;
     }
 
+    function hashUint8Array(data: Uint8ClampedArray) {
+        let hash = 2166136261;
+        for (let index = 0; index < data.length; index += 1) {
+            hash ^= data[index];
+            hash = Math.imul(hash, 16777619);
+        }
+        return hash >>> 0;
+    }
+
+    function hashUint16Array(data: Uint16Array) {
+        let hash = 2166136261;
+        for (let index = 0; index < data.length; index += 1) {
+            hash ^= data[index];
+            hash = Math.imul(hash, 16777619);
+        }
+        return hash >>> 0;
+    }
+
+    function normalizeSampleToForegroundOrigin(
+        sample: Uint8ClampedArray,
+        bounds: ReturnType<typeof getSampleForegroundBounds> = getSampleForegroundBounds(sample)
+    ) {
+        const normalizedSample = new Uint8ClampedArray(sample.length);
+        if (!bounds) {
+            return normalizedSample;
+        }
+
+        for (let row = 0; row < bounds.height; row += 1) {
+            for (let column = 0; column < bounds.width; column += 1) {
+                const sourceIndex = ((bounds.minY + row) * PNG_IMPORT_SAMPLE_SIZE + bounds.minX + column) * 4;
+                const targetIndex = (row * PNG_IMPORT_SAMPLE_SIZE + column) * 4;
+                normalizedSample[targetIndex] = sample[sourceIndex];
+                normalizedSample[targetIndex + 1] = sample[sourceIndex + 1];
+                normalizedSample[targetIndex + 2] = sample[sourceIndex + 2];
+                normalizedSample[targetIndex + 3] = sample[sourceIndex + 3];
+            }
+        }
+
+        return normalizedSample;
+    }
+
     function buildPngImportSampleSignature(sample: Uint8ClampedArray): PngImportSampleSignature {
         const foregroundBounds = getSampleForegroundBounds(sample);
-        const normalizedSample = normalizeSampleToForegroundOrigin(sample);
+        const normalizedSample = normalizeSampleToForegroundOrigin(sample, foregroundBounds);
         const normalizedLabels = buildPaletteInvariantLabelMap(normalizedSample);
         let foregroundPixelCount = 0;
         for (let pixel = 0; pixel < normalizedLabels.length; pixel += 1) {
@@ -2025,11 +2168,17 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 foregroundPixelCount += 1;
             }
         }
+        const sampleHash = hashUint8Array(normalizedSample).toString(36);
+        const labelHash = hashUint16Array(normalizedLabels).toString(36);
+        const matchKey = foregroundBounds
+            ? `${foregroundPixelCount}:${foregroundBounds.minX},${foregroundBounds.minY},${foregroundBounds.width},${foregroundBounds.height}:${sampleHash}:${labelHash}`
+            : `empty:${sampleHash}:${labelHash}`;
 
         return {
             normalizedSample,
             normalizedLabels,
             foregroundPixelCount,
+            matchKey,
             foregroundBounds
         };
     }
@@ -2173,9 +2322,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         sourceSample: Uint8ClampedArray,
         candidates: PngImportCandidate[],
         column: number,
-        row: number
+        row: number,
+        sourceSignature: PngImportSampleSignature = buildPngImportSampleSignature(sourceSample)
     ): PngImportTileMatch {
-        const sourceSignature = buildPngImportSampleSignature(sourceSample);
         let bestCandidate = candidates[0];
         let bestScore = Number.POSITIVE_INFINITY;
 
@@ -2303,12 +2452,21 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function loadImage(url: string) {
-        return new Promise<HTMLImageElement>((resolve, reject) => {
+        const cached = pngImportImageCache.get(url);
+        if (cached) {
+            return cached;
+        }
+        const promise = new Promise<HTMLImageElement>((resolve, reject) => {
             const image = new Image();
             image.onload = () => resolve(image);
-            image.onerror = () => reject(new Error(`Failed to load PNG at ${url}. Use a browser-served path such as ./src/assets/MAP-Exile-BC.png.`));
+            image.onerror = () => {
+                pngImportImageCache.delete(url);
+                reject(new Error(`Failed to load PNG at ${url}. Use a browser-served path such as ./src/assets/MAP-Exile-BC.png.`));
+            };
             image.src = url;
         });
+        pngImportImageCache.set(url, promise);
+        return promise;
     }
 
     function getDefaultImportWorldRect() {
@@ -2363,11 +2521,32 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         );
     }
 
-    function buildPngImportCandidates() {
+    async function buildPngImportCandidates(
+        onProgress?: (progress: PngImportProgress) => void | Promise<void>
+    ) {
         const snapshot = host.getRawWorldData();
         const typeDefaults = getPngImportTypeDefaults(snapshot);
 
         const typeNames = getPngImportTypeNames(snapshot);
+        const candidateKey = JSON.stringify({
+            paletteCount,
+            typeNames,
+            typeDefaults: typeNames.map((type) => {
+                const defaults = typeDefaults.get(type) ?? { collision: true, maskAstronaut: false };
+                return [type, defaults.collision, defaults.maskAstronaut];
+            })
+        });
+        if (pngImportCandidateCache?.key === candidateKey) {
+            if (onProgress) {
+                await onProgress({
+                    phase: 'Preparing sprite candidates',
+                    completed: 1,
+                    total: 1,
+                    detail: 'Reusing cached sprite candidates.'
+                });
+            }
+            return pngImportCandidateCache.candidates;
+        }
 
         const sampleCanvas = document.createElement('canvas');
         sampleCanvas.width = PNG_IMPORT_SAMPLE_SIZE;
@@ -2379,11 +2558,15 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         sampleContext.imageSmoothingEnabled = false;
 
         const candidates: PngImportCandidate[] = [];
+        const totalCandidateRenders = Math.max(1, typeNames.length * paletteCount * 7);
+        let processedCandidateRenders = 0;
+        let lastYield = 0;
 
         for (const type of typeNames) {
             const defaults = typeDefaults.get(type) ?? { collision: true, maskAstronaut: false };
             for (let palette = 0; palette < paletteCount; palette += 1) {
                 for (let rotation = 1; rotation <= 7; rotation += 1) {
+                    processedCandidateRenders += 1;
                     sampleContext.fillStyle = '#000';
                     sampleContext.fillRect(0, 0, sampleCanvas.width, sampleCanvas.height);
                     const rendered = host.drawSpriteSample(
@@ -2408,6 +2591,19 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                         maskAstronaut: defaults.maskAstronaut,
                         signature: buildPngImportSampleSignature(candidateSample)
                     });
+                    if (onProgress && (
+                        processedCandidateRenders === totalCandidateRenders ||
+                        processedCandidateRenders - lastYield >= Math.max(8, Math.floor(totalCandidateRenders / 20))
+                    )) {
+                        lastYield = processedCandidateRenders;
+                        await onProgress({
+                            phase: 'Preparing sprite candidates',
+                            completed: processedCandidateRenders,
+                            total: totalCandidateRenders,
+                            detail: `Rendering ${type} palette ${palette}, rotation ${rotation}.`
+                        });
+                        await yieldToUi();
+                    }
                 }
             }
         }
@@ -2416,6 +2612,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             throw new Error('PNG import could not build any world-tile candidates from the current sprite catalog.');
         }
 
+        pngImportCandidateCache = {
+            key: candidateKey,
+            candidates
+        };
         return candidates;
     }
 
@@ -2430,7 +2630,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         worldWidth: number;
         worldHeight: number;
         replaceExisting: boolean;
-    }) {
+    }, onProgress?: (progress: PngImportProgress) => void | Promise<void>) {
         const url = config.url.trim();
         if (!url) {
             throw new Error('Enter a PNG URL before importing.');
@@ -2443,6 +2643,15 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
         const sourceWidth = Math.max(1, Math.round(config.sourceWidth));
         const sourceHeight = Math.max(1, Math.round(config.sourceHeight));
+        if (onProgress) {
+            await onProgress({
+                phase: 'Loading PNG',
+                completed: 0,
+                total: 1,
+                detail: 'Loading PNG metadata and source image.'
+            });
+            await yieldToUi();
+        }
         const image = await loadImage(url);
         const sourceX = clamp(Math.round(config.sourceX), 0, Math.max(0, image.width - 1));
         const sourceY = clamp(Math.round(config.sourceY), 0, Math.max(0, image.height - 1));
@@ -2462,7 +2671,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const worldTileWidth = worldWidth / columns;
         const worldTileHeight = worldHeight / rows;
 
-        const candidates = buildPngImportCandidates();
+        const candidates = await buildPngImportCandidates(onProgress);
         const sourceCanvas = document.createElement('canvas');
         sourceCanvas.width = PNG_IMPORT_SAMPLE_SIZE;
         sourceCanvas.height = PNG_IMPORT_SAMPLE_SIZE;
@@ -2471,14 +2680,26 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             throw new Error('Could not create a source canvas for PNG import.');
         }
         sourceContext.imageSmoothingEnabled = false;
+        const sourceImageData = sourceContext.createImageData(sourceCanvas.width, sourceCanvas.height);
         const tileSourceWidth = boundedSourceWidth / columns;
         const tileSourceHeight = boundedSourceHeight / rows;
+        const matchCache = new Map<string, {
+            bestCandidate: PngImportCandidate;
+            bestScore: number;
+            sourceSignature: PngImportSampleSignature;
+            inferredTranslation: SpriteTranslation;
+        }>();
 
-        const runMatchingPass = (gridOffsetX: number, gridOffsetY: number) => {
+        const runMatchingPass = async (
+            gridOffsetX: number,
+            gridOffsetY: number,
+            phase: string
+        ) => {
             const importedBlocks: MapBlock[] = [];
             const tileMatches: PngImportTileMatch[] = [];
             let uncertainTiles = 0;
             const lowConfidenceTileIndexes: number[] = [];
+            let processedTiles = 0;
 
             for (let row = 0; row < rows; row += 1) {
                 const tileSourceY = sourceY + gridOffsetY + (row * tileSourceHeight);
@@ -2494,10 +2715,25 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                         tileSourceHeight
                     );
 
-                    const sourceSample = new Uint8ClampedArray(
-                        sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height).data
-                    );
-                    const tileMatch = matchPngImportSample(sourceSample, candidates, column, row);
+                    sourceImageData.data.set(sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height).data);
+                    const sourceSample = new Uint8ClampedArray(sourceImageData.data);
+                    const sourceSignature = buildPngImportSampleSignature(sourceSample);
+                    const cachedMatch = matchCache.get(sourceSignature.matchKey);
+                    const tileMatch = cachedMatch
+                        ? {
+                            ...cachedMatch,
+                            column,
+                            row
+                        }
+                        : matchPngImportSample(sourceSample, candidates, column, row, sourceSignature);
+                    if (!cachedMatch) {
+                        matchCache.set(sourceSignature.matchKey, {
+                            bestCandidate: tileMatch.bestCandidate,
+                            bestScore: tileMatch.bestScore,
+                            sourceSignature: tileMatch.sourceSignature,
+                            inferredTranslation: tileMatch.inferredTranslation
+                        });
+                    }
                     tileMatches.push(tileMatch);
 
                     if (tileMatch.bestScore >= PNG_IMPORT_WARNING_SCORE) {
@@ -2515,6 +2751,17 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                         rotation: normalizeRotation(tileMatch.bestCandidate.rotation) as MapBlock['rotation'],
                         translation: tileMatch.inferredTranslation
                     });
+                    processedTiles += 1;
+                }
+
+                if (onProgress) {
+                    await onProgress({
+                        phase,
+                        completed: processedTiles,
+                        total: tileCount,
+                        detail: `Processed row ${row + 1} of ${rows}.`
+                    });
+                    await yieldToUi();
                 }
             }
 
@@ -2526,10 +2773,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             };
         };
 
-        const initialPass = runMatchingPass(0, 0);
+        const initialPass = await runMatchingPass(0, 0, 'Matching source tiles');
         const inferredGridOffset = inferPngImportSourceGridOffset(initialPass.tileMatches);
         const finalPass = inferredGridOffset.x !== 0 || inferredGridOffset.y !== 0
-            ? runMatchingPass(inferredGridOffset.x, inferredGridOffset.y)
+            ? await runMatchingPass(inferredGridOffset.x, inferredGridOffset.y, 'Refining source alignment')
             : initialPass;
 
         return {
@@ -4351,6 +4598,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function openPngImportModal() {
+        const modalCard = refs.modal.querySelector('.world-designer-modal-card') as HTMLDivElement | null;
+        modalCard?.classList.add('world-designer-modal-card-import');
         const defaultWorldRect = getDefaultImportWorldRect();
         const importSnapshot = host.getRawWorldData();
         const pngImportTypeNames = getPngImportTypeNames(importSnapshot);
@@ -4370,92 +4619,130 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             <div class="world-designer-summary">
                 Create a rough draft of <strong>world items only</strong> by matching a PNG region against the currently authored world sprite set. Start with a small region, then review and clean up the result in the designer.
             </div>
-            <div class="world-designer-grid">
-                <label class="world-designer-field world-designer-grid-wide">PNG URL
-                    <div style="display:flex;gap:8px;align-items:center;">
-                        <input type="text" data-role="png-import-url" value="${PNG_IMPORT_DEFAULT_URL}" style="flex:1 1 auto;" />
-                        <button type="button" data-role="png-import-browse">Browse…</button>
-                    </div>
-                    <input type="file" data-role="png-import-file" accept=".png,image/png" style="display:none;" />
-                </label>
-                <label class="world-designer-field">Source X (image px)
-                    <input type="number" data-role="png-import-source-x" value="0" step="1" />
-                </label>
-                <label class="world-designer-field">Source Y (image px)
-                    <input type="number" data-role="png-import-source-y" value="0" step="1" />
-                </label>
-                <label class="world-designer-field">Source width (image px)
-                    <input type="number" data-role="png-import-source-width" value="0" step="1" />
-                </label>
-                <label class="world-designer-field">Source height (image px)
-                    <input type="number" data-role="png-import-source-height" value="0" step="1" />
-                </label>
-                <label class="world-designer-field">World X
-                    <input type="number" data-role="png-import-world-x" value="${defaultWorldRect.x}" step="1" />
-                </label>
-                <label class="world-designer-field">World Y
-                    <input type="number" data-role="png-import-world-y" value="${defaultWorldRect.y}" step="1" />
-                </label>
-                <label class="world-designer-field">World width
-                    <input type="number" data-role="png-import-world-width" value="${defaultWorldRect.width}" step="1" />
-                </label>
-                <label class="world-designer-field">World height
-                    <input type="number" data-role="png-import-world-height" value="${defaultWorldRect.height}" step="1" />
-                </label>
-            </div>
-            <label class="world-designer-checkbox">
-                <input type="checkbox" data-role="png-import-replace" checked />
-                Replace existing world items inside the target world rectangle before importing
-            </label>
-            <div class="world-designer-actions">
-                <button type="button" data-role="png-import-snap">Snap source rect to 32px tiles</button>
-                <button type="button" data-role="png-import-preview">Preview blocks</button>
-            </div>
-            <div class="world-designer-summary" data-role="png-import-meta">
-                Loading PNG metadata…
-            </div>
-            <div class="world-designer-section">
-                <div class="world-designer-summary">
-                    Preview the matched world blocks before importing. Click a tile below to edit its type, palette, rotation, or translation.
-                </div>
-                <div class="world-designer-png-preview-frame">
-                    <canvas class="world-designer-png-preview-canvas" data-role="png-import-preview-canvas" width="32" height="32"></canvas>
-                </div>
-                <div class="world-designer-summary" data-role="png-import-preview-meta">
-                    Preview not generated yet.
-                </div>
-                <div class="world-designer-grid">
-                    <label class="world-designer-field world-designer-grid-wide">Selected preview tile
-                        <input type="text" data-role="png-import-selected-tile" value="No tile selected" readonly />
-                    </label>
-                    <div class="world-designer-grid-wide">
-                        <div class="world-designer-sprite-preview">
-                            <canvas class="world-designer-sprite-canvas" data-role="png-import-selected-type-preview" width="72" height="72"></canvas>
-                            <div class="world-designer-sprite-meta" data-role="png-import-selected-type-meta">No sprite selected</div>
+            <div class="world-designer-import-layout">
+                <div class="world-designer-import-sidebar">
+                    <div class="world-designer-import-card">
+                        <div class="world-designer-grid">
+                            <label class="world-designer-field world-designer-grid-wide">PNG file or URL
+                                <div style="display:flex;gap:8px;align-items:center;">
+                                    <input type="text" data-role="png-import-url" value="${PNG_IMPORT_DEFAULT_URL}" style="flex:1 1 auto;" />
+                                    <button type="button" class="world-designer-button-secondary" data-role="png-import-browse">Browse…</button>
+                                </div>
+                                <input type="file" data-role="png-import-file" accept=".png,image/png" style="display:none;" />
+                            </label>
                         </div>
-                        <details class="world-designer-sprite-picker" data-role="png-import-type-picker">
-                            <summary>Choose replacement sprite</summary>
-                            <div class="world-designer-sprite-picker-body">
-                                <label class="world-designer-field">
-                                    Filter sprites
-                                    <input type="text" data-role="png-import-type-filter" placeholder="Filter sprite names" />
-                                </label>
-                                <div class="world-designer-sprite-picker-grid" data-role="png-import-type-grid"></div>
-                            </div>
-                        </details>
                     </div>
-                    <label class="world-designer-field">Palette
-                        <input type="number" data-role="png-import-selected-palette" value="0" min="0" step="1" />
-                    </label>
-                    <label class="world-designer-field">Rotation
-                        <select data-role="png-import-selected-rotation">${rotationOptionMarkup}</select>
-                    </label>
-                    <label class="world-designer-field">Translation
-                        <select data-role="png-import-selected-translation">${translationOptionMarkup}</select>
-                    </label>
+                    <div class="world-designer-import-card">
+                        <h3>PNG crop in the source image</h3>
+                        <div class="world-designer-grid">
+                            <label class="world-designer-field">Crop left (px)
+                                <input type="number" data-role="png-import-source-x" value="0" step="1" />
+                            </label>
+                            <label class="world-designer-field">Crop top (px)
+                                <input type="number" data-role="png-import-source-y" value="0" step="1" />
+                            </label>
+                            <label class="world-designer-field">Crop width (px)
+                                <input type="number" data-role="png-import-source-width" value="0" step="1" />
+                            </label>
+                            <label class="world-designer-field">Crop height (px)
+                                <input type="number" data-role="png-import-source-height" value="0" step="1" />
+                            </label>
+                        </div>
+                        <div class="world-designer-actions">
+                            <button type="button" class="world-designer-button-subtle" data-role="png-import-snap">Snap crop to 32px tiles</button>
+                        </div>
+                    </div>
+                    <div class="world-designer-import-card">
+                        <h3>Place matched blocks in the world</h3>
+                        <div class="world-designer-grid">
+                            <label class="world-designer-field">World left
+                                <input type="number" data-role="png-import-world-x" value="${defaultWorldRect.x}" step="1" />
+                            </label>
+                            <label class="world-designer-field">World top
+                                <input type="number" data-role="png-import-world-y" value="${defaultWorldRect.y}" step="1" />
+                            </label>
+                            <label class="world-designer-field">World span width
+                                <input type="number" data-role="png-import-world-width" value="${defaultWorldRect.width}" step="1" />
+                            </label>
+                            <label class="world-designer-field">World span height
+                                <input type="number" data-role="png-import-world-height" value="${defaultWorldRect.height}" step="1" />
+                            </label>
+                        </div>
+                        <label class="world-designer-checkbox">
+                            <input type="checkbox" data-role="png-import-replace" checked />
+                            Replace existing world items inside the target area before importing
+                        </label>
+                    </div>
+                    <div class="world-designer-import-card">
+                        <div class="world-designer-actions">
+                            <button type="button" class="world-designer-button-primary" data-role="png-import-preview">Preview blocks</button>
+                        </div>
+                        <div class="world-designer-import-progress" data-role="png-import-progress" hidden>
+                            <progress data-role="png-import-progress-bar" max="1" value="0"></progress>
+                            <div class="world-designer-summary" data-role="png-import-progress-label">Preparing import…</div>
+                            <div class="world-designer-summary" data-role="png-import-progress-detail"></div>
+                        </div>
+                        <div class="world-designer-summary" data-role="png-import-meta">
+                            Loading PNG metadata…
+                        </div>
+                    </div>
                 </div>
-                <div class="world-designer-actions">
-                    <button type="button" data-role="png-import-reset-tile">Reset selected tile</button>
+                <div class="world-designer-import-main">
+                    <div class="world-designer-import-card">
+                        <div class="world-designer-import-toolbar">
+                            <div class="world-designer-summary">
+                                Preview the matched world blocks before importing. Click a tile below to edit its type, palette, rotation, or translation.
+                            </div>
+                            <div class="world-designer-import-zoom-controls">
+                                <button type="button" class="world-designer-button-subtle" data-role="png-import-zoom-out">−</button>
+                                <button type="button" class="world-designer-button-subtle" data-role="png-import-zoom-fit">Fit</button>
+                                <button type="button" class="world-designer-button-subtle" data-role="png-import-zoom-reset">100%</button>
+                                <button type="button" class="world-designer-button-subtle" data-role="png-import-zoom-in">+</button>
+                                <span class="world-designer-import-zoom-label" data-role="png-import-zoom-label">100%</span>
+                            </div>
+                        </div>
+                        <div class="world-designer-png-preview-frame" data-role="png-import-preview-frame">
+                            <canvas class="world-designer-png-preview-canvas" data-role="png-import-preview-canvas" width="32" height="32"></canvas>
+                        </div>
+                        <div class="world-designer-summary" data-role="png-import-preview-meta">
+                            Preview not generated yet.
+                        </div>
+                    </div>
+                    <div class="world-designer-import-card">
+                        <div class="world-designer-grid">
+                            <label class="world-designer-field world-designer-grid-wide">Selected preview tile
+                                <input type="text" data-role="png-import-selected-tile" value="No tile selected" readonly />
+                            </label>
+                            <div class="world-designer-grid-wide">
+                                <div class="world-designer-sprite-preview">
+                                    <canvas class="world-designer-sprite-canvas" data-role="png-import-selected-type-preview" width="72" height="72"></canvas>
+                                    <div class="world-designer-sprite-meta" data-role="png-import-selected-type-meta">No sprite selected</div>
+                                </div>
+                                <details class="world-designer-sprite-picker" data-role="png-import-type-picker">
+                                    <summary>Choose replacement sprite</summary>
+                                    <div class="world-designer-sprite-picker-body">
+                                        <label class="world-designer-field">
+                                            Filter sprites
+                                            <input type="text" data-role="png-import-type-filter" placeholder="Filter sprite names" />
+                                        </label>
+                                        <div class="world-designer-sprite-picker-grid" data-role="png-import-type-grid"></div>
+                                    </div>
+                                </details>
+                            </div>
+                            <label class="world-designer-field">Palette
+                                <input type="number" data-role="png-import-selected-palette" value="0" min="0" step="1" />
+                            </label>
+                            <label class="world-designer-field">Rotation
+                                <select data-role="png-import-selected-rotation">${rotationOptionMarkup}</select>
+                            </label>
+                            <label class="world-designer-field">Translation
+                                <select data-role="png-import-selected-translation">${translationOptionMarkup}</select>
+                            </label>
+                        </div>
+                        <div class="world-designer-actions">
+                            <button type="button" class="world-designer-button-subtle" data-role="png-import-reset-tile">Reset selected tile</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         `;
@@ -4476,8 +4763,18 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const snapButton = refs.modalBody.querySelector('[data-role="png-import-snap"]') as HTMLButtonElement;
         const previewButton = refs.modalBody.querySelector('[data-role="png-import-preview"]') as HTMLButtonElement;
         const meta = refs.modalBody.querySelector('[data-role="png-import-meta"]') as HTMLDivElement;
+        const progressWrap = refs.modalBody.querySelector('[data-role="png-import-progress"]') as HTMLDivElement;
+        const progressBar = refs.modalBody.querySelector('[data-role="png-import-progress-bar"]') as HTMLProgressElement;
+        const progressLabel = refs.modalBody.querySelector('[data-role="png-import-progress-label"]') as HTMLDivElement;
+        const progressDetail = refs.modalBody.querySelector('[data-role="png-import-progress-detail"]') as HTMLDivElement;
+        const previewFrame = refs.modalBody.querySelector('[data-role="png-import-preview-frame"]') as HTMLDivElement;
         const previewCanvas = refs.modalBody.querySelector('[data-role="png-import-preview-canvas"]') as HTMLCanvasElement;
         const previewMeta = refs.modalBody.querySelector('[data-role="png-import-preview-meta"]') as HTMLDivElement;
+        const zoomOutButton = refs.modalBody.querySelector('[data-role="png-import-zoom-out"]') as HTMLButtonElement;
+        const zoomFitButton = refs.modalBody.querySelector('[data-role="png-import-zoom-fit"]') as HTMLButtonElement;
+        const zoomResetButton = refs.modalBody.querySelector('[data-role="png-import-zoom-reset"]') as HTMLButtonElement;
+        const zoomInButton = refs.modalBody.querySelector('[data-role="png-import-zoom-in"]') as HTMLButtonElement;
+        const zoomLabel = refs.modalBody.querySelector('[data-role="png-import-zoom-label"]') as HTMLSpanElement;
         const selectedTileInput = refs.modalBody.querySelector('[data-role="png-import-selected-tile"]') as HTMLInputElement;
         const selectedTypePreviewCanvas = refs.modalBody.querySelector('[data-role="png-import-selected-type-preview"]') as HTMLCanvasElement;
         const selectedTypeMeta = refs.modalBody.querySelector('[data-role="png-import-selected-type-meta"]') as HTMLDivElement;
@@ -4496,6 +4793,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         let previewOriginalBlocks: MapBlock[] = [];
         let selectedPreviewIndex = -1;
         let previewTileSize = PNG_IMPORT_PREVIEW_MAX_TILE_SIZE;
+        let previewZoom = 1;
+        let importBusy = false;
+        let progressStartedAt = 0;
         const selectedTypeButtons = new Map<string, HTMLButtonElement>();
         selectedPaletteInput.max = String(Math.max(paletteCount - 1, 0));
 
@@ -4509,6 +4809,94 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 ? previewBlocks[selectedPreviewIndex]
                 : null
         );
+
+        const formatDuration = (milliseconds: number) => {
+            const totalSeconds = Math.max(0, Math.round(milliseconds / 1000));
+            const minutes = Math.floor(totalSeconds / 60);
+            const seconds = totalSeconds % 60;
+            return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+        };
+
+        const setProgress = (progress: PngImportProgress | null) => {
+            if (!progress) {
+                progressWrap.hidden = true;
+                progressBar.value = 0;
+                progressLabel.textContent = 'Preparing import…';
+                progressDetail.textContent = '';
+                return;
+            }
+            progressWrap.hidden = false;
+            progressBar.max = Math.max(progress.total, 1);
+            progressBar.value = clamp(progress.completed, 0, Math.max(progress.total, 1));
+            const percent = progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;
+            progressLabel.textContent = `${progress.phase} — ${percent}%`;
+            const elapsed = progressStartedAt > 0 ? Date.now() - progressStartedAt : 0;
+            const eta = progress.completed > 0 && progress.total > progress.completed
+                ? ` About ${formatDuration((elapsed / progress.completed) * (progress.total - progress.completed))} left.`
+                : '';
+            progressDetail.textContent = `${progress.detail}${eta}`;
+        };
+
+        const setPreviewZoom = (zoom: number) => {
+            previewZoom = clamp(zoom, 0.25, 8);
+            previewCanvas.style.width = `${Math.max(1, Math.round(previewCanvas.width * previewZoom))}px`;
+            previewCanvas.style.height = `${Math.max(1, Math.round(previewCanvas.height * previewZoom))}px`;
+            zoomLabel.textContent = `${Math.round(previewZoom * 100)}%`;
+        };
+
+        const fitPreviewZoom = () => {
+            if (!previewDraft || previewCanvas.width <= 0 || previewCanvas.height <= 0) {
+                setPreviewZoom(1);
+                return;
+            }
+            const availableWidth = Math.max(1, previewFrame.clientWidth - 12);
+            const availableHeight = Math.max(1, previewFrame.clientHeight - 12);
+            const fitZoom = Math.min(
+                availableWidth / previewCanvas.width,
+                availableHeight / previewCanvas.height
+            );
+            setPreviewZoom(clamp(fitZoom, 0.25, 8));
+        };
+
+        const setImportBusy = (busy: boolean) => {
+            importBusy = busy;
+            refs.modal.dataset.busy = busy ? 'true' : 'false';
+            const controls: Array<HTMLInputElement | HTMLButtonElement | HTMLSelectElement> = [
+                urlInput,
+                browseButton,
+                fileInput,
+                sourceXInput,
+                sourceYInput,
+                sourceWidthInput,
+                sourceHeightInput,
+                worldXInput,
+                worldYInput,
+                worldWidthInput,
+                worldHeightInput,
+                replaceCheckbox,
+                snapButton,
+                previewButton,
+                selectedTypeFilterInput,
+                selectedPaletteInput,
+                selectedRotationSelect,
+                selectedTranslationSelect,
+                resetTileButton,
+                zoomOutButton,
+                zoomFitButton,
+                zoomResetButton,
+                zoomInButton,
+                refs.modalClose
+            ];
+            for (const control of controls) {
+                control.disabled = busy;
+            }
+            previewFrame.classList.toggle('busy', busy);
+            progressWrap.classList.toggle('busy', busy);
+            selectedTypePicker.style.pointerEvents = busy ? 'none' : '';
+            previewCanvas.style.pointerEvents = busy ? 'none' : '';
+            renderImportTypePicker();
+            syncSelectedPreviewControls();
+        };
 
         const renderImportTypePicker = () => {
             const selectedBlock = getSelectedPreviewBlock();
@@ -4557,7 +4945,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 const matchesFilter = filter.length === 0 || type.toLowerCase().includes(filter);
                 button.hidden = !matchesFilter;
                 button.style.display = matchesFilter ? '' : 'none';
-                button.disabled = !selectedBlock;
+                button.disabled = !selectedBlock || importBusy;
                 button.classList.toggle('selected', type === selectedBlock?.type);
                 const canvas = button.querySelector('canvas');
                 if (canvas instanceof HTMLCanvasElement) {
@@ -4570,11 +4958,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             const selectedBlock = getSelectedPreviewBlock();
             const hasSelection = selectedBlock !== null;
             selectedTypePicker.open = hasSelection ? selectedTypePicker.open : false;
-            selectedTypeFilterInput.disabled = !hasSelection;
-            selectedPaletteInput.disabled = !hasSelection;
-            selectedRotationSelect.disabled = !hasSelection;
-            selectedTranslationSelect.disabled = !hasSelection;
-            resetTileButton.disabled = !hasSelection;
+            selectedTypeFilterInput.disabled = !hasSelection || importBusy;
+            selectedPaletteInput.disabled = !hasSelection || importBusy;
+            selectedRotationSelect.disabled = !hasSelection || importBusy;
+            selectedTranslationSelect.disabled = !hasSelection || importBusy;
+            resetTileButton.disabled = !hasSelection || importBusy;
             if (!selectedBlock || !previewDraft) {
                 selectedTileInput.value = 'No tile selected';
                 clearPreviewCanvas(selectedTypePreviewCanvas);
@@ -4604,6 +4992,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             if (!previewDraft) {
                 previewCanvas.width = 32;
                 previewCanvas.height = 32;
+                setPreviewZoom(previewZoom);
                 clearPreviewCanvas(previewCanvas);
                 syncSelectedPreviewControls();
                 return;
@@ -4612,6 +5001,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             previewTileSize = getPngImportPreviewTileSize(previewDraft.columns, previewDraft.rows);
             previewCanvas.width = Math.max(1, previewDraft.columns * previewTileSize);
             previewCanvas.height = Math.max(1, previewDraft.rows * previewTileSize);
+            setPreviewZoom(previewZoom);
             const ctx = previewCanvas.getContext('2d');
             if (!ctx) {
                 syncSelectedPreviewControls();
@@ -4803,6 +5193,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             input.addEventListener('change', handleImportFieldChanged);
         });
 
+        zoomOutButton.addEventListener('click', () => setPreviewZoom(previewZoom / 1.25));
+        zoomInButton.addEventListener('click', () => setPreviewZoom(previewZoom * 1.25));
+        zoomResetButton.addEventListener('click', () => setPreviewZoom(1));
+        zoomFitButton.addEventListener('click', fitPreviewZoom);
+
         snapButton.addEventListener('click', () => {
             if (!loadedImage) {
                 setStatus('Load a PNG before snapping the source rectangle.', 'error');
@@ -4895,10 +5290,16 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         });
 
         previewButton.addEventListener('click', async () => {
-            previewButton.disabled = true;
+            progressStartedAt = Date.now();
             previewButton.textContent = 'Generating…';
             previewMeta.textContent = 'Generating preview…';
-            refs.modalConfirm.disabled = true;
+            setImportBusy(true);
+            setProgress({
+                phase: 'Preparing import',
+                completed: 0,
+                total: 1,
+                detail: 'Starting PNG preview generation.'
+            });
             try {
                 const draft = await buildPngImportDraftFromPng({
                     url: resolvedPngUrl,
@@ -4911,12 +5312,15 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     worldWidth: getNumericInputValue(worldWidthInput, 32),
                     worldHeight: getNumericInputValue(worldHeightInput, 32),
                     replaceExisting: replaceCheckbox.checked
+                }, async (progress) => {
+                    setProgress(progress);
                 });
                 previewDraft = draft;
                 previewBlocks = draft.blocks.map((block) => toMapBlockData(block));
                 previewOriginalBlocks = draft.blocks.map((block) => toMapBlockData(block));
                 selectedPreviewIndex = previewBlocks.length > 0 ? 0 : -1;
                 renderPreviewCanvas();
+                fitPreviewZoom();
                 const gridOffsetMessage = draft.sourceGridOffsetX !== 0 || draft.sourceGridOffsetY !== 0
                     ? ` Auto-aligned the source grid by (${draft.sourceGridOffsetX}, ${draft.sourceGridOffsetY}) px before matching.`
                     : '';
@@ -4932,7 +5336,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     'error'
                 );
             } finally {
-                previewButton.disabled = false;
+                setImportBusy(false);
+                setProgress(null);
                 previewButton.textContent = 'Preview blocks';
             }
         });
@@ -4948,12 +5353,13 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 return;
             }
             try {
+                setImportBusy(true);
                 const committedDraft: PngImportDraft = {
                     ...previewDraft,
                     blocks: previewBlocks.map((block) => toMapBlockData(block))
                 };
                 applyPngImportDraft(committedDraft, replaceCheckbox.checked);
-                closeModal();
+                closeModal(true);
                 setStatus(
                     committedDraft.uncertainTiles > 0
                         ? `Imported ${committedDraft.blocks.length} reviewed draft world tiles from PNG. ${committedDraft.uncertainTiles} tile${committedDraft.uncertainTiles === 1 ? '' : 's'} were low-confidence auto-matches before review.`
@@ -4966,18 +5372,28 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     error instanceof Error ? error.message : 'Failed to import a draft from the PNG.',
                     'error'
                 );
+            } finally {
+                setImportBusy(false);
             }
         };
 
         renderImportTypePicker();
         syncSelectedPreviewControls();
+        setPreviewZoom(1);
+        setImportBusy(false);
     }
 
-    function closeModal() {
+    function closeModal(force: boolean = false) {
+        if (!force && refs.modal.dataset.busy === 'true') {
+            return;
+        }
+        const modalCard = refs.modal.querySelector('.world-designer-modal-card') as HTMLDivElement | null;
         state.savePreviewOpen = false;
         modalConfirmAction = null;
         refs.modal.classList.remove('open');
+        modalCard?.classList.remove('world-designer-modal-card-import');
         clearPngImportObjectUrl();
+        refs.modal.dataset.busy = 'false';
     }
 
     function updateSelectionSummary() {
@@ -6287,7 +6703,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     refs.normalizeSpriteSheetButton.addEventListener('click', () => {
         void openSpriteSheetNormalizationPreview();
     });
-    refs.modalClose.addEventListener('click', closeModal);
+    refs.modalClose.addEventListener('click', () => closeModal());
     refs.modalConfirm.addEventListener('click', () => {
         if (modalConfirmAction) {
             void modalConfirmAction();

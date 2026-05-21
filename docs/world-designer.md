@@ -276,13 +276,15 @@ The current importer is intentionally conservative:
 2. Either:
    - enter a browser-served PNG path such as `./src/assets/MAP-Exile-BC.png`, or
    - click **Browse…** and pick a local PNG file
-3. If you browse to a local PNG, the importer fills **Source X/Y/width/height** from the file automatically, starting with the full image, and it also suggests a snapped **target world width/height** so the first import stays close to a 1:1 tile mapping
-4. Adjust the **source rectangle** in **image pixels** only if you want part of the PNG rather than the whole file. Use **Snap source rect to 32px tiles** if the crop needs aligning to tile boundaries.
-5. Fill in the **target rectangle** in **world coordinates**. The importer now keeps the block count from the **source PNG tile grid** and places those blocks across the target world area, instead of assuming the target width/height themselves define the tile count.
+3. If you browse to a local PNG, the importer fills the **PNG crop in the source image** fields from the file automatically, starting with the full image, and it also suggests a **Place matched blocks in the world** size that better matches the game’s rendered scale
+4. Adjust the **PNG crop** in **image pixels** only if you want part of the PNG rather than the whole file. Use **Snap crop to 32px tiles** if the crop needs aligning to tile boundaries.
+5. Fill in the **world placement** fields in world coordinates. The importer keeps the block count from the **source PNG tile grid** and places those blocks across the chosen world area, instead of assuming the target width/height themselves define the tile count.
 6. Click **Preview blocks** to generate the matched tile draft. The importer will also auto-align the source sampling grid when the sprite content suggests the crop is globally offset inside the 32px cells.
-7. Click tiles in the preview to inspect or edit their **type**, **palette**, **rotation**, and **translation** before the draft touches the live world. The importer now seeds a best-fit translation automatically from the sampled sprite placement, so edge-aligned pieces often come in already shifted to the correct side.
-8. Decide whether to keep **Replace existing world items inside the target world rectangle** enabled
-9. Click **Import draft**
+7. Watch the built-in progress bar while preview generation is running. It reports the current stage and estimated time left, and the controls are locked until the pass finishes.
+8. Use the larger preview area to inspect the draft, and use **zoom in / zoom out / fit / 100%** controls if the section is too big or too small to review comfortably.
+9. Click tiles in the preview to inspect or edit their **type**, **palette**, **rotation**, and **translation** before the draft touches the live world. The importer now seeds a best-fit translation automatically from the sampled sprite placement, so edge-aligned pieces often come in already shifted to the correct side.
+10. Decide whether to keep **Replace existing world items inside the target world rectangle** enabled
+11. Click **Import draft**
 
 After import:
 
