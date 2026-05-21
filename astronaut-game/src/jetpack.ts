@@ -105,6 +105,10 @@ export function updateAndDrawJetpackDots(
     });
 }
 
+export function hasActiveJetpackDots() {
+    return jetpackDots.length > 0;
+}
+
 export function resetJetpackDotEmitTimer() {
     jetpackDotEmitTimer = 0;
 }

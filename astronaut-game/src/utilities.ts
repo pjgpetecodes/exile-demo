@@ -658,7 +658,8 @@ export function drawEntities(
     spriteMap: any,
     spriteSheets: CanvasImageSource[],
     SPRITE_SCALE: number,
-    entities: any[]
+    entities: any[],
+    now?: number
 ) {
     const rectMap = getSpriteRectMap(spriteMap);
 
@@ -705,7 +706,8 @@ export function drawEntities(
                 renderPart.type,
                 animatedPaletteCycle,
                 paletteIdx,
-                spriteSheets.length
+                spriteSheets.length,
+                now
             );
             const sheet = spriteSheets[paletteIdx] || spriteSheets[0];
             const transformedSprite = getTransformedSpriteCanvas(sheet, {
