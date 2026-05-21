@@ -231,6 +231,127 @@ If you explicitly changed the astronaut start marker, that updated start positio
 
 The designer validates some common mistakes before save, including missing button-to-door links.
 
+## 8a. Import a PNG draft
+
+The designer includes **Import PNG draft** for rough world-item reconstruction from a PNG region.
+
+### What it does
+
+The importer **creates world blocks directly in the live designer state**.
+
+It does **not** open a JSON-only review dialog first and it does **not** save files immediately.
+
+The workflow is:
+
+1. choose a PNG region
+2. import a draft into the currently loaded world
+3. inspect and clean up the result in the designer
+4. use **Preview before save** to review the JSON
+5. save only when you are happy with the draft
+
+So the importer behaves like other designer edits:
+
+- it mutates the current in-memory world
+- it marks the world as having unsaved changes
+- it can be adjusted further before save
+- it only reaches the asset files after the normal save workflow
+
+### Scope of the current importer
+
+The current importer is intentionally conservative:
+
+- it creates **world items only**
+- it does **not** create buttons, doors, creatures, collectables, or astronaut start markers
+- it uses the currently authored **world sprite set** as matching candidates
+- it is meant for **draft cleanup**, not authoritative one-click conversion
+- low-confidence matches should be reviewed before save
+
+### Step-by-step workflow
+
+1. Click **Import PNG draft**
+2. Either:
+   - enter a browser-served PNG path such as `./src/assets/MAP-Exile-BC.png`, or
+   - click **Browse…** and pick a local PNG file
+3. If you browse to a local PNG, the importer fills **Source X/Y/width/height** from the file automatically, starting with the full image, and it also suggests a snapped **target world width/height** so the first import stays close to a 1:1 tile mapping
+4. Adjust the **source rectangle** in **image pixels** only if you want part of the PNG rather than the whole file. Use **Snap source rect to 32px tiles** if the crop needs aligning to tile boundaries.
+5. Fill in the **target rectangle** in **world coordinates**
+6. Click **Preview blocks** to generate the matched tile draft. The importer will also auto-align the source sampling grid when the sprite content suggests the crop is globally offset inside the 32px cells.
+7. Click tiles in the preview to inspect or edit their **type**, **palette**, and **rotation** before the draft touches the live world
+8. Decide whether to keep **Replace existing world items inside the target world rectangle** enabled
+9. Click **Import draft**
+
+After import:
+
+1. the designer inserts the generated blocks into the live world
+2. the imported blocks become the current selection
+3. the status line reports how many tiles were imported
+4. if the matcher found weak matches, the status line warns you to review them before save
+
+### Source rectangle vs target rectangle
+
+- **Source rectangle** = the area to read from the PNG image
+- **Target rectangle** = the world area to fill with generated blocks
+
+The importer divides the target area into 32px world cells and samples the source region proportionally across those cells.
+
+That means:
+
+- a larger target rectangle creates more blocks
+- the source and target rectangles do **not** have to be the same size
+- the importer is effectively resampling the PNG region into the world grid
+
+If you browse to a PNG file, you usually do **not** need to type the source width or source height manually for a full-image import, because the importer reads those from the selected file.
+
+### Replace vs append behavior
+
+If **Replace existing world items inside the target world rectangle** is enabled:
+
+- existing world blocks in that target area are removed first
+- the imported draft becomes the new world-block content for that area
+
+If it is disabled:
+
+- the imported blocks are added on top of the current world data
+- this is useful for experiments, but can create overlaps or duplicates
+
+### How matching works
+
+The importer does a local best-match pass:
+
+1. it builds a candidate list from the currently authored world sprite set
+2. it renders candidate sprite/palette/rotation combinations
+3. it compares each target cell from the PNG against those candidates using the **visible non-black sprite content** by default, so black padding and in-tile placement do not dominate the score
+4. it picks the closest candidate and creates a `world_map.json`-style block in memory
+
+This is why no AI endpoint is required for the current version.
+
+### How to review safely
+
+Recommended workflow:
+
+1. start with a **small region**
+2. click **Preview blocks**
+3. fix obvious bad matches directly in the preview
+4. import the reviewed draft
+5. check the result visually in the designer
+6. use **Preview before save** to inspect the resulting JSON
+7. save only after cleanup
+
+### What to expect
+
+Best case:
+
+- broad terrain shapes
+- repeated structural tiles
+- simple background regions
+
+Less reliable:
+
+- visually similar tiles
+- decorative details
+- mixed layers that read similarly in the PNG
+- any semantics that are not obvious from flat pixels alone
+
 ## 9. Normalize sprite sheet colors
 
 Use **Normalize sprite colors** when `sprite_sheet.png` contains near-miss colors such as `255,251,251` instead of `255,255,255`.

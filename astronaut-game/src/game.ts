@@ -757,6 +757,52 @@ function drawSpritePreview(
     return drawSpritePreviewWithSheet(context, type, sheet, rotation, clearFirst, targetSize);
 }
 
+function drawSpriteSample(
+    context: CanvasRenderingContext2D,
+    type: string,
+    palette: number,
+    rotation: number = 1,
+    clearFirst: boolean = true,
+    targetSize?: number
+) {
+    const rect = findSpriteRectByType(type);
+    if (!rect || remappedSpriteSheets.length === 0) {
+        if (clearFirst) {
+            context.clearRect(0, 0, context.canvas.width, context.canvas.height);
+        }
+        return false;
+    }
+
+    const paletteIndex = Number.isFinite(palette) && palette >= 0 && palette < remappedSpriteSheets.length
+        ? palette
+        : (typeof rect.palette === 'number' ? rect.palette : 0);
+    const sheet = remappedSpriteSheets[paletteIndex] || remappedSpriteSheets[0];
+    if (!sheet) {
+        if (clearFirst) {
+            context.clearRect(0, 0, context.canvas.width, context.canvas.height);
+        }
+        return false;
+    }
+
+    const transformedSprite = getTransformedSpriteCanvas(sheet, rect, rotation);
+    if (!transformedSprite) {
+        if (clearFirst) {
+            context.clearRect(0, 0, context.canvas.width, context.canvas.height);
+        }
+        return false;
+    }
+
+    const drawSize = targetSize ?? Math.min(context.canvas.width, context.canvas.height);
+    context.save();
+    if (clearFirst) {
+        context.clearRect(0, 0, context.canvas.width, context.canvas.height);
+    }
+    context.imageSmoothingEnabled = false;
+    context.drawImage(transformedSprite, 0, 0, drawSize, drawSize);
+    context.restore();
+    return true;
+}
+
 function drawSpritePreviewWithSheet(
     context: CanvasRenderingContext2D,
     type: string,
@@ -1062,6 +1108,7 @@ async function init() {
                     getSpriteTypes,
                     getSpriteCatalog,
                     drawSpritePreview,
+                    drawSpriteSample,
                     drawCustomPalettePreview,
                     getPaletteDefinitions: () => deepClone(rawPaletteDefinitions),
                     getColorAliases: () => deepClone(colorAliases),
