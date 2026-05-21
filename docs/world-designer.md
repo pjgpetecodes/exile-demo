@@ -276,7 +276,7 @@ The current importer is intentionally conservative:
    - click **Browse…** and pick a local PNG file
 3. If you browse to a local PNG, the importer fills **Source X/Y/width/height** from the file automatically, starting with the full image, and it also suggests a snapped **target world width/height** so the first import stays close to a 1:1 tile mapping
 4. Adjust the **source rectangle** in **image pixels** only if you want part of the PNG rather than the whole file. Use **Snap source rect to 32px tiles** if the crop needs aligning to tile boundaries.
-5. Fill in the **target rectangle** in **world coordinates**
+5. Fill in the **target rectangle** in **world coordinates**. The importer now keeps the block count from the **source PNG tile grid** and places those blocks across the target world area, instead of assuming the target width/height themselves define the tile count.
 6. Click **Preview blocks** to generate the matched tile draft. The importer will also auto-align the source sampling grid when the sprite content suggests the crop is globally offset inside the 32px cells.
 7. Click tiles in the preview to inspect or edit their **type**, **palette**, **rotation**, and **translation** before the draft touches the live world. The importer now seeds a best-fit translation automatically from the sampled sprite placement, so edge-aligned pieces often come in already shifted to the correct side.
 8. Decide whether to keep **Replace existing world items inside the target world rectangle** enabled
@@ -294,15 +294,15 @@ After import:
 - **Source rectangle** = the area to read from the PNG image
 - **Target rectangle** = the world area to fill with generated blocks
 
-The importer divides the target area into 32px world cells and samples the source region proportionally across those cells.
+The importer reads the block count from the source PNG region using 32px source tiles, then places that same block grid across the target world rectangle.
 
 That means:
 
-- a larger target rectangle creates more blocks
+- a larger target rectangle makes the imported block layout appear larger in the world
 - the source and target rectangles do **not** have to be the same size
-- the importer is effectively resampling the PNG region into the world grid
+- the importer is effectively remapping the source tile grid into the chosen world-space area
 
-If you browse to a PNG file, you usually do **not** need to type the source width or source height manually for a full-image import, because the importer reads those from the selected file.
+If you browse to a PNG file, you usually do **not** need to type the source width or source height manually for a full-image import, because the importer reads those from the selected file and also suggests a target world size that matches the game’s rendered scale more closely.
 
 ### Replace vs append behavior
 

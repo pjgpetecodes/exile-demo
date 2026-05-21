@@ -457,6 +457,7 @@ const HISTORY_LIMIT = 100;
 const TILE_SIZE = 32 * SPRITE_SCALE;
 const DESIGNER_STATE_STORAGE_KEY = 'exile.world-designer-state.v1';
 const PNG_IMPORT_DEFAULT_URL = './src/assets/MAP-Exile-BC.png';
+const PNG_IMPORT_SOURCE_TILE_SIZE = 32;
 const PNG_IMPORT_SAMPLE_SIZE = 32;
 const PNG_IMPORT_WARNING_SCORE = 58;
 const PNG_IMPORT_PALETTE_SCORE_WEIGHT = 0.2;
@@ -695,6 +696,14 @@ function applyPosition(entity: any, x: number, y: number) {
 
 function snapCoordinate(value: number) {
     return Math.round(value / 32) * 32;
+}
+
+function getPngImportSourceTileCount(size: number) {
+    return Math.max(1, Math.round(size / PNG_IMPORT_SOURCE_TILE_SIZE));
+}
+
+function getSuggestedPngImportWorldSpan(sourceSize: number) {
+    return Math.max(1, Math.round(getPngImportSourceTileCount(sourceSize) * TILE_SIZE));
 }
 
 function normalizeSnapOffset(value: number) {
@@ -2421,17 +2430,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             throw new Error('Enter a PNG URL before importing.');
         }
 
-        const worldWidth = Math.max(32, Math.round(config.worldWidth / 32) * 32);
-        const worldHeight = Math.max(32, Math.round(config.worldHeight / 32) * 32);
-        const worldX = snapCoordinate(config.worldX);
-        const worldY = snapCoordinate(config.worldY);
-        const columns = Math.max(1, Math.round(worldWidth / 32));
-        const rows = Math.max(1, Math.round(worldHeight / 32));
-        const tileCount = columns * rows;
-
-        if (tileCount > PNG_IMPORT_MAX_TILES) {
-            throw new Error(`PNG import is limited to ${PNG_IMPORT_MAX_TILES} tiles per pass. Reduce the region size and try again.`);
-        }
+        const worldWidth = Math.max(1, Math.round(config.worldWidth));
+        const worldHeight = Math.max(1, Math.round(config.worldHeight));
+        const worldX = Math.round(config.worldX);
+        const worldY = Math.round(config.worldY);
 
         const sourceWidth = Math.max(1, Math.round(config.sourceWidth));
         const sourceHeight = Math.max(1, Math.round(config.sourceHeight));
@@ -2444,6 +2446,15 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         if (boundedSourceWidth <= 0 || boundedSourceHeight <= 0) {
             throw new Error('The selected PNG source region is outside the image bounds.');
         }
+
+        const columns = getPngImportSourceTileCount(boundedSourceWidth);
+        const rows = getPngImportSourceTileCount(boundedSourceHeight);
+        const tileCount = columns * rows;
+        if (tileCount > PNG_IMPORT_MAX_TILES) {
+            throw new Error(`PNG import is limited to ${PNG_IMPORT_MAX_TILES} tiles per pass. Reduce the region size and try again.`);
+        }
+        const worldTileWidth = worldWidth / columns;
+        const worldTileHeight = worldHeight / rows;
 
         const candidates = buildPngImportCandidates();
         const sourceCanvas = document.createElement('canvas');
@@ -2489,8 +2500,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     }
 
                     importedBlocks.push({
-                        x: worldX + column * 32,
-                        y: worldY + row * 32,
+                        x: Math.round(worldX + column * worldTileWidth),
+                        y: Math.round(worldY + row * worldTileHeight),
                         type: tileMatch.bestCandidate.type,
                         collision: tileMatch.bestCandidate.collision,
                         maskAstronaut: tileMatch.bestCandidate.maskAstronaut,
@@ -4331,16 +4342,16 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     <input type="number" data-role="png-import-source-height" value="0" step="1" />
                 </label>
                 <label class="world-designer-field">World X
-                    <input type="number" data-role="png-import-world-x" value="${defaultWorldRect.x}" step="32" />
+                    <input type="number" data-role="png-import-world-x" value="${defaultWorldRect.x}" step="1" />
                 </label>
                 <label class="world-designer-field">World Y
-                    <input type="number" data-role="png-import-world-y" value="${defaultWorldRect.y}" step="32" />
+                    <input type="number" data-role="png-import-world-y" value="${defaultWorldRect.y}" step="1" />
                 </label>
                 <label class="world-designer-field">World width
-                    <input type="number" data-role="png-import-world-width" value="${defaultWorldRect.width}" step="32" />
+                    <input type="number" data-role="png-import-world-width" value="${defaultWorldRect.width}" step="1" />
                 </label>
                 <label class="world-designer-field">World height
-                    <input type="number" data-role="png-import-world-height" value="${defaultWorldRect.height}" step="32" />
+                    <input type="number" data-role="png-import-world-height" value="${defaultWorldRect.height}" step="1" />
                 </label>
             </div>
             <label class="world-designer-checkbox">
@@ -4644,8 +4655,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 1,
                 Math.min(Math.round(getNumericInputValue(sourceHeightInput, loadedImage.height)), loadedImage.height - sourceY)
             );
-            const worldWidth = Math.max(32, Math.round(getNumericInputValue(worldWidthInput, 32) / 32) * 32);
-            const worldHeight = Math.max(32, Math.round(getNumericInputValue(worldHeightInput, 32) / 32) * 32);
+            const sourceColumns = getPngImportSourceTileCount(sourceWidth);
+            const sourceRows = getPngImportSourceTileCount(sourceHeight);
+            const worldWidth = Math.max(1, Math.round(getNumericInputValue(worldWidthInput, getSuggestedPngImportWorldSpan(sourceWidth))));
+            const worldHeight = Math.max(1, Math.round(getNumericInputValue(worldHeightInput, getSuggestedPngImportWorldSpan(sourceHeight))));
             const sourceTileAligned = sourceX % 32 === 0 &&
                 sourceY % 32 === 0 &&
                 sourceWidth % 32 === 0 &&
@@ -4653,7 +4666,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             const previewStateMessage = previewDraft
                 ? ' Preview is ready below; click tiles to edit them before importing.'
                 : ' Preview the blocks before importing so you can review and fix any bad matches.';
-            meta.textContent = `Loaded ${resolvedPngLabel || resolvedPngUrl} (${loadedImage.width}x${loadedImage.height}). Source rect (${sourceX}, ${sourceY}, ${sourceWidth}x${sourceHeight}) is ${sourceTileAligned ? 'tile-aligned' : 'not tile-aligned'} and spans ${(sourceWidth / 32).toFixed(2)} x ${(sourceHeight / 32).toFixed(2)} tiles. Target world rect ${worldWidth}x${worldHeight} spans ${worldWidth / 32} x ${worldHeight / 32} tiles.${previewStateMessage}`;
+            meta.textContent = `Loaded ${resolvedPngLabel || resolvedPngUrl} (${loadedImage.width}x${loadedImage.height}). Source rect (${sourceX}, ${sourceY}, ${sourceWidth}x${sourceHeight}) is ${sourceTileAligned ? 'tile-aligned' : 'not tile-aligned'} and spans ${sourceColumns} x ${sourceRows} source tiles. Target world rect ${worldWidth}x${worldHeight} will place those ${sourceColumns} x ${sourceRows} blocks across that world area.${previewStateMessage}`;
         };
 
         const syncPngMetadata = async (options?: { forceFullImageBounds?: boolean }) => {
@@ -4673,17 +4686,19 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     sourceYInput.value = '0';
                     sourceWidthInput.value = String(image.width);
                     sourceHeightInput.value = String(image.height);
-                    worldWidthInput.value = String(Math.max(32, Math.round(image.width / 32) * 32));
-                    worldHeightInput.value = String(Math.max(32, Math.round(image.height / 32) * 32));
+                    worldWidthInput.value = String(getSuggestedPngImportWorldSpan(image.width));
+                    worldHeightInput.value = String(getSuggestedPngImportWorldSpan(image.height));
                 } else if (Number(sourceWidthInput.value) <= 0 || Number(sourceHeightInput.value) <= 0) {
-                    const inferredSourceX = Math.round((Number(worldXInput.value) || 0) / MAP_WIDTH * image.width);
-                    const inferredSourceY = Math.round((Number(worldYInput.value) || 0) / MAP_HEIGHT * image.height);
-                    const inferredSourceWidth = Math.max(1, Math.round((Number(worldWidthInput.value) || 32) / MAP_WIDTH * image.width));
-                    const inferredSourceHeight = Math.max(1, Math.round((Number(worldHeightInput.value) || 32) / MAP_HEIGHT * image.height));
-                    sourceXInput.value = String(clamp(inferredSourceX, 0, Math.max(0, image.width - 1)));
-                    sourceYInput.value = String(clamp(inferredSourceY, 0, Math.max(0, image.height - 1)));
-                    sourceWidthInput.value = String(inferredSourceWidth);
-                    sourceHeightInput.value = String(inferredSourceHeight);
+                    sourceXInput.value = '0';
+                    sourceYInput.value = '0';
+                    sourceWidthInput.value = String(image.width);
+                    sourceHeightInput.value = String(image.height);
+                    if (Number(worldWidthInput.value) <= 0) {
+                        worldWidthInput.value = String(getSuggestedPngImportWorldSpan(image.width));
+                    }
+                    if (Number(worldHeightInput.value) <= 0) {
+                        worldHeightInput.value = String(getSuggestedPngImportWorldSpan(image.height));
+                    }
                 }
                 invalidatePreview('Preview not generated yet. Click "Preview blocks" to inspect the matches.');
                 updatePngImportMeta();
