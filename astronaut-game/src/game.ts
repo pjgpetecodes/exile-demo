@@ -36,7 +36,7 @@ import { Creature } from './creature.js';
 import { Collectable } from './collectable.js';
 import { makeBlackTransparent, remapSpritePalette, calculateSpriteCollisionBoundingBoxes, 
     calculateAstronautSpriteBoundingBoxes, getSolidBlockAtWorld, getAnyBlockAtWorld, 
-    drawEntities } from './utilities.js';
+    drawEntities, getTransformedSpriteCanvas } from './utilities.js';
 import { MOVEMENT_SETTINGS, VIEWPORT_SETTINGS } from './settings.js';
 import {
     SPRITE_ROW, SPRITE_COL_STAND, SPRITE_COL_FLY_RIGHT, SPRITE_COL_FLY_DIAGONAL,
@@ -663,12 +663,19 @@ function drawSpritePreviewWithSheet(
     const previewHeight = targetSize ?? context.canvas.height;
     const maxWidth = Math.max(1, previewWidth - padding * 2);
     const maxHeight = Math.max(1, previewHeight - padding * 2);
+    const transformedSprite = getTransformedSpriteCanvas(sheet, rect, rotation);
+    if (!transformedSprite) {
+        if (clearFirst) {
+            context.clearRect(0, 0, context.canvas.width, context.canvas.height);
+        }
+        return false;
+    }
     const scale = Math.max(1, Math.min(
-        maxWidth / rect.w,
-        maxHeight / rect.h
+        maxWidth / transformedSprite.width,
+        maxHeight / transformedSprite.height
     ));
-    const drawW = rect.w * scale;
-    const drawH = rect.h * scale;
+    const drawW = transformedSprite.width * scale;
+    const drawH = transformedSprite.height * scale;
 
     context.save();
     if (clearFirst) {
@@ -676,21 +683,8 @@ function drawSpritePreviewWithSheet(
     }
     context.imageSmoothingEnabled = false;
     context.translate(context.canvas.width / 2, context.canvas.height / 2);
-    if (rotation >= 1 && rotation <= 4) {
-        context.rotate(((rotation - 1) * Math.PI) / 2);
-    } else if (rotation === 5) {
-        context.scale(-1, 1);
-    } else if (rotation === 6) {
-        context.scale(1, -1);
-    } else if (rotation === 7) {
-        context.scale(-1, -1);
-    }
     context.drawImage(
-        sheet,
-        rect.x,
-        rect.y,
-        rect.w,
-        rect.h,
+        transformedSprite,
         -drawW / 2,
         -drawH / 2,
         drawW,

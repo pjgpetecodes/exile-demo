@@ -3,6 +3,7 @@ import { Door } from './door.js';
 import { resolveAnimatedPaletteIndex } from './palette-cycle.js';
 
 const spriteRectMapCache = new WeakMap<object, Record<string, any>>();
+const transformedSpriteCanvasCache = new WeakMap<object, Map<string, HTMLCanvasElement>>();
 
 function buildSpriteRectMap(spriteMap: any) {
     if (spriteMap instanceof Array) {
@@ -36,6 +37,70 @@ function getSpriteRectMap(spriteMap: any) {
 function getSpriteRectByType(spriteMap: any, type: string) {
     const rectMap = getSpriteRectMap(spriteMap);
     return rectMap[type] || null;
+}
+
+function applySpriteRotationTransform(ctx: CanvasRenderingContext2D, rotation: number) {
+    if (rotation >= 1 && rotation <= 4) {
+        ctx.rotate(((rotation - 1) * Math.PI) / 2);
+    } else if (rotation === 5) {
+        ctx.scale(-1, 1);
+    } else if (rotation === 6) {
+        ctx.scale(1, -1);
+    } else if (rotation === 7) {
+        ctx.scale(-1, -1);
+    }
+}
+
+export function getTransformedSpriteCanvas(
+    sheet: CanvasImageSource,
+    rect: { x: number; y: number; w: number; h: number },
+    rotation: number = 1
+) {
+    if (!sheet || typeof sheet !== 'object') {
+        return null;
+    }
+
+    const cacheOwner = sheet as object;
+    let cache = transformedSpriteCanvasCache.get(cacheOwner);
+    if (!cache) {
+        cache = new Map<string, HTMLCanvasElement>();
+        transformedSpriteCanvasCache.set(cacheOwner, cache);
+    }
+
+    const normalizedRotation = typeof rotation === 'number' ? Math.round(rotation) : 1;
+    const cacheKey = `${rect.x},${rect.y},${rect.w},${rect.h},${normalizedRotation}`;
+    const cached = cache.get(cacheKey);
+    if (cached) {
+        return cached;
+    }
+
+    const swapDimensions = normalizedRotation === 2 || normalizedRotation === 4;
+    const canvas = document.createElement('canvas');
+    canvas.width = swapDimensions ? rect.h : rect.w;
+    canvas.height = swapDimensions ? rect.w : rect.h;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+        return null;
+    }
+
+    ctx.imageSmoothingEnabled = false;
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    applySpriteRotationTransform(ctx, normalizedRotation);
+    ctx.drawImage(
+        sheet,
+        rect.x,
+        rect.y,
+        rect.w,
+        rect.h,
+        -rect.w / 2,
+        -rect.h / 2,
+        rect.w,
+        rect.h
+    );
+
+    cache.set(cacheKey, canvas);
+    return canvas;
 }
 
 function getEntityRotation(entity: any): number {
@@ -643,6 +708,15 @@ export function drawEntities(
                 spriteSheets.length
             );
             const sheet = spriteSheets[paletteIdx] || spriteSheets[0];
+            const transformedSprite = getTransformedSpriteCanvas(sheet, {
+                x: partGeometry.sourceX,
+                y: partGeometry.sourceY,
+                w: partGeometry.sourceW,
+                h: partGeometry.sourceH
+            }, renderPart.rotation ?? 1);
+            if (!transformedSprite) continue;
+            const drawW = transformedSprite.width * SPRITE_SCALE;
+            const drawH = transformedSprite.height * SPRITE_SCALE;
 
             // --- DEBUG: Draw palette info above door ---
             if (
@@ -666,29 +740,13 @@ export function drawEntities(
                 ctx.restore();
             }
 
-            ctx.save();
-            const drawX = renderPart.x - camera.x;
-            const drawY = renderPart.y - camera.y;
-            ctx.translate(drawX + partGeometry.drawW / 2, drawY + partGeometry.drawH / 2);
-            if (renderPart.rotation) {
-                if (renderPart.rotation >= 1 && renderPart.rotation <= 4) {
-                    ctx.rotate(((renderPart.rotation - 1) * Math.PI) / 2);
-                } else if (renderPart.rotation === 5) {
-                    ctx.scale(-1, 1);
-                } else if (renderPart.rotation === 6) {
-                    ctx.scale(1, -1);
-                } else if (renderPart.rotation === 7) {
-                    ctx.scale(-1, -1);
-                }
-            }
-
             ctx.drawImage(
-                sheet,
-                partGeometry.sourceX, partGeometry.sourceY, partGeometry.sourceW, partGeometry.sourceH,
-                -partGeometry.drawW / 2, -partGeometry.drawH / 2,
-                partGeometry.drawW, partGeometry.drawH
+                transformedSprite,
+                renderPart.x - camera.x,
+                renderPart.y - camera.y,
+                drawW,
+                drawH
             );
-            ctx.restore();
         }
     }
 }

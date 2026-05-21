@@ -94,6 +94,14 @@ You can also use:
 
 If **Snap rough placement to 32px grid** is enabled, you can tune the grid with **Grid offset X/Y**. Use **Use selection / view center** to align the snap origin to the current selection, or to the current camera center when nothing is selected.
 
+If **Snap to nearby object edges** is enabled, placement and dragging can also lock a block to the nearest edge of a nearby object. The designer chooses the closest top/bottom or left/right edge match and shows a cyan guide on the snap target while it is active.
+
+You can also use modifier keys whether that toggle is on or off:
+
+- **Ctrl while dragging or placing** = dock the item flush against the nearest nearby edge
+- **Alt while dragging or placing** = align matching edges such as top-to-top, bottom-to-bottom, left-to-left, or right-to-right
+- **Ctrl+Alt while dragging or placing** = allow both behaviors and use the closest valid match
+
 ## 2. Select and edit an existing item
 
 1. Switch to **Select / move**
@@ -105,6 +113,8 @@ If **Snap rough placement to 32px grid** is enabled, you can tune the grid with 
 Selected items can be:
 
 - moved by dragging
+- edge-snapped against nearby objects while dragging when **Snap to nearby object edges** is enabled
+- temporarily docked/aligned with **Ctrl** / **Alt** even if the object-snap toggle is off
 - nudged with arrow keys
 - duplicated
 - deleted
@@ -158,7 +168,7 @@ You can:
 
 ### Main view
 
-- **right-click a placed object** = open the context menu for quick actions such as rotate, a **Palette** submenu showing every palette with previews, copy, duplicate, delete, and door/button default-state toggles
+- **right-click a placed object** = open a context-aware menu with grouped **Edit**, **Palette**, **Properties**, **Collectable**, **Convert**, and **Defaults** submenus depending on the item type, including actions such as collision toggles, astronaut masking, collectable flags, conversion between world items and collectables, and door/button default-state toggles
 - **right-click empty space** = open a context menu to paste the copied selection there, set the astronaut start there, or move the live astronaut there
 - **right mouse drag on empty space** = pan camera
 - **Center on astronaut** = recenters the editor on the live astronaut
