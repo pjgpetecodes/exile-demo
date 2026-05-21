@@ -323,7 +323,8 @@ The importer does a local best-match pass:
 1. it builds a candidate list from the currently authored world sprite set
 2. it renders candidate sprite/palette/rotation combinations
 3. it compares each target cell from the PNG against those candidates using the **visible non-black sprite content** by default, so black padding and in-tile placement do not dominate the score
-4. it picks the closest candidate and creates a `world_map.json`-style block in memory
+4. it also tries to prefer the closest **palette** when the PNG colors line up with an authored palette, without making palette similarity override the structural match
+5. it picks the closest candidate and creates a `world_map.json`-style block in memory
 
 This is why no AI endpoint is required for the current version.
 

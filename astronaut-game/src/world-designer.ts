@@ -459,6 +459,7 @@ const DESIGNER_STATE_STORAGE_KEY = 'exile.world-designer-state.v1';
 const PNG_IMPORT_DEFAULT_URL = './src/assets/MAP-Exile-BC.png';
 const PNG_IMPORT_SAMPLE_SIZE = 32;
 const PNG_IMPORT_WARNING_SCORE = 58;
+const PNG_IMPORT_PALETTE_SCORE_WEIGHT = 0.2;
 const PNG_IMPORT_MAX_TILES = 4096;
 const PNG_IMPORT_PREVIEW_MAX_DIMENSION = 960;
 const PNG_IMPORT_PREVIEW_MIN_TILE_SIZE = 18;
@@ -2226,6 +2227,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const rightLabels = rightSignature.normalizedLabels;
         let totalDifference = 0;
         let comparisonCount = 0;
+        let totalPaletteDifference = 0;
+        let paletteComparisonCount = 0;
 
         for (let row = 0; row < sampleHeight; row += 1) {
             for (let column = 0; column < sampleWidth; column += 1) {
@@ -2238,6 +2241,15 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
                 totalDifference += leftLabels[pixelNumber] === rightLabels[pixelNumber] ? 0 : 255;
                 comparisonCount += 1;
+
+                if (!leftIsBackground && !rightIsBackground) {
+                    totalPaletteDifference += (
+                        Math.abs(left[pixelIndex] - right[pixelIndex]) +
+                        Math.abs(left[pixelIndex + 1] - right[pixelIndex + 1]) +
+                        Math.abs(left[pixelIndex + 2] - right[pixelIndex + 2])
+                    ) / 3;
+                    paletteComparisonCount += 1;
+                }
 
                 if (column < sampleWidth - 1) {
                     const rightPixelIndex = pixelIndex + 4;
@@ -2265,7 +2277,14 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             }
         }
 
-        return comparisonCount > 0 ? totalDifference / comparisonCount : Number.POSITIVE_INFINITY;
+        const structuralScore = comparisonCount > 0 ? totalDifference / comparisonCount : Number.POSITIVE_INFINITY;
+        if (!Number.isFinite(structuralScore)) {
+            return structuralScore;
+        }
+        const paletteScore = paletteComparisonCount > 0
+            ? totalPaletteDifference / paletteComparisonCount
+            : 255;
+        return structuralScore + (paletteScore * PNG_IMPORT_PALETTE_SCORE_WEIGHT);
     }
 
     function loadImage(url: string) {
