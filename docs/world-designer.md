@@ -270,21 +270,46 @@ The current importer is intentionally conservative:
 - it is meant for **draft cleanup**, not authoritative one-click conversion
 - low-confidence matches should be reviewed before save
 
+### Two separate import paths
+
+The PNG importer now has two distinct paths:
+
+1. **Single PNG** = import one PNG or one cropped section directly
+2. **Chunk folder** = import an exported chunk set and rebuild a larger map section from it
+
+Inside the modal, **Import** and **Chunk export** are now separate tabs so you can switch between those workflows without stacking everything vertically at once.
+
+Use **Single PNG** when:
+
+- you want to test a small area quickly
+- you only need one cropped section from the full map
+- you do not want to export chunks first
+
+Use **Chunk folder** when:
+
+- you want to rebuild a large area or the whole map
+- you want safer staged testing with chunk row/column ranges
+- you want to process the map in manageable sections instead of one huge pass
+
 ### Split a large PNG into import chunks
 
 If a full-map PNG is too large to review comfortably in one pass, the import modal can now split the currently selected PNG crop into smaller chunk PNGs.
 
 1. Choose **Single PNG**
 2. Load a PNG and set a **tile-aligned** crop
-3. In **Split PNG into import chunks**, pick a chunk preset or enter a custom tile size
-4. Click **Export chunks…**
-5. Choose a destination folder in the browser
+3. Switch to the **Chunk export** tab
+4. In **Split PNG into import chunks**, pick a chunk preset or enter a custom tile size
+5. `4 x 4` is now available if you want very small test chunks
+6. Click **Export chunks…**
+7. Choose a destination folder in the browser
 
 The exporter writes:
 
 - one PNG per chunk
 - stable machine-readable chunk filenames
 - `png-import-chunks.manifest.json`
+
+While export is running, the modal now shows a progress bar, progress text, and a **Cancel chunk export** action.
 
 That exported folder is then ready for **Chunk folder** mode.
 
@@ -299,14 +324,66 @@ Choose **Chunk folder** in the same modal when you want the importer to walk an 
    - **Max chunks** to process
 4. Leave **Keep the world span matched to the selected chunk range** enabled unless you have a specific reason not to
 5. Set **World left/top** to the world origin for the exported crop
-6. Click **Preview blocks**
-7. Review and fix the reconstructed draft before clicking **Import draft**
+6. Make sure you are on the **Import** tab
+7. Click **Preview blocks**
+8. Review and fix the reconstructed draft before clicking **Import draft**
 
 Chunk-folder mode uses the stored chunk positions to place each selected chunk back into the correct overall map layout, instead of treating every PNG as an unrelated one-off import.
+
+Long-running import work now also shows a progress bar and progress text, and both the single-file import preview path and the folder-import path can be cancelled from the modal while they are running.
+
+### Full-map workflow
+
+If your goal is to take one large source PNG and turn it into your in-game map, use this workflow:
+
+1. Open **Import PNG draft**
+2. Click **Single PNG**
+3. Load the full-map PNG
+4. Use **Snap crop to 32px tiles** so the source region is aligned cleanly
+5. Open the **Chunk export** tab
+6. In **Split PNG into import chunks**, keep the default **16 x 16** chunk size unless you need something smaller
+7. Click **Export chunks…** and choose a folder
+8. Click **Chunk folder**
+9. Click **Choose folder…** and pick that exported folder
+10. Make sure you are on the **Import** tab
+11. Start with a small test range, for example just a few chunk rows/columns or a low **Max chunks** value
+12. Set **World left/top** to where the exported crop should begin in the game world
+13. Click **Preview blocks**
+14. Review the preview, fix obvious bad matches, and click **Import draft**
+15. Repeat with larger ranges until you are happy, then import the full chunk range
+16. Use **Preview before save** and then save once the rebuilt map looks correct
+
+Recommended approach:
+
+- first test a **small subset**
+- confirm your world origin is correct
+- then scale up to the full exported chunk range
+- if chunk export feels heavy, prefer the default `16 x 16` size and leave **Skip fully empty / black chunk PNGs** enabled
+- use `4 x 4` only when you want very fine-grained testing or debugging, because it creates many more files
+
+This is the safest way to rebuild the whole map without waiting a long time only to discover that the origin, chunk range, or matching needs adjustment.
+
+### Small-area workflow
+
+If you only want to import one part of the overall map on its own:
+
+1. Open **Import PNG draft**
+2. Click **Single PNG**
+3. Load the full PNG or a smaller PNG
+4. Set the **PNG crop in the source image** to the area you want
+5. Use **Snap crop to 32px tiles** if needed
+6. Make sure you are on the **Import** tab
+7. Set the target **World left/top/width/height**
+8. Click **Preview blocks**
+9. Review and adjust the preview
+10. Click **Import draft**
+
+This path does **not** require chunk export first.
 
 ### Recommended chunk sizes
 
 - **Default:** `16 x 16` tiles
+- **Very small / debugging:** `4 x 4` tiles
 - **Small / safest:** `8 x 8` tiles
 - **Larger but still practical:** `24 x 16` or `16 x 24`
 

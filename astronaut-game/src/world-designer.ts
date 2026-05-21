@@ -266,6 +266,7 @@ type PngImportProgress = {
 };
 
 type PngImportSourceMode = 'single' | 'folder';
+type PngImportWorkTab = 'import' | 'export';
 
 type PngChunkEntry = {
     fileName: string;
@@ -1116,6 +1117,7 @@ async function exportPngChunksToDirectory(config: {
     chunkTileWidth: number;
     chunkTileHeight: number;
     skipEmpty: boolean;
+    shouldCancel?: () => boolean;
 }, onProgress?: (progress: PngImportProgress) => void | Promise<void>) {
     if (
         config.sourceX % PNG_IMPORT_SOURCE_TILE_SIZE !== 0 ||
@@ -1142,9 +1144,16 @@ async function exportPngChunksToDirectory(config: {
     const chunks: PngChunkEntry[] = [];
     const totalChunkCount = Math.max(1, totalChunkColumns * totalChunkRows);
     let processedChunks = 0;
+    let exportedChunks = 0;
+    let skippedChunks = 0;
+    const progressStep = Math.max(1, Math.floor(totalChunkCount / 40));
+    let lastYieldAt = 0;
 
     for (let chunkRow = 0; chunkRow < totalChunkRows; chunkRow += 1) {
         for (let chunkColumn = 0; chunkColumn < totalChunkColumns; chunkColumn += 1) {
+            if (config.shouldCancel?.()) {
+                throw new Error('Chunk export cancelled.');
+            }
             const sourceTileX = sourceTileOriginX + chunkColumn * config.chunkTileWidth;
             const sourceTileY = sourceTileOriginY + chunkRow * config.chunkTileHeight;
             const tileWidth = Math.min(config.chunkTileWidth, totalSourceColumns - chunkColumn * config.chunkTileWidth);
@@ -1167,9 +1176,14 @@ async function exportPngChunksToDirectory(config: {
                 pixelHeight
             };
             entry.fileName = buildPngChunkFileName(config.sourceName, entry);
-            chunkCanvas.width = pixelWidth;
-            chunkCanvas.height = pixelHeight;
-            chunkContext.clearRect(0, 0, pixelWidth, pixelHeight);
+            if (chunkCanvas.width !== pixelWidth) {
+                chunkCanvas.width = pixelWidth;
+            }
+            if (chunkCanvas.height !== pixelHeight) {
+                chunkCanvas.height = pixelHeight;
+            }
+            chunkContext.imageSmoothingEnabled = false;
+            chunkContext.clearRect(0, 0, chunkCanvas.width, chunkCanvas.height);
             chunkContext.drawImage(
                 config.image,
                 pixelX,
@@ -1181,21 +1195,30 @@ async function exportPngChunksToDirectory(config: {
                 pixelWidth,
                 pixelHeight
             );
-            const imageData = chunkContext.getImageData(0, 0, pixelWidth, pixelHeight);
-            const shouldWrite = !config.skipEmpty || !isImageDataEmpty(imageData);
+            const shouldWrite = !config.skipEmpty || !isImageDataEmpty(
+                chunkContext.getImageData(0, 0, pixelWidth, pixelHeight)
+            );
             if (shouldWrite) {
                 const blob = await canvasToBlob(chunkCanvas);
                 await writeBlobToDirectory(directoryHandle, entry.fileName, blob);
                 chunks.push(entry);
+                exportedChunks += 1;
+            } else {
+                skippedChunks += 1;
             }
             processedChunks += 1;
-            if (onProgress) {
+            const shouldReportProgress = processedChunks === totalChunkCount ||
+                processedChunks - lastYieldAt >= progressStep;
+            if (onProgress && shouldReportProgress) {
                 await onProgress({
                     phase: 'Exporting chunk PNGs',
                     completed: processedChunks,
                     total: totalChunkCount,
-                    detail: `Writing chunk row ${chunkRow + 1}, column ${chunkColumn + 1}.`
+                    detail: `Processed ${processedChunks} of ${totalChunkCount} chunks. Exported ${exportedChunks}, skipped ${skippedChunks}. Current chunk: row ${chunkRow + 1}, column ${chunkColumn + 1}.`
                 });
+            }
+            if (shouldReportProgress) {
+                lastYieldAt = processedChunks;
                 await yieldToUi();
             }
         }
@@ -1228,6 +1251,7 @@ async function exportPngChunksToDirectory(config: {
         directoryName: directoryHandle.name,
         manifest,
         exportedChunks: chunks.length,
+        skippedChunks,
         totalChunkCount
     };
 }
@@ -1683,6 +1707,48 @@ function createDesignerStyles() {
             padding: 12px;
             margin-bottom: 12px;
         }
+        .world-designer-import-tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .world-designer-import-tab {
+            border-radius: 999px;
+            padding: 8px 14px;
+        }
+        .world-designer-import-tab.selected {
+            border-color: rgba(56, 189, 248, 0.9);
+            box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.35);
+            background: rgba(8, 47, 73, 0.75);
+        }
+        .world-designer-import-paths {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 10px;
+        }
+        .world-designer-import-path {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 6px;
+            padding: 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(148, 163, 184, 0.24);
+            background: rgba(15, 23, 42, 0.72);
+            text-align: left;
+        }
+        .world-designer-import-path strong {
+            font-size: 13px;
+        }
+        .world-designer-import-path span {
+            color: #cbd5e1;
+        }
+        .world-designer-import-path.selected {
+            border-color: rgba(56, 189, 248, 0.9);
+            box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.35);
+            background: rgba(8, 47, 73, 0.75);
+        }
         .world-designer-import-card:last-child {
             margin-bottom: 0;
         }
@@ -1698,6 +1764,10 @@ function createDesignerStyles() {
             width: 100%;
             height: 12px;
             accent-color: #38bdf8;
+        }
+        .world-designer-import-progress-actions {
+            display: flex;
+            justify-content: flex-end;
         }
         .world-designer-import-toolbar {
             display: flex;
@@ -5248,18 +5318,33 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         clearPngImportObjectUrl();
         refs.modalBody.innerHTML = `
             <div class="world-designer-summary">
-                Create a rough draft of <strong>world items only</strong> by matching PNG pixels against the currently authored world sprite set. You can preview a single PNG region, split it into reusable chunk PNGs, or point the importer at an exported chunk folder to reconstruct a larger map section.
+                Create a rough draft of <strong>world items only</strong> by matching PNG pixels against the currently authored world sprite set. This modal now has two separate paths: <strong>Single PNG</strong> for direct small-region imports, and <strong>Chunk folder</strong> for rebuilding larger areas from exported chunks.
             </div>
             <div class="world-designer-import-layout">
                 <div class="world-designer-import-sidebar">
                     <div class="world-designer-import-card">
-                        <div class="world-designer-grid">
-                            <label class="world-designer-field world-designer-grid-wide">Import source
-                                <select data-role="png-import-mode">
-                                    <option value="single">Single PNG</option>
-                                    <option value="folder">Chunk folder</option>
-                                </select>
-                            </label>
+                        <h3>Choose an import path</h3>
+                        <div class="world-designer-import-paths">
+                            <button type="button" class="world-designer-import-path" data-role="png-import-mode-single">
+                                <strong>Single PNG</strong>
+                                <span>Import one PNG or one cropped section directly.</span>
+                            </button>
+                            <button type="button" class="world-designer-import-path" data-role="png-import-mode-folder">
+                                <strong>Chunk folder</strong>
+                                <span>Rebuild a larger area from exported chunks.</span>
+                            </button>
+                        </div>
+                        <div class="world-designer-summary">
+                            Pick <strong>Single PNG</strong> for fast small-area imports. Pick <strong>Chunk folder</strong> for staged large-map reconstruction.
+                        </div>
+                    </div>
+                    <div class="world-designer-import-card">
+                        <div class="world-designer-import-tabs">
+                            <button type="button" class="world-designer-import-tab" data-role="png-import-tab-import">Import</button>
+                            <button type="button" class="world-designer-import-tab" data-role="png-import-tab-export">Chunk export</button>
+                        </div>
+                        <div class="world-designer-summary" data-role="png-import-tab-summary">
+                            Import mode previews matched world blocks before they touch the live world.
                         </div>
                     </div>
                     <div class="world-designer-import-card" data-role="png-import-single-source">
@@ -5331,6 +5416,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                         <div class="world-designer-grid">
                             <label class="world-designer-field">Chunk preset
                                 <select data-role="png-import-export-preset">
+                                    <option value="4x4">4 x 4 tiles</option>
                                     <option value="8x8">8 x 8 tiles</option>
                                     <option value="16x16" selected>16 x 16 tiles</option>
                                     <option value="24x16">24 x 16 tiles</option>
@@ -5356,7 +5442,18 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                             Export chunk PNGs with stable names and a manifest so the folder importer can reconstruct the larger map later.
                         </div>
                     </div>
-                    <div class="world-designer-import-card">
+                    <div class="world-designer-import-card" data-role="png-import-progress-card" hidden>
+                        <h3 data-role="png-import-progress-title">Progress</h3>
+                        <div class="world-designer-import-progress" data-role="png-import-progress">
+                            <progress data-role="png-import-progress-bar" max="1" value="0"></progress>
+                            <div class="world-designer-summary" data-role="png-import-progress-label">Preparing…</div>
+                            <div class="world-designer-summary" data-role="png-import-progress-detail"></div>
+                            <div class="world-designer-import-progress-actions">
+                                <button type="button" class="world-designer-button-secondary" data-role="png-import-progress-cancel" hidden>Cancel chunk export</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="world-designer-import-card" data-role="png-import-world-card">
                         <h3>Place matched blocks in the world</h3>
                         <div class="world-designer-grid">
                             <label class="world-designer-field">World left
@@ -5380,22 +5477,17 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                             Replace existing world items inside the target area before importing
                         </label>
                     </div>
-                    <div class="world-designer-import-card">
+                    <div class="world-designer-import-card" data-role="png-import-action-card">
                         <div class="world-designer-actions">
                             <button type="button" class="world-designer-button-primary" data-role="png-import-preview">Preview blocks</button>
-                        </div>
-                        <div class="world-designer-import-progress" data-role="png-import-progress" hidden>
-                            <progress data-role="png-import-progress-bar" max="1" value="0"></progress>
-                            <div class="world-designer-summary" data-role="png-import-progress-label">Preparing import…</div>
-                            <div class="world-designer-summary" data-role="png-import-progress-detail"></div>
                         </div>
                         <div class="world-designer-summary" data-role="png-import-meta">
                             Loading PNG metadata…
                         </div>
                     </div>
                 </div>
-                <div class="world-designer-import-main">
-                    <div class="world-designer-import-card">
+                <div class="world-designer-import-main" data-role="png-import-main">
+                    <div class="world-designer-import-card" data-role="png-import-preview-card">
                         <div class="world-designer-import-toolbar">
                             <div class="world-designer-summary">
                                 Preview the matched world blocks before importing. Click a tile below to edit its type, palette, rotation, or translation.
@@ -5415,7 +5507,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                             Preview not generated yet.
                         </div>
                     </div>
-                    <div class="world-designer-import-card">
+                    <div class="world-designer-import-card" data-role="png-import-editor-card">
                         <div class="world-designer-grid">
                             <label class="world-designer-field world-designer-grid-wide">Selected preview tile
                                 <input type="text" data-role="png-import-selected-tile" value="No tile selected" readonly />
@@ -5455,11 +5547,23 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         `;
         refs.modal.classList.add('open');
 
-        const modeSelect = refs.modalBody.querySelector('[data-role="png-import-mode"]') as HTMLSelectElement;
+        const singleModeButton = refs.modalBody.querySelector('[data-role="png-import-mode-single"]') as HTMLButtonElement;
+        const folderModeButton = refs.modalBody.querySelector('[data-role="png-import-mode-folder"]') as HTMLButtonElement;
+        const importTabButton = refs.modalBody.querySelector('[data-role="png-import-tab-import"]') as HTMLButtonElement;
+        const exportTabButton = refs.modalBody.querySelector('[data-role="png-import-tab-export"]') as HTMLButtonElement;
+        const tabSummary = refs.modalBody.querySelector('[data-role="png-import-tab-summary"]') as HTMLDivElement;
         const singleSourceCard = refs.modalBody.querySelector('[data-role="png-import-single-source"]') as HTMLDivElement;
         const folderSourceCard = refs.modalBody.querySelector('[data-role="png-import-folder-source"]') as HTMLDivElement;
         const sourceCropCard = refs.modalBody.querySelector('[data-role="png-import-source-crop"]') as HTMLDivElement;
         const exportCard = refs.modalBody.querySelector('[data-role="png-import-export-card"]') as HTMLDivElement;
+        const progressCard = refs.modalBody.querySelector('[data-role="png-import-progress-card"]') as HTMLDivElement;
+        const progressTitle = refs.modalBody.querySelector('[data-role="png-import-progress-title"]') as HTMLHeadingElement;
+        const progressCancelButton = refs.modalBody.querySelector('[data-role="png-import-progress-cancel"]') as HTMLButtonElement;
+        const worldCard = refs.modalBody.querySelector('[data-role="png-import-world-card"]') as HTMLDivElement;
+        const actionCard = refs.modalBody.querySelector('[data-role="png-import-action-card"]') as HTMLDivElement;
+        const importMain = refs.modalBody.querySelector('[data-role="png-import-main"]') as HTMLDivElement;
+        const previewCard = refs.modalBody.querySelector('[data-role="png-import-preview-card"]') as HTMLDivElement;
+        const editorCard = refs.modalBody.querySelector('[data-role="png-import-editor-card"]') as HTMLDivElement;
         const urlInput = refs.modalBody.querySelector('[data-role="png-import-url"]') as HTMLInputElement;
         const browseButton = refs.modalBody.querySelector('[data-role="png-import-browse"]') as HTMLButtonElement;
         const fileInput = refs.modalBody.querySelector('[data-role="png-import-file"]') as HTMLInputElement;
@@ -5491,7 +5595,6 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const snapButton = refs.modalBody.querySelector('[data-role="png-import-snap"]') as HTMLButtonElement;
         const previewButton = refs.modalBody.querySelector('[data-role="png-import-preview"]') as HTMLButtonElement;
         const meta = refs.modalBody.querySelector('[data-role="png-import-meta"]') as HTMLDivElement;
-        const progressWrap = refs.modalBody.querySelector('[data-role="png-import-progress"]') as HTMLDivElement;
         const progressBar = refs.modalBody.querySelector('[data-role="png-import-progress-bar"]') as HTMLProgressElement;
         const progressLabel = refs.modalBody.querySelector('[data-role="png-import-progress-label"]') as HTMLDivElement;
         const progressDetail = refs.modalBody.querySelector('[data-role="png-import-progress-detail"]') as HTMLDivElement;
@@ -5517,6 +5620,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         let resolvedPngLabel = resolvedPngUrl;
         let loadedImage: HTMLImageElement | null = null;
         let importMode: PngImportSourceMode = 'single';
+        let workTab: PngImportWorkTab = 'import';
+        let progressMode: 'none' | 'import' | 'export' = 'none';
+        let cancelLongRunningRequested = false;
         let chunkFolderSelection: PngChunkFolderSelection | null = null;
         let lastFolderCompose: PngChunkComposedSource | null = null;
         let previewDraft: PngImportDraft | null = null;
@@ -5634,13 +5740,21 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
         const setProgress = (progress: PngImportProgress | null) => {
             if (!progress) {
-                progressWrap.hidden = true;
+                progressCard.hidden = true;
                 progressBar.value = 0;
-                progressLabel.textContent = 'Preparing import…';
+                progressLabel.textContent = 'Preparing…';
                 progressDetail.textContent = '';
+                progressTitle.textContent = 'Progress';
+                progressCancelButton.hidden = true;
+                progressCancelButton.textContent = 'Cancel';
                 return;
             }
-            progressWrap.hidden = false;
+            progressCard.hidden = false;
+            progressTitle.textContent = progressMode === 'export' ? 'Chunk export progress' : 'Import progress';
+            progressCancelButton.hidden = progressMode === 'none';
+            progressCancelButton.textContent = progressMode === 'export'
+                ? (cancelLongRunningRequested ? 'Cancelling chunk export…' : 'Cancel chunk export')
+                : (cancelLongRunningRequested ? 'Cancelling import…' : 'Cancel import');
             progressBar.max = Math.max(progress.total, 1);
             progressBar.value = clamp(progress.completed, 0, Math.max(progress.total, 1));
             const percent = progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;
@@ -5650,6 +5764,24 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 ? ` About ${formatDuration((elapsed / progress.completed) * (progress.total - progress.completed))} left.`
                 : '';
             progressDetail.textContent = `${progress.detail}${eta}`;
+        };
+
+        const getCancellationMessage = () => (
+            progressMode === 'export' ? 'Chunk export cancelled.' : 'Import cancelled.'
+        );
+
+        const throwIfCancelled = () => {
+            if (cancelLongRunningRequested) {
+                throw new Error(getCancellationMessage());
+            }
+        };
+
+        const handleProgressUpdate = async (progress: PngImportProgress, detailTarget?: HTMLDivElement) => {
+            throwIfCancelled();
+            setProgress(progress);
+            if (detailTarget) {
+                detailTarget.textContent = `${progress.phase}: ${progress.detail}`;
+            }
         };
 
         const setPreviewZoom = (zoom: number) => {
@@ -5675,23 +5807,49 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
         const syncImportModeUi = () => {
             const folderMode = importMode === 'folder';
-            modeSelect.value = importMode;
+            singleModeButton.classList.toggle('selected', !folderMode);
+            folderModeButton.classList.toggle('selected', folderMode);
             singleSourceCard.hidden = folderMode;
             sourceCropCard.hidden = folderMode;
-            exportCard.hidden = folderMode;
-            folderSourceCard.hidden = !folderMode;
+            folderSourceCard.hidden = !folderMode || workTab !== 'import';
+            exportTabButton.disabled = folderMode;
+            if (folderMode && workTab !== 'import') {
+                workTab = 'import';
+            }
             worldWidthInput.readOnly = folderMode;
             worldHeightInput.readOnly = folderMode;
             worldMeta.textContent = folderMode
                 ? 'Chunk-folder mode places the selected chunk range relative to the exported crop origin. World left/top is that origin, and width/height are kept in sync with the selected chunk range.'
                 : 'Single PNG mode uses the source tile grid from the chosen PNG crop and maps it across the world rectangle you enter here.';
+            refs.modalConfirm.style.display = workTab === 'export' ? 'none' : '';
+        };
+
+        const syncWorkTabUi = () => {
+            const exportTabEnabled = importMode === 'single';
+            const exportTabActive = exportTabEnabled && workTab === 'export';
+            importTabButton.classList.toggle('selected', !exportTabActive);
+            exportTabButton.classList.toggle('selected', exportTabActive);
+            exportTabButton.hidden = !exportTabEnabled;
+            tabSummary.textContent = exportTabActive
+                ? 'Chunk export lets you slice a source PNG into reusable import sections with a manifest.'
+                : 'Import mode previews matched world blocks before they touch the live world.';
+            exportCard.hidden = !exportTabActive;
+            worldCard.hidden = exportTabActive;
+            actionCard.hidden = exportTabActive;
+            importMain.hidden = exportTabActive;
+            previewCard.hidden = exportTabActive;
+            editorCard.hidden = exportTabActive;
+            folderSourceCard.hidden = importMode !== 'folder' || exportTabActive;
         };
 
         const setImportBusy = (busy: boolean) => {
             importBusy = busy;
             refs.modal.dataset.busy = busy ? 'true' : 'false';
             const controls: Array<HTMLInputElement | HTMLButtonElement | HTMLSelectElement> = [
-                modeSelect,
+                singleModeButton,
+                folderModeButton,
+                importTabButton,
+                exportTabButton,
                 urlInput,
                 browseButton,
                 fileInput,
@@ -5733,11 +5891,12 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 control.disabled = busy;
             }
             previewFrame.classList.toggle('busy', busy);
-            progressWrap.classList.toggle('busy', busy);
+            progressCard.classList.toggle('busy', busy);
             selectedTypePicker.style.pointerEvents = busy ? 'none' : '';
             previewCanvas.style.pointerEvents = busy ? 'none' : '';
             worldWidthInput.disabled = busy || importMode === 'folder';
             worldHeightInput.disabled = busy || importMode === 'folder';
+            progressCancelButton.disabled = !busy || progressMode === 'none';
             renderImportTypePicker();
             syncSelectedPreviewControls();
         };
@@ -6011,15 +6170,17 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         };
 
         syncImportModeUi();
+        syncWorkTabUi();
         syncExportChunkInputs();
         syncFolderRangeInputs();
         void syncPngMetadata();
-        modeSelect.addEventListener('change', () => {
-            importMode = modeSelect.value === 'folder' ? 'folder' : 'single';
+        const switchImportMode = (nextMode: PngImportSourceMode) => {
+            importMode = nextMode;
             invalidatePreview(importMode === 'folder'
                 ? 'Preview not generated yet. Choose a chunk folder and click "Preview blocks" to inspect the reconstructed map section.'
                 : 'Preview not generated yet. Click "Preview blocks" to inspect the matches.');
             syncImportModeUi();
+            syncWorkTabUi();
             if (importMode === 'folder') {
                 syncFolderRangeInputs();
                 syncFolderTargetWorldSpan();
@@ -6027,6 +6188,30 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             } else {
                 void syncPngMetadata();
             }
+        };
+        const switchWorkTab = (nextTab: PngImportWorkTab) => {
+            if (nextTab === 'export' && importMode !== 'single') {
+                return;
+            }
+            workTab = nextTab;
+            syncImportModeUi();
+            syncWorkTabUi();
+        };
+        singleModeButton.addEventListener('click', () => switchImportMode('single'));
+        folderModeButton.addEventListener('click', () => switchImportMode('folder'));
+        importTabButton.addEventListener('click', () => switchWorkTab('import'));
+        exportTabButton.addEventListener('click', () => switchWorkTab('export'));
+        progressCancelButton.addEventListener('click', () => {
+            if (!importBusy || progressMode === 'none') {
+                return;
+            }
+            cancelLongRunningRequested = true;
+            setProgress({
+                phase: progressMode === 'export' ? 'Cancelling chunk export' : 'Cancelling import',
+                completed: progressBar.value,
+                total: progressBar.max,
+                detail: 'Finishing the current step before stopping.'
+            });
         });
         browseButton.addEventListener('click', () => {
             fileInput.click();
@@ -6046,6 +6231,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         folderBrowseButton.addEventListener('click', async () => {
             try {
                 progressStartedAt = Date.now();
+                progressMode = 'import';
+                cancelLongRunningRequested = false;
                 setImportBusy(true);
                 setProgress({
                     phase: 'Reading chunk folder',
@@ -6055,7 +6242,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 });
                 const directoryHandle = await getDirectoryPicker()();
                 chunkFolderSelection = await readPngChunkFolderSelection(directoryHandle, async (progress) => {
-                    setProgress(progress);
+                    await handleProgressUpdate(progress, folderMeta);
                 });
                 folderMinColumnInput.value = '1';
                 folderMaxColumnInput.value = String(chunkFolderSelection.manifest.totalChunkColumns);
@@ -6070,8 +6257,12 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 chunkFolderSelection = null;
                 syncFolderRangeInputs();
                 invalidatePreview(error instanceof Error ? error.message : 'Failed to read the chunk folder.');
-                setStatus(error instanceof Error ? error.message : 'Failed to read the chunk folder.', 'error');
+                setStatus(
+                    error instanceof Error ? error.message : 'Failed to read the chunk folder.',
+                    error instanceof Error && error.message === 'Import cancelled.' ? 'neutral' : 'error'
+                );
             } finally {
+                progressMode = 'none';
                 setImportBusy(false);
                 setProgress(null);
             }
@@ -6201,6 +6392,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             const sourceHeight = Math.max(1, Math.min(Math.round(getNumericInputValue(sourceHeightInput, loadedImage.height)), loadedImage.height - sourceY));
             const chunkSize = getExportChunkSize();
             progressStartedAt = Date.now();
+            progressMode = 'export';
+            cancelLongRunningRequested = false;
             setImportBusy(true);
             setProgress({
                 phase: 'Preparing chunk export',
@@ -6208,7 +6401,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 total: 1,
                 detail: 'Validating the PNG crop and opening a destination folder.'
             });
-            exportMeta.textContent = 'Exporting chunk PNGs…';
+            const totalChunkColumns = Math.ceil((sourceWidth / PNG_IMPORT_SOURCE_TILE_SIZE) / chunkSize.width);
+            const totalChunkRows = Math.ceil((sourceHeight / PNG_IMPORT_SOURCE_TILE_SIZE) / chunkSize.height);
+            const estimatedChunkCount = Math.max(1, totalChunkColumns * totalChunkRows);
+            exportMeta.textContent = `Preparing to export about ${estimatedChunkCount} chunk PNGs (${totalChunkColumns} x ${totalChunkRows}).`;
             try {
                 const result = await exportPngChunksToDirectory({
                     image: loadedImage,
@@ -6219,19 +6415,24 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     sourceHeight,
                     chunkTileWidth: chunkSize.width,
                     chunkTileHeight: chunkSize.height,
-                    skipEmpty: exportSkipEmptyCheckbox.checked
+                    skipEmpty: exportSkipEmptyCheckbox.checked,
+                    shouldCancel: () => cancelLongRunningRequested
                 }, async (progress) => {
-                    setProgress(progress);
+                    await handleProgressUpdate(progress, exportMeta);
                 });
-                exportMeta.textContent = `Exported ${result.exportedChunks} chunk PNGs to ${result.directoryName}. The folder also contains ${PNG_CHUNK_EXPORT_MANIFEST_NAME} so the chunk-folder importer can rebuild the larger map automatically.`;
+                exportMeta.textContent = `Exported ${result.exportedChunks} chunk PNGs to ${result.directoryName}${result.skippedChunks > 0 ? ` and skipped ${result.skippedChunks} empty chunks` : ''}. The folder also contains ${PNG_CHUNK_EXPORT_MANIFEST_NAME} so the chunk-folder importer can rebuild the larger map automatically.`;
                 setStatus(
-                    `Exported ${result.exportedChunks} chunk PNGs to ${result.directoryName}.`,
+                    `Exported ${result.exportedChunks} chunk PNGs to ${result.directoryName}${result.skippedChunks > 0 ? ` and skipped ${result.skippedChunks} empty chunks` : ''}.`,
                     'success'
                 );
             } catch (error) {
                 exportMeta.textContent = error instanceof Error ? error.message : 'Failed to export chunk PNGs.';
-                setStatus(error instanceof Error ? error.message : 'Failed to export chunk PNGs.', 'error');
+                setStatus(
+                    error instanceof Error ? error.message : 'Failed to export chunk PNGs.',
+                    error instanceof Error && error.message === 'Chunk export cancelled.' ? 'neutral' : 'error'
+                );
             } finally {
+                progressMode = 'none';
                 setImportBusy(false);
                 setProgress(null);
             }
@@ -6296,6 +6497,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             progressStartedAt = Date.now();
             previewButton.textContent = 'Generating…';
             previewMeta.textContent = 'Generating preview…';
+            progressMode = 'import';
+            cancelLongRunningRequested = false;
             setImportBusy(true);
             setProgress({
                 phase: 'Preparing import',
@@ -6314,7 +6517,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                         chunkFolderSelection,
                         getFolderSelectionRange(),
                         async (progress) => {
-                            setProgress(progress);
+                            await handleProgressUpdate(progress, previewMeta);
                         }
                     );
                     lastFolderCompose = composed;
@@ -6336,7 +6539,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                         worldWidth: composedWorldWidth,
                         worldHeight: composedWorldHeight
                     }, async (progress) => {
-                        setProgress(progress);
+                        await handleProgressUpdate(progress, previewMeta);
                     });
                     previewContextMessage = composed.totalSelectedChunks > composed.chunkCount
                         ? ` Preview uses ${composed.chunkCount} chunk PNGs from the selected range (limited from ${composed.totalSelectedChunks}).`
@@ -6354,7 +6557,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                         worldHeight: getNumericInputValue(worldHeightInput, 32),
                         replaceExisting: replaceCheckbox.checked
                     }, async (progress) => {
-                        setProgress(progress);
+                        await handleProgressUpdate(progress, previewMeta);
                     });
                 }
                 previewDraft = draft;
@@ -6375,9 +6578,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 invalidatePreview(error instanceof Error ? error.message : 'Failed to generate the preview.');
                 setStatus(
                     error instanceof Error ? error.message : 'Failed to generate the PNG preview.',
-                    'error'
+                    error instanceof Error && error.message === 'Import cancelled.' ? 'neutral' : 'error'
                 );
             } finally {
+                progressMode = 'none';
                 setImportBusy(false);
                 setProgress(null);
                 previewButton.textContent = 'Preview blocks';
@@ -6437,6 +6641,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         modalCard?.classList.remove('world-designer-modal-card-import');
         clearPngImportObjectUrl();
         refs.modal.dataset.busy = 'false';
+        refs.modalConfirm.style.display = '';
     }
 
     function updateSelectionSummary() {
