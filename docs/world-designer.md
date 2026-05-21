@@ -118,6 +118,8 @@ Selected items can be:
 - nudged with arrow keys
 - duplicated
 - deleted
+- sent to the back
+- brought to the front
 - rotated
 - added to or removed from the current selection with **Shift+click**
 - added with **Shift+drag** marquee selection
@@ -168,7 +170,7 @@ You can:
 
 ### Main view
 
-- **right-click a placed object** = open a context-aware menu with grouped **Edit**, **Palette**, **Properties**, **Collectable**, **Convert**, and **Defaults** submenus depending on the item type, including actions such as collision toggles, astronaut masking, collectable flags, conversion between world items and collectables, and door/button default-state toggles
+- **right-click a placed object** = open a context-aware menu with grouped **Edit**, **Palette**, **Properties**, **Collectable**, **Convert**, and **Defaults** submenus depending on the item type, including actions such as collision toggles, astronaut masking, collectable flags, conversion between world items and collectables, door/button default-state toggles, and layer-order actions such as **Send to back** and **Bring to front**
 - **right-click empty space** = open a context menu to paste the copied selection there, set the astronaut start there, or move the live astronaut there
 - **right mouse drag on empty space** = pan camera
 - **Center on astronaut** = recenters the editor on the live astronaut

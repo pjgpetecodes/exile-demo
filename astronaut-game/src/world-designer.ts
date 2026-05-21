@@ -419,6 +419,8 @@ type ControlRefs = {
     normalizeSpriteSheetButton: HTMLButtonElement;
     deleteButton: HTMLButtonElement;
     duplicateButton: HTMLButtonElement;
+    sendToBackButton: HTMLButtonElement;
+    bringToFrontButton: HTMLButtonElement;
     focusButton: HTMLButtonElement;
     convertButton: HTMLButtonElement;
     focusAstronautButton: HTMLButtonElement;
@@ -1372,6 +1374,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 <button type="button" data-role="set-start">Set astronaut start to view center</button>
                 <button type="button" data-role="duplicate">Duplicate selection</button>
                 <button type="button" data-role="delete">Delete selection</button>
+                <button type="button" data-role="send-to-back">Send to back</button>
+                <button type="button" data-role="bring-to-front">Bring to front</button>
                 <button type="button" data-role="focus">Focus selection</button>
                 <button type="button" data-role="convert">Convert</button>
                 <button type="button" data-role="png-import">Import PNG draft</button>
@@ -1502,6 +1506,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         normalizeSpriteSheetButton: root.querySelector('[data-role="normalize-sprite-sheet"]') as HTMLButtonElement,
         deleteButton: root.querySelector('[data-role="delete"]') as HTMLButtonElement,
         duplicateButton: root.querySelector('[data-role="duplicate"]') as HTMLButtonElement,
+        sendToBackButton: root.querySelector('[data-role="send-to-back"]') as HTMLButtonElement,
+        bringToFrontButton: root.querySelector('[data-role="bring-to-front"]') as HTMLButtonElement,
         focusButton: root.querySelector('[data-role="focus"]') as HTMLButtonElement,
         convertButton: root.querySelector('[data-role="convert"]') as HTMLButtonElement,
         focusAstronautButton: root.querySelector('[data-role="focus-astronaut"]') as HTMLButtonElement,
@@ -3087,6 +3093,41 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
     }
 
+    function reorderSelections(toFront: boolean) {
+        const selections = getSelectedItems();
+        if (selections.length === 0) {
+            return;
+        }
+
+        runMutation(toFront ? 'Brought selection to front.' : 'Sent selection to back.', () => {
+            const selectedByCategory = new Map<DesignerCategory, Set<any>>();
+            for (const selection of selections) {
+                let categorySet = selectedByCategory.get(selection.category);
+                if (!categorySet) {
+                    categorySet = new Set<any>();
+                    selectedByCategory.set(selection.category, categorySet);
+                }
+                categorySet.add(selection.entity);
+            }
+
+            for (const [category, selectedEntities] of selectedByCategory) {
+                const arr = getCategoryArray(category);
+                const selectedInOrder = arr.filter((entity) => selectedEntities.has(entity));
+                if (selectedInOrder.length === 0 || selectedInOrder.length === arr.length) {
+                    continue;
+                }
+                const unselectedInOrder = arr.filter((entity) => !selectedEntities.has(entity));
+                arr.splice(
+                    0,
+                    arr.length,
+                    ...(toFront
+                        ? [...unselectedInOrder, ...selectedInOrder]
+                        : [...selectedInOrder, ...unselectedInOrder])
+                );
+            }
+        });
+    }
+
     function closeContextMenu() {
         state.contextMenu.screen = null;
         state.contextMenu.world = null;
@@ -3477,6 +3518,14 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             addContextMenuActionToContainer(body, 'Rotate', () => {
                 activateContextMenuSelections();
                 rotateSelection();
+            }, selectedItems.length === 0 && !selection);
+            addContextMenuActionToContainer(body, 'Send to back', () => {
+                activateContextMenuSelections();
+                reorderSelections(false);
+            }, selectedItems.length === 0 && !selection);
+            addContextMenuActionToContainer(body, 'Bring to front', () => {
+                activateContextMenuSelections();
+                reorderSelections(true);
             }, selectedItems.length === 0 && !selection);
             addContextMenuActionToContainer(body, 'Copy', () => {
                 activateContextMenuSelections();
@@ -4940,6 +4989,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             refs.convertButton.disabled = true;
             refs.deleteButton.disabled = true;
             refs.duplicateButton.disabled = true;
+            refs.sendToBackButton.disabled = true;
+            refs.bringToFrontButton.disabled = true;
             refs.focusButton.disabled = true;
             return;
         }
@@ -4950,6 +5001,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             refs.convertButton.disabled = true;
             refs.deleteButton.disabled = false;
             refs.duplicateButton.disabled = false;
+            refs.sendToBackButton.disabled = false;
+            refs.bringToFrontButton.disabled = false;
             refs.focusButton.disabled = false;
             return;
         }
@@ -4964,6 +5017,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 : 'Convert';
         refs.deleteButton.disabled = false;
         refs.duplicateButton.disabled = false;
+        refs.sendToBackButton.disabled = false;
+        refs.bringToFrontButton.disabled = false;
         refs.focusButton.disabled = false;
     }
 
@@ -6199,6 +6254,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     refs.pngImportButton.addEventListener('click', openPngImportModal);
     refs.deleteButton.addEventListener('click', deleteSelection);
     refs.duplicateButton.addEventListener('click', duplicateSelection);
+    refs.sendToBackButton.addEventListener('click', () => reorderSelections(false));
+    refs.bringToFrontButton.addEventListener('click', () => reorderSelections(true));
     refs.focusButton.addEventListener('click', focusSelection);
     refs.convertButton.addEventListener('click', convertSelection);
     refs.focusAstronautButton.addEventListener('click', () => {

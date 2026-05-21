@@ -1,5 +1,15 @@
 [
   {
+    "x": 4903,
+    "y": 2628,
+    "type": "teleporter",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 4,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
     "x": 4582,
     "y": 722,
     "type": "black_background",
@@ -5047,16 +5057,6 @@
     "palette": 1,
     "rotation": 5,
     "translation": "left"
-  },
-  {
-    "x": 4903,
-    "y": 2628,
-    "type": "teleporter",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 4,
-    "rotation": 1,
-    "translation": "center"
   },
   {
     "x": 4974,
