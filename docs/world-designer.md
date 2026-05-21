@@ -321,16 +321,20 @@ Choose **Chunk folder** in the same modal when you want the importer to walk an 
 2. Click **Choose folder…** and select a folder that contains the exported chunk PNGs and manifest
 3. Optionally limit the run with:
    - chunk column / row ranges
-   - **Max chunks** to process
+   - **Max chunks** to process, which now counts only non-black chunk PNGs
 4. Leave **Keep the world span matched to the selected chunk range** enabled unless you have a specific reason not to
-5. Set **World left/top** to the world origin for the exported crop
+5. Set **World left/top** to the origin for the full folder import area
 6. Make sure you are on the **Import** tab
-7. Click **Preview blocks**
-8. Review and fix the reconstructed draft before clicking **Import draft**
+7. Either:
+   - click **Preview blocks** if you want to review and adjust the reconstructed draft first, or
+   - click **Try folder import now** if you want the importer to go straight through without manual preview vetting
+8. If you used **Preview blocks**, review and fix the reconstructed draft before clicking **Import draft**
 
-Chunk-folder mode uses the stored chunk positions to place each selected chunk back into the correct overall map layout, instead of treating every PNG as an unrelated one-off import.
+Chunk-folder mode now keeps the **full folder import width and height** even when you limit the chunk run. Limited test imports still place their chunks in the same positions they would occupy in the full map, relative to the **World left/top** origin you choose.
 
-Long-running import work now also shows a progress bar and progress text, and both the single-file import preview path and the folder-import path can be cancelled from the modal while they are running.
+Long-running import work now also shows a progress bar and progress text, and both the single-file import preview path and the folder-import path can be cancelled from the modal while they are running. That includes both **Preview blocks** and **Try folder import now**.
+
+Large chunk-folder imports are processed in internal batches, so they can exceed the single-PNG `4096`-tile pass limit.
 
 ### Full-map workflow
 
@@ -348,8 +352,8 @@ If your goal is to take one large source PNG and turn it into your in-game map, 
 10. Make sure you are on the **Import** tab
 11. Start with a small test range, for example just a few chunk rows/columns or a low **Max chunks** value
 12. Set **World left/top** to where the exported crop should begin in the game world
-13. Click **Preview blocks**
-14. Review the preview, fix obvious bad matches, and click **Import draft**
+13. Either click **Preview blocks** for a reviewed pass, or **Try folder import now** for a straight-through attempt
+14. If you previewed, review the preview, fix obvious bad matches, and click **Import draft**
 15. Repeat with larger ranges until you are happy, then import the full chunk range
 16. Use **Preview before save** and then save once the rebuilt map looks correct
 
@@ -374,9 +378,12 @@ If you only want to import one part of the overall map on its own:
 5. Use **Snap crop to 32px tiles** if needed
 6. Make sure you are on the **Import** tab
 7. Set the target **World left/top/width/height**
-8. Click **Preview blocks**
-9. Review and adjust the preview
-10. Click **Import draft**
+8. Choose whether to:
+   - replace only the target area, or
+   - clear all existing world items and collectibles before importing
+9. Click **Preview blocks**
+10. Review and adjust the preview
+11. Click **Import draft**
 
 This path does **not** require chunk export first.
 
@@ -400,7 +407,7 @@ The hard importer limit is still higher than that, but smaller chunk sizes are m
 5. Adjust the **PNG crop** in **image pixels** only if you want part of the PNG rather than the whole file. Use **Snap crop to 32px tiles** if the crop needs aligning to tile boundaries.
 6. For **Chunk folder**, choose the exported folder and optionally narrow the run with chunk row / column ranges or **Max chunks**
 7. Fill in the **world placement** fields in world coordinates. In **Single PNG** mode, the importer keeps the block count from the **source PNG tile grid** and maps it across the world rectangle you choose. In **Chunk folder** mode, **World left/top** is the origin for the exported crop and the importer keeps the selected chunk range aligned relative to that origin.
-8. Click **Preview blocks** to generate the matched tile draft. The importer will also auto-align the source sampling grid when the sprite content suggests the crop is globally offset inside the 32px cells.
+8. Click **Preview blocks** to generate the matched tile draft. In **Single PNG** mode, the importer can auto-align the source sampling grid when the sprite content suggests the crop is globally offset inside the 32px cells. **Chunk folder** mode stays locked to the exported chunk grid.
 9. Watch the built-in progress bar while preview generation is running. It reports the current stage and estimated time left, and the controls are locked until the pass finishes.
 10. Use the larger preview area to inspect the draft, and use **zoom in / zoom out / fit / 100%** controls if the section is too big or too small to review comfortably.
 11. Click tiles in the preview to inspect or edit their **type**, **palette**, **rotation**, and **translation** before the draft touches the live world. The importer now seeds a best-fit translation automatically from the sampled sprite placement, so edge-aligned pieces often come in already shifted to the correct side.

@@ -644,7 +644,17 @@ function syncRuntimeMapBounds() {
         maxBottom = Math.max(maxBottom, astronautStart.y + approximateEntitySpan);
     }
 
-    setMapBounds(maxRight + WORLD_BOUNDS_PADDING, maxBottom + WORLD_BOUNDS_PADDING);
+    setMapBounds(
+        Math.max(MAP_WIDTH, maxRight + WORLD_BOUNDS_PADDING),
+        Math.max(MAP_HEIGHT, maxBottom + WORLD_BOUNDS_PADDING)
+    );
+}
+
+function ensureWorldBounds(width: number, height: number) {
+    setMapBounds(
+        Math.max(MAP_WIDTH, Math.round(width)),
+        Math.max(MAP_HEIGHT, Math.round(height))
+    );
 }
 
 function afterWorldDataMutated() {
@@ -1183,6 +1193,7 @@ async function init() {
                     getColorAliases: () => deepClone(colorAliases),
                     getPaletteCount: () => Math.max(remappedSpriteSheets.length, palettes.length, 1),
                     clampCamera,
+                    ensureWorldBounds,
                     saveWorldData,
                     savePaletteDefinitions,
                     previewSpriteSheetNormalization,
