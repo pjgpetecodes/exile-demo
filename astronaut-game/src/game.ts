@@ -36,7 +36,7 @@ import { Creature } from './creature.js';
 import { Collectable } from './collectable.js';
 import { makeBlackTransparent, remapSpritePalette, calculateSpriteCollisionBoundingBoxes, 
     calculateAstronautSpriteBoundingBoxes, getSolidBlockAtWorld, getAnyBlockAtWorld, 
-    drawEntities, getTransformedSpriteCanvas } from './utilities.js';
+    drawEntities, getSpriteTranslationOffset, getTransformedSpriteCanvas, normalizeSpriteTranslation, SpriteTranslation } from './utilities.js';
 import { MOVEMENT_SETTINGS, VIEWPORT_SETTINGS } from './settings.js';
 import {
     SPRITE_ROW, SPRITE_COL_STAND, SPRITE_COL_FLY_RIGHT, SPRITE_COL_FLY_DIAGONAL,
@@ -570,6 +570,17 @@ function findSpriteRectByType(type: string) {
     return spriteMap[type] || null;
 }
 
+function getPaletteSheet(palette: number, fallbackPalette?: number) {
+    const paletteIndex = Number.isFinite(palette) && palette >= 0 && palette < remappedSpriteSheets.length
+        ? palette
+        : (Number.isFinite(fallbackPalette) ? fallbackPalette! : 0);
+    return remappedSpriteSheets[paletteIndex] || remappedSpriteSheets[0] || null;
+}
+
+function getEntityPreviewSheet(entity: { palette?: number }) {
+    return getPaletteSheet(typeof entity.palette === 'number' ? entity.palette : 0);
+}
+
 function assignRotatedBoundingBoxes(arr: any[]) {
     for (const entity of arr) {
         const type = entity.type;
@@ -656,8 +667,22 @@ function drawWorldBoundingBoxOverlay(
                 context.scale(-1, -1);
             }
         }
-        const x = -tileW / 2 + bbox.minX * scale;
-        const y = -tileH / 2 + bbox.minY * scale;
+        const rect = findSpriteRectByType(entity.type);
+        const previewSheet = getEntityPreviewSheet(entity);
+        const transformedSprite = rect && previewSheet
+            ? getTransformedSpriteCanvas(
+                previewSheet,
+                rect,
+                typeof entity.rotation === 'number' ? entity.rotation : 1
+            )
+            : null;
+        const translationOffset = getSpriteTranslationOffset(
+            transformedSprite,
+            normalizeSpriteTranslation(entity.translation),
+            scale
+        );
+        const x = -tileW / 2 + translationOffset.x + bbox.minX * scale;
+        const y = -tileH / 2 + translationOffset.y + bbox.minY * scale;
         const w = bbox.width * scale;
         const h = bbox.height * scale;
         context.strokeRect(x, y, w, h);
@@ -733,7 +758,8 @@ function drawSpritePreview(
     palette: number,
     rotation: number = 1,
     clearFirst: boolean = true,
-    targetSize?: number
+    targetSize?: number,
+    translation: SpriteTranslation = 'center'
 ) {
     const rect = findSpriteRectByType(type);
     if (!rect || remappedSpriteSheets.length === 0) {
@@ -743,10 +769,7 @@ function drawSpritePreview(
         return false;
     }
 
-    const paletteIndex = Number.isFinite(palette) && palette >= 0 && palette < remappedSpriteSheets.length
-        ? palette
-        : (typeof rect.palette === 'number' ? rect.palette : 0);
-    const sheet = remappedSpriteSheets[paletteIndex] || remappedSpriteSheets[0];
+    const sheet = getPaletteSheet(palette, typeof rect.palette === 'number' ? rect.palette : 0);
     if (!sheet) {
         if (clearFirst) {
             context.clearRect(0, 0, context.canvas.width, context.canvas.height);
@@ -754,7 +777,63 @@ function drawSpritePreview(
         return false;
     }
 
-    return drawSpritePreviewWithSheet(context, type, sheet, rotation, clearFirst, targetSize);
+    return drawSpritePreviewWithSheet(context, type, sheet, rotation, clearFirst, targetSize, translation);
+}
+
+function drawSpriteSample(
+    context: CanvasRenderingContext2D,
+    type: string,
+    palette: number,
+    rotation: number = 1,
+    clearFirst: boolean = true,
+    targetSize?: number,
+    translation: SpriteTranslation = 'center'
+) {
+    const rect = findSpriteRectByType(type);
+    if (!rect || remappedSpriteSheets.length === 0) {
+        if (clearFirst) {
+            context.clearRect(0, 0, context.canvas.width, context.canvas.height);
+        }
+        return false;
+    }
+
+    const sheet = getPaletteSheet(palette, typeof rect.palette === 'number' ? rect.palette : 0);
+    if (!sheet) {
+        if (clearFirst) {
+            context.clearRect(0, 0, context.canvas.width, context.canvas.height);
+        }
+        return false;
+    }
+
+    const transformedSprite = getTransformedSpriteCanvas(sheet, rect, rotation);
+    if (!transformedSprite) {
+        if (clearFirst) {
+            context.clearRect(0, 0, context.canvas.width, context.canvas.height);
+        }
+        return false;
+    }
+
+    const drawSize = targetSize ?? Math.min(context.canvas.width, context.canvas.height);
+    context.save();
+    if (clearFirst) {
+        context.clearRect(0, 0, context.canvas.width, context.canvas.height);
+    }
+    context.imageSmoothingEnabled = false;
+    const translationOffset = getSpriteTranslationOffset(
+        transformedSprite,
+        translation,
+        drawSize / transformedSprite.width,
+        drawSize / transformedSprite.height
+    );
+    context.drawImage(
+        transformedSprite,
+        translationOffset.x,
+        translationOffset.y,
+        drawSize,
+        drawSize
+    );
+    context.restore();
+    return true;
 }
 
 function drawSpritePreviewWithSheet(
@@ -763,7 +842,8 @@ function drawSpritePreviewWithSheet(
     sheet: CanvasImageSource,
     rotation: number = 1,
     clearFirst: boolean = true,
-    targetSize?: number
+    targetSize?: number,
+    translation: SpriteTranslation = 'center'
 ) {
     const rect = findSpriteRectByType(type);
     if (!rect) {
@@ -791,6 +871,7 @@ function drawSpritePreviewWithSheet(
     ));
     const drawW = transformedSprite.width * scale;
     const drawH = transformedSprite.height * scale;
+    const translationOffset = getSpriteTranslationOffset(transformedSprite, translation, scale);
 
     context.save();
     if (clearFirst) {
@@ -800,8 +881,8 @@ function drawSpritePreviewWithSheet(
     context.translate(context.canvas.width / 2, context.canvas.height / 2);
     context.drawImage(
         transformedSprite,
-        -drawW / 2,
-        -drawH / 2,
+        -drawW / 2 + translationOffset.x,
+        -drawH / 2 + translationOffset.y,
         drawW,
         drawH
     );
@@ -1062,6 +1143,7 @@ async function init() {
                     getSpriteTypes,
                     getSpriteCatalog,
                     drawSpritePreview,
+                    drawSpriteSample,
                     drawCustomPalettePreview,
                     getPaletteDefinitions: () => deepClone(rawPaletteDefinitions),
                     getColorAliases: () => deepClone(colorAliases),
@@ -2015,11 +2097,25 @@ async function gameLoop() {
                         ctx!.scale(-1, -1);
                     }
                 }
+                const rect = findSpriteRectByType(entity.type);
+                const previewSheet = getEntityPreviewSheet(entity);
+                const transformedSprite = rect && previewSheet
+                    ? getTransformedSpriteCanvas(
+                        previewSheet,
+                        rect,
+                        typeof entity.rotation === "number" ? entity.rotation : 1
+                    )
+                    : null;
+                const translationOffset = getSpriteTranslationOffset(
+                    transformedSprite,
+                    normalizeSpriteTranslation(entity.translation),
+                    scale
+                );
                 ctx!.strokeStyle = 'red';
                 ctx!.lineWidth = 2;
                 // Draw bbox relative to sprite center
-                const x = -tileW / 2 + bbox.minX * scale;
-                const y = -tileH / 2 + bbox.minY * scale;
+                const x = -tileW / 2 + translationOffset.x + bbox.minX * scale;
+                const y = -tileH / 2 + translationOffset.y + bbox.minY * scale;
                 const w = bbox.width * scale;
                 const h = bbox.height * scale;
                 ctx!.strokeRect(x, y, w, h);

@@ -6,6 +6,7 @@ import { Creature } from './creature.js';
 import { Collectable } from './collectable.js';
 import { PaletteCycleSettings, Position } from './types/index.js';
 import { buildDefaultPaletteCycle, getEffectivePaletteCycle } from './palette-cycle.js';
+import { normalizeSpriteTranslation, SPRITE_TRANSLATION_OPTIONS, SpriteTranslation } from './utilities.js';
 
 export type DesignerCategory = 'world' | 'buttons' | 'doors' | 'creatures' | 'collectables';
 export type DesignerMode = 'edit' | 'preview';
@@ -133,7 +134,17 @@ export interface WorldDesignerHost {
         palette: number,
         rotation?: number,
         clearFirst?: boolean,
-        targetSize?: number
+        targetSize?: number,
+        translation?: SpriteTranslation
+    ): boolean;
+    drawSpriteSample(
+        ctx: CanvasRenderingContext2D,
+        type: string,
+        palette: number,
+        rotation?: number,
+        clearFirst?: boolean,
+        targetSize?: number,
+        translation?: SpriteTranslation
     ): boolean;
     drawCustomPalettePreview(
         ctx: CanvasRenderingContext2D,
@@ -182,6 +193,7 @@ type PickerDrag = {
     type: string;
     palette: number;
     rotation: number;
+    translation: SpriteTranslation;
 };
 
 type ClipboardEntry = {
@@ -199,6 +211,58 @@ type SavePreviewFile = {
 type SavePreviewState = {
     files: SavePreviewFile[];
     errors: string[];
+};
+
+type PngImportCandidate = {
+    type: string;
+    palette: number;
+    rotation: number;
+    collision: boolean;
+    maskAstronaut: boolean;
+    signature: PngImportSampleSignature;
+};
+
+type PngImportSampleSignature = {
+    normalizedSample: Uint8ClampedArray;
+    normalizedLabels: Uint16Array;
+    foregroundPixelCount: number;
+    matchKey: string;
+    foregroundBounds: {
+        minX: number;
+        minY: number;
+        width: number;
+        height: number;
+    } | null;
+};
+
+type PngImportTileMatch = {
+    bestCandidate: PngImportCandidate;
+    bestScore: number;
+    sourceSignature: PngImportSampleSignature;
+    inferredTranslation: SpriteTranslation;
+    column: number;
+    row: number;
+};
+
+type PngImportDraft = {
+    blocks: MapBlock[];
+    columns: number;
+    rows: number;
+    worldX: number;
+    worldY: number;
+    worldWidth: number;
+    worldHeight: number;
+    uncertainTiles: number;
+    lowConfidenceTileIndexes: number[];
+    sourceGridOffsetX: number;
+    sourceGridOffsetY: number;
+};
+
+type PngImportProgress = {
+    phase: string;
+    completed: number;
+    total: number;
+    detail: string;
 };
 
 type Rect = {
@@ -243,6 +307,7 @@ type PersistedDesignerUiState = {
     tool: DesignerTool;
     category: DesignerCategory;
     rotation: number;
+    translation: SpriteTranslation;
     palette: number;
     typeByCategory: Record<DesignerCategory, string>;
     snapToGrid: boolean;
@@ -277,6 +342,7 @@ type DesignerState = {
     tool: DesignerTool;
     category: DesignerCategory;
     rotation: number;
+    translation: SpriteTranslation;
     palette: number;
     typeByCategory: Record<DesignerCategory, string>;
     snapToGrid: boolean;
@@ -342,6 +408,7 @@ type ControlRefs = {
     spritePickerFilter: HTMLInputElement;
     spritePickerGrid: HTMLDivElement;
     rotationSelect: HTMLSelectElement;
+    translationSelect: HTMLSelectElement;
     paletteSelect: HTMLSelectElement;
     snapCheckbox: HTMLInputElement;
     objectSnapCheckbox: HTMLInputElement;
@@ -355,10 +422,13 @@ type ControlRefs = {
     overviewCanvas: HTMLCanvasElement;
     activeToggle: HTMLButtonElement;
     paletteDesignerToggle: HTMLButtonElement;
+    pngImportButton: HTMLButtonElement;
     savePreviewButton: HTMLButtonElement;
     normalizeSpriteSheetButton: HTMLButtonElement;
     deleteButton: HTMLButtonElement;
     duplicateButton: HTMLButtonElement;
+    sendToBackButton: HTMLButtonElement;
+    bringToFrontButton: HTMLButtonElement;
     focusButton: HTMLButtonElement;
     convertButton: HTMLButtonElement;
     focusAstronautButton: HTMLButtonElement;
@@ -396,6 +466,16 @@ type ControlRefs = {
 const HISTORY_LIMIT = 100;
 const TILE_SIZE = 32 * SPRITE_SCALE;
 const DESIGNER_STATE_STORAGE_KEY = 'exile.world-designer-state.v1';
+const PNG_IMPORT_DEFAULT_URL = './src/assets/MAP-Exile-BC.png';
+const PNG_IMPORT_SOURCE_TILE_SIZE = 32;
+const PNG_IMPORT_SAMPLE_SIZE = 32;
+const PNG_IMPORT_WARNING_SCORE = 58;
+const PNG_IMPORT_PALETTE_SCORE_WEIGHT = 0.2;
+const PNG_IMPORT_MAX_TILES = 4096;
+const PNG_IMPORT_PREVIEW_MAX_DIMENSION = 960;
+const PNG_IMPORT_PREVIEW_MIN_TILE_SIZE = 18;
+const PNG_IMPORT_PREVIEW_MAX_TILE_SIZE = 48;
+const pngImportImageCache = new Map<string, Promise<HTMLImageElement>>();
 const MAGNIFIER_SIZE = 160;
 const MAGNIFIER_ZOOM = 6;
 const MAGNIFIER_CURSOR_OFFSET = 26;
@@ -434,6 +514,11 @@ function normalizeRotation(rotation?: number) {
     return clamp(Math.round(rotation), 1, 7);
 }
 
+function formatSpriteTranslation(translation?: string | null) {
+    const normalized = normalizeSpriteTranslation(translation);
+    return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
 function toMapBlockData(block: MapBlock): MapBlock {
     return {
         x: block.x,
@@ -443,6 +528,7 @@ function toMapBlockData(block: MapBlock): MapBlock {
         maskAstronaut: shouldMaskAstronaut(block),
         palette: typeof block.palette === 'number' ? block.palette : 0,
         rotation: normalizeRotation(block.rotation) as MapBlock['rotation'],
+        translation: normalizeSpriteTranslation(block.translation),
         ...(block.paletteCycle ? { paletteCycle: deepClone(block.paletteCycle) } : {})
     };
 }
@@ -623,6 +709,14 @@ function snapCoordinate(value: number) {
     return Math.round(value / 32) * 32;
 }
 
+function getPngImportSourceTileCount(size: number) {
+    return Math.max(1, Math.round(size / PNG_IMPORT_SOURCE_TILE_SIZE));
+}
+
+function getSuggestedPngImportWorldSpan(sourceSize: number) {
+    return Math.max(1, Math.round(getPngImportSourceTileCount(sourceSize) * TILE_SIZE));
+}
+
 function normalizeSnapOffset(value: number) {
     const rounded = Math.round(value);
     return ((rounded % 32) + 32) % 32;
@@ -657,6 +751,12 @@ function parseDoorIds(value: string) {
         .split(',')
         .map((entry) => Number(entry.trim()))
         .filter((entry) => Number.isFinite(entry));
+}
+
+function yieldToUi() {
+    return new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve());
+    });
 }
 
 function parsePaletteCyclePalettes(value: string, paletteCount: number) {
@@ -748,16 +848,54 @@ function createDesignerStyles() {
             flex-wrap: wrap;
             gap: 8px;
         }
-        .world-designer-panel button {
+        .world-designer-panel button,
+        .world-designer-modal-card button {
             border-radius: 6px;
-            border: 1px solid rgba(148, 163, 184, 0.35);
-            background: rgba(30, 41, 59, 0.95);
+            border: 1px solid rgba(96, 165, 250, 0.22);
+            background: linear-gradient(180deg, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.98));
             color: #f8fafc;
-            padding: 6px 10px;
+            padding: 7px 12px;
             cursor: pointer;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 4px 12px rgba(2, 6, 23, 0.22);
+            transition: transform 0.08s ease, background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
         }
-        .world-designer-panel button:hover {
-            background: rgba(51, 65, 85, 0.95);
+        .world-designer-panel button:hover,
+        .world-designer-modal-card button:hover {
+            background: linear-gradient(180deg, rgba(51, 65, 85, 0.98), rgba(30, 41, 59, 0.98));
+            border-color: rgba(96, 165, 250, 0.4);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 6px 16px rgba(2, 6, 23, 0.28);
+        }
+        .world-designer-panel button:active,
+        .world-designer-modal-card button:active {
+            transform: translateY(1px);
+        }
+        .world-designer-panel button:disabled,
+        .world-designer-modal-card button:disabled {
+            opacity: 0.45;
+            cursor: default;
+            transform: none;
+            box-shadow: none;
+        }
+        .world-designer-modal-card .world-designer-button-primary,
+        .world-designer-modal-card .world-designer-button-secondary,
+        .world-designer-modal-card .world-designer-button-subtle {
+            border-color: rgba(96, 165, 250, 0.22);
+            background: linear-gradient(180deg, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.98));
+            color: #f8fafc;
+        }
+        .world-designer-button-primary {
+            background: linear-gradient(180deg, rgba(14, 165, 233, 0.96), rgba(2, 132, 199, 0.96));
+            border-color: rgba(125, 211, 252, 0.5);
+            color: #eff6ff;
+        }
+        .world-designer-button-primary:hover {
+            background: linear-gradient(180deg, rgba(56, 189, 248, 0.98), rgba(14, 165, 233, 0.98));
+        }
+        .world-designer-button-secondary {
+            background: linear-gradient(180deg, rgba(37, 99, 235, 0.18), rgba(15, 23, 42, 0.98));
+        }
+        .world-designer-button-subtle {
+            background: rgba(15, 23, 42, 0.7);
         }
         .world-designer-status {
             margin-top: 6px;
@@ -908,11 +1046,97 @@ function createDesignerStyles() {
             padding: 16px;
             font: 12px/1.4 system-ui, sans-serif;
         }
+        .world-designer-modal-card.world-designer-modal-card-import {
+            width: min(96vw, 1380px);
+            max-height: 92vh;
+        }
         .world-designer-modal-actions {
             display: flex;
             justify-content: flex-end;
             gap: 8px;
             margin-top: 12px;
+        }
+        .world-designer-import-layout {
+            display: grid;
+            grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+            gap: 18px;
+            align-items: start;
+        }
+        .world-designer-import-sidebar,
+        .world-designer-import-main {
+            min-width: 0;
+        }
+        .world-designer-import-card {
+            border-radius: 10px;
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            background: rgba(15, 23, 42, 0.55);
+            padding: 12px;
+            margin-bottom: 12px;
+        }
+        .world-designer-import-card:last-child {
+            margin-bottom: 0;
+        }
+        .world-designer-import-progress {
+            display: grid;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .world-designer-import-progress[hidden] {
+            display: none;
+        }
+        .world-designer-import-progress progress {
+            width: 100%;
+            height: 12px;
+            accent-color: #38bdf8;
+        }
+        .world-designer-import-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .world-designer-import-zoom-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+        }
+        .world-designer-import-zoom-label {
+            color: #cbd5e1;
+            min-width: 70px;
+        }
+        .world-designer-png-preview-frame {
+            margin: 8px 0;
+            max-height: 70vh;
+            min-height: 420px;
+            overflow: auto;
+            border-radius: 8px;
+            border: 1px solid rgba(148, 163, 184, 0.25);
+            background:
+                linear-gradient(45deg, rgba(148, 163, 184, 0.08) 25%, transparent 25%, transparent 75%, rgba(148, 163, 184, 0.08) 75%),
+                linear-gradient(45deg, rgba(148, 163, 184, 0.08) 25%, transparent 25%, transparent 75%, rgba(148, 163, 184, 0.08) 75%),
+                rgba(2, 6, 23, 0.95);
+            background-position: 0 0, 8px 8px, 0 0;
+            background-size: 16px 16px;
+        }
+        .world-designer-png-preview-canvas {
+            display: block;
+            image-rendering: pixelated;
+            cursor: crosshair;
+        }
+        .world-designer-png-preview-frame.busy,
+        .world-designer-import-card.busy {
+            opacity: 0.68;
+        }
+        @media (max-width: 1080px) {
+            .world-designer-import-layout {
+                grid-template-columns: 1fr;
+            }
+            .world-designer-png-preview-frame {
+                min-height: 320px;
+            }
         }
         .world-designer-context-menu {
             position: fixed;
@@ -1101,6 +1325,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     let paletteCount = Math.max(host.getPaletteCount(), 1);
     const initialPaletteDefinitions = deepClone(host.getPaletteDefinitions());
     paletteCount = Math.max(paletteCount, initialPaletteDefinitions.length, 1);
+    let pngImportCandidateCache: { key: string; candidates: PngImportCandidate[] } | null = null;
     const styles = createDesignerStyles();
     const initialSnapshot = serializeWorldData(host.getRawWorldData());
     const loadPersistedState = (): PersistedDesignerUiState | null => {
@@ -1146,6 +1371,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         tool: persistedState?.tool === 'place' ? 'place' : 'select',
         category: persistedState?.category && persistedState.category in CATEGORY_LABELS ? persistedState.category : 'world',
         rotation: normalizeRotation(persistedState?.rotation),
+        translation: normalizeSpriteTranslation(persistedState?.translation),
         palette: clamp(typeof persistedState?.palette === 'number' ? persistedState.palette : 0, 0, paletteCount - 1),
         typeByCategory: restoredTypeByCategory,
         snapToGrid: persistedState?.snapToGrid ?? false,
@@ -1246,6 +1472,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     </details>
                 </div>
                 <label class="world-designer-field">Rotation<select data-role="rotation"></select></label>
+                <label class="world-designer-field">Translation<select data-role="translation"></select></label>
                 <div class="world-designer-field">
                     <label>Palette</label>
                     <div style="display:flex;gap:8px;align-items:center;">
@@ -1269,8 +1496,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 <button type="button" data-role="set-start">Set astronaut start to view center</button>
                 <button type="button" data-role="duplicate">Duplicate selection</button>
                 <button type="button" data-role="delete">Delete selection</button>
+                <button type="button" data-role="send-to-back">Send to back</button>
+                <button type="button" data-role="bring-to-front">Bring to front</button>
                 <button type="button" data-role="focus">Focus selection</button>
                 <button type="button" data-role="convert">Convert</button>
+                <button type="button" data-role="png-import">Import PNG draft</button>
                 <button type="button" data-role="normalize-sprite-sheet">Normalize sprite colors</button>
                 <button type="button" data-role="save-preview">Preview before save</button>
             </div>
@@ -1379,6 +1609,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         spritePickerFilter: root.querySelector('[data-role="sprite-picker-filter"]') as HTMLInputElement,
         spritePickerGrid: root.querySelector('[data-role="sprite-picker-grid"]') as HTMLDivElement,
         rotationSelect: root.querySelector('[data-role="rotation"]') as HTMLSelectElement,
+        translationSelect: root.querySelector('[data-role="translation"]') as HTMLSelectElement,
         paletteSelect: root.querySelector('[data-role="palette"]') as HTMLSelectElement,
         snapCheckbox: root.querySelector('[data-role="snap"]') as HTMLInputElement,
         objectSnapCheckbox: root.querySelector('[data-role="object-snap"]') as HTMLInputElement,
@@ -1392,10 +1623,13 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         overviewCanvas: root.querySelector('[data-role="overview"]') as HTMLCanvasElement,
         activeToggle: root.querySelector('[data-role="active-toggle"]') as HTMLButtonElement,
         paletteDesignerToggle: root.querySelector('[data-role="palette-designer-toggle"]') as HTMLButtonElement,
+        pngImportButton: root.querySelector('[data-role="png-import"]') as HTMLButtonElement,
         savePreviewButton: root.querySelector('[data-role="save-preview"]') as HTMLButtonElement,
         normalizeSpriteSheetButton: root.querySelector('[data-role="normalize-sprite-sheet"]') as HTMLButtonElement,
         deleteButton: root.querySelector('[data-role="delete"]') as HTMLButtonElement,
         duplicateButton: root.querySelector('[data-role="duplicate"]') as HTMLButtonElement,
+        sendToBackButton: root.querySelector('[data-role="send-to-back"]') as HTMLButtonElement,
+        bringToFrontButton: root.querySelector('[data-role="bring-to-front"]') as HTMLButtonElement,
         focusButton: root.querySelector('[data-role="focus"]') as HTMLButtonElement,
         convertButton: root.querySelector('[data-role="convert"]') as HTMLButtonElement,
         focusAstronautButton: root.querySelector('[data-role="focus-astronaut"]') as HTMLButtonElement,
@@ -1438,6 +1672,14 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     const spritePickerButtons = new Map<string, HTMLButtonElement>();
     const dragGhostPadding = 8;
     let modalConfirmAction: (() => void | Promise<void>) | null = null;
+    let pngImportObjectUrl: string | null = null;
+
+    function clearPngImportObjectUrl() {
+        if (pngImportObjectUrl) {
+            URL.revokeObjectURL(pngImportObjectUrl);
+            pngImportObjectUrl = null;
+        }
+    }
 
     function formatRgb(color: [number, number, number]) {
         return `${color[0]}, ${color[1]}, ${color[2]}`;
@@ -1473,6 +1715,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 tool: state.tool,
                 category: state.category,
                 rotation: state.rotation,
+                translation: state.translation,
                 palette: state.palette,
                 typeByCategory: deepClone(state.typeByCategory),
                 snapToGrid: state.snapToGrid,
@@ -1537,6 +1780,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             const value = index + 1;
             return `<option value="${value}">${value}</option>`;
         }).join('');
+        refs.translationSelect.innerHTML = SPRITE_TRANSLATION_OPTIONS
+            .map((value) => `<option value="${value}">${formatSpriteTranslation(value)}</option>`)
+            .join('');
         refs.paletteSelect.innerHTML = Array.from({ length: paletteCount }, (_, index) => {
             return `<option value="${index}">${index}</option>`;
         }).join('');
@@ -1768,24 +2014,835 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
     }
 
-    function renderSpritePreviewCanvas(canvas: HTMLCanvasElement, type: string, palette: number, rotation: number) {
+    function renderSpritePreviewCanvas(
+        canvas: HTMLCanvasElement,
+        type: string,
+        palette: number,
+        rotation: number,
+        translation: SpriteTranslation = 'center'
+    ) {
         clearPreviewCanvas(canvas);
         const ctx = canvas.getContext('2d');
         if (!ctx) return false;
-        return host.drawSpritePreview(ctx, type, palette, rotation, false);
+        return host.drawSpritePreview(ctx, type, palette, rotation, false, undefined, translation);
     }
 
     function renderCurrentSpritePreview() {
         const type = getCurrentType();
+        const previewTranslation = state.category === 'world' ? state.translation : 'center';
         const rendered = renderSpritePreviewCanvas(
             refs.spritePreviewCanvas,
             type,
             state.palette,
-            state.rotation
+            state.rotation,
+            previewTranslation
         );
         refs.spritePreviewMeta.textContent = rendered
-            ? `${type} — palette ${state.palette}, rotation ${state.rotation}`
+            ? state.category === 'world'
+                ? `${type} — palette ${state.palette}, rotation ${state.rotation}, translation ${formatSpriteTranslation(state.translation)}`
+                : `${type} — palette ${state.palette}, rotation ${state.rotation}`
             : `${type} — preview unavailable`;
+    }
+
+    function isBackgroundSamplePixel(sample: Uint8ClampedArray, index: number) {
+        return sample[index] === 0 &&
+            sample[index + 1] === 0 &&
+            sample[index + 2] === 0;
+    }
+
+    function isSameSampleColor(sample: Uint8ClampedArray, leftIndex: number, rightIndex: number) {
+        return sample[leftIndex] === sample[rightIndex] &&
+            sample[leftIndex + 1] === sample[rightIndex + 1] &&
+            sample[leftIndex + 2] === sample[rightIndex + 2];
+    }
+
+    function getSampleColorKey(sample: Uint8ClampedArray, index: number) {
+        return `${sample[index]},${sample[index + 1]},${sample[index + 2]}`;
+    }
+
+    function getSampleForegroundBounds(sample: Uint8ClampedArray) {
+        let minX = PNG_IMPORT_SAMPLE_SIZE;
+        let minY = PNG_IMPORT_SAMPLE_SIZE;
+        let maxX = -1;
+        let maxY = -1;
+
+        for (let row = 0; row < PNG_IMPORT_SAMPLE_SIZE; row += 1) {
+            for (let column = 0; column < PNG_IMPORT_SAMPLE_SIZE; column += 1) {
+                const pixelIndex = (row * PNG_IMPORT_SAMPLE_SIZE + column) * 4;
+                if (isBackgroundSamplePixel(sample, pixelIndex)) {
+                    continue;
+                }
+                minX = Math.min(minX, column);
+                minY = Math.min(minY, row);
+                maxX = Math.max(maxX, column);
+                maxY = Math.max(maxY, row);
+            }
+        }
+
+        if (maxX < 0 || maxY < 0) {
+            return null;
+        }
+
+        return {
+            minX,
+            minY,
+            width: maxX - minX + 1,
+            height: maxY - minY + 1
+        };
+    }
+
+
+    function buildPaletteInvariantLabelMap(sample: Uint8ClampedArray) {
+        const labels = new Uint16Array(sample.length / 4);
+        const colorLabels = new Map<string, number>();
+        let nextLabel = 1;
+
+        for (let pixel = 0; pixel < labels.length; pixel += 1) {
+            const index = pixel * 4;
+            if (isBackgroundSamplePixel(sample, index)) {
+                labels[pixel] = 0;
+                continue;
+            }
+
+            const colorKey = getSampleColorKey(sample, index);
+            let label = colorLabels.get(colorKey);
+            if (!label) {
+                label = nextLabel;
+                colorLabels.set(colorKey, label);
+                nextLabel += 1;
+            }
+            labels[pixel] = label;
+        }
+
+        return labels;
+    }
+
+    function hashUint8Array(data: Uint8ClampedArray) {
+        let hash = 2166136261;
+        for (let index = 0; index < data.length; index += 1) {
+            hash ^= data[index];
+            hash = Math.imul(hash, 16777619);
+        }
+        return hash >>> 0;
+    }
+
+    function hashUint16Array(data: Uint16Array) {
+        let hash = 2166136261;
+        for (let index = 0; index < data.length; index += 1) {
+            hash ^= data[index];
+            hash = Math.imul(hash, 16777619);
+        }
+        return hash >>> 0;
+    }
+
+    function normalizeSampleToForegroundOrigin(
+        sample: Uint8ClampedArray,
+        bounds: ReturnType<typeof getSampleForegroundBounds> = getSampleForegroundBounds(sample)
+    ) {
+        const normalizedSample = new Uint8ClampedArray(sample.length);
+        if (!bounds) {
+            return normalizedSample;
+        }
+
+        for (let row = 0; row < bounds.height; row += 1) {
+            for (let column = 0; column < bounds.width; column += 1) {
+                const sourceIndex = ((bounds.minY + row) * PNG_IMPORT_SAMPLE_SIZE + bounds.minX + column) * 4;
+                const targetIndex = (row * PNG_IMPORT_SAMPLE_SIZE + column) * 4;
+                normalizedSample[targetIndex] = sample[sourceIndex];
+                normalizedSample[targetIndex + 1] = sample[sourceIndex + 1];
+                normalizedSample[targetIndex + 2] = sample[sourceIndex + 2];
+                normalizedSample[targetIndex + 3] = sample[sourceIndex + 3];
+            }
+        }
+
+        return normalizedSample;
+    }
+
+    function buildPngImportSampleSignature(sample: Uint8ClampedArray): PngImportSampleSignature {
+        const foregroundBounds = getSampleForegroundBounds(sample);
+        const normalizedSample = normalizeSampleToForegroundOrigin(sample, foregroundBounds);
+        const normalizedLabels = buildPaletteInvariantLabelMap(normalizedSample);
+        let foregroundPixelCount = 0;
+        for (let pixel = 0; pixel < normalizedLabels.length; pixel += 1) {
+            if (normalizedLabels[pixel] !== 0) {
+                foregroundPixelCount += 1;
+            }
+        }
+        const sampleHash = hashUint8Array(normalizedSample).toString(36);
+        const labelHash = hashUint16Array(normalizedLabels).toString(36);
+        const matchKey = foregroundBounds
+            ? `${foregroundPixelCount}:${foregroundBounds.minX},${foregroundBounds.minY},${foregroundBounds.width},${foregroundBounds.height}:${sampleHash}:${labelHash}`
+            : `empty:${sampleHash}:${labelHash}`;
+
+        return {
+            normalizedSample,
+            normalizedLabels,
+            foregroundPixelCount,
+            matchKey,
+            foregroundBounds
+        };
+    }
+
+    function renderPngImportSourceSample(
+        sourceContext: CanvasRenderingContext2D,
+        image: HTMLImageElement,
+        tileSourceX: number,
+        tileSourceY: number,
+        tileSourceWidth: number,
+        tileSourceHeight: number
+    ) {
+        sourceContext.fillStyle = '#000';
+        sourceContext.fillRect(0, 0, sourceContext.canvas.width, sourceContext.canvas.height);
+
+        const sourceLeft = Math.max(0, tileSourceX);
+        const sourceTop = Math.max(0, tileSourceY);
+        const sourceRight = Math.min(image.width, tileSourceX + tileSourceWidth);
+        const sourceBottom = Math.min(image.height, tileSourceY + tileSourceHeight);
+        const boundedWidth = sourceRight - sourceLeft;
+        const boundedHeight = sourceBottom - sourceTop;
+        if (boundedWidth <= 0 || boundedHeight <= 0) {
+            return;
+        }
+
+        const destinationX = ((sourceLeft - tileSourceX) / tileSourceWidth) * sourceContext.canvas.width;
+        const destinationY = ((sourceTop - tileSourceY) / tileSourceHeight) * sourceContext.canvas.height;
+        const destinationWidth = (boundedWidth / tileSourceWidth) * sourceContext.canvas.width;
+        const destinationHeight = (boundedHeight / tileSourceHeight) * sourceContext.canvas.height;
+
+        sourceContext.drawImage(
+            image,
+            sourceLeft,
+            sourceTop,
+            boundedWidth,
+            boundedHeight,
+            destinationX,
+            destinationY,
+            destinationWidth,
+            destinationHeight
+        );
+    }
+
+    function getMedianNumber(values: number[]) {
+        if (values.length === 0) {
+            return 0;
+        }
+        const sortedValues = [...values].sort((left, right) => left - right);
+        const middleIndex = Math.floor(sortedValues.length / 2);
+        if (sortedValues.length % 2 === 1) {
+            return sortedValues[middleIndex];
+        }
+        return (sortedValues[middleIndex - 1] + sortedValues[middleIndex]) / 2;
+    }
+
+    function getPngImportTranslatedBounds(
+        bounds: NonNullable<PngImportSampleSignature['foregroundBounds']>,
+        translation: SpriteTranslation
+    ) {
+        if (translation === 'top') {
+            return {
+                minX: bounds.minX,
+                minY: 0,
+                width: bounds.width,
+                height: bounds.height
+            };
+        }
+        if (translation === 'right') {
+            return {
+                minX: PNG_IMPORT_SAMPLE_SIZE - bounds.width,
+                minY: bounds.minY,
+                width: bounds.width,
+                height: bounds.height
+            };
+        }
+        if (translation === 'bottom') {
+            return {
+                minX: bounds.minX,
+                minY: PNG_IMPORT_SAMPLE_SIZE - bounds.height,
+                width: bounds.width,
+                height: bounds.height
+            };
+        }
+        if (translation === 'left') {
+            return {
+                minX: 0,
+                minY: bounds.minY,
+                width: bounds.width,
+                height: bounds.height
+            };
+        }
+        return bounds;
+    }
+
+    function getPngImportForegroundBoundsDifference(
+        left: NonNullable<PngImportSampleSignature['foregroundBounds']>,
+        right: NonNullable<PngImportSampleSignature['foregroundBounds']>
+    ) {
+        const leftMaxX = left.minX + left.width - 1;
+        const leftMaxY = left.minY + left.height - 1;
+        const rightMaxX = right.minX + right.width - 1;
+        const rightMaxY = right.minY + right.height - 1;
+        return Math.abs(left.minX - right.minX) +
+            Math.abs(left.minY - right.minY) +
+            Math.abs(leftMaxX - rightMaxX) +
+            Math.abs(leftMaxY - rightMaxY);
+    }
+
+    function inferPngImportTranslation(
+        sourceSignature: PngImportSampleSignature,
+        candidateSignature: PngImportSampleSignature
+    ): SpriteTranslation {
+        const sourceBounds = sourceSignature.foregroundBounds;
+        const candidateBounds = candidateSignature.foregroundBounds;
+        if (!sourceBounds || !candidateBounds) {
+            return 'center';
+        }
+
+        let bestTranslation: SpriteTranslation = 'center';
+        let bestDifference = Number.POSITIVE_INFINITY;
+        let centerDifference = Number.POSITIVE_INFINITY;
+
+        for (const translation of SPRITE_TRANSLATION_OPTIONS) {
+            const translatedBounds = getPngImportTranslatedBounds(candidateBounds, translation);
+            const difference = getPngImportForegroundBoundsDifference(sourceBounds, translatedBounds);
+            if (translation === 'center') {
+                centerDifference = difference;
+            }
+            if (difference < bestDifference) {
+                bestDifference = difference;
+                bestTranslation = translation;
+            }
+        }
+
+        return bestTranslation !== 'center' && bestDifference >= centerDifference
+            ? 'center'
+            : bestTranslation;
+    }
+
+    function matchPngImportSample(
+        sourceSample: Uint8ClampedArray,
+        candidates: PngImportCandidate[],
+        column: number,
+        row: number,
+        sourceSignature: PngImportSampleSignature = buildPngImportSampleSignature(sourceSample)
+    ): PngImportTileMatch {
+        let bestCandidate = candidates[0];
+        let bestScore = Number.POSITIVE_INFINITY;
+
+        for (const candidate of candidates) {
+            const score = compareImageData(sourceSignature, candidate.signature);
+            if (score < bestScore) {
+                bestScore = score;
+                bestCandidate = candidate;
+            }
+        }
+
+        return {
+            bestCandidate,
+            bestScore,
+            sourceSignature,
+            inferredTranslation: inferPngImportTranslation(sourceSignature, bestCandidate.signature),
+            column,
+            row
+        };
+    }
+
+    function inferPngImportSourceGridOffset(matches: PngImportTileMatch[]) {
+        const offsetXValues: number[] = [];
+        const offsetYValues: number[] = [];
+
+        for (const match of matches) {
+            const sourceBounds = match.sourceSignature.foregroundBounds;
+            const candidateBounds = match.bestCandidate.signature.foregroundBounds;
+            if (!sourceBounds || !candidateBounds) {
+                continue;
+            }
+            if (!Number.isFinite(match.bestScore) || match.bestScore >= PNG_IMPORT_WARNING_SCORE * 1.5) {
+                continue;
+            }
+            const hasPlacementSignal = sourceBounds.width < PNG_IMPORT_SAMPLE_SIZE ||
+                sourceBounds.height < PNG_IMPORT_SAMPLE_SIZE ||
+                candidateBounds.width < PNG_IMPORT_SAMPLE_SIZE ||
+                candidateBounds.height < PNG_IMPORT_SAMPLE_SIZE;
+            if (!hasPlacementSignal) {
+                continue;
+            }
+            offsetXValues.push(sourceBounds.minX - candidateBounds.minX);
+            offsetYValues.push(sourceBounds.minY - candidateBounds.minY);
+        }
+
+        return {
+            x: clamp(Math.round(getMedianNumber(offsetXValues)), -PNG_IMPORT_SAMPLE_SIZE + 1, PNG_IMPORT_SAMPLE_SIZE - 1),
+            y: clamp(Math.round(getMedianNumber(offsetYValues)), -PNG_IMPORT_SAMPLE_SIZE + 1, PNG_IMPORT_SAMPLE_SIZE - 1)
+        };
+    }
+
+    function compareImageData(leftSignature: PngImportSampleSignature, rightSignature: PngImportSampleSignature) {
+        if (leftSignature.foregroundPixelCount === 0 || rightSignature.foregroundPixelCount === 0) {
+            return leftSignature.foregroundPixelCount === rightSignature.foregroundPixelCount
+                ? 0
+                : Number.POSITIVE_INFINITY;
+        }
+
+        const left = leftSignature.normalizedSample;
+        const right = rightSignature.normalizedSample;
+        const sampleWidth = PNG_IMPORT_SAMPLE_SIZE;
+        const sampleHeight = PNG_IMPORT_SAMPLE_SIZE;
+        const leftLabels = leftSignature.normalizedLabels;
+        const rightLabels = rightSignature.normalizedLabels;
+        let totalDifference = 0;
+        let comparisonCount = 0;
+        let totalPaletteDifference = 0;
+        let paletteComparisonCount = 0;
+
+        for (let row = 0; row < sampleHeight; row += 1) {
+            for (let column = 0; column < sampleWidth; column += 1) {
+                const pixelIndex = (row * sampleWidth + column) * 4;
+                const pixelNumber = row * sampleWidth + column;
+                const leftIsBackground = isBackgroundSamplePixel(left, pixelIndex);
+                const rightIsBackground = isBackgroundSamplePixel(right, pixelIndex);
+                totalDifference += leftIsBackground === rightIsBackground ? 0 : 255;
+                comparisonCount += 1;
+
+                totalDifference += leftLabels[pixelNumber] === rightLabels[pixelNumber] ? 0 : 255;
+                comparisonCount += 1;
+
+                if (!leftIsBackground && !rightIsBackground) {
+                    totalPaletteDifference += (
+                        Math.abs(left[pixelIndex] - right[pixelIndex]) +
+                        Math.abs(left[pixelIndex + 1] - right[pixelIndex + 1]) +
+                        Math.abs(left[pixelIndex + 2] - right[pixelIndex + 2])
+                    ) / 3;
+                    paletteComparisonCount += 1;
+                }
+
+                if (column < sampleWidth - 1) {
+                    const rightPixelIndex = pixelIndex + 4;
+                    const rightPixelNumber = pixelNumber + 1;
+                    const leftHorizontalMatch = isSameSampleColor(left, pixelIndex, rightPixelIndex);
+                    const rightHorizontalMatch = isSameSampleColor(right, pixelIndex, rightPixelIndex);
+                    totalDifference += leftHorizontalMatch === rightHorizontalMatch ? 0 : 255;
+                    comparisonCount += 1;
+                    totalDifference += (leftLabels[pixelNumber] === leftLabels[rightPixelNumber]) ===
+                        (rightLabels[pixelNumber] === rightLabels[rightPixelNumber]) ? 0 : 255;
+                    comparisonCount += 1;
+                }
+
+                if (row < sampleHeight - 1) {
+                    const belowPixelIndex = pixelIndex + sampleWidth * 4;
+                    const belowPixelNumber = pixelNumber + sampleWidth;
+                    const leftVerticalMatch = isSameSampleColor(left, pixelIndex, belowPixelIndex);
+                    const rightVerticalMatch = isSameSampleColor(right, pixelIndex, belowPixelIndex);
+                    totalDifference += leftVerticalMatch === rightVerticalMatch ? 0 : 255;
+                    comparisonCount += 1;
+                    totalDifference += (leftLabels[pixelNumber] === leftLabels[belowPixelNumber]) ===
+                        (rightLabels[pixelNumber] === rightLabels[belowPixelNumber]) ? 0 : 255;
+                    comparisonCount += 1;
+                }
+            }
+        }
+
+        const structuralScore = comparisonCount > 0 ? totalDifference / comparisonCount : Number.POSITIVE_INFINITY;
+        if (!Number.isFinite(structuralScore)) {
+            return structuralScore;
+        }
+        const paletteScore = paletteComparisonCount > 0
+            ? totalPaletteDifference / paletteComparisonCount
+            : 255;
+        return structuralScore + (paletteScore * PNG_IMPORT_PALETTE_SCORE_WEIGHT);
+    }
+
+    function loadImage(url: string) {
+        const cached = pngImportImageCache.get(url);
+        if (cached) {
+            return cached;
+        }
+        const promise = new Promise<HTMLImageElement>((resolve, reject) => {
+            const image = new Image();
+            image.onload = () => resolve(image);
+            image.onerror = () => {
+                pngImportImageCache.delete(url);
+                reject(new Error(`Failed to load PNG at ${url}. Use a browser-served path such as ./src/assets/MAP-Exile-BC.png.`));
+            };
+            image.src = url;
+        });
+        pngImportImageCache.set(url, promise);
+        return promise;
+    }
+
+    function getDefaultImportWorldRect() {
+        const worldSelections = getSelectedItems().filter((selection) => selection.category === 'world');
+        if (worldSelections.length > 0) {
+            const bounds = getSelectionBounds(worldSelections);
+            const width = Math.max(32, Math.ceil((bounds.right - bounds.left) / 32) * 32);
+            const height = Math.max(32, Math.ceil((bounds.bottom - bounds.top) / 32) * 32);
+            return {
+                x: snapCoordinate(bounds.left),
+                y: snapCoordinate(bounds.top),
+                width,
+                height
+            };
+        }
+
+        const width = Math.max(32, Math.ceil(host.canvas.width / 32) * 32);
+        const height = Math.max(32, Math.ceil(host.canvas.height / 32) * 32);
+        return {
+            x: snapCoordinate(state.camera.x),
+            y: snapCoordinate(state.camera.y),
+            width,
+            height
+        };
+    }
+
+    function getPngImportTypeDefaults(snapshot: RawWorldData) {
+        const typeDefaults = new Map<string, { collision: boolean; maskAstronaut: boolean }>();
+        for (const block of snapshot.worldMap) {
+            if (!typeDefaults.has(block.type)) {
+                typeDefaults.set(block.type, {
+                    collision: block.collision !== false,
+                    maskAstronaut: shouldMaskAstronaut(block)
+                });
+            }
+        }
+        return typeDefaults;
+    }
+
+    function getPngImportTypeNames(snapshot: RawWorldData) {
+        return [...new Set(snapshot.worldMap.map((block) => block.type))]
+            .filter((type) => spriteTypes.includes(type))
+            .sort();
+    }
+
+    function getPngImportPreviewTileSize(columns: number, rows: number) {
+        const largestDimension = Math.max(columns, rows, 1);
+        return clamp(
+            Math.floor(PNG_IMPORT_PREVIEW_MAX_DIMENSION / largestDimension),
+            PNG_IMPORT_PREVIEW_MIN_TILE_SIZE,
+            PNG_IMPORT_PREVIEW_MAX_TILE_SIZE
+        );
+    }
+
+    async function buildPngImportCandidates(
+        onProgress?: (progress: PngImportProgress) => void | Promise<void>
+    ) {
+        const snapshot = host.getRawWorldData();
+        const typeDefaults = getPngImportTypeDefaults(snapshot);
+
+        const typeNames = getPngImportTypeNames(snapshot);
+        const candidateKey = JSON.stringify({
+            paletteCount,
+            typeNames,
+            typeDefaults: typeNames.map((type) => {
+                const defaults = typeDefaults.get(type) ?? { collision: true, maskAstronaut: false };
+                return [type, defaults.collision, defaults.maskAstronaut];
+            })
+        });
+        if (pngImportCandidateCache?.key === candidateKey) {
+            if (onProgress) {
+                await onProgress({
+                    phase: 'Preparing sprite candidates',
+                    completed: 1,
+                    total: 1,
+                    detail: 'Reusing cached sprite candidates.'
+                });
+            }
+            return pngImportCandidateCache.candidates;
+        }
+
+        const sampleCanvas = document.createElement('canvas');
+        sampleCanvas.width = PNG_IMPORT_SAMPLE_SIZE;
+        sampleCanvas.height = PNG_IMPORT_SAMPLE_SIZE;
+        const sampleContext = sampleCanvas.getContext('2d');
+        if (!sampleContext) {
+            throw new Error('Could not create a canvas context for PNG import.');
+        }
+        sampleContext.imageSmoothingEnabled = false;
+
+        const candidates: PngImportCandidate[] = [];
+        const totalCandidateRenders = Math.max(1, typeNames.length * paletteCount * 7);
+        let processedCandidateRenders = 0;
+        let lastYield = 0;
+
+        for (const type of typeNames) {
+            const defaults = typeDefaults.get(type) ?? { collision: true, maskAstronaut: false };
+            for (let palette = 0; palette < paletteCount; palette += 1) {
+                for (let rotation = 1; rotation <= 7; rotation += 1) {
+                    processedCandidateRenders += 1;
+                    sampleContext.fillStyle = '#000';
+                    sampleContext.fillRect(0, 0, sampleCanvas.width, sampleCanvas.height);
+                    const rendered = host.drawSpriteSample(
+                        sampleContext,
+                        type,
+                        palette,
+                        rotation,
+                        false,
+                        PNG_IMPORT_SAMPLE_SIZE
+                    );
+                    if (!rendered) {
+                        continue;
+                    }
+                    const candidateSample = new Uint8ClampedArray(
+                        sampleContext.getImageData(0, 0, sampleCanvas.width, sampleCanvas.height).data
+                    );
+                    candidates.push({
+                        type,
+                        palette,
+                        rotation,
+                        collision: defaults.collision,
+                        maskAstronaut: defaults.maskAstronaut,
+                        signature: buildPngImportSampleSignature(candidateSample)
+                    });
+                    if (onProgress && (
+                        processedCandidateRenders === totalCandidateRenders ||
+                        processedCandidateRenders - lastYield >= Math.max(8, Math.floor(totalCandidateRenders / 20))
+                    )) {
+                        lastYield = processedCandidateRenders;
+                        await onProgress({
+                            phase: 'Preparing sprite candidates',
+                            completed: processedCandidateRenders,
+                            total: totalCandidateRenders,
+                            detail: `Rendering ${type} palette ${palette}, rotation ${rotation}.`
+                        });
+                        await yieldToUi();
+                    }
+                }
+            }
+        }
+
+        if (candidates.length === 0) {
+            throw new Error('PNG import could not build any world-tile candidates from the current sprite catalog.');
+        }
+
+        pngImportCandidateCache = {
+            key: candidateKey,
+            candidates
+        };
+        return candidates;
+    }
+
+    async function buildPngImportDraftFromPng(config: {
+        url: string;
+        sourceX: number;
+        sourceY: number;
+        sourceWidth: number;
+        sourceHeight: number;
+        worldX: number;
+        worldY: number;
+        worldWidth: number;
+        worldHeight: number;
+        replaceExisting: boolean;
+    }, onProgress?: (progress: PngImportProgress) => void | Promise<void>) {
+        const url = config.url.trim();
+        if (!url) {
+            throw new Error('Enter a PNG URL before importing.');
+        }
+
+        const worldWidth = Math.max(1, Math.round(config.worldWidth));
+        const worldHeight = Math.max(1, Math.round(config.worldHeight));
+        const worldX = Math.round(config.worldX);
+        const worldY = Math.round(config.worldY);
+
+        const sourceWidth = Math.max(1, Math.round(config.sourceWidth));
+        const sourceHeight = Math.max(1, Math.round(config.sourceHeight));
+        if (onProgress) {
+            await onProgress({
+                phase: 'Loading PNG',
+                completed: 0,
+                total: 1,
+                detail: 'Loading PNG metadata and source image.'
+            });
+            await yieldToUi();
+        }
+        const image = await loadImage(url);
+        const sourceX = clamp(Math.round(config.sourceX), 0, Math.max(0, image.width - 1));
+        const sourceY = clamp(Math.round(config.sourceY), 0, Math.max(0, image.height - 1));
+        const boundedSourceWidth = Math.min(sourceWidth, image.width - sourceX);
+        const boundedSourceHeight = Math.min(sourceHeight, image.height - sourceY);
+
+        if (boundedSourceWidth <= 0 || boundedSourceHeight <= 0) {
+            throw new Error('The selected PNG source region is outside the image bounds.');
+        }
+
+        const columns = getPngImportSourceTileCount(boundedSourceWidth);
+        const rows = getPngImportSourceTileCount(boundedSourceHeight);
+        const tileCount = columns * rows;
+        if (tileCount > PNG_IMPORT_MAX_TILES) {
+            throw new Error(`PNG import is limited to ${PNG_IMPORT_MAX_TILES} tiles per pass. Reduce the region size and try again.`);
+        }
+        const worldTileWidth = worldWidth / columns;
+        const worldTileHeight = worldHeight / rows;
+
+        const candidates = await buildPngImportCandidates(onProgress);
+        const sourceCanvas = document.createElement('canvas');
+        sourceCanvas.width = PNG_IMPORT_SAMPLE_SIZE;
+        sourceCanvas.height = PNG_IMPORT_SAMPLE_SIZE;
+        const sourceContext = sourceCanvas.getContext('2d');
+        if (!sourceContext) {
+            throw new Error('Could not create a source canvas for PNG import.');
+        }
+        sourceContext.imageSmoothingEnabled = false;
+        const sourceImageData = sourceContext.createImageData(sourceCanvas.width, sourceCanvas.height);
+        const tileSourceWidth = boundedSourceWidth / columns;
+        const tileSourceHeight = boundedSourceHeight / rows;
+        const matchCache = new Map<string, {
+            bestCandidate: PngImportCandidate;
+            bestScore: number;
+            sourceSignature: PngImportSampleSignature;
+            inferredTranslation: SpriteTranslation;
+        }>();
+
+        const runMatchingPass = async (
+            gridOffsetX: number,
+            gridOffsetY: number,
+            phase: string
+        ) => {
+            const importedBlocks: MapBlock[] = [];
+            const tileMatches: PngImportTileMatch[] = [];
+            let uncertainTiles = 0;
+            const lowConfidenceTileIndexes: number[] = [];
+            let processedTiles = 0;
+
+            for (let row = 0; row < rows; row += 1) {
+                const tileSourceY = sourceY + gridOffsetY + (row * tileSourceHeight);
+
+                for (let column = 0; column < columns; column += 1) {
+                    const tileSourceX = sourceX + gridOffsetX + (column * tileSourceWidth);
+                    renderPngImportSourceSample(
+                        sourceContext,
+                        image,
+                        tileSourceX,
+                        tileSourceY,
+                        tileSourceWidth,
+                        tileSourceHeight
+                    );
+
+                    sourceImageData.data.set(sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height).data);
+                    const sourceSample = new Uint8ClampedArray(sourceImageData.data);
+                    const sourceSignature = buildPngImportSampleSignature(sourceSample);
+                    const cachedMatch = matchCache.get(sourceSignature.matchKey);
+                    const tileMatch = cachedMatch
+                        ? {
+                            ...cachedMatch,
+                            column,
+                            row
+                        }
+                        : matchPngImportSample(sourceSample, candidates, column, row, sourceSignature);
+                    if (!cachedMatch) {
+                        matchCache.set(sourceSignature.matchKey, {
+                            bestCandidate: tileMatch.bestCandidate,
+                            bestScore: tileMatch.bestScore,
+                            sourceSignature: tileMatch.sourceSignature,
+                            inferredTranslation: tileMatch.inferredTranslation
+                        });
+                    }
+                    tileMatches.push(tileMatch);
+
+                    if (tileMatch.bestScore >= PNG_IMPORT_WARNING_SCORE) {
+                        uncertainTiles += 1;
+                        lowConfidenceTileIndexes.push(row * columns + column);
+                    }
+
+                    importedBlocks.push({
+                        x: Math.round(worldX + column * worldTileWidth),
+                        y: Math.round(worldY + row * worldTileHeight),
+                        type: tileMatch.bestCandidate.type,
+                        collision: tileMatch.bestCandidate.collision,
+                        maskAstronaut: tileMatch.bestCandidate.maskAstronaut,
+                        palette: tileMatch.bestCandidate.palette,
+                        rotation: normalizeRotation(tileMatch.bestCandidate.rotation) as MapBlock['rotation'],
+                        translation: tileMatch.inferredTranslation
+                    });
+                    processedTiles += 1;
+                }
+
+                if (onProgress) {
+                    await onProgress({
+                        phase,
+                        completed: processedTiles,
+                        total: tileCount,
+                        detail: `Processed row ${row + 1} of ${rows}.`
+                    });
+                    await yieldToUi();
+                }
+            }
+
+            return {
+                importedBlocks,
+                tileMatches,
+                uncertainTiles,
+                lowConfidenceTileIndexes
+            };
+        };
+
+        const initialPass = await runMatchingPass(0, 0, 'Matching source tiles');
+        const inferredGridOffset = inferPngImportSourceGridOffset(initialPass.tileMatches);
+        const finalPass = inferredGridOffset.x !== 0 || inferredGridOffset.y !== 0
+            ? await runMatchingPass(inferredGridOffset.x, inferredGridOffset.y, 'Refining source alignment')
+            : initialPass;
+
+        return {
+            blocks: finalPass.importedBlocks,
+            columns,
+            rows,
+            worldX,
+            worldY,
+            worldWidth,
+            worldHeight,
+            uncertainTiles: finalPass.uncertainTiles,
+            lowConfidenceTileIndexes: finalPass.lowConfidenceTileIndexes,
+            sourceGridOffsetX: inferredGridOffset.x,
+            sourceGridOffsetY: inferredGridOffset.y
+        };
+    }
+
+    function applyPngImportDraft(draft: PngImportDraft, replaceExisting: boolean) {
+        runMutation(
+            `Imported ${draft.blocks.length} draft world tile${draft.blocks.length === 1 ? '' : 's'} from PNG.`,
+            () => {
+                const worldMap = getCategoryArray('world') as MapBlock[];
+                if (replaceExisting) {
+                    for (let index = worldMap.length - 1; index >= 0; index -= 1) {
+                        const block = worldMap[index];
+                        if (
+                            block.x >= draft.worldX &&
+                            block.x < draft.worldX + draft.worldWidth &&
+                            block.y >= draft.worldY &&
+                            block.y < draft.worldY + draft.worldHeight
+                        ) {
+                            worldMap.splice(index, 1);
+                        }
+                    }
+                }
+                const insertedBlocks = draft.blocks.map((block) => toMapBlockData(block));
+                worldMap.push(...insertedBlocks);
+                setSelections(
+                    insertedBlocks.map((block) => ({ category: 'world' as const, entity: block })),
+                    insertedBlocks[0] ? { category: 'world', entity: insertedBlocks[0] } : null
+                );
+            }
+        );
+    }
+
+    async function importWorldDraftFromPng(config: {
+        url: string;
+        sourceX: number;
+        sourceY: number;
+        sourceWidth: number;
+        sourceHeight: number;
+        worldX: number;
+        worldY: number;
+        worldWidth: number;
+        worldHeight: number;
+        replaceExisting: boolean;
+    }) {
+        const draft = await buildPngImportDraftFromPng(config);
+        applyPngImportDraft(draft, config.replaceExisting);
+        closeModal();
+        setStatus(
+            draft.uncertainTiles > 0
+                ? `Imported ${draft.blocks.length} draft world tiles from PNG. ${draft.uncertainTiles} tile${draft.uncertainTiles === 1 ? '' : 's'} had low-confidence matches, so review the result in the designer before saving.`
+                : `Imported ${draft.blocks.length} draft world tiles from PNG.`,
+            draft.uncertainTiles > 0 ? 'neutral' : 'success'
+        );
     }
 
     function renderSpritePickerGrid() {
@@ -1822,7 +2879,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                         category: state.category,
                         type: entry.name,
                         palette: state.palette,
-                        rotation: state.rotation
+                        rotation: state.rotation,
+                        translation: state.translation
                     };
                     state.pickerDragCanvas = null;
                     setCurrentType(entry.name);
@@ -1841,7 +2899,13 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             button.classList.toggle('dragging', state.pickerDrag?.type === entry.name);
             const canvas = button.querySelector('canvas');
             if (canvas instanceof HTMLCanvasElement) {
-                renderSpritePreviewCanvas(canvas, entry.name, state.palette, 1);
+                renderSpritePreviewCanvas(
+                    canvas,
+                    entry.name,
+                    state.palette,
+                    1,
+                    state.category === 'world' ? state.translation : 'center'
+                );
             }
         }
     }
@@ -2241,6 +3305,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         if (primary) {
             state.category = primary.category;
             state.rotation = normalizeRotation(primary.entity.rotation);
+            state.translation = primary.category === 'world'
+                ? normalizeSpriteTranslation(primary.entity.translation)
+                : 'center';
             state.palette = primary.entity.palette ?? 0;
             state.typeByCategory[primary.category] = primary.entity.type;
         }
@@ -2271,6 +3338,41 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 arr.splice(index, 1);
             }
         }
+    }
+
+    function reorderSelections(toFront: boolean) {
+        const selections = getSelectedItems();
+        if (selections.length === 0) {
+            return;
+        }
+
+        runMutation(toFront ? 'Brought selection to front.' : 'Sent selection to back.', () => {
+            const selectedByCategory = new Map<DesignerCategory, Set<any>>();
+            for (const selection of selections) {
+                let categorySet = selectedByCategory.get(selection.category);
+                if (!categorySet) {
+                    categorySet = new Set<any>();
+                    selectedByCategory.set(selection.category, categorySet);
+                }
+                categorySet.add(selection.entity);
+            }
+
+            for (const [category, selectedEntities] of selectedByCategory) {
+                const arr = getCategoryArray(category);
+                const selectedInOrder = arr.filter((entity) => selectedEntities.has(entity));
+                if (selectedInOrder.length === 0 || selectedInOrder.length === arr.length) {
+                    continue;
+                }
+                const unselectedInOrder = arr.filter((entity) => !selectedEntities.has(entity));
+                arr.splice(
+                    0,
+                    arr.length,
+                    ...(toFront
+                        ? [...unselectedInOrder, ...selectedInOrder]
+                        : [...selectedInOrder, ...unselectedInOrder])
+                );
+            }
+        });
     }
 
     function closeContextMenu() {
@@ -2445,6 +3547,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             : 0;
         const previewType = selection?.entity.type ?? getCurrentType();
         const previewRotation = selection?.entity.rotation ?? state.rotation;
+        const previewTranslation = selection?.category === 'world'
+            ? normalizeSpriteTranslation(selection.entity.translation)
+            : (state.category === 'world' ? state.translation : 'center');
 
         addContextMenuSubmenu(`Palette (${currentPalette})`, (body) => {
             for (let palette = 0; palette < paletteCount; palette += 1) {
@@ -2459,7 +3564,13 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 canvas.className = 'world-designer-context-palette-canvas';
                 canvas.width = 36;
                 canvas.height = 36;
-                renderSpritePreviewCanvas(canvas, previewType, palette, normalizeRotation(previewRotation));
+                renderSpritePreviewCanvas(
+                    canvas,
+                    previewType,
+                    palette,
+                    normalizeRotation(previewRotation),
+                    previewTranslation
+                );
                 button.appendChild(canvas);
 
                 const label = document.createElement('span');
@@ -2548,6 +3659,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 type: collectable.type,
                 palette: collectable.palette ?? 0,
                 rotation: normalizeRotation(collectable.defaultRotation ?? collectable.rotation) as MapBlock['rotation'],
+                translation: 'center',
                 collision: collectable.collision !== false,
                 maskAstronaut: collectable.collision === false,
                 paletteCycle: collectable.paletteCycle ? deepClone(collectable.paletteCycle) : undefined
@@ -2653,6 +3765,14 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             addContextMenuActionToContainer(body, 'Rotate', () => {
                 activateContextMenuSelections();
                 rotateSelection();
+            }, selectedItems.length === 0 && !selection);
+            addContextMenuActionToContainer(body, 'Send to back', () => {
+                activateContextMenuSelections();
+                reorderSelections(false);
+            }, selectedItems.length === 0 && !selection);
+            addContextMenuActionToContainer(body, 'Bring to front', () => {
+                activateContextMenuSelections();
+                reorderSelections(true);
             }, selectedItems.length === 0 && !selection);
             addContextMenuActionToContainer(body, 'Copy', () => {
                 activateContextMenuSelections();
@@ -2870,7 +3990,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 collision: true,
                 maskAstronaut: false,
                 palette: state.palette,
-                rotation: state.rotation as MapBlock['rotation']
+                rotation: state.rotation as MapBlock['rotation'],
+                translation: state.translation
             };
             getCategoryArray('world').push(entity);
             setSelections([{ category: 'world', entity }]);
@@ -3476,10 +4597,803 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.modal.classList.add('open');
     }
 
-    function closeModal() {
+    function openPngImportModal() {
+        const modalCard = refs.modal.querySelector('.world-designer-modal-card') as HTMLDivElement | null;
+        modalCard?.classList.add('world-designer-modal-card-import');
+        const defaultWorldRect = getDefaultImportWorldRect();
+        const importSnapshot = host.getRawWorldData();
+        const pngImportTypeNames = getPngImportTypeNames(importSnapshot);
+        const pngImportTypeDefaults = getPngImportTypeDefaults(importSnapshot);
+        const rotationOptionMarkup = Array.from({ length: 7 }, (_, index) => {
+            const rotation = index + 1;
+            return `<option value="${rotation}">${rotation}</option>`;
+        }).join('');
+        const translationOptionMarkup = SPRITE_TRANSLATION_OPTIONS
+            .map((translation) => `<option value="${translation}">${formatSpriteTranslation(translation)}</option>`)
+            .join('');
+        refs.modalTitle.textContent = 'Import PNG draft';
+        refs.modalConfirm.textContent = 'Import draft';
+        refs.modalConfirm.disabled = true;
+        clearPngImportObjectUrl();
+        refs.modalBody.innerHTML = `
+            <div class="world-designer-summary">
+                Create a rough draft of <strong>world items only</strong> by matching a PNG region against the currently authored world sprite set. Start with a small region, then review and clean up the result in the designer.
+            </div>
+            <div class="world-designer-import-layout">
+                <div class="world-designer-import-sidebar">
+                    <div class="world-designer-import-card">
+                        <div class="world-designer-grid">
+                            <label class="world-designer-field world-designer-grid-wide">PNG file or URL
+                                <div style="display:flex;gap:8px;align-items:center;">
+                                    <input type="text" data-role="png-import-url" value="${PNG_IMPORT_DEFAULT_URL}" style="flex:1 1 auto;" />
+                                    <button type="button" class="world-designer-button-secondary" data-role="png-import-browse">Browse…</button>
+                                </div>
+                                <input type="file" data-role="png-import-file" accept=".png,image/png" style="display:none;" />
+                            </label>
+                        </div>
+                    </div>
+                    <div class="world-designer-import-card">
+                        <h3>PNG crop in the source image</h3>
+                        <div class="world-designer-grid">
+                            <label class="world-designer-field">Crop left (px)
+                                <input type="number" data-role="png-import-source-x" value="0" step="1" />
+                            </label>
+                            <label class="world-designer-field">Crop top (px)
+                                <input type="number" data-role="png-import-source-y" value="0" step="1" />
+                            </label>
+                            <label class="world-designer-field">Crop width (px)
+                                <input type="number" data-role="png-import-source-width" value="0" step="1" />
+                            </label>
+                            <label class="world-designer-field">Crop height (px)
+                                <input type="number" data-role="png-import-source-height" value="0" step="1" />
+                            </label>
+                        </div>
+                        <div class="world-designer-actions">
+                            <button type="button" class="world-designer-button-subtle" data-role="png-import-snap">Snap crop to 32px tiles</button>
+                        </div>
+                    </div>
+                    <div class="world-designer-import-card">
+                        <h3>Place matched blocks in the world</h3>
+                        <div class="world-designer-grid">
+                            <label class="world-designer-field">World left
+                                <input type="number" data-role="png-import-world-x" value="${defaultWorldRect.x}" step="1" />
+                            </label>
+                            <label class="world-designer-field">World top
+                                <input type="number" data-role="png-import-world-y" value="${defaultWorldRect.y}" step="1" />
+                            </label>
+                            <label class="world-designer-field">World span width
+                                <input type="number" data-role="png-import-world-width" value="${defaultWorldRect.width}" step="1" />
+                            </label>
+                            <label class="world-designer-field">World span height
+                                <input type="number" data-role="png-import-world-height" value="${defaultWorldRect.height}" step="1" />
+                            </label>
+                        </div>
+                        <label class="world-designer-checkbox">
+                            <input type="checkbox" data-role="png-import-replace" checked />
+                            Replace existing world items inside the target area before importing
+                        </label>
+                    </div>
+                    <div class="world-designer-import-card">
+                        <div class="world-designer-actions">
+                            <button type="button" class="world-designer-button-primary" data-role="png-import-preview">Preview blocks</button>
+                        </div>
+                        <div class="world-designer-import-progress" data-role="png-import-progress" hidden>
+                            <progress data-role="png-import-progress-bar" max="1" value="0"></progress>
+                            <div class="world-designer-summary" data-role="png-import-progress-label">Preparing import…</div>
+                            <div class="world-designer-summary" data-role="png-import-progress-detail"></div>
+                        </div>
+                        <div class="world-designer-summary" data-role="png-import-meta">
+                            Loading PNG metadata…
+                        </div>
+                    </div>
+                </div>
+                <div class="world-designer-import-main">
+                    <div class="world-designer-import-card">
+                        <div class="world-designer-import-toolbar">
+                            <div class="world-designer-summary">
+                                Preview the matched world blocks before importing. Click a tile below to edit its type, palette, rotation, or translation.
+                            </div>
+                            <div class="world-designer-import-zoom-controls">
+                                <button type="button" class="world-designer-button-subtle" data-role="png-import-zoom-out">−</button>
+                                <button type="button" class="world-designer-button-subtle" data-role="png-import-zoom-fit">Fit</button>
+                                <button type="button" class="world-designer-button-subtle" data-role="png-import-zoom-reset">100%</button>
+                                <button type="button" class="world-designer-button-subtle" data-role="png-import-zoom-in">+</button>
+                                <span class="world-designer-import-zoom-label" data-role="png-import-zoom-label">100%</span>
+                            </div>
+                        </div>
+                        <div class="world-designer-png-preview-frame" data-role="png-import-preview-frame">
+                            <canvas class="world-designer-png-preview-canvas" data-role="png-import-preview-canvas" width="32" height="32"></canvas>
+                        </div>
+                        <div class="world-designer-summary" data-role="png-import-preview-meta">
+                            Preview not generated yet.
+                        </div>
+                    </div>
+                    <div class="world-designer-import-card">
+                        <div class="world-designer-grid">
+                            <label class="world-designer-field world-designer-grid-wide">Selected preview tile
+                                <input type="text" data-role="png-import-selected-tile" value="No tile selected" readonly />
+                            </label>
+                            <div class="world-designer-grid-wide">
+                                <div class="world-designer-sprite-preview">
+                                    <canvas class="world-designer-sprite-canvas" data-role="png-import-selected-type-preview" width="72" height="72"></canvas>
+                                    <div class="world-designer-sprite-meta" data-role="png-import-selected-type-meta">No sprite selected</div>
+                                </div>
+                                <details class="world-designer-sprite-picker" data-role="png-import-type-picker">
+                                    <summary>Choose replacement sprite</summary>
+                                    <div class="world-designer-sprite-picker-body">
+                                        <label class="world-designer-field">
+                                            Filter sprites
+                                            <input type="text" data-role="png-import-type-filter" placeholder="Filter sprite names" />
+                                        </label>
+                                        <div class="world-designer-sprite-picker-grid" data-role="png-import-type-grid"></div>
+                                    </div>
+                                </details>
+                            </div>
+                            <label class="world-designer-field">Palette
+                                <input type="number" data-role="png-import-selected-palette" value="0" min="0" step="1" />
+                            </label>
+                            <label class="world-designer-field">Rotation
+                                <select data-role="png-import-selected-rotation">${rotationOptionMarkup}</select>
+                            </label>
+                            <label class="world-designer-field">Translation
+                                <select data-role="png-import-selected-translation">${translationOptionMarkup}</select>
+                            </label>
+                        </div>
+                        <div class="world-designer-actions">
+                            <button type="button" class="world-designer-button-subtle" data-role="png-import-reset-tile">Reset selected tile</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        refs.modal.classList.add('open');
+
+        const urlInput = refs.modalBody.querySelector('[data-role="png-import-url"]') as HTMLInputElement;
+        const browseButton = refs.modalBody.querySelector('[data-role="png-import-browse"]') as HTMLButtonElement;
+        const fileInput = refs.modalBody.querySelector('[data-role="png-import-file"]') as HTMLInputElement;
+        const sourceXInput = refs.modalBody.querySelector('[data-role="png-import-source-x"]') as HTMLInputElement;
+        const sourceYInput = refs.modalBody.querySelector('[data-role="png-import-source-y"]') as HTMLInputElement;
+        const sourceWidthInput = refs.modalBody.querySelector('[data-role="png-import-source-width"]') as HTMLInputElement;
+        const sourceHeightInput = refs.modalBody.querySelector('[data-role="png-import-source-height"]') as HTMLInputElement;
+        const worldXInput = refs.modalBody.querySelector('[data-role="png-import-world-x"]') as HTMLInputElement;
+        const worldYInput = refs.modalBody.querySelector('[data-role="png-import-world-y"]') as HTMLInputElement;
+        const worldWidthInput = refs.modalBody.querySelector('[data-role="png-import-world-width"]') as HTMLInputElement;
+        const worldHeightInput = refs.modalBody.querySelector('[data-role="png-import-world-height"]') as HTMLInputElement;
+        const replaceCheckbox = refs.modalBody.querySelector('[data-role="png-import-replace"]') as HTMLInputElement;
+        const snapButton = refs.modalBody.querySelector('[data-role="png-import-snap"]') as HTMLButtonElement;
+        const previewButton = refs.modalBody.querySelector('[data-role="png-import-preview"]') as HTMLButtonElement;
+        const meta = refs.modalBody.querySelector('[data-role="png-import-meta"]') as HTMLDivElement;
+        const progressWrap = refs.modalBody.querySelector('[data-role="png-import-progress"]') as HTMLDivElement;
+        const progressBar = refs.modalBody.querySelector('[data-role="png-import-progress-bar"]') as HTMLProgressElement;
+        const progressLabel = refs.modalBody.querySelector('[data-role="png-import-progress-label"]') as HTMLDivElement;
+        const progressDetail = refs.modalBody.querySelector('[data-role="png-import-progress-detail"]') as HTMLDivElement;
+        const previewFrame = refs.modalBody.querySelector('[data-role="png-import-preview-frame"]') as HTMLDivElement;
+        const previewCanvas = refs.modalBody.querySelector('[data-role="png-import-preview-canvas"]') as HTMLCanvasElement;
+        const previewMeta = refs.modalBody.querySelector('[data-role="png-import-preview-meta"]') as HTMLDivElement;
+        const zoomOutButton = refs.modalBody.querySelector('[data-role="png-import-zoom-out"]') as HTMLButtonElement;
+        const zoomFitButton = refs.modalBody.querySelector('[data-role="png-import-zoom-fit"]') as HTMLButtonElement;
+        const zoomResetButton = refs.modalBody.querySelector('[data-role="png-import-zoom-reset"]') as HTMLButtonElement;
+        const zoomInButton = refs.modalBody.querySelector('[data-role="png-import-zoom-in"]') as HTMLButtonElement;
+        const zoomLabel = refs.modalBody.querySelector('[data-role="png-import-zoom-label"]') as HTMLSpanElement;
+        const selectedTileInput = refs.modalBody.querySelector('[data-role="png-import-selected-tile"]') as HTMLInputElement;
+        const selectedTypePreviewCanvas = refs.modalBody.querySelector('[data-role="png-import-selected-type-preview"]') as HTMLCanvasElement;
+        const selectedTypeMeta = refs.modalBody.querySelector('[data-role="png-import-selected-type-meta"]') as HTMLDivElement;
+        const selectedTypePicker = refs.modalBody.querySelector('[data-role="png-import-type-picker"]') as HTMLDetailsElement;
+        const selectedTypeFilterInput = refs.modalBody.querySelector('[data-role="png-import-type-filter"]') as HTMLInputElement;
+        const selectedTypeGrid = refs.modalBody.querySelector('[data-role="png-import-type-grid"]') as HTMLDivElement;
+        const selectedPaletteInput = refs.modalBody.querySelector('[data-role="png-import-selected-palette"]') as HTMLInputElement;
+        const selectedRotationSelect = refs.modalBody.querySelector('[data-role="png-import-selected-rotation"]') as HTMLSelectElement;
+        const selectedTranslationSelect = refs.modalBody.querySelector('[data-role="png-import-selected-translation"]') as HTMLSelectElement;
+        const resetTileButton = refs.modalBody.querySelector('[data-role="png-import-reset-tile"]') as HTMLButtonElement;
+        let resolvedPngUrl = urlInput.value.trim();
+        let resolvedPngLabel = resolvedPngUrl;
+        let loadedImage: HTMLImageElement | null = null;
+        let previewDraft: PngImportDraft | null = null;
+        let previewBlocks: MapBlock[] = [];
+        let previewOriginalBlocks: MapBlock[] = [];
+        let selectedPreviewIndex = -1;
+        let previewTileSize = PNG_IMPORT_PREVIEW_MAX_TILE_SIZE;
+        let previewZoom = 1;
+        let importBusy = false;
+        let progressStartedAt = 0;
+        const selectedTypeButtons = new Map<string, HTMLButtonElement>();
+        selectedPaletteInput.max = String(Math.max(paletteCount - 1, 0));
+
+        const getNumericInputValue = (input: HTMLInputElement, fallback: number) => {
+            const value = Number(input.value);
+            return Number.isFinite(value) ? value : fallback;
+        };
+
+        const getSelectedPreviewBlock = () => (
+            selectedPreviewIndex >= 0 && selectedPreviewIndex < previewBlocks.length
+                ? previewBlocks[selectedPreviewIndex]
+                : null
+        );
+
+        const formatDuration = (milliseconds: number) => {
+            const totalSeconds = Math.max(0, Math.round(milliseconds / 1000));
+            const minutes = Math.floor(totalSeconds / 60);
+            const seconds = totalSeconds % 60;
+            return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+        };
+
+        const setProgress = (progress: PngImportProgress | null) => {
+            if (!progress) {
+                progressWrap.hidden = true;
+                progressBar.value = 0;
+                progressLabel.textContent = 'Preparing import…';
+                progressDetail.textContent = '';
+                return;
+            }
+            progressWrap.hidden = false;
+            progressBar.max = Math.max(progress.total, 1);
+            progressBar.value = clamp(progress.completed, 0, Math.max(progress.total, 1));
+            const percent = progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;
+            progressLabel.textContent = `${progress.phase} — ${percent}%`;
+            const elapsed = progressStartedAt > 0 ? Date.now() - progressStartedAt : 0;
+            const eta = progress.completed > 0 && progress.total > progress.completed
+                ? ` About ${formatDuration((elapsed / progress.completed) * (progress.total - progress.completed))} left.`
+                : '';
+            progressDetail.textContent = `${progress.detail}${eta}`;
+        };
+
+        const setPreviewZoom = (zoom: number) => {
+            previewZoom = clamp(zoom, 0.25, 8);
+            previewCanvas.style.width = `${Math.max(1, Math.round(previewCanvas.width * previewZoom))}px`;
+            previewCanvas.style.height = `${Math.max(1, Math.round(previewCanvas.height * previewZoom))}px`;
+            zoomLabel.textContent = `${Math.round(previewZoom * 100)}%`;
+        };
+
+        const fitPreviewZoom = () => {
+            if (!previewDraft || previewCanvas.width <= 0 || previewCanvas.height <= 0) {
+                setPreviewZoom(1);
+                return;
+            }
+            const availableWidth = Math.max(1, previewFrame.clientWidth - 12);
+            const availableHeight = Math.max(1, previewFrame.clientHeight - 12);
+            const fitZoom = Math.min(
+                availableWidth / previewCanvas.width,
+                availableHeight / previewCanvas.height
+            );
+            setPreviewZoom(clamp(fitZoom, 0.25, 8));
+        };
+
+        const setImportBusy = (busy: boolean) => {
+            importBusy = busy;
+            refs.modal.dataset.busy = busy ? 'true' : 'false';
+            const controls: Array<HTMLInputElement | HTMLButtonElement | HTMLSelectElement> = [
+                urlInput,
+                browseButton,
+                fileInput,
+                sourceXInput,
+                sourceYInput,
+                sourceWidthInput,
+                sourceHeightInput,
+                worldXInput,
+                worldYInput,
+                worldWidthInput,
+                worldHeightInput,
+                replaceCheckbox,
+                snapButton,
+                previewButton,
+                selectedTypeFilterInput,
+                selectedPaletteInput,
+                selectedRotationSelect,
+                selectedTranslationSelect,
+                resetTileButton,
+                zoomOutButton,
+                zoomFitButton,
+                zoomResetButton,
+                zoomInButton,
+                refs.modalClose
+            ];
+            for (const control of controls) {
+                control.disabled = busy;
+            }
+            previewFrame.classList.toggle('busy', busy);
+            progressWrap.classList.toggle('busy', busy);
+            selectedTypePicker.style.pointerEvents = busy ? 'none' : '';
+            previewCanvas.style.pointerEvents = busy ? 'none' : '';
+            renderImportTypePicker();
+            syncSelectedPreviewControls();
+        };
+
+        const renderImportTypePicker = () => {
+            const selectedBlock = getSelectedPreviewBlock();
+            const filter = selectedTypeFilterInput.value.trim().toLowerCase();
+            const palette = selectedBlock && typeof selectedBlock.palette === 'number' ? selectedBlock.palette : 0;
+            const rotation = normalizeRotation(selectedBlock?.rotation);
+            const translation = normalizeSpriteTranslation(selectedBlock?.translation);
+            for (const type of pngImportTypeNames) {
+                let button = selectedTypeButtons.get(type);
+                if (!button) {
+                    button = document.createElement('button');
+                    button.type = 'button';
+                    button.className = 'world-designer-sprite-option';
+                    button.dataset.spriteType = type;
+
+                    const canvas = document.createElement('canvas');
+                    canvas.className = 'world-designer-sprite-canvas';
+                    canvas.width = 56;
+                    canvas.height = 56;
+                    button.appendChild(canvas);
+
+                    const label = document.createElement('div');
+                    label.className = 'world-designer-sprite-option-label';
+                    label.textContent = type;
+                    button.appendChild(label);
+
+                    button.addEventListener('click', () => {
+                        const currentBlock = getSelectedPreviewBlock();
+                        if (!currentBlock) {
+                            return;
+                        }
+                        currentBlock.type = type;
+                        const defaults = pngImportTypeDefaults.get(type);
+                        if (defaults) {
+                            currentBlock.collision = defaults.collision;
+                            currentBlock.maskAstronaut = defaults.maskAstronaut;
+                        }
+                        selectedTypePicker.open = false;
+                        renderPreviewCanvas();
+                    });
+
+                    selectedTypeButtons.set(type, button);
+                    selectedTypeGrid.appendChild(button);
+                }
+
+                const matchesFilter = filter.length === 0 || type.toLowerCase().includes(filter);
+                button.hidden = !matchesFilter;
+                button.style.display = matchesFilter ? '' : 'none';
+                button.disabled = !selectedBlock || importBusy;
+                button.classList.toggle('selected', type === selectedBlock?.type);
+                const canvas = button.querySelector('canvas');
+                if (canvas instanceof HTMLCanvasElement) {
+                    renderSpritePreviewCanvas(canvas, type, palette, rotation, translation);
+                }
+            }
+        };
+
+        const syncSelectedPreviewControls = () => {
+            const selectedBlock = getSelectedPreviewBlock();
+            const hasSelection = selectedBlock !== null;
+            selectedTypePicker.open = hasSelection ? selectedTypePicker.open : false;
+            selectedTypeFilterInput.disabled = !hasSelection || importBusy;
+            selectedPaletteInput.disabled = !hasSelection || importBusy;
+            selectedRotationSelect.disabled = !hasSelection || importBusy;
+            selectedTranslationSelect.disabled = !hasSelection || importBusy;
+            resetTileButton.disabled = !hasSelection || importBusy;
+            if (!selectedBlock || !previewDraft) {
+                selectedTileInput.value = 'No tile selected';
+                clearPreviewCanvas(selectedTypePreviewCanvas);
+                selectedTypeMeta.textContent = 'No sprite selected';
+                renderImportTypePicker();
+                return;
+            }
+
+            const column = selectedPreviewIndex % previewDraft.columns;
+            const row = Math.floor(selectedPreviewIndex / previewDraft.columns);
+            selectedTileInput.value = `Column ${column + 1}, row ${row + 1} — ${selectedBlock.type}`;
+            selectedPaletteInput.value = String(typeof selectedBlock.palette === 'number' ? selectedBlock.palette : 0);
+            selectedRotationSelect.value = String(normalizeRotation(selectedBlock.rotation));
+            selectedTranslationSelect.value = normalizeSpriteTranslation(selectedBlock.translation);
+            renderSpritePreviewCanvas(
+                selectedTypePreviewCanvas,
+                selectedBlock.type,
+                typeof selectedBlock.palette === 'number' ? selectedBlock.palette : 0,
+                normalizeRotation(selectedBlock.rotation),
+                normalizeSpriteTranslation(selectedBlock.translation)
+            );
+            selectedTypeMeta.textContent = `${selectedBlock.type} — palette ${typeof selectedBlock.palette === 'number' ? selectedBlock.palette : 0}, rotation ${normalizeRotation(selectedBlock.rotation)}, translation ${formatSpriteTranslation(selectedBlock.translation)}`;
+            renderImportTypePicker();
+        };
+
+        const renderPreviewCanvas = () => {
+            if (!previewDraft) {
+                previewCanvas.width = 32;
+                previewCanvas.height = 32;
+                setPreviewZoom(previewZoom);
+                clearPreviewCanvas(previewCanvas);
+                syncSelectedPreviewControls();
+                return;
+            }
+
+            previewTileSize = getPngImportPreviewTileSize(previewDraft.columns, previewDraft.rows);
+            previewCanvas.width = Math.max(1, previewDraft.columns * previewTileSize);
+            previewCanvas.height = Math.max(1, previewDraft.rows * previewTileSize);
+            setPreviewZoom(previewZoom);
+            const ctx = previewCanvas.getContext('2d');
+            if (!ctx) {
+                syncSelectedPreviewControls();
+                return;
+            }
+
+            ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+            ctx.fillStyle = '#020617';
+            ctx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
+            ctx.imageSmoothingEnabled = false;
+
+            const lowConfidenceIndexes = new Set(previewDraft.lowConfidenceTileIndexes);
+            for (let index = 0; index < previewBlocks.length; index += 1) {
+                const block = previewBlocks[index];
+                const column = index % previewDraft.columns;
+                const row = Math.floor(index / previewDraft.columns);
+                const drawX = column * previewTileSize;
+                const drawY = row * previewTileSize;
+                ctx.save();
+                ctx.translate(drawX, drawY);
+                host.drawSpriteSample(
+                    ctx,
+                    block.type,
+                    typeof block.palette === 'number' ? block.palette : 0,
+                    normalizeRotation(block.rotation),
+                    false,
+                    previewTileSize,
+                    normalizeSpriteTranslation(block.translation)
+                );
+                ctx.restore();
+
+                ctx.strokeStyle = 'rgba(148, 163, 184, 0.18)';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(drawX + 0.5, drawY + 0.5, previewTileSize - 1, previewTileSize - 1);
+
+                if (lowConfidenceIndexes.has(index)) {
+                    ctx.strokeStyle = 'rgba(251, 191, 36, 0.95)';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(drawX + 1, drawY + 1, previewTileSize - 2, previewTileSize - 2);
+                }
+            }
+
+            if (selectedPreviewIndex >= 0 && selectedPreviewIndex < previewBlocks.length) {
+                const column = selectedPreviewIndex % previewDraft.columns;
+                const row = Math.floor(selectedPreviewIndex / previewDraft.columns);
+                ctx.strokeStyle = 'rgba(56, 189, 248, 0.98)';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(
+                    column * previewTileSize + 1.5,
+                    row * previewTileSize + 1.5,
+                    previewTileSize - 3,
+                    previewTileSize - 3
+                );
+            }
+
+            syncSelectedPreviewControls();
+        };
+
+        const invalidatePreview = (message: string) => {
+            previewDraft = null;
+            previewBlocks = [];
+            previewOriginalBlocks = [];
+            selectedPreviewIndex = -1;
+            refs.modalConfirm.disabled = true;
+            previewMeta.textContent = message;
+            renderPreviewCanvas();
+        };
+
+        const updatePngImportMeta = () => {
+            if (!loadedImage) {
+                meta.textContent = 'Enter a PNG URL to inspect and import.';
+                return;
+            }
+
+            const sourceX = clamp(
+                Math.round(getNumericInputValue(sourceXInput, 0)),
+                0,
+                Math.max(0, loadedImage.width - 1)
+            );
+            const sourceY = clamp(
+                Math.round(getNumericInputValue(sourceYInput, 0)),
+                0,
+                Math.max(0, loadedImage.height - 1)
+            );
+            const sourceWidth = Math.max(
+                1,
+                Math.min(Math.round(getNumericInputValue(sourceWidthInput, loadedImage.width)), loadedImage.width - sourceX)
+            );
+            const sourceHeight = Math.max(
+                1,
+                Math.min(Math.round(getNumericInputValue(sourceHeightInput, loadedImage.height)), loadedImage.height - sourceY)
+            );
+            const sourceColumns = getPngImportSourceTileCount(sourceWidth);
+            const sourceRows = getPngImportSourceTileCount(sourceHeight);
+            const worldWidth = Math.max(1, Math.round(getNumericInputValue(worldWidthInput, getSuggestedPngImportWorldSpan(sourceWidth))));
+            const worldHeight = Math.max(1, Math.round(getNumericInputValue(worldHeightInput, getSuggestedPngImportWorldSpan(sourceHeight))));
+            const sourceTileAligned = sourceX % 32 === 0 &&
+                sourceY % 32 === 0 &&
+                sourceWidth % 32 === 0 &&
+                sourceHeight % 32 === 0;
+            const previewStateMessage = previewDraft
+                ? ' Preview is ready below; click tiles to edit them before importing.'
+                : ' Preview the blocks before importing so you can review and fix any bad matches.';
+            meta.textContent = `Loaded ${resolvedPngLabel || resolvedPngUrl} (${loadedImage.width}x${loadedImage.height}). Source rect (${sourceX}, ${sourceY}, ${sourceWidth}x${sourceHeight}) is ${sourceTileAligned ? 'tile-aligned' : 'not tile-aligned'} and spans ${sourceColumns} x ${sourceRows} source tiles. Target world rect ${worldWidth}x${worldHeight} will place those ${sourceColumns} x ${sourceRows} blocks across that world area.${previewStateMessage}`;
+        };
+
+        const syncPngMetadata = async (options?: { forceFullImageBounds?: boolean }) => {
+            const url = resolvedPngUrl.trim();
+            if (!url) {
+                loadedImage = null;
+                invalidatePreview('Preview not generated yet.');
+                updatePngImportMeta();
+                return;
+            }
+
+            try {
+                const image = await loadImage(url);
+                loadedImage = image;
+                if (options?.forceFullImageBounds) {
+                    sourceXInput.value = '0';
+                    sourceYInput.value = '0';
+                    sourceWidthInput.value = String(image.width);
+                    sourceHeightInput.value = String(image.height);
+                    worldWidthInput.value = String(getSuggestedPngImportWorldSpan(image.width));
+                    worldHeightInput.value = String(getSuggestedPngImportWorldSpan(image.height));
+                } else if (Number(sourceWidthInput.value) <= 0 || Number(sourceHeightInput.value) <= 0) {
+                    sourceXInput.value = '0';
+                    sourceYInput.value = '0';
+                    sourceWidthInput.value = String(image.width);
+                    sourceHeightInput.value = String(image.height);
+                    if (Number(worldWidthInput.value) <= 0) {
+                        worldWidthInput.value = String(getSuggestedPngImportWorldSpan(image.width));
+                    }
+                    if (Number(worldHeightInput.value) <= 0) {
+                        worldHeightInput.value = String(getSuggestedPngImportWorldSpan(image.height));
+                    }
+                }
+                invalidatePreview('Preview not generated yet. Click "Preview blocks" to inspect the matches.');
+                updatePngImportMeta();
+            } catch (error) {
+                loadedImage = null;
+                invalidatePreview(error instanceof Error ? error.message : 'Failed to generate a preview.');
+                meta.textContent = error instanceof Error ? error.message : 'Failed to load the PNG metadata.';
+            }
+        };
+
+        void syncPngMetadata();
+        browseButton.addEventListener('click', () => {
+            fileInput.click();
+        });
+        fileInput.addEventListener('change', () => {
+            const file = fileInput.files?.[0];
+            if (!file) {
+                return;
+            }
+            clearPngImportObjectUrl();
+            pngImportObjectUrl = URL.createObjectURL(file);
+            resolvedPngUrl = pngImportObjectUrl;
+            resolvedPngLabel = file.name;
+            urlInput.value = file.name;
+            void syncPngMetadata({ forceFullImageBounds: true });
+        });
+
+        urlInput.addEventListener('change', () => {
+            clearPngImportObjectUrl();
+            resolvedPngUrl = urlInput.value.trim();
+            resolvedPngLabel = resolvedPngUrl;
+            sourceWidthInput.value = '0';
+            sourceHeightInput.value = '0';
+            void syncPngMetadata();
+        });
+
+        const handleImportFieldChanged = () => {
+            invalidatePreview('Preview is out of date. Click "Preview blocks" again before importing.');
+            updatePngImportMeta();
+        };
+
+        [
+            sourceXInput,
+            sourceYInput,
+            sourceWidthInput,
+            sourceHeightInput,
+            worldXInput,
+            worldYInput,
+            worldWidthInput,
+            worldHeightInput
+        ].forEach((input) => {
+            input.addEventListener('input', handleImportFieldChanged);
+            input.addEventListener('change', handleImportFieldChanged);
+        });
+
+        zoomOutButton.addEventListener('click', () => setPreviewZoom(previewZoom / 1.25));
+        zoomInButton.addEventListener('click', () => setPreviewZoom(previewZoom * 1.25));
+        zoomResetButton.addEventListener('click', () => setPreviewZoom(1));
+        zoomFitButton.addEventListener('click', fitPreviewZoom);
+
+        snapButton.addEventListener('click', () => {
+            if (!loadedImage) {
+                setStatus('Load a PNG before snapping the source rectangle.', 'error');
+                return;
+            }
+
+            const currentX = clamp(
+                Math.round(getNumericInputValue(sourceXInput, 0)),
+                0,
+                Math.max(0, loadedImage.width - 1)
+            );
+            const currentY = clamp(
+                Math.round(getNumericInputValue(sourceYInput, 0)),
+                0,
+                Math.max(0, loadedImage.height - 1)
+            );
+            const currentWidth = Math.max(
+                1,
+                Math.min(Math.round(getNumericInputValue(sourceWidthInput, loadedImage.width)), loadedImage.width - currentX)
+            );
+            const currentHeight = Math.max(
+                1,
+                Math.min(Math.round(getNumericInputValue(sourceHeightInput, loadedImage.height)), loadedImage.height - currentY)
+            );
+            const snappedX = Math.floor(currentX / 32) * 32;
+            const snappedY = Math.floor(currentY / 32) * 32;
+            const snappedRight = Math.min(loadedImage.width, Math.ceil((currentX + currentWidth) / 32) * 32);
+            const snappedBottom = Math.min(loadedImage.height, Math.ceil((currentY + currentHeight) / 32) * 32);
+            sourceXInput.value = String(snappedX);
+            sourceYInput.value = String(snappedY);
+            sourceWidthInput.value = String(Math.max(1, snappedRight - snappedX));
+            sourceHeightInput.value = String(Math.max(1, snappedBottom - snappedY));
+            invalidatePreview('Preview is out of date. Click "Preview blocks" again before importing.');
+            updatePngImportMeta();
+        });
+
+        previewCanvas.addEventListener('click', (event) => {
+            if (!previewDraft || previewBlocks.length === 0) {
+                return;
+            }
+            const rect = previewCanvas.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) {
+                return;
+            }
+            const scaleX = previewCanvas.width / rect.width;
+            const scaleY = previewCanvas.height / rect.height;
+            const localX = (event.clientX - rect.left) * scaleX;
+            const localY = (event.clientY - rect.top) * scaleY;
+            const column = clamp(Math.floor(localX / previewTileSize), 0, previewDraft.columns - 1);
+            const row = clamp(Math.floor(localY / previewTileSize), 0, previewDraft.rows - 1);
+            selectedPreviewIndex = row * previewDraft.columns + column;
+            renderPreviewCanvas();
+        });
+
+        selectedPaletteInput.addEventListener('change', () => {
+            const selectedBlock = getSelectedPreviewBlock();
+            if (!selectedBlock) {
+                return;
+            }
+            const palette = clamp(Math.round(getNumericInputValue(selectedPaletteInput, 0)), 0, Math.max(paletteCount - 1, 0));
+            selectedBlock.palette = palette;
+            selectedPaletteInput.value = String(palette);
+            renderPreviewCanvas();
+        });
+
+        selectedRotationSelect.addEventListener('change', () => {
+            const selectedBlock = getSelectedPreviewBlock();
+            if (!selectedBlock) {
+                return;
+            }
+            selectedBlock.rotation = normalizeRotation(Number(selectedRotationSelect.value)) as MapBlock['rotation'];
+            renderPreviewCanvas();
+        });
+
+        selectedTranslationSelect.addEventListener('change', () => {
+            const selectedBlock = getSelectedPreviewBlock();
+            if (!selectedBlock) {
+                return;
+            }
+            selectedBlock.translation = normalizeSpriteTranslation(selectedTranslationSelect.value);
+            renderPreviewCanvas();
+        });
+
+        resetTileButton.addEventListener('click', () => {
+            if (selectedPreviewIndex < 0 || selectedPreviewIndex >= previewOriginalBlocks.length) {
+                return;
+            }
+            previewBlocks[selectedPreviewIndex] = toMapBlockData(previewOriginalBlocks[selectedPreviewIndex]);
+            renderPreviewCanvas();
+        });
+
+        previewButton.addEventListener('click', async () => {
+            progressStartedAt = Date.now();
+            previewButton.textContent = 'Generating…';
+            previewMeta.textContent = 'Generating preview…';
+            setImportBusy(true);
+            setProgress({
+                phase: 'Preparing import',
+                completed: 0,
+                total: 1,
+                detail: 'Starting PNG preview generation.'
+            });
+            try {
+                const draft = await buildPngImportDraftFromPng({
+                    url: resolvedPngUrl,
+                    sourceX: getNumericInputValue(sourceXInput, 0),
+                    sourceY: getNumericInputValue(sourceYInput, 0),
+                    sourceWidth: getNumericInputValue(sourceWidthInput, 0),
+                    sourceHeight: getNumericInputValue(sourceHeightInput, 0),
+                    worldX: getNumericInputValue(worldXInput, 0),
+                    worldY: getNumericInputValue(worldYInput, 0),
+                    worldWidth: getNumericInputValue(worldWidthInput, 32),
+                    worldHeight: getNumericInputValue(worldHeightInput, 32),
+                    replaceExisting: replaceCheckbox.checked
+                }, async (progress) => {
+                    setProgress(progress);
+                });
+                previewDraft = draft;
+                previewBlocks = draft.blocks.map((block) => toMapBlockData(block));
+                previewOriginalBlocks = draft.blocks.map((block) => toMapBlockData(block));
+                selectedPreviewIndex = previewBlocks.length > 0 ? 0 : -1;
+                renderPreviewCanvas();
+                fitPreviewZoom();
+                const gridOffsetMessage = draft.sourceGridOffsetX !== 0 || draft.sourceGridOffsetY !== 0
+                    ? ` Auto-aligned the source grid by (${draft.sourceGridOffsetX}, ${draft.sourceGridOffsetY}) px before matching.`
+                    : '';
+                previewMeta.textContent = draft.uncertainTiles > 0
+                    ? `Preview ready. ${draft.uncertainTiles} tile${draft.uncertainTiles === 1 ? '' : 's'} were low-confidence matches and are outlined in gold.${gridOffsetMessage}`
+                    : `Preview ready. ${draft.blocks.length} tile${draft.blocks.length === 1 ? '' : 's'} matched cleanly.${gridOffsetMessage}`;
+                refs.modalConfirm.disabled = previewBlocks.length === 0;
+                updatePngImportMeta();
+            } catch (error) {
+                invalidatePreview(error instanceof Error ? error.message : 'Failed to generate the preview.');
+                setStatus(
+                    error instanceof Error ? error.message : 'Failed to generate the PNG preview.',
+                    'error'
+                );
+            } finally {
+                setImportBusy(false);
+                setProgress(null);
+                previewButton.textContent = 'Preview blocks';
+            }
+        });
+
+        selectedTypeFilterInput.addEventListener('input', () => {
+            renderImportTypePicker();
+        });
+
+        modalConfirmAction = async () => {
+            if (!previewDraft || previewBlocks.length === 0) {
+                setStatus('Generate a preview before importing so you can review the matched blocks.', 'error');
+                refs.modalConfirm.disabled = true;
+                return;
+            }
+            try {
+                setImportBusy(true);
+                const committedDraft: PngImportDraft = {
+                    ...previewDraft,
+                    blocks: previewBlocks.map((block) => toMapBlockData(block))
+                };
+                applyPngImportDraft(committedDraft, replaceCheckbox.checked);
+                closeModal(true);
+                setStatus(
+                    committedDraft.uncertainTiles > 0
+                        ? `Imported ${committedDraft.blocks.length} reviewed draft world tiles from PNG. ${committedDraft.uncertainTiles} tile${committedDraft.uncertainTiles === 1 ? '' : 's'} were low-confidence auto-matches before review.`
+                        : `Imported ${committedDraft.blocks.length} reviewed draft world tiles from PNG.`,
+                    committedDraft.uncertainTiles > 0 ? 'neutral' : 'success'
+                );
+            } catch (error) {
+                refs.modalConfirm.disabled = false;
+                setStatus(
+                    error instanceof Error ? error.message : 'Failed to import a draft from the PNG.',
+                    'error'
+                );
+            } finally {
+                setImportBusy(false);
+            }
+        };
+
+        renderImportTypePicker();
+        syncSelectedPreviewControls();
+        setPreviewZoom(1);
+        setImportBusy(false);
+    }
+
+    function closeModal(force: boolean = false) {
+        if (!force && refs.modal.dataset.busy === 'true') {
+            return;
+        }
+        const modalCard = refs.modal.querySelector('.world-designer-modal-card') as HTMLDivElement | null;
         state.savePreviewOpen = false;
         modalConfirmAction = null;
         refs.modal.classList.remove('open');
+        modalCard?.classList.remove('world-designer-modal-card-import');
+        clearPngImportObjectUrl();
+        refs.modal.dataset.busy = 'false';
     }
 
     function updateSelectionSummary() {
@@ -3491,6 +5405,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             refs.convertButton.disabled = true;
             refs.deleteButton.disabled = true;
             refs.duplicateButton.disabled = true;
+            refs.sendToBackButton.disabled = true;
+            refs.bringToFrontButton.disabled = true;
             refs.focusButton.disabled = true;
             return;
         }
@@ -3501,6 +5417,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             refs.convertButton.disabled = true;
             refs.deleteButton.disabled = false;
             refs.duplicateButton.disabled = false;
+            refs.sendToBackButton.disabled = false;
+            refs.bringToFrontButton.disabled = false;
             refs.focusButton.disabled = false;
             return;
         }
@@ -3515,6 +5433,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 : 'Convert';
         refs.deleteButton.disabled = false;
         refs.duplicateButton.disabled = false;
+        refs.sendToBackButton.disabled = false;
+        refs.bringToFrontButton.disabled = false;
         refs.focusButton.disabled = false;
     }
 
@@ -3635,6 +5555,19 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 }
             });
         });
+        if (category === 'world') {
+            addSelectInspector(
+                container,
+                'Translation',
+                normalizeSpriteTranslation(entity.translation),
+                [...SPRITE_TRANSLATION_OPTIONS],
+                (value) => {
+                    runMutation('Updated translation.', () => {
+                        entity.translation = normalizeSpriteTranslation(value);
+                    });
+                }
+            );
+        }
         addNumberInspector(container, 'Palette', entity.palette ?? 0, (value) => {
             runMutation('Updated palette.', () => {
                 entity.palette = clamp(Math.round(value), 0, paletteCount - 1);
@@ -3839,7 +5772,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.toolSelect.value = state.tool;
         refs.categorySelect.value = state.category;
         refs.rotationSelect.value = String(state.rotation);
+        refs.translationSelect.value = state.translation;
         refs.paletteSelect.value = String(state.palette);
+        refs.translationSelect.disabled = state.category !== 'world' && state.selection?.category !== 'world';
         refs.snapCheckbox.checked = state.snapToGrid;
         refs.objectSnapCheckbox.checked = state.objectSnapEnabled;
         refs.snapOffsetXInput.value = String(state.snapOffsetX);
@@ -3919,6 +5854,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     function updateSelectionFromInspectorState() {
         if (!state.selection) return;
         state.rotation = normalizeRotation(state.selection.entity.rotation);
+        state.translation = state.selection.category === 'world'
+            ? normalizeSpriteTranslation(state.selection.entity.translation)
+            : 'center';
         state.palette = clamp(state.selection.entity.palette ?? 0, 0, paletteCount - 1);
         state.typeByCategory[state.selection.category] = state.selection.entity.type;
         refreshPanel();
@@ -3979,17 +5917,20 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const previousType = getCurrentType();
         const previousPalette = state.palette;
         const previousRotation = state.rotation;
+        const previousTranslation = state.translation;
         runMutation(`Placed new ${CATEGORY_LABELS[drag.category].toLowerCase()} from the sprite grid.`, () => {
             state.category = drag.category;
             state.typeByCategory[drag.category] = drag.type;
             state.palette = drag.palette;
             state.rotation = drag.rotation;
+            state.translation = drag.translation;
             const world = screenToWorld(point.x, point.y);
             placeAtWorld(world.x, world.y);
             state.category = previousCategory;
             state.typeByCategory[previousCategory] = previousType;
             state.palette = previousPalette;
             state.rotation = previousRotation;
+            state.translation = previousTranslation;
         });
         updateSelectionFromInspectorState();
     }
@@ -4630,6 +6571,21 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         state.rotation = rotation;
         renderCurrentSpritePreview();
     });
+    refs.translationSelect.addEventListener('change', () => {
+        const translation = normalizeSpriteTranslation(refs.translationSelect.value);
+        const selection = getSingleEditableSelection();
+        if (selection?.category === 'world') {
+            runMutation('Updated translation.', () => {
+                selection.entity.translation = translation;
+            });
+            updateSelectionFromInspectorState();
+            return;
+        }
+        state.translation = translation;
+        renderCurrentSpritePreview();
+        renderSpritePickerGrid();
+        persistDesignerUiState();
+    });
     refs.paletteSelect.addEventListener('change', () => {
         const palette = clamp(Number(refs.paletteSelect.value), 0, paletteCount - 1);
         const selection = getSingleEditableSelection();
@@ -4711,8 +6667,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         });
     }
     refs.savePreviewButton.addEventListener('click', openSavePreview);
+    refs.pngImportButton.addEventListener('click', openPngImportModal);
     refs.deleteButton.addEventListener('click', deleteSelection);
     refs.duplicateButton.addEventListener('click', duplicateSelection);
+    refs.sendToBackButton.addEventListener('click', () => reorderSelections(false));
+    refs.bringToFrontButton.addEventListener('click', () => reorderSelections(true));
     refs.focusButton.addEventListener('click', focusSelection);
     refs.convertButton.addEventListener('click', convertSelection);
     refs.focusAstronautButton.addEventListener('click', () => {
@@ -4744,7 +6703,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     refs.normalizeSpriteSheetButton.addEventListener('click', () => {
         void openSpriteSheetNormalizationPreview();
     });
-    refs.modalClose.addEventListener('click', closeModal);
+    refs.modalClose.addEventListener('click', () => closeModal());
     refs.modalConfirm.addEventListener('click', () => {
         if (modalConfirmAction) {
             void modalConfirmAction();

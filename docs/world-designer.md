@@ -107,7 +107,7 @@ You can also use modifier keys whether that toggle is on or off:
 1. Switch to **Select / move**
 2. Click an object in the world
 3. Change values in either:
-   - the top controls for type / palette / rotation
+   - the top controls for type / palette / rotation / translation
    - the inspector for detailed editing
 
 Selected items can be:
@@ -118,6 +118,8 @@ Selected items can be:
 - nudged with arrow keys
 - duplicated
 - deleted
+- sent to the back
+- brought to the front
 - rotated
 - added to or removed from the current selection with **Shift+click**
 - added with **Shift+drag** marquee selection
@@ -168,7 +170,7 @@ You can:
 
 ### Main view
 
-- **right-click a placed object** = open a context-aware menu with grouped **Edit**, **Palette**, **Properties**, **Collectable**, **Convert**, and **Defaults** submenus depending on the item type, including actions such as collision toggles, astronaut masking, collectable flags, conversion between world items and collectables, and door/button default-state toggles
+- **right-click a placed object** = open a context-aware menu with grouped **Edit**, **Palette**, **Properties**, **Collectable**, **Convert**, and **Defaults** submenus depending on the item type, including actions such as collision toggles, astronaut masking, collectable flags, conversion between world items and collectables, door/button default-state toggles, and layer-order actions such as **Send to back** and **Bring to front**
 - **right-click empty space** = open a context menu to paste the copied selection there, set the astronaut start there, or move the live astronaut there
 - **right mouse drag on empty space** = pan camera
 - **Center on astronaut** = recenters the editor on the live astronaut
@@ -217,6 +219,8 @@ The magnifier follows the mouse over the main canvas so you can inspect individu
 
 For **world items**, **Collision enabled** and **Mask astronaut** are separate controls. A decorative sprite can be non-colliding and still draw in front of the astronaut when masking is enabled. `black_background` items default to staying behind the astronaut unless you explicitly enable masking.
 
+World items also support a separate **Translation** control. This shifts the visible sprite content to the **top**, **right**, **bottom**, or **left** edge of its 32x32 tile without changing the block's world position or its rotation/flip setting.
+
 ## 8. Save workflow
 
 Saving uses a review step.
@@ -230,6 +234,131 @@ If you save while working from a temporary live astronaut position, the designer
 If you explicitly changed the astronaut start marker, that updated start position is still saved normally.
 
 The designer validates some common mistakes before save, including missing button-to-door links.
+
+## 8a. Import a PNG draft
+
+The designer includes **Import PNG draft** for rough world-item reconstruction from a PNG region.
+
+### What it does
+
+The importer **creates world blocks directly in the live designer state**.
+
+It does **not** open a JSON-only review dialog first and it does **not** save files immediately.
+
+The workflow is:
+
+1. choose a PNG region
+2. import a draft into the currently loaded world
+3. inspect and clean up the result in the designer
+4. use **Preview before save** to review the JSON
+5. save only when you are happy with the draft
+
+So the importer behaves like other designer edits:
+
+- it mutates the current in-memory world
+- it marks the world as having unsaved changes
+- it can be adjusted further before save
+- it only reaches the asset files after the normal save workflow
+
+### Scope of the current importer
+
+The current importer is intentionally conservative:
+
+- it creates **world items only**
+- it does **not** create buttons, doors, creatures, collectables, or astronaut start markers
+- it uses the currently authored **world sprite set** as matching candidates
+- it is meant for **draft cleanup**, not authoritative one-click conversion
+- low-confidence matches should be reviewed before save
+
+### Step-by-step workflow
+
+1. Click **Import PNG draft**
+2. Either:
+   - enter a browser-served PNG path such as `./src/assets/MAP-Exile-BC.png`, or
+   - click **Browse…** and pick a local PNG file
+3. If you browse to a local PNG, the importer fills the **PNG crop in the source image** fields from the file automatically, starting with the full image, and it also suggests a **Place matched blocks in the world** size that better matches the game’s rendered scale
+4. Adjust the **PNG crop** in **image pixels** only if you want part of the PNG rather than the whole file. Use **Snap crop to 32px tiles** if the crop needs aligning to tile boundaries.
+5. Fill in the **world placement** fields in world coordinates. The importer keeps the block count from the **source PNG tile grid** and places those blocks across the chosen world area, instead of assuming the target width/height themselves define the tile count.
+6. Click **Preview blocks** to generate the matched tile draft. The importer will also auto-align the source sampling grid when the sprite content suggests the crop is globally offset inside the 32px cells.
+7. Watch the built-in progress bar while preview generation is running. It reports the current stage and estimated time left, and the controls are locked until the pass finishes.
+8. Use the larger preview area to inspect the draft, and use **zoom in / zoom out / fit / 100%** controls if the section is too big or too small to review comfortably.
+9. Click tiles in the preview to inspect or edit their **type**, **palette**, **rotation**, and **translation** before the draft touches the live world. The importer now seeds a best-fit translation automatically from the sampled sprite placement, so edge-aligned pieces often come in already shifted to the correct side.
+10. Decide whether to keep **Replace existing world items inside the target world rectangle** enabled
+11. Click **Import draft**
+
+After import:
+
+1. the designer inserts the generated blocks into the live world
+2. the imported blocks become the current selection
+3. the status line reports how many tiles were imported
+4. if the matcher found weak matches, the status line warns you to review them before save
+
+### Source rectangle vs target rectangle
+
+- **Source rectangle** = the area to read from the PNG image
+- **Target rectangle** = the world area to fill with generated blocks
+
+The importer reads the block count from the source PNG region using 32px source tiles, then places that same block grid across the target world rectangle.
+
+That means:
+
+- a larger target rectangle makes the imported block layout appear larger in the world
+- the source and target rectangles do **not** have to be the same size
+- the importer is effectively remapping the source tile grid into the chosen world-space area
+
+If you browse to a PNG file, you usually do **not** need to type the source width or source height manually for a full-image import, because the importer reads those from the selected file and also suggests a target world size that matches the game’s rendered scale more closely.
+
+### Replace vs append behavior
+
+If **Replace existing world items inside the target world rectangle** is enabled:
+
+- existing world blocks in that target area are removed first
+- the imported draft becomes the new world-block content for that area
+
+If it is disabled:
+
+- the imported blocks are added on top of the current world data
+- this is useful for experiments, but can create overlaps or duplicates
+
+### How matching works
+
+The importer does a local best-match pass:
+
+1. it builds a candidate list from the currently authored world sprite set
+2. it renders candidate sprite/palette/rotation combinations
+3. it compares each target cell from the PNG against those candidates using the **visible non-black sprite content** by default, so black padding and in-tile placement do not dominate the score
+4. it also tries to prefer the closest **palette** when the PNG colors line up with an authored palette, without making palette similarity override the structural match
+5. it picks the closest candidate and creates a `world_map.json`-style block in memory
+
+This is why no AI endpoint is required for the current version.
+
+### How to review safely
+
+Recommended workflow:
+
+1. start with a **small region**
+2. click **Preview blocks**
+3. fix obvious bad matches directly in the preview
+4. use the tile **Translation** control when a matched world sprite needs to sit against one side of its 32x32 cell
+5. import the reviewed draft
+6. check the result visually in the designer
+7. use **Preview before save** to inspect the resulting JSON
+8. save only after cleanup
+
+### What to expect
+
+Best case:
+
+- broad terrain shapes
+- repeated structural tiles
+- simple background regions
+
+Less reliable:
+
+- visually similar tiles
+- decorative details
+- mixed layers that read similarly in the PNG
+- any semantics that are not obvious from flat pixels alone
 
 ## 9. Normalize sprite sheet colors
 
