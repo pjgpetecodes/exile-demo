@@ -839,6 +839,7 @@ function createDesignerStyles() {
             color: #f8fafc;
             border: 1px solid rgba(148, 163, 184, 0.35);
             padding: 16px;
+            font: 12px/1.4 system-ui, sans-serif;
         }
         .world-designer-modal-actions {
             display: flex;
@@ -856,6 +857,7 @@ function createDesignerStyles() {
             border: 1px solid rgba(148, 163, 184, 0.35);
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
             padding: 6px;
+            font: 12px/1.4 system-ui, sans-serif;
         }
         .world-designer-context-menu.open {
             display: block;
@@ -873,6 +875,16 @@ function createDesignerStyles() {
         }
         .world-designer-context-menu button:hover {
             background: rgba(51, 65, 85, 0.95);
+        }
+        .world-designer-context-toggle-action {
+            white-space: nowrap;
+        }
+        .world-designer-context-toggle-check {
+            display: inline-block;
+            width: 14px;
+            margin-right: 8px;
+            color: #38bdf8;
+            text-align: center;
         }
         .world-designer-context-menu button:disabled {
             opacity: 0.45;
@@ -982,6 +994,7 @@ function createDesignerStyles() {
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
             padding: 12px;
             backdrop-filter: blur(10px);
+            font: 12px/1.4 system-ui, sans-serif;
         }
         .world-designer-flyout-hidden {
             display: none !important;
@@ -1983,8 +1996,97 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.contextMenuBody.appendChild(document.createElement('hr'));
     }
 
+    function addContextMenuSubmenu(
+        label: string,
+        renderBody: (body: HTMLDivElement) => void,
+        disabled = false
+    ) {
+        const details = document.createElement('details');
+        details.className = 'world-designer-context-submenu';
+        details.open = false;
+
+        const summary = document.createElement('summary');
+        summary.textContent = label;
+        if (disabled) {
+            summary.style.opacity = '0.45';
+            summary.style.cursor = 'default';
+        }
+        details.appendChild(summary);
+
+        if (!disabled) {
+            const body = document.createElement('div');
+            body.className = 'world-designer-context-submenu-body';
+            renderBody(body);
+            details.appendChild(body);
+        }
+
+        refs.contextMenuBody.appendChild(details);
+    }
+
+    function addContextMenuActionToContainer(container: HTMLElement, label: string, onClick: () => void, disabled = false) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = label;
+        button.disabled = disabled;
+        button.addEventListener('click', () => {
+            if (disabled) return;
+            onClick();
+            closeContextMenu();
+        });
+        container.appendChild(button);
+    }
+
+    function addContextMenuToggleActionToContainer(
+        container: HTMLElement,
+        label: string,
+        checked: boolean,
+        onClick: () => void,
+        disabled = false
+    ) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'world-designer-context-toggle-action';
+        button.disabled = disabled;
+
+        const check = document.createElement('span');
+        check.className = 'world-designer-context-toggle-check';
+        check.textContent = checked ? '✓' : '';
+        button.appendChild(check);
+
+        const text = document.createElement('span');
+        text.textContent = label;
+        button.appendChild(text);
+
+        button.addEventListener('click', () => {
+            if (disabled) return;
+            onClick();
+            closeContextMenu();
+        });
+        container.appendChild(button);
+    }
+
     function getContextMenuWorldPosition() {
         return state.contextMenu.world;
+    }
+
+    function getContextMenuActionSelections() {
+        const primary = getContextMenuTargetSelection();
+        if (!primary) {
+            return [];
+        }
+        const selected = getSelectedItems();
+        return selected.some((item) => areSameSelection(item, primary))
+            ? selected
+            : [primary];
+    }
+
+    function activateContextMenuSelections() {
+        const primary = getContextMenuTargetSelection();
+        const selections = getContextMenuActionSelections();
+        if (!primary || selections.length === 0) {
+            return;
+        }
+        setSelections(selections, primary);
     }
 
     function setPaletteSelection(palette: number) {
@@ -2010,6 +2112,14 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         });
     }
 
+    function setContextMenuWorldAstronautMask(maskAstronaut: boolean) {
+        const selection = getContextMenuTargetSelection();
+        if (!selection || selection.category !== 'world') return;
+        runMutation(`Updated astronaut masking${maskAstronaut ? '' : ' off'}.`, () => {
+            selection.entity.maskAstronaut = maskAstronaut;
+        });
+    }
+
     function addContextMenuPaletteSubmenu(disabled = false) {
         const selection = state.contextMenu.primarySelection;
         const currentPalette = selection && 'palette' in selection.entity && typeof selection.entity.palette === 'number'
@@ -2018,21 +2128,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const previewType = selection?.entity.type ?? getCurrentType();
         const previewRotation = selection?.entity.rotation ?? state.rotation;
 
-        const details = document.createElement('details');
-        details.className = 'world-designer-context-submenu';
-        details.open = false;
-
-        const summary = document.createElement('summary');
-        summary.textContent = `Palette (${currentPalette})`;
-        if (disabled) {
-            summary.style.opacity = '0.45';
-            summary.style.cursor = 'default';
-        }
-        details.appendChild(summary);
-
-        if (!disabled) {
-            const body = document.createElement('div');
-            body.className = 'world-designer-context-submenu-body';
+        addContextMenuSubmenu(`Palette (${currentPalette})`, (body) => {
             for (let palette = 0; palette < paletteCount; palette += 1) {
                 const button = document.createElement('button');
                 button.type = 'button';
@@ -2054,15 +2150,109 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 button.appendChild(label);
 
                 button.addEventListener('click', () => {
+                    activateContextMenuSelections();
                     closeContextMenu();
                     setPaletteSelection(palette);
                 });
                 body.appendChild(button);
             }
-            details.appendChild(body);
+        }, disabled);
+    }
+
+    function getContextMenuTargetSelection() {
+        return state.contextMenu.primarySelection;
+    }
+
+    function getContextMenuEntity() {
+        return getContextMenuTargetSelection()?.entity ?? null;
+    }
+
+    function setContextMenuSelectionCollision(enabled: boolean) {
+        const selection = getContextMenuTargetSelection();
+        if (!selection || !('collision' in selection.entity)) return;
+        runMutation(`Updated ${selection.category} collision.`, () => {
+            selection.entity.collision = enabled;
+            if (selection.category === 'world' && !enabled && typeof selection.entity.maskAstronaut !== 'boolean') {
+                selection.entity.maskAstronaut = selection.entity.type === 'black_background' ? false : true;
+            }
+        });
+    }
+
+    function setContextMenuCollectableFlag(
+        message: string,
+        mutate: (entity: Collectable) => void
+    ) {
+        const selection = getContextMenuTargetSelection();
+        if (!selection || selection.category !== 'collectables') return;
+        runMutation(message, () => {
+            mutate(selection.entity as Collectable);
+        });
+    }
+
+    function convertSpecificSelection(selection: Selection) {
+        if (selection.category === 'world') {
+            const block = selection.entity as MapBlock;
+            const arr = getCategoryArray('world');
+            const index = arr.indexOf(block);
+            if (index >= 0) {
+                arr.splice(index, 1);
+            }
+            const collectable = new Collectable({
+                x: block.x,
+                y: block.y,
+                type: block.type,
+                palette: block.palette ?? 0,
+                rotation: normalizeRotation(block.rotation),
+                name: block.type,
+                weight: 0.2,
+                pickupEnabled: true,
+                storable: true,
+                affectsAstronaut: true,
+                collision: block.collision !== false,
+                collected: false,
+                paletteCycle: block.paletteCycle ? deepClone(block.paletteCycle) : undefined
+            });
+            getCategoryArray('collectables').push(collectable);
+            setSelections([{ category: 'collectables', entity: collectable }]);
+            return;
         }
 
-        refs.contextMenuBody.appendChild(details);
+        if (selection.category === 'collectables') {
+            const collectable = selection.entity as Collectable;
+            const arr = getCategoryArray('collectables');
+            const index = arr.indexOf(collectable);
+            if (index >= 0) {
+                arr.splice(index, 1);
+            }
+            const block: MapBlock = {
+                x: collectable.x,
+                y: collectable.y,
+                type: collectable.type,
+                palette: collectable.palette ?? 0,
+                rotation: normalizeRotation(collectable.defaultRotation ?? collectable.rotation) as MapBlock['rotation'],
+                collision: collectable.collision !== false,
+                maskAstronaut: collectable.collision === false,
+                paletteCycle: collectable.paletteCycle ? deepClone(collectable.paletteCycle) : undefined
+            };
+            getCategoryArray('world').push(block);
+            setSelections([{ category: 'world', entity: block }]);
+        }
+    }
+
+    function convertPrimarySelectionToCollectable() {
+        const selection = getContextMenuTargetSelection();
+        if (!selection || selection.category !== 'world') return;
+        runMutation('Converted world item to collectable.', () => {
+            convertSpecificSelection(selection);
+        });
+    }
+
+    function convertPrimarySelectionToWorldItem() {
+        const selection = getContextMenuTargetSelection();
+        if (!selection || selection.category !== 'collectables') return;
+        runMutation('Converted collectable to world item.', () => {
+            convertSpecificSelection(selection);
+        });
     }
 
     function pasteSelectionAtWorld(world: Position) {
@@ -2141,35 +2331,130 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.contextMenuBody.innerHTML = '';
 
         const selectedItems = getSelectedItems();
-        addContextMenuAction('Rotate', rotateSelection, selectedItems.length === 0);
-        addContextMenuPaletteSubmenu(selectedItems.length === 0);
-        addContextMenuAction('Copy', copySelection, selectedItems.length === 0);
-        addContextMenuAction('Duplicate', duplicateSelection, selectedItems.length === 0);
-        addContextMenuAction('Delete', deleteSelection, selectedItems.length === 0);
-        addContextMenuAction('Focus selection', focusSelection, selectedItems.length === 0);
+        addContextMenuSubmenu('Edit', (body) => {
+            addContextMenuActionToContainer(body, 'Rotate', () => {
+                activateContextMenuSelections();
+                rotateSelection();
+            }, selectedItems.length === 0 && !selection);
+            addContextMenuActionToContainer(body, 'Copy', () => {
+                activateContextMenuSelections();
+                copySelection();
+            }, selectedItems.length === 0 && !selection);
+            addContextMenuActionToContainer(body, 'Duplicate', () => {
+                activateContextMenuSelections();
+                duplicateSelection();
+            }, selectedItems.length === 0 && !selection);
+            addContextMenuActionToContainer(body, 'Delete', () => {
+                activateContextMenuSelections();
+                deleteSelection();
+            }, selectedItems.length === 0 && !selection);
+            addContextMenuActionToContainer(body, 'Focus selection', () => {
+                activateContextMenuSelections();
+                focusSelection();
+            }, selectedItems.length === 0 && !selection);
+        }, !selection);
 
-        if (selection.category === 'world') {
-            addContextMenuDivider();
-            addContextMenuAction(
-                shouldMaskAstronaut(selection.entity) ? 'Stop masking astronaut' : 'Mask astronaut',
-                () => setWorldAstronautMask(!shouldMaskAstronaut(selection.entity))
-            );
-        } else if (selection.category === 'doors') {
-            addContextMenuDivider();
-            addContextMenuAction(
-                (selection.entity.defaultLocked ?? selection.entity.locked ?? false) ? 'Set unlocked by default' : 'Set locked by default',
-                toggleDoorLockedDefault
-            );
-            addContextMenuAction(
-                (selection.entity.defaultOpen ?? selection.entity.open ?? false) ? 'Set closed by default' : 'Set open by default',
-                toggleDoorOpenDefault
-            );
-        } else if (selection.category === 'buttons') {
-            addContextMenuDivider();
-            addContextMenuAction(
-                (selection.entity.defaultActive ?? selection.entity.active ?? false) ? 'Set inactive by default' : 'Set active by default',
-                toggleButtonActiveDefault
-            );
+        addContextMenuPaletteSubmenu(selectedItems.length === 0);
+
+        if ('collision' in selection.entity || selection.category === 'world') {
+            addContextMenuSubmenu('Properties', (body) => {
+                if ('collision' in selection.entity) {
+                    addContextMenuToggleActionToContainer(
+                        body,
+                        'Collision enabled',
+                        selection.entity.collision !== false,
+                        () => setContextMenuSelectionCollision(selection.entity.collision === false)
+                    );
+                }
+                if (selection.category === 'world') {
+                    addContextMenuToggleActionToContainer(
+                        body,
+                        'Mask astronaut',
+                        shouldMaskAstronaut(selection.entity),
+                        () => setContextMenuWorldAstronautMask(!shouldMaskAstronaut(selection.entity))
+                    );
+                }
+            });
+        }
+
+        if (selection.category === 'collectables') {
+            addContextMenuSubmenu('Collectable', (body) => {
+                addContextMenuToggleActionToContainer(
+                    body,
+                    'Can be picked up',
+                    selection.entity.pickupEnabled ?? true,
+                    () => setContextMenuCollectableFlag('Updated pickup flag.', (entity) => {
+                        entity.pickupEnabled = !(entity.pickupEnabled ?? true);
+                        if (entity.pickupEnabled === false) {
+                            entity.storable = false;
+                            entity.stored = false;
+                        }
+                    })
+                );
+                addContextMenuToggleActionToContainer(
+                    body,
+                    'Storable',
+                    selection.entity.storable ?? false,
+                    () => setContextMenuCollectableFlag('Updated storable flag.', (entity) => {
+                        entity.storable = !(entity.storable ?? false);
+                        if (entity.storable) {
+                            entity.pickupEnabled = true;
+                        }
+                    })
+                );
+                addContextMenuToggleActionToContainer(
+                    body,
+                    'Collected by default',
+                    selection.entity.collected ?? false,
+                    () => setContextMenuCollectableFlag('Updated collected flag.', (entity) => {
+                        entity.collected = !(entity.collected ?? false);
+                    })
+                );
+                addContextMenuToggleActionToContainer(
+                    body,
+                    'Affects astronaut',
+                    selection.entity.affectsAstronaut ?? true,
+                    () => setContextMenuCollectableFlag('Updated affects astronaut flag.', (entity) => {
+                        entity.affectsAstronaut = !(entity.affectsAstronaut ?? true);
+                    })
+                );
+            });
+        }
+
+        if (selection.category === 'world' || selection.category === 'collectables') {
+            addContextMenuSubmenu('Convert', (body) => {
+                if (selection.category === 'world') {
+                    addContextMenuActionToContainer(body, 'Convert to collectable', convertPrimarySelectionToCollectable);
+                } else {
+                    addContextMenuActionToContainer(body, 'Convert to world item', convertPrimarySelectionToWorldItem);
+                }
+            });
+        }
+
+        if (selection.category === 'doors' || selection.category === 'buttons') {
+            addContextMenuSubmenu('Defaults', (body) => {
+                if (selection.category === 'doors') {
+                    addContextMenuToggleActionToContainer(
+                        body,
+                        'Locked by default',
+                        selection.entity.defaultLocked ?? selection.entity.locked ?? false,
+                        toggleDoorLockedDefault
+                    );
+                    addContextMenuToggleActionToContainer(
+                        body,
+                        'Open by default',
+                        selection.entity.defaultOpen ?? selection.entity.open ?? false,
+                        toggleDoorOpenDefault
+                    );
+                } else {
+                    addContextMenuToggleActionToContainer(
+                        body,
+                        'Active by default',
+                        selection.entity.defaultActive ?? selection.entity.active ?? false,
+                        toggleButtonActiveDefault
+                    );
+                }
+            });
         }
 
         refs.contextMenu.classList.add('open');
@@ -3301,55 +3586,14 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         if (!state.selection) return;
         if (state.selection.category === 'world') {
             runMutation('Converted world item to collectable.', () => {
-                const source = state.selection!;
-                const block = source.entity as MapBlock;
-                const arr = getCategoryArray('world');
-                const index = arr.indexOf(block);
-                if (index >= 0) {
-                    arr.splice(index, 1);
-                }
-                const collectable = new Collectable({
-                    x: block.x,
-                    y: block.y,
-                    type: block.type,
-                    palette: block.palette ?? 0,
-                    rotation: normalizeRotation(block.rotation),
-                    name: block.type,
-                    weight: 0.2,
-                    pickupEnabled: true,
-                    storable: true,
-                    affectsAstronaut: true,
-                    collision: block.collision !== false,
-                    collected: false,
-                    paletteCycle: block.paletteCycle ? deepClone(block.paletteCycle) : undefined
-                });
-                getCategoryArray('collectables').push(collectable);
-                setSelections([{ category: 'collectables', entity: collectable }]);
+                convertSpecificSelection(state.selection!);
             });
             return;
         }
 
         if (state.selection.category === 'collectables') {
             runMutation('Converted collectable to world item.', () => {
-                const source = state.selection!;
-                const collectable = source.entity;
-                const arr = getCategoryArray('collectables');
-                const index = arr.indexOf(collectable);
-                if (index >= 0) {
-                    arr.splice(index, 1);
-                }
-                const block: MapBlock = {
-                    x: collectable.x,
-                    y: collectable.y,
-                    type: collectable.type,
-                    palette: collectable.palette ?? 0,
-                    rotation: normalizeRotation(collectable.defaultRotation ?? collectable.rotation) as MapBlock['rotation'],
-                    collision: collectable.collision !== false,
-                    maskAstronaut: collectable.collision === false,
-                    paletteCycle: collectable.paletteCycle ? deepClone(collectable.paletteCycle) : undefined
-                };
-                getCategoryArray('world').push(block);
-                setSelections([{ category: 'world', entity: block }]);
+                convertSpecificSelection(state.selection!);
             });
         }
     }

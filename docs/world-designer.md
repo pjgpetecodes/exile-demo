@@ -158,7 +158,7 @@ You can:
 
 ### Main view
 
-- **right-click a placed object** = open the context menu for quick actions such as rotate, a **Palette** submenu showing every palette with previews, copy, duplicate, delete, and door/button default-state toggles
+- **right-click a placed object** = open a context-aware menu with grouped **Edit**, **Palette**, **Properties**, **Collectable**, **Convert**, and **Defaults** submenus depending on the item type, including actions such as collision toggles, astronaut masking, collectable flags, conversion between world items and collectables, and door/button default-state toggles
 - **right-click empty space** = open a context menu to paste the copied selection there, set the astronaut start there, or move the live astronaut there
 - **right mouse drag on empty space** = pan camera
 - **Center on astronaut** = recenters the editor on the live astronaut
