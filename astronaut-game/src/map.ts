@@ -2,6 +2,7 @@ import { assignEntityId } from './game.js';
 import { SPRITE_SCALE as DEFAULT_SPRITE_SCALE } from './constants.js';
 import { resolveAnimatedPaletteIndex } from './palette-cycle.js';
 import { PaletteCycleSettings } from './types/index.js';
+import { getTransformedSpriteCanvas } from './utilities.js';
 
 export type MapBlock = {
     x: number; // tile x
@@ -206,10 +207,8 @@ export function getBlockAtWorld(
 }
 
 // Utility: Cache for filtered sprites (black-to-transparent)
-const filteredSpriteCache = new Map<string, HTMLCanvasElement>();
-
 export function clearMapSpriteCache() {
-    filteredSpriteCache.clear();
+    // Transformed sprite canvases are cached in utilities by source sheet and rect.
 }
 
 // Utility: Build a rect lookup map for fast access
@@ -289,43 +288,11 @@ export function drawMap(
         const drawX = block.x - camera.x;
         const drawY = block.y - camera.y;
         ctx.translate(drawX + tileW / 2, drawY + tileH / 2);
-        if (block.rotation) {
-            if (block.rotation >= 1 && block.rotation <= 4) {
-                ctx.rotate(((block.rotation - 1) * Math.PI) / 2);
-            } else if (block.rotation === 5) {
-                ctx.scale(-1, 1);
-            } else if (block.rotation === 6) {
-                ctx.scale(1, -1);
-            } else if (block.rotation === 7) {
-                ctx.scale(-1, -1);
-            }
-        }
 
-        // Cache filtered sprite by key: sheet index + rect name
-        const cacheKey = `${paletteIdx}:${rect.name || rect.type}`;
-        let offCanvas = filteredSpriteCache.get(cacheKey);
+        const offCanvas = getTransformedSpriteCanvas(sheet, rect, block.rotation ?? 1);
         if (!offCanvas) {
-            offCanvas = document.createElement('canvas');
-            offCanvas.width = rect.w;
-            offCanvas.height = rect.h;
-            const offCtx = offCanvas.getContext('2d')!;
-            offCtx.drawImage(
-                sheet,
-                rect.x, rect.y, rect.w, rect.h,
-                0, 0, rect.w, rect.h
-            );
-            const imgData = offCtx.getImageData(0, 0, rect.w, rect.h);
-            for (let i = 0; i < imgData.data.length; i += 4) {
-                if (
-                    imgData.data[i] === 0 &&
-                    imgData.data[i + 1] === 0 &&
-                    imgData.data[i + 2] === 0
-                ) {
-                    imgData.data[i + 3] = 0;
-                }
-            }
-            offCtx.putImageData(imgData, 0, 0);
-            filteredSpriteCache.set(cacheKey, offCanvas);
+            ctx.restore();
+            continue;
         }
 
         ctx.drawImage(
