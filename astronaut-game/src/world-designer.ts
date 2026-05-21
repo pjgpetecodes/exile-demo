@@ -6,6 +6,7 @@ import { Creature } from './creature.js';
 import { Collectable } from './collectable.js';
 import { PaletteCycleSettings, Position } from './types/index.js';
 import { buildDefaultPaletteCycle, getEffectivePaletteCycle } from './palette-cycle.js';
+import { normalizeSpriteTranslation, SPRITE_TRANSLATION_OPTIONS, SpriteTranslation } from './utilities.js';
 
 export type DesignerCategory = 'world' | 'buttons' | 'doors' | 'creatures' | 'collectables';
 export type DesignerMode = 'edit' | 'preview';
@@ -133,7 +134,8 @@ export interface WorldDesignerHost {
         palette: number,
         rotation?: number,
         clearFirst?: boolean,
-        targetSize?: number
+        targetSize?: number,
+        translation?: SpriteTranslation
     ): boolean;
     drawSpriteSample(
         ctx: CanvasRenderingContext2D,
@@ -141,7 +143,8 @@ export interface WorldDesignerHost {
         palette: number,
         rotation?: number,
         clearFirst?: boolean,
-        targetSize?: number
+        targetSize?: number,
+        translation?: SpriteTranslation
     ): boolean;
     drawCustomPalettePreview(
         ctx: CanvasRenderingContext2D,
@@ -190,6 +193,7 @@ type PickerDrag = {
     type: string;
     palette: number;
     rotation: number;
+    translation: SpriteTranslation;
 };
 
 type ClipboardEntry = {
@@ -234,6 +238,7 @@ type PngImportTileMatch = {
     bestCandidate: PngImportCandidate;
     bestScore: number;
     sourceSignature: PngImportSampleSignature;
+    inferredTranslation: SpriteTranslation;
     column: number;
     row: number;
 };
@@ -294,6 +299,7 @@ type PersistedDesignerUiState = {
     tool: DesignerTool;
     category: DesignerCategory;
     rotation: number;
+    translation: SpriteTranslation;
     palette: number;
     typeByCategory: Record<DesignerCategory, string>;
     snapToGrid: boolean;
@@ -328,6 +334,7 @@ type DesignerState = {
     tool: DesignerTool;
     category: DesignerCategory;
     rotation: number;
+    translation: SpriteTranslation;
     palette: number;
     typeByCategory: Record<DesignerCategory, string>;
     snapToGrid: boolean;
@@ -393,6 +400,7 @@ type ControlRefs = {
     spritePickerFilter: HTMLInputElement;
     spritePickerGrid: HTMLDivElement;
     rotationSelect: HTMLSelectElement;
+    translationSelect: HTMLSelectElement;
     paletteSelect: HTMLSelectElement;
     snapCheckbox: HTMLInputElement;
     objectSnapCheckbox: HTMLInputElement;
@@ -493,6 +501,11 @@ function normalizeRotation(rotation?: number) {
     return clamp(Math.round(rotation), 1, 7);
 }
 
+function formatSpriteTranslation(translation?: string | null) {
+    const normalized = normalizeSpriteTranslation(translation);
+    return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
 function toMapBlockData(block: MapBlock): MapBlock {
     return {
         x: block.x,
@@ -502,6 +515,7 @@ function toMapBlockData(block: MapBlock): MapBlock {
         maskAstronaut: shouldMaskAstronaut(block),
         palette: typeof block.palette === 'number' ? block.palette : 0,
         rotation: normalizeRotation(block.rotation) as MapBlock['rotation'],
+        translation: normalizeSpriteTranslation(block.translation),
         ...(block.paletteCycle ? { paletteCycle: deepClone(block.paletteCycle) } : {})
     };
 }
@@ -1223,6 +1237,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         tool: persistedState?.tool === 'place' ? 'place' : 'select',
         category: persistedState?.category && persistedState.category in CATEGORY_LABELS ? persistedState.category : 'world',
         rotation: normalizeRotation(persistedState?.rotation),
+        translation: normalizeSpriteTranslation(persistedState?.translation),
         palette: clamp(typeof persistedState?.palette === 'number' ? persistedState.palette : 0, 0, paletteCount - 1),
         typeByCategory: restoredTypeByCategory,
         snapToGrid: persistedState?.snapToGrid ?? false,
@@ -1323,6 +1338,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     </details>
                 </div>
                 <label class="world-designer-field">Rotation<select data-role="rotation"></select></label>
+                <label class="world-designer-field">Translation<select data-role="translation"></select></label>
                 <div class="world-designer-field">
                     <label>Palette</label>
                     <div style="display:flex;gap:8px;align-items:center;">
@@ -1457,6 +1473,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         spritePickerFilter: root.querySelector('[data-role="sprite-picker-filter"]') as HTMLInputElement,
         spritePickerGrid: root.querySelector('[data-role="sprite-picker-grid"]') as HTMLDivElement,
         rotationSelect: root.querySelector('[data-role="rotation"]') as HTMLSelectElement,
+        translationSelect: root.querySelector('[data-role="translation"]') as HTMLSelectElement,
         paletteSelect: root.querySelector('[data-role="palette"]') as HTMLSelectElement,
         snapCheckbox: root.querySelector('[data-role="snap"]') as HTMLInputElement,
         objectSnapCheckbox: root.querySelector('[data-role="object-snap"]') as HTMLInputElement,
@@ -1560,6 +1577,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 tool: state.tool,
                 category: state.category,
                 rotation: state.rotation,
+                translation: state.translation,
                 palette: state.palette,
                 typeByCategory: deepClone(state.typeByCategory),
                 snapToGrid: state.snapToGrid,
@@ -1624,6 +1642,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             const value = index + 1;
             return `<option value="${value}">${value}</option>`;
         }).join('');
+        refs.translationSelect.innerHTML = SPRITE_TRANSLATION_OPTIONS
+            .map((value) => `<option value="${value}">${formatSpriteTranslation(value)}</option>`)
+            .join('');
         refs.paletteSelect.innerHTML = Array.from({ length: paletteCount }, (_, index) => {
             return `<option value="${index}">${index}</option>`;
         }).join('');
@@ -1855,23 +1876,33 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
     }
 
-    function renderSpritePreviewCanvas(canvas: HTMLCanvasElement, type: string, palette: number, rotation: number) {
+    function renderSpritePreviewCanvas(
+        canvas: HTMLCanvasElement,
+        type: string,
+        palette: number,
+        rotation: number,
+        translation: SpriteTranslation = 'center'
+    ) {
         clearPreviewCanvas(canvas);
         const ctx = canvas.getContext('2d');
         if (!ctx) return false;
-        return host.drawSpritePreview(ctx, type, palette, rotation, false);
+        return host.drawSpritePreview(ctx, type, palette, rotation, false, undefined, translation);
     }
 
     function renderCurrentSpritePreview() {
         const type = getCurrentType();
+        const previewTranslation = state.category === 'world' ? state.translation : 'center';
         const rendered = renderSpritePreviewCanvas(
             refs.spritePreviewCanvas,
             type,
             state.palette,
-            state.rotation
+            state.rotation,
+            previewTranslation
         );
         refs.spritePreviewMeta.textContent = rendered
-            ? `${type} — palette ${state.palette}, rotation ${state.rotation}`
+            ? state.category === 'world'
+                ? `${type} — palette ${state.palette}, rotation ${state.rotation}, translation ${formatSpriteTranslation(state.translation)}`
+                : `${type} — palette ${state.palette}, rotation ${state.rotation}`
             : `${type} — preview unavailable`;
     }
 
@@ -2038,6 +2069,90 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         return (sortedValues[middleIndex - 1] + sortedValues[middleIndex]) / 2;
     }
 
+    function getPngImportTranslatedBounds(
+        bounds: NonNullable<PngImportSampleSignature['foregroundBounds']>,
+        translation: SpriteTranslation
+    ) {
+        if (translation === 'top') {
+            return {
+                minX: bounds.minX,
+                minY: 0,
+                width: bounds.width,
+                height: bounds.height
+            };
+        }
+        if (translation === 'right') {
+            return {
+                minX: PNG_IMPORT_SAMPLE_SIZE - bounds.width,
+                minY: bounds.minY,
+                width: bounds.width,
+                height: bounds.height
+            };
+        }
+        if (translation === 'bottom') {
+            return {
+                minX: bounds.minX,
+                minY: PNG_IMPORT_SAMPLE_SIZE - bounds.height,
+                width: bounds.width,
+                height: bounds.height
+            };
+        }
+        if (translation === 'left') {
+            return {
+                minX: 0,
+                minY: bounds.minY,
+                width: bounds.width,
+                height: bounds.height
+            };
+        }
+        return bounds;
+    }
+
+    function getPngImportForegroundBoundsDifference(
+        left: NonNullable<PngImportSampleSignature['foregroundBounds']>,
+        right: NonNullable<PngImportSampleSignature['foregroundBounds']>
+    ) {
+        const leftMaxX = left.minX + left.width - 1;
+        const leftMaxY = left.minY + left.height - 1;
+        const rightMaxX = right.minX + right.width - 1;
+        const rightMaxY = right.minY + right.height - 1;
+        return Math.abs(left.minX - right.minX) +
+            Math.abs(left.minY - right.minY) +
+            Math.abs(leftMaxX - rightMaxX) +
+            Math.abs(leftMaxY - rightMaxY);
+    }
+
+    function inferPngImportTranslation(
+        sourceSignature: PngImportSampleSignature,
+        candidateSignature: PngImportSampleSignature
+    ): SpriteTranslation {
+        const sourceBounds = sourceSignature.foregroundBounds;
+        const candidateBounds = candidateSignature.foregroundBounds;
+        if (!sourceBounds || !candidateBounds) {
+            return 'center';
+        }
+
+        let bestTranslation: SpriteTranslation = 'center';
+        let bestDifference = Number.POSITIVE_INFINITY;
+        let centerDifference = Number.POSITIVE_INFINITY;
+
+        for (const translation of SPRITE_TRANSLATION_OPTIONS) {
+            const translatedBounds = getPngImportTranslatedBounds(candidateBounds, translation);
+            const difference = getPngImportForegroundBoundsDifference(sourceBounds, translatedBounds);
+            if (translation === 'center') {
+                centerDifference = difference;
+            }
+            if (difference < bestDifference) {
+                bestDifference = difference;
+                bestTranslation = translation;
+            }
+        }
+
+        return bestTranslation !== 'center' && bestDifference >= centerDifference
+            ? 'center'
+            : bestTranslation;
+    }
+
     function matchPngImportSample(
         sourceSample: Uint8ClampedArray,
         candidates: PngImportCandidate[],
@@ -2060,6 +2175,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             bestCandidate,
             bestScore,
             sourceSignature,
+            inferredTranslation: inferPngImportTranslation(sourceSignature, bestCandidate.signature),
             column,
             row
         };
@@ -2360,7 +2476,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                         collision: tileMatch.bestCandidate.collision,
                         maskAstronaut: tileMatch.bestCandidate.maskAstronaut,
                         palette: tileMatch.bestCandidate.palette,
-                        rotation: normalizeRotation(tileMatch.bestCandidate.rotation) as MapBlock['rotation']
+                        rotation: normalizeRotation(tileMatch.bestCandidate.rotation) as MapBlock['rotation'],
+                        translation: tileMatch.inferredTranslation
                     });
                 }
             }
@@ -2479,7 +2596,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                         category: state.category,
                         type: entry.name,
                         palette: state.palette,
-                        rotation: state.rotation
+                        rotation: state.rotation,
+                        translation: state.translation
                     };
                     state.pickerDragCanvas = null;
                     setCurrentType(entry.name);
@@ -2498,7 +2616,13 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             button.classList.toggle('dragging', state.pickerDrag?.type === entry.name);
             const canvas = button.querySelector('canvas');
             if (canvas instanceof HTMLCanvasElement) {
-                renderSpritePreviewCanvas(canvas, entry.name, state.palette, 1);
+                renderSpritePreviewCanvas(
+                    canvas,
+                    entry.name,
+                    state.palette,
+                    1,
+                    state.category === 'world' ? state.translation : 'center'
+                );
             }
         }
     }
@@ -2898,6 +3022,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         if (primary) {
             state.category = primary.category;
             state.rotation = normalizeRotation(primary.entity.rotation);
+            state.translation = primary.category === 'world'
+                ? normalizeSpriteTranslation(primary.entity.translation)
+                : 'center';
             state.palette = primary.entity.palette ?? 0;
             state.typeByCategory[primary.category] = primary.entity.type;
         }
@@ -3102,6 +3229,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             : 0;
         const previewType = selection?.entity.type ?? getCurrentType();
         const previewRotation = selection?.entity.rotation ?? state.rotation;
+        const previewTranslation = selection?.category === 'world'
+            ? normalizeSpriteTranslation(selection.entity.translation)
+            : (state.category === 'world' ? state.translation : 'center');
 
         addContextMenuSubmenu(`Palette (${currentPalette})`, (body) => {
             for (let palette = 0; palette < paletteCount; palette += 1) {
@@ -3116,7 +3246,13 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 canvas.className = 'world-designer-context-palette-canvas';
                 canvas.width = 36;
                 canvas.height = 36;
-                renderSpritePreviewCanvas(canvas, previewType, palette, normalizeRotation(previewRotation));
+                renderSpritePreviewCanvas(
+                    canvas,
+                    previewType,
+                    palette,
+                    normalizeRotation(previewRotation),
+                    previewTranslation
+                );
                 button.appendChild(canvas);
 
                 const label = document.createElement('span');
@@ -3205,6 +3341,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 type: collectable.type,
                 palette: collectable.palette ?? 0,
                 rotation: normalizeRotation(collectable.defaultRotation ?? collectable.rotation) as MapBlock['rotation'],
+                translation: 'center',
                 collision: collectable.collision !== false,
                 maskAstronaut: collectable.collision === false,
                 paletteCycle: collectable.paletteCycle ? deepClone(collectable.paletteCycle) : undefined
@@ -3527,7 +3664,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 collision: true,
                 maskAstronaut: false,
                 palette: state.palette,
-                rotation: state.rotation as MapBlock['rotation']
+                rotation: state.rotation as MapBlock['rotation'],
+                translation: state.translation
             };
             getCategoryArray('world').push(entity);
             setSelections([{ category: 'world', entity }]);
@@ -4142,6 +4280,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             const rotation = index + 1;
             return `<option value="${rotation}">${rotation}</option>`;
         }).join('');
+        const translationOptionMarkup = SPRITE_TRANSLATION_OPTIONS
+            .map((translation) => `<option value="${translation}">${formatSpriteTranslation(translation)}</option>`)
+            .join('');
         refs.modalTitle.textContent = 'Import PNG draft';
         refs.modalConfirm.textContent = 'Import draft';
         refs.modalConfirm.disabled = true;
@@ -4196,7 +4337,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             </div>
             <div class="world-designer-section">
                 <div class="world-designer-summary">
-                    Preview the matched world blocks before importing. Click a tile below to edit its type, palette, or rotation.
+                    Preview the matched world blocks before importing. Click a tile below to edit its type, palette, rotation, or translation.
                 </div>
                 <div class="world-designer-png-preview-frame">
                     <canvas class="world-designer-png-preview-canvas" data-role="png-import-preview-canvas" width="32" height="32"></canvas>
@@ -4229,6 +4370,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     </label>
                     <label class="world-designer-field">Rotation
                         <select data-role="png-import-selected-rotation">${rotationOptionMarkup}</select>
+                    </label>
+                    <label class="world-designer-field">Translation
+                        <select data-role="png-import-selected-translation">${translationOptionMarkup}</select>
                     </label>
                 </div>
                 <div class="world-designer-actions">
@@ -4263,6 +4407,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const selectedTypeGrid = refs.modalBody.querySelector('[data-role="png-import-type-grid"]') as HTMLDivElement;
         const selectedPaletteInput = refs.modalBody.querySelector('[data-role="png-import-selected-palette"]') as HTMLInputElement;
         const selectedRotationSelect = refs.modalBody.querySelector('[data-role="png-import-selected-rotation"]') as HTMLSelectElement;
+        const selectedTranslationSelect = refs.modalBody.querySelector('[data-role="png-import-selected-translation"]') as HTMLSelectElement;
         const resetTileButton = refs.modalBody.querySelector('[data-role="png-import-reset-tile"]') as HTMLButtonElement;
         let resolvedPngUrl = urlInput.value.trim();
         let resolvedPngLabel = resolvedPngUrl;
@@ -4291,6 +4436,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             const filter = selectedTypeFilterInput.value.trim().toLowerCase();
             const palette = selectedBlock && typeof selectedBlock.palette === 'number' ? selectedBlock.palette : 0;
             const rotation = normalizeRotation(selectedBlock?.rotation);
+            const translation = normalizeSpriteTranslation(selectedBlock?.translation);
             for (const type of pngImportTypeNames) {
                 let button = selectedTypeButtons.get(type);
                 if (!button) {
@@ -4336,7 +4482,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 button.classList.toggle('selected', type === selectedBlock?.type);
                 const canvas = button.querySelector('canvas');
                 if (canvas instanceof HTMLCanvasElement) {
-                    renderSpritePreviewCanvas(canvas, type, palette, rotation);
+                    renderSpritePreviewCanvas(canvas, type, palette, rotation, translation);
                 }
             }
         };
@@ -4348,6 +4494,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             selectedTypeFilterInput.disabled = !hasSelection;
             selectedPaletteInput.disabled = !hasSelection;
             selectedRotationSelect.disabled = !hasSelection;
+            selectedTranslationSelect.disabled = !hasSelection;
             resetTileButton.disabled = !hasSelection;
             if (!selectedBlock || !previewDraft) {
                 selectedTileInput.value = 'No tile selected';
@@ -4362,13 +4509,15 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             selectedTileInput.value = `Column ${column + 1}, row ${row + 1} — ${selectedBlock.type}`;
             selectedPaletteInput.value = String(typeof selectedBlock.palette === 'number' ? selectedBlock.palette : 0);
             selectedRotationSelect.value = String(normalizeRotation(selectedBlock.rotation));
+            selectedTranslationSelect.value = normalizeSpriteTranslation(selectedBlock.translation);
             renderSpritePreviewCanvas(
                 selectedTypePreviewCanvas,
                 selectedBlock.type,
                 typeof selectedBlock.palette === 'number' ? selectedBlock.palette : 0,
-                normalizeRotation(selectedBlock.rotation)
+                normalizeRotation(selectedBlock.rotation),
+                normalizeSpriteTranslation(selectedBlock.translation)
             );
-            selectedTypeMeta.textContent = `${selectedBlock.type} — palette ${typeof selectedBlock.palette === 'number' ? selectedBlock.palette : 0}, rotation ${normalizeRotation(selectedBlock.rotation)}`;
+            selectedTypeMeta.textContent = `${selectedBlock.type} — palette ${typeof selectedBlock.palette === 'number' ? selectedBlock.palette : 0}, rotation ${normalizeRotation(selectedBlock.rotation)}, translation ${formatSpriteTranslation(selectedBlock.translation)}`;
             renderImportTypePicker();
         };
 
@@ -4410,7 +4559,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     typeof block.palette === 'number' ? block.palette : 0,
                     normalizeRotation(block.rotation),
                     false,
-                    previewTileSize
+                    previewTileSize,
+                    normalizeSpriteTranslation(block.translation)
                 );
                 ctx.restore();
 
@@ -4641,6 +4791,15 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 return;
             }
             selectedBlock.rotation = normalizeRotation(Number(selectedRotationSelect.value)) as MapBlock['rotation'];
+            renderPreviewCanvas();
+        });
+
+        selectedTranslationSelect.addEventListener('change', () => {
+            const selectedBlock = getSelectedPreviewBlock();
+            if (!selectedBlock) {
+                return;
+            }
+            selectedBlock.translation = normalizeSpriteTranslation(selectedTranslationSelect.value);
             renderPreviewCanvas();
         });
 
@@ -4891,6 +5050,19 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 }
             });
         });
+        if (category === 'world') {
+            addSelectInspector(
+                container,
+                'Translation',
+                normalizeSpriteTranslation(entity.translation),
+                [...SPRITE_TRANSLATION_OPTIONS],
+                (value) => {
+                    runMutation('Updated translation.', () => {
+                        entity.translation = normalizeSpriteTranslation(value);
+                    });
+                }
+            );
+        }
         addNumberInspector(container, 'Palette', entity.palette ?? 0, (value) => {
             runMutation('Updated palette.', () => {
                 entity.palette = clamp(Math.round(value), 0, paletteCount - 1);
@@ -5095,7 +5267,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.toolSelect.value = state.tool;
         refs.categorySelect.value = state.category;
         refs.rotationSelect.value = String(state.rotation);
+        refs.translationSelect.value = state.translation;
         refs.paletteSelect.value = String(state.palette);
+        refs.translationSelect.disabled = state.category !== 'world' && state.selection?.category !== 'world';
         refs.snapCheckbox.checked = state.snapToGrid;
         refs.objectSnapCheckbox.checked = state.objectSnapEnabled;
         refs.snapOffsetXInput.value = String(state.snapOffsetX);
@@ -5175,6 +5349,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     function updateSelectionFromInspectorState() {
         if (!state.selection) return;
         state.rotation = normalizeRotation(state.selection.entity.rotation);
+        state.translation = state.selection.category === 'world'
+            ? normalizeSpriteTranslation(state.selection.entity.translation)
+            : 'center';
         state.palette = clamp(state.selection.entity.palette ?? 0, 0, paletteCount - 1);
         state.typeByCategory[state.selection.category] = state.selection.entity.type;
         refreshPanel();
@@ -5235,17 +5412,20 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const previousType = getCurrentType();
         const previousPalette = state.palette;
         const previousRotation = state.rotation;
+        const previousTranslation = state.translation;
         runMutation(`Placed new ${CATEGORY_LABELS[drag.category].toLowerCase()} from the sprite grid.`, () => {
             state.category = drag.category;
             state.typeByCategory[drag.category] = drag.type;
             state.palette = drag.palette;
             state.rotation = drag.rotation;
+            state.translation = drag.translation;
             const world = screenToWorld(point.x, point.y);
             placeAtWorld(world.x, world.y);
             state.category = previousCategory;
             state.typeByCategory[previousCategory] = previousType;
             state.palette = previousPalette;
             state.rotation = previousRotation;
+            state.translation = previousTranslation;
         });
         updateSelectionFromInspectorState();
     }
@@ -5885,6 +6065,21 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
         state.rotation = rotation;
         renderCurrentSpritePreview();
+    });
+    refs.translationSelect.addEventListener('change', () => {
+        const translation = normalizeSpriteTranslation(refs.translationSelect.value);
+        const selection = getSingleEditableSelection();
+        if (selection?.category === 'world') {
+            runMutation('Updated translation.', () => {
+                selection.entity.translation = translation;
+            });
+            updateSelectionFromInspectorState();
+            return;
+        }
+        state.translation = translation;
+        renderCurrentSpritePreview();
+        renderSpritePickerGrid();
+        persistDesignerUiState();
     });
     refs.paletteSelect.addEventListener('change', () => {
         const palette = clamp(Number(refs.paletteSelect.value), 0, paletteCount - 1);

@@ -4,6 +4,20 @@ import { resolveAnimatedPaletteIndex } from './palette-cycle.js';
 
 const spriteRectMapCache = new WeakMap<object, Record<string, any>>();
 const transformedSpriteCanvasCache = new WeakMap<object, Map<string, HTMLCanvasElement>>();
+const transformedSpriteBoundsCache = new WeakMap<object, SpriteVisibleBounds | null>();
+
+export type SpriteTranslation = 'center' | 'top' | 'right' | 'bottom' | 'left';
+
+type SpriteVisibleBounds = {
+    minX: number;
+    minY: number;
+    maxX: number;
+    maxY: number;
+    width: number;
+    height: number;
+};
+
+export const SPRITE_TRANSLATION_OPTIONS: SpriteTranslation[] = ['center', 'top', 'right', 'bottom', 'left'];
 
 function buildSpriteRectMap(spriteMap: any) {
     if (spriteMap instanceof Array) {
@@ -101,6 +115,96 @@ export function getTransformedSpriteCanvas(
 
     cache.set(cacheKey, canvas);
     return canvas;
+}
+
+export function normalizeSpriteTranslation(translation?: string | null): SpriteTranslation {
+    return SPRITE_TRANSLATION_OPTIONS.includes(translation as SpriteTranslation)
+        ? translation as SpriteTranslation
+        : 'center';
+}
+
+export function getSpriteVisibleBounds(sprite: CanvasImageSource | null) {
+    if (!sprite || typeof sprite !== 'object') {
+        return null;
+    }
+
+    const cacheOwner = sprite as object;
+    if (transformedSpriteBoundsCache.has(cacheOwner)) {
+        return transformedSpriteBoundsCache.get(cacheOwner) ?? null;
+    }
+
+    if (!(sprite instanceof HTMLCanvasElement) && !(typeof OffscreenCanvas !== 'undefined' && sprite instanceof OffscreenCanvas)) {
+        transformedSpriteBoundsCache.set(cacheOwner, null);
+        return null;
+    }
+
+    const ctx = sprite.getContext('2d');
+    if (!ctx || !('getImageData' in ctx)) {
+        transformedSpriteBoundsCache.set(cacheOwner, null);
+        return null;
+    }
+
+    const imageData = ctx.getImageData(0, 0, sprite.width, sprite.height).data;
+    let minX = sprite.width;
+    let minY = sprite.height;
+    let maxX = -1;
+    let maxY = -1;
+
+    for (let y = 0; y < sprite.height; y += 1) {
+        for (let x = 0; x < sprite.width; x += 1) {
+            if (imageData[(y * sprite.width + x) * 4 + 3] <= 0) continue;
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+        }
+    }
+
+    const bounds = maxX >= minX && maxY >= minY
+        ? {
+            minX,
+            minY,
+            maxX,
+            maxY,
+            width: maxX - minX + 1,
+            height: maxY - minY + 1
+        }
+        : null;
+    transformedSpriteBoundsCache.set(cacheOwner, bounds);
+    return bounds;
+}
+
+export function getSpriteTranslationOffset(
+    sprite: CanvasImageSource | null,
+    translation?: string | null,
+    scaleX: number = 1,
+    scaleY: number = scaleX
+) {
+    const normalizedTranslation = normalizeSpriteTranslation(translation);
+    if (normalizedTranslation === 'center' || !sprite || typeof sprite !== 'object') {
+        return { x: 0, y: 0 };
+    }
+
+    const bounds = getSpriteVisibleBounds(sprite);
+    if (!bounds) {
+        return { x: 0, y: 0 };
+    }
+
+    const width = 'width' in sprite ? Number(sprite.width) : 0;
+    const height = 'height' in sprite ? Number(sprite.height) : 0;
+
+    switch (normalizedTranslation) {
+        case 'top':
+            return { x: 0, y: -bounds.minY * scaleY };
+        case 'right':
+            return { x: (width - bounds.maxX - 1) * scaleX, y: 0 };
+        case 'bottom':
+            return { x: 0, y: (height - bounds.maxY - 1) * scaleY };
+        case 'left':
+            return { x: -bounds.minX * scaleX, y: 0 };
+        default:
+            return { x: 0, y: 0 };
+    }
 }
 
 function getEntityRotation(entity: any): number {

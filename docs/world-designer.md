@@ -107,7 +107,7 @@ You can also use modifier keys whether that toggle is on or off:
 1. Switch to **Select / move**
 2. Click an object in the world
 3. Change values in either:
-   - the top controls for type / palette / rotation
+   - the top controls for type / palette / rotation / translation
    - the inspector for detailed editing
 
 Selected items can be:
@@ -217,6 +217,8 @@ The magnifier follows the mouse over the main canvas so you can inspect individu
 
 For **world items**, **Collision enabled** and **Mask astronaut** are separate controls. A decorative sprite can be non-colliding and still draw in front of the astronaut when masking is enabled. `black_background` items default to staying behind the astronaut unless you explicitly enable masking.
 
+World items also support a separate **Translation** control. This shifts the visible sprite content to the **top**, **right**, **bottom**, or **left** edge of its 32x32 tile without changing the block's world position or its rotation/flip setting.
+
 ## 8. Save workflow
 
 Saving uses a review step.
@@ -276,7 +278,7 @@ The current importer is intentionally conservative:
 4. Adjust the **source rectangle** in **image pixels** only if you want part of the PNG rather than the whole file. Use **Snap source rect to 32px tiles** if the crop needs aligning to tile boundaries.
 5. Fill in the **target rectangle** in **world coordinates**
 6. Click **Preview blocks** to generate the matched tile draft. The importer will also auto-align the source sampling grid when the sprite content suggests the crop is globally offset inside the 32px cells.
-7. Click tiles in the preview to inspect or edit their **type**, **palette**, and **rotation** before the draft touches the live world
+7. Click tiles in the preview to inspect or edit their **type**, **palette**, **rotation**, and **translation** before the draft touches the live world. The importer now seeds a best-fit translation automatically from the sampled sprite placement, so edge-aligned pieces often come in already shifted to the correct side.
 8. Decide whether to keep **Replace existing world items inside the target world rectangle** enabled
 9. Click **Import draft**
 
@@ -332,10 +334,11 @@ Recommended workflow:
 1. start with a **small region**
 2. click **Preview blocks**
 3. fix obvious bad matches directly in the preview
-4. import the reviewed draft
-5. check the result visually in the designer
-6. use **Preview before save** to inspect the resulting JSON
-7. save only after cleanup
+4. use the tile **Translation** control when a matched world sprite needs to sit against one side of its 32x32 cell
+5. import the reviewed draft
+6. check the result visually in the designer
+7. use **Preview before save** to inspect the resulting JSON
+8. save only after cleanup
 
 ### What to expect
 

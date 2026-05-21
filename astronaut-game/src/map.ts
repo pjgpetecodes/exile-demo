@@ -2,7 +2,7 @@ import { assignEntityId } from './game.js';
 import { SPRITE_SCALE as DEFAULT_SPRITE_SCALE } from './constants.js';
 import { resolveAnimatedPaletteIndex } from './palette-cycle.js';
 import { PaletteCycleSettings } from './types/index.js';
-import { getTransformedSpriteCanvas } from './utilities.js';
+import { getSpriteTranslationOffset, getTransformedSpriteCanvas, normalizeSpriteTranslation, SpriteTranslation } from './utilities.js';
 
 export type MapBlock = {
     x: number; // tile x
@@ -13,6 +13,7 @@ export type MapBlock = {
     palette?: string | number;
     paletteCycle?: PaletteCycleSettings;
     rotation?: 1 | 2 | 3 | 4 | 5 | 6 | 7;
+    translation?: SpriteTranslation;
 };
 
 export let mapBlocks: MapBlock[] = [];
@@ -296,10 +297,17 @@ export function drawMap(
             ctx.restore();
             continue;
         }
+        const translationOffset = getSpriteTranslationOffset(
+            offCanvas,
+            normalizeSpriteTranslation(block.translation),
+            tileW / offCanvas.width,
+            tileH / offCanvas.height
+        );
 
         ctx.drawImage(
             offCanvas,
-            -tileW / 2, -tileH / 2,
+            -tileW / 2 + translationOffset.x,
+            -tileH / 2 + translationOffset.y,
             tileW, tileH
         );
         ctx.restore();
