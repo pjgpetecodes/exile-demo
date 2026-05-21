@@ -265,6 +265,100 @@ type PngImportProgress = {
     detail: string;
 };
 
+type PngImportSourceMode = 'single' | 'folder';
+
+type PngChunkEntry = {
+    fileName: string;
+    chunkColumn: number;
+    chunkRow: number;
+    sourceTileX: number;
+    sourceTileY: number;
+    tileWidth: number;
+    tileHeight: number;
+    pixelX: number;
+    pixelY: number;
+    pixelWidth: number;
+    pixelHeight: number;
+};
+
+type PngChunkManifest = {
+    version: 1;
+    sourceName: string;
+    tileSize: number;
+    crop: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    };
+    chunkTileWidth: number;
+    chunkTileHeight: number;
+    totalSourceColumns: number;
+    totalSourceRows: number;
+    totalChunkColumns: number;
+    totalChunkRows: number;
+    chunks: PngChunkEntry[];
+};
+
+type PngChunkFolderSelection = {
+    directoryName: string;
+    manifest: PngChunkManifest;
+    files: Map<string, File>;
+};
+
+type PngChunkSelectionRange = {
+    minChunkColumn: number;
+    maxChunkColumn: number;
+    minChunkRow: number;
+    maxChunkRow: number;
+    maxChunks: number;
+};
+
+type PngChunkComposedSource = {
+    image: HTMLImageElement;
+    manifest: PngChunkManifest;
+    selectedChunks: PngChunkEntry[];
+    chunkCount: number;
+    totalSelectedChunks: number;
+    sourceWidth: number;
+    sourceHeight: number;
+    relativeTileX: number;
+    relativeTileY: number;
+    columns: number;
+    rows: number;
+};
+
+type BrowserFileSystemWriteChunk =
+    | Blob
+    | BufferSource
+    | string
+    | { type: 'write'; position?: number; data: Blob | BufferSource | string }
+    | { type: 'seek'; position: number }
+    | { type: 'truncate'; size: number };
+
+interface BrowserWritableFileStream {
+    write(data: BrowserFileSystemWriteChunk): Promise<void>;
+    close(): Promise<void>;
+}
+
+interface BrowserFileHandle {
+    kind: 'file';
+    name: string;
+    getFile(): Promise<File>;
+    createWritable(): Promise<BrowserWritableFileStream>;
+}
+
+interface BrowserDirectoryHandle {
+    kind: 'directory';
+    name: string;
+    getFileHandle(name: string, options?: { create?: boolean }): Promise<BrowserFileHandle>;
+    values(): AsyncIterable<BrowserFileHandle | BrowserDirectoryHandle>;
+}
+
+interface BrowserWindowWithDirectoryPicker extends Window {
+    showDirectoryPicker?: () => Promise<BrowserDirectoryHandle>;
+}
+
 type Rect = {
     left: number;
     top: number;
@@ -472,6 +566,9 @@ const PNG_IMPORT_SAMPLE_SIZE = 32;
 const PNG_IMPORT_WARNING_SCORE = 58;
 const PNG_IMPORT_PALETTE_SCORE_WEIGHT = 0.2;
 const PNG_IMPORT_MAX_TILES = 4096;
+const PNG_CHUNK_EXPORT_MANIFEST_NAME = 'png-import-chunks.manifest.json';
+const PNG_CHUNK_DEFAULT_TILE_WIDTH = 16;
+const PNG_CHUNK_DEFAULT_TILE_HEIGHT = 16;
 const PNG_IMPORT_PREVIEW_MAX_DIMENSION = 960;
 const PNG_IMPORT_PREVIEW_MIN_TILE_SIZE = 18;
 const PNG_IMPORT_PREVIEW_MAX_TILE_SIZE = 48;
@@ -757,6 +854,519 @@ function yieldToUi() {
     return new Promise<void>((resolve) => {
         requestAnimationFrame(() => resolve());
     });
+}
+
+function padInteger(value: number, minimumDigits: number) {
+    return Math.max(0, Math.round(value)).toString().padStart(minimumDigits, '0');
+}
+
+function getChunkBaseName(sourceName: string) {
+    const withoutExtension = sourceName.replace(/\.[^.]+$/, '');
+    const normalized = withoutExtension
+        .trim()
+        .replace(/[^a-z0-9]+/gi, '-')
+        .replace(/^-+|-+$/g, '')
+        .toLowerCase();
+    return normalized || 'png-import';
+}
+
+function buildPngChunkFileName(sourceName: string, entry: PngChunkEntry) {
+    const baseName = getChunkBaseName(sourceName);
+    return `${baseName}__r${padInteger(entry.chunkRow, 4)}__c${padInteger(entry.chunkColumn, 4)}__tx${padInteger(entry.sourceTileX, 5)}__ty${padInteger(entry.sourceTileY, 5)}__w${padInteger(entry.tileWidth, 4)}__h${padInteger(entry.tileHeight, 4)}.png`;
+}
+
+function parsePngChunkFileName(fileName: string): PngChunkEntry | null {
+    const match = /__r(\d+)__c(\d+)__tx(\d+)__ty(\d+)__w(\d+)__h(\d+)\.png$/i.exec(fileName);
+    if (!match) {
+        return null;
+    }
+    const chunkRow = Number(match[1]);
+    const chunkColumn = Number(match[2]);
+    const sourceTileX = Number(match[3]);
+    const sourceTileY = Number(match[4]);
+    const tileWidth = Number(match[5]);
+    const tileHeight = Number(match[6]);
+    if (
+        !Number.isFinite(chunkRow) ||
+        !Number.isFinite(chunkColumn) ||
+        !Number.isFinite(sourceTileX) ||
+        !Number.isFinite(sourceTileY) ||
+        !Number.isFinite(tileWidth) ||
+        !Number.isFinite(tileHeight) ||
+        tileWidth <= 0 ||
+        tileHeight <= 0
+    ) {
+        return null;
+    }
+    return {
+        fileName,
+        chunkColumn: Math.round(chunkColumn),
+        chunkRow: Math.round(chunkRow),
+        sourceTileX: Math.round(sourceTileX),
+        sourceTileY: Math.round(sourceTileY),
+        tileWidth: Math.round(tileWidth),
+        tileHeight: Math.round(tileHeight),
+        pixelX: Math.round(sourceTileX) * PNG_IMPORT_SOURCE_TILE_SIZE,
+        pixelY: Math.round(sourceTileY) * PNG_IMPORT_SOURCE_TILE_SIZE,
+        pixelWidth: Math.round(tileWidth) * PNG_IMPORT_SOURCE_TILE_SIZE,
+        pixelHeight: Math.round(tileHeight) * PNG_IMPORT_SOURCE_TILE_SIZE
+    };
+}
+
+function getDirectoryPicker() {
+    const picker = (window as BrowserWindowWithDirectoryPicker).showDirectoryPicker;
+    if (!picker) {
+        throw new Error('This browser does not support choosing a folder. Use a Chromium-based browser with the File System Access API enabled.');
+    }
+    return picker.bind(window as BrowserWindowWithDirectoryPicker);
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, type = 'image/png') {
+    return new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((blob) => {
+            if (blob) {
+                resolve(blob);
+                return;
+            }
+            reject(new Error('Could not create a PNG blob from the chunk canvas.'));
+        }, type);
+    });
+}
+
+async function writeBlobToDirectory(directoryHandle: BrowserDirectoryHandle, fileName: string, blob: Blob) {
+    const fileHandle = await directoryHandle.getFileHandle(fileName, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+}
+
+async function writeTextToDirectory(directoryHandle: BrowserDirectoryHandle, fileName: string, text: string) {
+    const blob = new Blob([text], { type: 'application/json' });
+    await writeBlobToDirectory(directoryHandle, fileName, blob);
+}
+
+function isImageDataEmpty(imageData: ImageData) {
+    for (let index = 0; index < imageData.data.length; index += 4) {
+        const alpha = imageData.data[index + 3];
+        if (alpha === 0) {
+            continue;
+        }
+        if (
+            imageData.data[index] !== 0 ||
+            imageData.data[index + 1] !== 0 ||
+            imageData.data[index + 2] !== 0
+        ) {
+            return false;
+        }
+    }
+    return true;
+}
+
+async function loadImageFromBlob(blob: Blob) {
+    const url = URL.createObjectURL(blob);
+    try {
+        const image = new Image();
+        image.decoding = 'async';
+        await new Promise<void>((resolve, reject) => {
+            image.onload = () => resolve();
+            image.onerror = () => reject(new Error('Failed to decode an exported PNG chunk.'));
+            image.src = url;
+        });
+        return image;
+    } finally {
+        URL.revokeObjectURL(url);
+    }
+}
+
+function normalizePngChunkManifest(raw: unknown): PngChunkManifest {
+    if (!raw || typeof raw !== 'object') {
+        throw new Error('Chunk manifest is missing or invalid.');
+    }
+    const manifestRecord = raw as Record<string, unknown>;
+    const cropRecord = manifestRecord.crop;
+    if (!cropRecord || typeof cropRecord !== 'object') {
+        throw new Error('Chunk manifest is missing crop metadata.');
+    }
+    const crop = cropRecord as Record<string, unknown>;
+    const rawChunks = Array.isArray(manifestRecord.chunks) ? manifestRecord.chunks : [];
+    const chunks = rawChunks.map((entry, index) => {
+        if (!entry || typeof entry !== 'object') {
+            throw new Error(`Chunk manifest entry ${index + 1} is invalid.`);
+        }
+        const record = entry as Record<string, unknown>;
+        const chunkEntry: PngChunkEntry = {
+            fileName: String(record.fileName ?? ''),
+            chunkColumn: Number(record.chunkColumn),
+            chunkRow: Number(record.chunkRow),
+            sourceTileX: Number(record.sourceTileX),
+            sourceTileY: Number(record.sourceTileY),
+            tileWidth: Number(record.tileWidth),
+            tileHeight: Number(record.tileHeight),
+            pixelX: Number(record.pixelX),
+            pixelY: Number(record.pixelY),
+            pixelWidth: Number(record.pixelWidth),
+            pixelHeight: Number(record.pixelHeight)
+        };
+        if (
+            !chunkEntry.fileName ||
+            !Number.isFinite(chunkEntry.chunkColumn) ||
+            !Number.isFinite(chunkEntry.chunkRow) ||
+            !Number.isFinite(chunkEntry.sourceTileX) ||
+            !Number.isFinite(chunkEntry.sourceTileY) ||
+            !Number.isFinite(chunkEntry.tileWidth) ||
+            !Number.isFinite(chunkEntry.tileHeight) ||
+            !Number.isFinite(chunkEntry.pixelX) ||
+            !Number.isFinite(chunkEntry.pixelY) ||
+            !Number.isFinite(chunkEntry.pixelWidth) ||
+            !Number.isFinite(chunkEntry.pixelHeight)
+        ) {
+            throw new Error(`Chunk manifest entry ${index + 1} is incomplete.`);
+        }
+        return {
+            ...chunkEntry,
+            chunkColumn: Math.round(chunkEntry.chunkColumn),
+            chunkRow: Math.round(chunkEntry.chunkRow),
+            sourceTileX: Math.round(chunkEntry.sourceTileX),
+            sourceTileY: Math.round(chunkEntry.sourceTileY),
+            tileWidth: Math.round(chunkEntry.tileWidth),
+            tileHeight: Math.round(chunkEntry.tileHeight),
+            pixelX: Math.round(chunkEntry.pixelX),
+            pixelY: Math.round(chunkEntry.pixelY),
+            pixelWidth: Math.round(chunkEntry.pixelWidth),
+            pixelHeight: Math.round(chunkEntry.pixelHeight)
+        };
+    });
+    const manifest: PngChunkManifest = {
+        version: 1,
+        sourceName: String(manifestRecord.sourceName ?? 'png-import'),
+        tileSize: Math.round(Number(manifestRecord.tileSize)),
+        crop: {
+            x: Math.round(Number(crop.x)),
+            y: Math.round(Number(crop.y)),
+            width: Math.round(Number(crop.width)),
+            height: Math.round(Number(crop.height))
+        },
+        chunkTileWidth: Math.round(Number(manifestRecord.chunkTileWidth)),
+        chunkTileHeight: Math.round(Number(manifestRecord.chunkTileHeight)),
+        totalSourceColumns: Math.round(Number(manifestRecord.totalSourceColumns)),
+        totalSourceRows: Math.round(Number(manifestRecord.totalSourceRows)),
+        totalChunkColumns: Math.round(Number(manifestRecord.totalChunkColumns)),
+        totalChunkRows: Math.round(Number(manifestRecord.totalChunkRows)),
+        chunks
+    };
+    if (
+        manifest.tileSize !== PNG_IMPORT_SOURCE_TILE_SIZE ||
+        manifest.crop.x < 0 ||
+        manifest.crop.y < 0 ||
+        manifest.crop.width <= 0 ||
+        manifest.crop.height <= 0 ||
+        manifest.chunkTileWidth <= 0 ||
+        manifest.chunkTileHeight <= 0 ||
+        manifest.totalSourceColumns <= 0 ||
+        manifest.totalSourceRows <= 0 ||
+        manifest.totalChunkColumns <= 0 ||
+        manifest.totalChunkRows <= 0
+    ) {
+        throw new Error('Chunk manifest metadata is invalid or unsupported.');
+    }
+    return manifest;
+}
+
+function buildChunkManifestFromFiles(directoryName: string, entries: PngChunkEntry[]) {
+    if (entries.length === 0) {
+        throw new Error('The selected folder does not contain any chunk PNGs with a supported naming pattern.');
+    }
+    const minTileX = Math.min(...entries.map((entry) => entry.sourceTileX));
+    const minTileY = Math.min(...entries.map((entry) => entry.sourceTileY));
+    const maxTileX = Math.max(...entries.map((entry) => entry.sourceTileX + entry.tileWidth));
+    const maxTileY = Math.max(...entries.map((entry) => entry.sourceTileY + entry.tileHeight));
+    const maxChunkColumn = Math.max(...entries.map((entry) => entry.chunkColumn));
+    const maxChunkRow = Math.max(...entries.map((entry) => entry.chunkRow));
+    return normalizePngChunkManifest({
+        version: 1,
+        sourceName: directoryName,
+        tileSize: PNG_IMPORT_SOURCE_TILE_SIZE,
+        crop: {
+            x: minTileX * PNG_IMPORT_SOURCE_TILE_SIZE,
+            y: minTileY * PNG_IMPORT_SOURCE_TILE_SIZE,
+            width: (maxTileX - minTileX) * PNG_IMPORT_SOURCE_TILE_SIZE,
+            height: (maxTileY - minTileY) * PNG_IMPORT_SOURCE_TILE_SIZE
+        },
+        chunkTileWidth: Math.max(...entries.map((entry) => entry.tileWidth)),
+        chunkTileHeight: Math.max(...entries.map((entry) => entry.tileHeight)),
+        totalSourceColumns: maxTileX - minTileX,
+        totalSourceRows: maxTileY - minTileY,
+        totalChunkColumns: maxChunkColumn + 1,
+        totalChunkRows: maxChunkRow + 1,
+        chunks: entries.map((entry) => ({
+            ...entry,
+            sourceTileX: entry.sourceTileX,
+            sourceTileY: entry.sourceTileY
+        }))
+    });
+}
+
+async function exportPngChunksToDirectory(config: {
+    image: HTMLImageElement;
+    sourceName: string;
+    sourceX: number;
+    sourceY: number;
+    sourceWidth: number;
+    sourceHeight: number;
+    chunkTileWidth: number;
+    chunkTileHeight: number;
+    skipEmpty: boolean;
+}, onProgress?: (progress: PngImportProgress) => void | Promise<void>) {
+    if (
+        config.sourceX % PNG_IMPORT_SOURCE_TILE_SIZE !== 0 ||
+        config.sourceY % PNG_IMPORT_SOURCE_TILE_SIZE !== 0 ||
+        config.sourceWidth % PNG_IMPORT_SOURCE_TILE_SIZE !== 0 ||
+        config.sourceHeight % PNG_IMPORT_SOURCE_TILE_SIZE !== 0
+    ) {
+        throw new Error('Chunk export requires a source crop aligned to 32px tile boundaries.');
+    }
+    const directoryHandle = await getDirectoryPicker()();
+    const totalSourceColumns = config.sourceWidth / PNG_IMPORT_SOURCE_TILE_SIZE;
+    const totalSourceRows = config.sourceHeight / PNG_IMPORT_SOURCE_TILE_SIZE;
+    const totalChunkColumns = Math.ceil(totalSourceColumns / config.chunkTileWidth);
+    const totalChunkRows = Math.ceil(totalSourceRows / config.chunkTileHeight);
+    const sourceTileOriginX = Math.round(config.sourceX / PNG_IMPORT_SOURCE_TILE_SIZE);
+    const sourceTileOriginY = Math.round(config.sourceY / PNG_IMPORT_SOURCE_TILE_SIZE);
+    const chunkCanvas = document.createElement('canvas');
+    const chunkContext = chunkCanvas.getContext('2d');
+    if (!chunkContext) {
+        throw new Error('Could not create a canvas context for chunk export.');
+    }
+    chunkContext.imageSmoothingEnabled = false;
+
+    const chunks: PngChunkEntry[] = [];
+    const totalChunkCount = Math.max(1, totalChunkColumns * totalChunkRows);
+    let processedChunks = 0;
+
+    for (let chunkRow = 0; chunkRow < totalChunkRows; chunkRow += 1) {
+        for (let chunkColumn = 0; chunkColumn < totalChunkColumns; chunkColumn += 1) {
+            const sourceTileX = sourceTileOriginX + chunkColumn * config.chunkTileWidth;
+            const sourceTileY = sourceTileOriginY + chunkRow * config.chunkTileHeight;
+            const tileWidth = Math.min(config.chunkTileWidth, totalSourceColumns - chunkColumn * config.chunkTileWidth);
+            const tileHeight = Math.min(config.chunkTileHeight, totalSourceRows - chunkRow * config.chunkTileHeight);
+            const pixelX = sourceTileX * PNG_IMPORT_SOURCE_TILE_SIZE;
+            const pixelY = sourceTileY * PNG_IMPORT_SOURCE_TILE_SIZE;
+            const pixelWidth = tileWidth * PNG_IMPORT_SOURCE_TILE_SIZE;
+            const pixelHeight = tileHeight * PNG_IMPORT_SOURCE_TILE_SIZE;
+            const entry: PngChunkEntry = {
+                fileName: '',
+                chunkColumn,
+                chunkRow,
+                sourceTileX,
+                sourceTileY,
+                tileWidth,
+                tileHeight,
+                pixelX,
+                pixelY,
+                pixelWidth,
+                pixelHeight
+            };
+            entry.fileName = buildPngChunkFileName(config.sourceName, entry);
+            chunkCanvas.width = pixelWidth;
+            chunkCanvas.height = pixelHeight;
+            chunkContext.clearRect(0, 0, pixelWidth, pixelHeight);
+            chunkContext.drawImage(
+                config.image,
+                pixelX,
+                pixelY,
+                pixelWidth,
+                pixelHeight,
+                0,
+                0,
+                pixelWidth,
+                pixelHeight
+            );
+            const imageData = chunkContext.getImageData(0, 0, pixelWidth, pixelHeight);
+            const shouldWrite = !config.skipEmpty || !isImageDataEmpty(imageData);
+            if (shouldWrite) {
+                const blob = await canvasToBlob(chunkCanvas);
+                await writeBlobToDirectory(directoryHandle, entry.fileName, blob);
+                chunks.push(entry);
+            }
+            processedChunks += 1;
+            if (onProgress) {
+                await onProgress({
+                    phase: 'Exporting chunk PNGs',
+                    completed: processedChunks,
+                    total: totalChunkCount,
+                    detail: `Writing chunk row ${chunkRow + 1}, column ${chunkColumn + 1}.`
+                });
+                await yieldToUi();
+            }
+        }
+    }
+
+    const manifest: PngChunkManifest = {
+        version: 1,
+        sourceName: config.sourceName,
+        tileSize: PNG_IMPORT_SOURCE_TILE_SIZE,
+        crop: {
+            x: config.sourceX,
+            y: config.sourceY,
+            width: config.sourceWidth,
+            height: config.sourceHeight
+        },
+        chunkTileWidth: config.chunkTileWidth,
+        chunkTileHeight: config.chunkTileHeight,
+        totalSourceColumns,
+        totalSourceRows,
+        totalChunkColumns,
+        totalChunkRows,
+        chunks
+    };
+    await writeTextToDirectory(
+        directoryHandle,
+        PNG_CHUNK_EXPORT_MANIFEST_NAME,
+        `${JSON.stringify(manifest, null, 2)}\n`
+    );
+    return {
+        directoryName: directoryHandle.name,
+        manifest,
+        exportedChunks: chunks.length,
+        totalChunkCount
+    };
+}
+
+async function readPngChunkFolderSelection(
+    directoryHandle: BrowserDirectoryHandle,
+    onProgress?: (progress: PngImportProgress) => void | Promise<void>
+) {
+    const files = new Map<string, File>();
+    let processedEntries = 0;
+    for await (const entry of directoryHandle.values()) {
+        processedEntries += 1;
+        if (entry.kind === 'file') {
+            files.set(entry.name, await entry.getFile());
+        }
+        if (onProgress) {
+            await onProgress({
+                phase: 'Reading chunk folder',
+                completed: processedEntries,
+                total: Math.max(processedEntries, 1),
+                detail: `Scanning ${entry.name}.`
+            });
+        }
+    }
+    const manifestFile = files.get(PNG_CHUNK_EXPORT_MANIFEST_NAME);
+    let manifest: PngChunkManifest;
+    if (manifestFile) {
+        manifest = normalizePngChunkManifest(JSON.parse(await manifestFile.text()));
+    } else {
+        const parsedEntries = [...files.keys()]
+            .filter((name) => name.toLowerCase().endsWith('.png'))
+            .map((name) => parsePngChunkFileName(name))
+            .filter((entry): entry is PngChunkEntry => entry !== null);
+        manifest = buildChunkManifestFromFiles(directoryHandle.name, parsedEntries);
+    }
+    for (const chunk of manifest.chunks) {
+        if (!files.has(chunk.fileName)) {
+            throw new Error(`Chunk folder is missing ${chunk.fileName}, which is referenced by the manifest.`);
+        }
+    }
+    return {
+        directoryName: directoryHandle.name,
+        manifest,
+        files
+    };
+}
+
+function getPngChunkSelectionEntries(
+    selection: PngChunkFolderSelection,
+    range: PngChunkSelectionRange
+) {
+    const filteredChunks = selection.manifest.chunks
+        .filter((chunk) => (
+            chunk.chunkColumn >= range.minChunkColumn &&
+            chunk.chunkColumn <= range.maxChunkColumn &&
+            chunk.chunkRow >= range.minChunkRow &&
+            chunk.chunkRow <= range.maxChunkRow
+        ))
+        .sort((left, right) => (
+            left.chunkRow === right.chunkRow
+                ? left.chunkColumn - right.chunkColumn
+                : left.chunkRow - right.chunkRow
+        ));
+    const totalSelectedChunks = filteredChunks.length;
+    const limitedChunks = range.maxChunks > 0 ? filteredChunks.slice(0, range.maxChunks) : filteredChunks;
+    return {
+        selectedChunks: limitedChunks,
+        totalSelectedChunks
+    };
+}
+
+async function composePngChunkFolderSource(
+    selection: PngChunkFolderSelection,
+    range: PngChunkSelectionRange,
+    onProgress?: (progress: PngImportProgress) => void | Promise<void>
+) {
+    const { selectedChunks, totalSelectedChunks } = getPngChunkSelectionEntries(selection, range);
+    if (selectedChunks.length === 0) {
+        throw new Error('The selected chunk range did not include any exported PNG chunks.');
+    }
+    const cropTileOriginX = Math.round(selection.manifest.crop.x / PNG_IMPORT_SOURCE_TILE_SIZE);
+    const cropTileOriginY = Math.round(selection.manifest.crop.y / PNG_IMPORT_SOURCE_TILE_SIZE);
+    const minTileX = Math.min(...selectedChunks.map((chunk) => chunk.sourceTileX)) - cropTileOriginX;
+    const minTileY = Math.min(...selectedChunks.map((chunk) => chunk.sourceTileY)) - cropTileOriginY;
+    const maxTileX = Math.max(...selectedChunks.map((chunk) => chunk.sourceTileX + chunk.tileWidth)) - cropTileOriginX;
+    const maxTileY = Math.max(...selectedChunks.map((chunk) => chunk.sourceTileY + chunk.tileHeight)) - cropTileOriginY;
+    const columns = maxTileX - minTileX;
+    const rows = maxTileY - minTileY;
+    const tileCount = columns * rows;
+    if (tileCount > PNG_IMPORT_MAX_TILES) {
+        throw new Error(`The selected chunk range covers ${tileCount} tiles. Reduce the chunk range or max chunk count so the composed import stays within ${PNG_IMPORT_MAX_TILES} tiles.`);
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = columns * PNG_IMPORT_SOURCE_TILE_SIZE;
+    canvas.height = rows * PNG_IMPORT_SOURCE_TILE_SIZE;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+        throw new Error('Could not create a canvas context for chunk composition.');
+    }
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    for (let index = 0; index < selectedChunks.length; index += 1) {
+        const chunk = selectedChunks[index];
+        const file = selection.files.get(chunk.fileName);
+        if (!file) {
+            throw new Error(`The chunk folder is missing ${chunk.fileName}.`);
+        }
+        const bitmap = await createImageBitmap(file);
+        const destinationX = (chunk.sourceTileX - cropTileOriginX - minTileX) * PNG_IMPORT_SOURCE_TILE_SIZE;
+        const destinationY = (chunk.sourceTileY - cropTileOriginY - minTileY) * PNG_IMPORT_SOURCE_TILE_SIZE;
+        ctx.drawImage(bitmap, destinationX, destinationY);
+        bitmap.close();
+        if (onProgress) {
+            await onProgress({
+                phase: 'Composing chunk folder',
+                completed: index + 1,
+                total: selectedChunks.length,
+                detail: `Placed ${chunk.fileName}.`
+            });
+            await yieldToUi();
+        }
+    }
+    const image = await loadImageFromBlob(await canvasToBlob(canvas));
+    return {
+        image,
+        manifest: selection.manifest,
+        selectedChunks,
+        chunkCount: selectedChunks.length,
+        totalSelectedChunks,
+        sourceWidth: canvas.width,
+        sourceHeight: canvas.height,
+        relativeTileX: minTileX,
+        relativeTileY: minTileY,
+        columns,
+        rows
+    };
 }
 
 function parsePaletteCyclePalettes(value: string, paletteCount: number) {
@@ -2619,8 +3229,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         return candidates;
     }
 
-    async function buildPngImportDraftFromPng(config: {
-        url: string;
+    async function buildPngImportDraftFromImage(image: HTMLImageElement, config: {
         sourceX: number;
         sourceY: number;
         sourceWidth: number;
@@ -2629,13 +3238,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         worldY: number;
         worldWidth: number;
         worldHeight: number;
-        replaceExisting: boolean;
     }, onProgress?: (progress: PngImportProgress) => void | Promise<void>) {
-        const url = config.url.trim();
-        if (!url) {
-            throw new Error('Enter a PNG URL before importing.');
-        }
-
         const worldWidth = Math.max(1, Math.round(config.worldWidth));
         const worldHeight = Math.max(1, Math.round(config.worldHeight));
         const worldX = Math.round(config.worldX);
@@ -2645,14 +3248,13 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const sourceHeight = Math.max(1, Math.round(config.sourceHeight));
         if (onProgress) {
             await onProgress({
-                phase: 'Loading PNG',
-                completed: 0,
+                phase: 'Preparing PNG source',
+                completed: 1,
                 total: 1,
-                detail: 'Loading PNG metadata and source image.'
+                detail: 'Using the prepared source image for matching.'
             });
             await yieldToUi();
         }
-        const image = await loadImage(url);
         const sourceX = clamp(Math.round(config.sourceX), 0, Math.max(0, image.width - 1));
         const sourceY = clamp(Math.round(config.sourceY), 0, Math.max(0, image.height - 1));
         const boundedSourceWidth = Math.min(sourceWidth, image.width - sourceX);
@@ -2792,6 +3394,35 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             sourceGridOffsetX: inferredGridOffset.x,
             sourceGridOffsetY: inferredGridOffset.y
         };
+    }
+
+    async function buildPngImportDraftFromPng(config: {
+        url: string;
+        sourceX: number;
+        sourceY: number;
+        sourceWidth: number;
+        sourceHeight: number;
+        worldX: number;
+        worldY: number;
+        worldWidth: number;
+        worldHeight: number;
+        replaceExisting: boolean;
+    }, onProgress?: (progress: PngImportProgress) => void | Promise<void>) {
+        const url = config.url.trim();
+        if (!url) {
+            throw new Error('Enter a PNG URL before importing.');
+        }
+        if (onProgress) {
+            await onProgress({
+                phase: 'Loading PNG',
+                completed: 0,
+                total: 1,
+                detail: 'Loading PNG metadata and source image.'
+            });
+            await yieldToUi();
+        }
+        const image = await loadImage(url);
+        return buildPngImportDraftFromImage(image, config, onProgress);
     }
 
     function applyPngImportDraft(draft: PngImportDraft, replaceExisting: boolean) {
@@ -4617,11 +5248,21 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         clearPngImportObjectUrl();
         refs.modalBody.innerHTML = `
             <div class="world-designer-summary">
-                Create a rough draft of <strong>world items only</strong> by matching a PNG region against the currently authored world sprite set. Start with a small region, then review and clean up the result in the designer.
+                Create a rough draft of <strong>world items only</strong> by matching PNG pixels against the currently authored world sprite set. You can preview a single PNG region, split it into reusable chunk PNGs, or point the importer at an exported chunk folder to reconstruct a larger map section.
             </div>
             <div class="world-designer-import-layout">
                 <div class="world-designer-import-sidebar">
                     <div class="world-designer-import-card">
+                        <div class="world-designer-grid">
+                            <label class="world-designer-field world-designer-grid-wide">Import source
+                                <select data-role="png-import-mode">
+                                    <option value="single">Single PNG</option>
+                                    <option value="folder">Chunk folder</option>
+                                </select>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="world-designer-import-card" data-role="png-import-single-source">
                         <div class="world-designer-grid">
                             <label class="world-designer-field world-designer-grid-wide">PNG file or URL
                                 <div style="display:flex;gap:8px;align-items:center;">
@@ -4632,7 +5273,40 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                             </label>
                         </div>
                     </div>
-                    <div class="world-designer-import-card">
+                    <div class="world-designer-import-card" data-role="png-import-folder-source" hidden>
+                        <h3>Exported chunk folder</h3>
+                        <div class="world-designer-actions">
+                            <button type="button" class="world-designer-button-secondary" data-role="png-import-folder-browse">Choose folder…</button>
+                        </div>
+                        <div class="world-designer-grid" style="margin-top:8px;">
+                            <label class="world-designer-field world-designer-grid-wide">Selected folder
+                                <input type="text" data-role="png-import-folder-name" value="No folder selected" readonly />
+                            </label>
+                            <label class="world-designer-field">Chunk column from
+                                <input type="number" data-role="png-import-folder-min-column" value="1" min="1" step="1" />
+                            </label>
+                            <label class="world-designer-field">Chunk column to
+                                <input type="number" data-role="png-import-folder-max-column" value="1" min="1" step="1" />
+                            </label>
+                            <label class="world-designer-field">Chunk row from
+                                <input type="number" data-role="png-import-folder-min-row" value="1" min="1" step="1" />
+                            </label>
+                            <label class="world-designer-field">Chunk row to
+                                <input type="number" data-role="png-import-folder-max-row" value="1" min="1" step="1" />
+                            </label>
+                            <label class="world-designer-field">Max chunks
+                                <input type="number" data-role="png-import-folder-max-chunks" value="0" min="0" step="1" />
+                            </label>
+                        </div>
+                        <label class="world-designer-checkbox">
+                            <input type="checkbox" data-role="png-import-folder-fit-target" checked />
+                            Keep the world span matched to the selected chunk range
+                        </label>
+                        <div class="world-designer-summary" data-role="png-import-folder-meta">
+                            Choose an exported chunk folder to reconstruct a larger map region.
+                        </div>
+                    </div>
+                    <div class="world-designer-import-card" data-role="png-import-source-crop">
                         <h3>PNG crop in the source image</h3>
                         <div class="world-designer-grid">
                             <label class="world-designer-field">Crop left (px)
@@ -4652,6 +5326,36 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                             <button type="button" class="world-designer-button-subtle" data-role="png-import-snap">Snap crop to 32px tiles</button>
                         </div>
                     </div>
+                    <div class="world-designer-import-card" data-role="png-import-export-card">
+                        <h3>Split PNG into import chunks</h3>
+                        <div class="world-designer-grid">
+                            <label class="world-designer-field">Chunk preset
+                                <select data-role="png-import-export-preset">
+                                    <option value="8x8">8 x 8 tiles</option>
+                                    <option value="16x16" selected>16 x 16 tiles</option>
+                                    <option value="24x16">24 x 16 tiles</option>
+                                    <option value="16x24">16 x 24 tiles</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                            </label>
+                            <label class="world-designer-field">Chunk width (tiles)
+                                <input type="number" data-role="png-import-export-width" value="16" min="1" step="1" />
+                            </label>
+                            <label class="world-designer-field">Chunk height (tiles)
+                                <input type="number" data-role="png-import-export-height" value="16" min="1" step="1" />
+                            </label>
+                        </div>
+                        <label class="world-designer-checkbox">
+                            <input type="checkbox" data-role="png-import-export-skip-empty" checked />
+                            Skip fully empty / black chunk PNGs
+                        </label>
+                        <div class="world-designer-actions">
+                            <button type="button" class="world-designer-button-secondary" data-role="png-import-export">Export chunks…</button>
+                        </div>
+                        <div class="world-designer-summary" data-role="png-import-export-meta">
+                            Export chunk PNGs with stable names and a manifest so the folder importer can reconstruct the larger map later.
+                        </div>
+                    </div>
                     <div class="world-designer-import-card">
                         <h3>Place matched blocks in the world</h3>
                         <div class="world-designer-grid">
@@ -4667,6 +5371,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                             <label class="world-designer-field">World span height
                                 <input type="number" data-role="png-import-world-height" value="${defaultWorldRect.height}" step="1" />
                             </label>
+                        </div>
+                        <div class="world-designer-summary" data-role="png-import-world-meta">
+                            In chunk-folder mode, world left/top is the origin for the exported crop and the folder preview keeps the selected chunk range aligned relative to that origin.
                         </div>
                         <label class="world-designer-checkbox">
                             <input type="checkbox" data-role="png-import-replace" checked />
@@ -4748,17 +5455,38 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         `;
         refs.modal.classList.add('open');
 
+        const modeSelect = refs.modalBody.querySelector('[data-role="png-import-mode"]') as HTMLSelectElement;
+        const singleSourceCard = refs.modalBody.querySelector('[data-role="png-import-single-source"]') as HTMLDivElement;
+        const folderSourceCard = refs.modalBody.querySelector('[data-role="png-import-folder-source"]') as HTMLDivElement;
+        const sourceCropCard = refs.modalBody.querySelector('[data-role="png-import-source-crop"]') as HTMLDivElement;
+        const exportCard = refs.modalBody.querySelector('[data-role="png-import-export-card"]') as HTMLDivElement;
         const urlInput = refs.modalBody.querySelector('[data-role="png-import-url"]') as HTMLInputElement;
         const browseButton = refs.modalBody.querySelector('[data-role="png-import-browse"]') as HTMLButtonElement;
         const fileInput = refs.modalBody.querySelector('[data-role="png-import-file"]') as HTMLInputElement;
+        const folderBrowseButton = refs.modalBody.querySelector('[data-role="png-import-folder-browse"]') as HTMLButtonElement;
+        const folderNameInput = refs.modalBody.querySelector('[data-role="png-import-folder-name"]') as HTMLInputElement;
+        const folderMinColumnInput = refs.modalBody.querySelector('[data-role="png-import-folder-min-column"]') as HTMLInputElement;
+        const folderMaxColumnInput = refs.modalBody.querySelector('[data-role="png-import-folder-max-column"]') as HTMLInputElement;
+        const folderMinRowInput = refs.modalBody.querySelector('[data-role="png-import-folder-min-row"]') as HTMLInputElement;
+        const folderMaxRowInput = refs.modalBody.querySelector('[data-role="png-import-folder-max-row"]') as HTMLInputElement;
+        const folderMaxChunksInput = refs.modalBody.querySelector('[data-role="png-import-folder-max-chunks"]') as HTMLInputElement;
+        const folderFitTargetCheckbox = refs.modalBody.querySelector('[data-role="png-import-folder-fit-target"]') as HTMLInputElement;
+        const folderMeta = refs.modalBody.querySelector('[data-role="png-import-folder-meta"]') as HTMLDivElement;
         const sourceXInput = refs.modalBody.querySelector('[data-role="png-import-source-x"]') as HTMLInputElement;
         const sourceYInput = refs.modalBody.querySelector('[data-role="png-import-source-y"]') as HTMLInputElement;
         const sourceWidthInput = refs.modalBody.querySelector('[data-role="png-import-source-width"]') as HTMLInputElement;
         const sourceHeightInput = refs.modalBody.querySelector('[data-role="png-import-source-height"]') as HTMLInputElement;
+        const exportPresetSelect = refs.modalBody.querySelector('[data-role="png-import-export-preset"]') as HTMLSelectElement;
+        const exportWidthInput = refs.modalBody.querySelector('[data-role="png-import-export-width"]') as HTMLInputElement;
+        const exportHeightInput = refs.modalBody.querySelector('[data-role="png-import-export-height"]') as HTMLInputElement;
+        const exportSkipEmptyCheckbox = refs.modalBody.querySelector('[data-role="png-import-export-skip-empty"]') as HTMLInputElement;
+        const exportButton = refs.modalBody.querySelector('[data-role="png-import-export"]') as HTMLButtonElement;
+        const exportMeta = refs.modalBody.querySelector('[data-role="png-import-export-meta"]') as HTMLDivElement;
         const worldXInput = refs.modalBody.querySelector('[data-role="png-import-world-x"]') as HTMLInputElement;
         const worldYInput = refs.modalBody.querySelector('[data-role="png-import-world-y"]') as HTMLInputElement;
         const worldWidthInput = refs.modalBody.querySelector('[data-role="png-import-world-width"]') as HTMLInputElement;
         const worldHeightInput = refs.modalBody.querySelector('[data-role="png-import-world-height"]') as HTMLInputElement;
+        const worldMeta = refs.modalBody.querySelector('[data-role="png-import-world-meta"]') as HTMLDivElement;
         const replaceCheckbox = refs.modalBody.querySelector('[data-role="png-import-replace"]') as HTMLInputElement;
         const snapButton = refs.modalBody.querySelector('[data-role="png-import-snap"]') as HTMLButtonElement;
         const previewButton = refs.modalBody.querySelector('[data-role="png-import-preview"]') as HTMLButtonElement;
@@ -4788,6 +5516,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         let resolvedPngUrl = urlInput.value.trim();
         let resolvedPngLabel = resolvedPngUrl;
         let loadedImage: HTMLImageElement | null = null;
+        let importMode: PngImportSourceMode = 'single';
+        let chunkFolderSelection: PngChunkFolderSelection | null = null;
+        let lastFolderCompose: PngChunkComposedSource | null = null;
         let previewDraft: PngImportDraft | null = null;
         let previewBlocks: MapBlock[] = [];
         let previewOriginalBlocks: MapBlock[] = [];
@@ -4809,6 +5540,90 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 ? previewBlocks[selectedPreviewIndex]
                 : null
         );
+
+        const getFolderSelectionRange = (): PngChunkSelectionRange => {
+            if (!chunkFolderSelection) {
+                return {
+                    minChunkColumn: 0,
+                    maxChunkColumn: 0,
+                    minChunkRow: 0,
+                    maxChunkRow: 0,
+                    maxChunks: 0
+                };
+            }
+            const manifest = chunkFolderSelection.manifest;
+            const minChunkColumn = clamp(Math.round(getNumericInputValue(folderMinColumnInput, 1)) - 1, 0, manifest.totalChunkColumns - 1);
+            const maxChunkColumn = clamp(Math.round(getNumericInputValue(folderMaxColumnInput, manifest.totalChunkColumns)) - 1, minChunkColumn, manifest.totalChunkColumns - 1);
+            const minChunkRow = clamp(Math.round(getNumericInputValue(folderMinRowInput, 1)) - 1, 0, manifest.totalChunkRows - 1);
+            const maxChunkRow = clamp(Math.round(getNumericInputValue(folderMaxRowInput, manifest.totalChunkRows)) - 1, minChunkRow, manifest.totalChunkRows - 1);
+            const maxChunks = Math.max(0, Math.round(getNumericInputValue(folderMaxChunksInput, 0)));
+            return {
+                minChunkColumn,
+                maxChunkColumn,
+                minChunkRow,
+                maxChunkRow,
+                maxChunks
+            };
+        };
+
+        const syncFolderRangeInputs = () => {
+            if (!chunkFolderSelection) {
+                folderNameInput.value = 'No folder selected';
+                folderMinColumnInput.value = '1';
+                folderMaxColumnInput.value = '1';
+                folderMinRowInput.value = '1';
+                folderMaxRowInput.value = '1';
+                folderMaxChunksInput.value = '0';
+                folderMeta.textContent = 'Choose an exported chunk folder to reconstruct a larger map region.';
+                return;
+            }
+            const manifest = chunkFolderSelection.manifest;
+            const normalizedRange = getFolderSelectionRange();
+            folderNameInput.value = chunkFolderSelection.directoryName;
+            folderMinColumnInput.value = String(normalizedRange.minChunkColumn + 1);
+            folderMaxColumnInput.value = String(normalizedRange.maxChunkColumn + 1);
+            folderMinRowInput.value = String(normalizedRange.minChunkRow + 1);
+            folderMaxRowInput.value = String(normalizedRange.maxChunkRow + 1);
+            folderMaxChunksInput.value = String(normalizedRange.maxChunks);
+            const selected = getPngChunkSelectionEntries(chunkFolderSelection, normalizedRange);
+            folderMeta.textContent = `Loaded ${chunkFolderSelection.directoryName}. Export grid ${manifest.totalChunkColumns} x ${manifest.totalChunkRows} chunks covering ${manifest.totalSourceColumns} x ${manifest.totalSourceRows} source tiles. Current range includes ${selected.selectedChunks.length} of ${selected.totalSelectedChunks} available chunk PNGs.`;
+        };
+
+        const syncExportChunkInputs = () => {
+            const preset = exportPresetSelect.value;
+            const presetMatch = /^(\d+)x(\d+)$/i.exec(preset);
+            const useCustom = preset === 'custom' || !presetMatch;
+            exportWidthInput.disabled = !useCustom;
+            exportHeightInput.disabled = !useCustom;
+            if (presetMatch && !useCustom) {
+                exportWidthInput.value = presetMatch[1];
+                exportHeightInput.value = presetMatch[2];
+            }
+        };
+
+        const getExportChunkSize = () => ({
+            width: Math.max(1, Math.round(getNumericInputValue(exportWidthInput, PNG_CHUNK_DEFAULT_TILE_WIDTH))),
+            height: Math.max(1, Math.round(getNumericInputValue(exportHeightInput, PNG_CHUNK_DEFAULT_TILE_HEIGHT)))
+        });
+
+        const syncFolderTargetWorldSpan = () => {
+            if (!chunkFolderSelection || !folderFitTargetCheckbox.checked) {
+                return;
+            }
+            const range = getFolderSelectionRange();
+            const { selectedChunks } = getPngChunkSelectionEntries(chunkFolderSelection, range);
+            if (selectedChunks.length === 0) {
+                return;
+            }
+            const cropTileOriginX = Math.round(chunkFolderSelection.manifest.crop.x / PNG_IMPORT_SOURCE_TILE_SIZE);
+            const cropTileOriginY = Math.round(chunkFolderSelection.manifest.crop.y / PNG_IMPORT_SOURCE_TILE_SIZE);
+            const minTileX = Math.min(...selectedChunks.map((chunk) => chunk.sourceTileX)) - cropTileOriginX;
+            const minTileY = Math.min(...selectedChunks.map((chunk) => chunk.sourceTileY)) - cropTileOriginY;
+            const maxTileX = Math.max(...selectedChunks.map((chunk) => chunk.sourceTileX + chunk.tileWidth)) - cropTileOriginX;
+            const maxTileY = Math.max(...selectedChunks.map((chunk) => chunk.sourceTileY + chunk.tileHeight)) - cropTileOriginY;
+            worldWidthInput.value = String((maxTileX - minTileX) * TILE_SIZE);
+            worldHeightInput.value = String((maxTileY - minTileY) * TILE_SIZE);
+        };
 
         const formatDuration = (milliseconds: number) => {
             const totalSeconds = Math.max(0, Math.round(milliseconds / 1000));
@@ -4858,17 +5673,44 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             setPreviewZoom(clamp(fitZoom, 0.25, 8));
         };
 
+        const syncImportModeUi = () => {
+            const folderMode = importMode === 'folder';
+            modeSelect.value = importMode;
+            singleSourceCard.hidden = folderMode;
+            sourceCropCard.hidden = folderMode;
+            exportCard.hidden = folderMode;
+            folderSourceCard.hidden = !folderMode;
+            worldWidthInput.readOnly = folderMode;
+            worldHeightInput.readOnly = folderMode;
+            worldMeta.textContent = folderMode
+                ? 'Chunk-folder mode places the selected chunk range relative to the exported crop origin. World left/top is that origin, and width/height are kept in sync with the selected chunk range.'
+                : 'Single PNG mode uses the source tile grid from the chosen PNG crop and maps it across the world rectangle you enter here.';
+        };
+
         const setImportBusy = (busy: boolean) => {
             importBusy = busy;
             refs.modal.dataset.busy = busy ? 'true' : 'false';
             const controls: Array<HTMLInputElement | HTMLButtonElement | HTMLSelectElement> = [
+                modeSelect,
                 urlInput,
                 browseButton,
                 fileInput,
+                folderBrowseButton,
+                folderMinColumnInput,
+                folderMaxColumnInput,
+                folderMinRowInput,
+                folderMaxRowInput,
+                folderMaxChunksInput,
+                folderFitTargetCheckbox,
                 sourceXInput,
                 sourceYInput,
                 sourceWidthInput,
                 sourceHeightInput,
+                exportPresetSelect,
+                exportWidthInput,
+                exportHeightInput,
+                exportSkipEmptyCheckbox,
+                exportButton,
                 worldXInput,
                 worldYInput,
                 worldWidthInput,
@@ -4894,6 +5736,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             progressWrap.classList.toggle('busy', busy);
             selectedTypePicker.style.pointerEvents = busy ? 'none' : '';
             previewCanvas.style.pointerEvents = busy ? 'none' : '';
+            worldWidthInput.disabled = busy || importMode === 'folder';
+            worldHeightInput.disabled = busy || importMode === 'folder';
             renderImportTypePicker();
             syncSelectedPreviewControls();
         };
@@ -5061,6 +5905,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         };
 
         const invalidatePreview = (message: string) => {
+            lastFolderCompose = null;
             previewDraft = null;
             previewBlocks = [];
             previewOriginalBlocks = [];
@@ -5071,6 +5916,21 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         };
 
         const updatePngImportMeta = () => {
+            const previewStateMessage = previewDraft
+                ? ' Preview is ready below; click tiles to edit them before importing.'
+                : ' Preview the blocks before importing so you can review and fix any bad matches.';
+            if (importMode === 'folder') {
+                if (!chunkFolderSelection) {
+                    meta.textContent = 'Choose an exported chunk folder to inspect and rebuild a larger map section.';
+                    return;
+                }
+                const range = getFolderSelectionRange();
+                const { selectedChunks, totalSelectedChunks } = getPngChunkSelectionEntries(chunkFolderSelection, range);
+                const worldX = Math.round(getNumericInputValue(worldXInput, 0));
+                const worldY = Math.round(getNumericInputValue(worldYInput, 0));
+                meta.textContent = `Loaded chunk folder ${chunkFolderSelection.directoryName}. The selected chunk range spans columns ${range.minChunkColumn + 1}-${range.maxChunkColumn + 1} and rows ${range.minChunkRow + 1}-${range.maxChunkRow + 1}, using ${selectedChunks.length} of ${totalSelectedChunks} available chunk PNGs. The importer will place that range relative to world origin (${worldX}, ${worldY}).${previewStateMessage}`;
+                return;
+            }
             if (!loadedImage) {
                 meta.textContent = 'Enter a PNG URL to inspect and import.';
                 return;
@@ -5102,13 +5962,15 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 sourceY % 32 === 0 &&
                 sourceWidth % 32 === 0 &&
                 sourceHeight % 32 === 0;
-            const previewStateMessage = previewDraft
-                ? ' Preview is ready below; click tiles to edit them before importing.'
-                : ' Preview the blocks before importing so you can review and fix any bad matches.';
             meta.textContent = `Loaded ${resolvedPngLabel || resolvedPngUrl} (${loadedImage.width}x${loadedImage.height}). Source rect (${sourceX}, ${sourceY}, ${sourceWidth}x${sourceHeight}) is ${sourceTileAligned ? 'tile-aligned' : 'not tile-aligned'} and spans ${sourceColumns} x ${sourceRows} source tiles. Target world rect ${worldWidth}x${worldHeight} will place those ${sourceColumns} x ${sourceRows} blocks across that world area.${previewStateMessage}`;
         };
 
         const syncPngMetadata = async (options?: { forceFullImageBounds?: boolean }) => {
+            if (importMode === 'folder') {
+                loadedImage = null;
+                updatePngImportMeta();
+                return;
+            }
             const url = resolvedPngUrl.trim();
             if (!url) {
                 loadedImage = null;
@@ -5148,7 +6010,24 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             }
         };
 
+        syncImportModeUi();
+        syncExportChunkInputs();
+        syncFolderRangeInputs();
         void syncPngMetadata();
+        modeSelect.addEventListener('change', () => {
+            importMode = modeSelect.value === 'folder' ? 'folder' : 'single';
+            invalidatePreview(importMode === 'folder'
+                ? 'Preview not generated yet. Choose a chunk folder and click "Preview blocks" to inspect the reconstructed map section.'
+                : 'Preview not generated yet. Click "Preview blocks" to inspect the matches.');
+            syncImportModeUi();
+            if (importMode === 'folder') {
+                syncFolderRangeInputs();
+                syncFolderTargetWorldSpan();
+                updatePngImportMeta();
+            } else {
+                void syncPngMetadata();
+            }
+        });
         browseButton.addEventListener('click', () => {
             fileInput.click();
         });
@@ -5164,6 +6043,39 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             urlInput.value = file.name;
             void syncPngMetadata({ forceFullImageBounds: true });
         });
+        folderBrowseButton.addEventListener('click', async () => {
+            try {
+                progressStartedAt = Date.now();
+                setImportBusy(true);
+                setProgress({
+                    phase: 'Reading chunk folder',
+                    completed: 0,
+                    total: 1,
+                    detail: 'Loading the exported chunk manifest and PNG files.'
+                });
+                const directoryHandle = await getDirectoryPicker()();
+                chunkFolderSelection = await readPngChunkFolderSelection(directoryHandle, async (progress) => {
+                    setProgress(progress);
+                });
+                folderMinColumnInput.value = '1';
+                folderMaxColumnInput.value = String(chunkFolderSelection.manifest.totalChunkColumns);
+                folderMinRowInput.value = '1';
+                folderMaxRowInput.value = String(chunkFolderSelection.manifest.totalChunkRows);
+                folderMaxChunksInput.value = '0';
+                syncFolderRangeInputs();
+                syncFolderTargetWorldSpan();
+                invalidatePreview('Preview not generated yet. Click "Preview blocks" to inspect the reconstructed map section.');
+                updatePngImportMeta();
+            } catch (error) {
+                chunkFolderSelection = null;
+                syncFolderRangeInputs();
+                invalidatePreview(error instanceof Error ? error.message : 'Failed to read the chunk folder.');
+                setStatus(error instanceof Error ? error.message : 'Failed to read the chunk folder.', 'error');
+            } finally {
+                setImportBusy(false);
+                setProgress(null);
+            }
+        });
 
         urlInput.addEventListener('change', () => {
             clearPngImportObjectUrl();
@@ -5175,7 +6087,12 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         });
 
         const handleImportFieldChanged = () => {
-            invalidatePreview('Preview is out of date. Click "Preview blocks" again before importing.');
+            invalidatePreview(importMode === 'folder'
+                ? 'Preview is out of date. Click "Preview blocks" again before importing the reconstructed chunk range.'
+                : 'Preview is out of date. Click "Preview blocks" again before importing.');
+            if (importMode === 'folder') {
+                syncFolderTargetWorldSpan();
+            }
             updatePngImportMeta();
         };
 
@@ -5191,6 +6108,42 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         ].forEach((input) => {
             input.addEventListener('input', handleImportFieldChanged);
             input.addEventListener('change', handleImportFieldChanged);
+        });
+        [
+            folderMinColumnInput,
+            folderMaxColumnInput,
+            folderMinRowInput,
+            folderMaxRowInput,
+            folderMaxChunksInput
+        ].forEach((input) => {
+            input.addEventListener('input', () => {
+                syncFolderRangeInputs();
+                handleImportFieldChanged();
+            });
+            input.addEventListener('change', () => {
+                syncFolderRangeInputs();
+                handleImportFieldChanged();
+            });
+        });
+        folderFitTargetCheckbox.addEventListener('change', () => {
+            syncFolderTargetWorldSpan();
+            updatePngImportMeta();
+        });
+        exportPresetSelect.addEventListener('change', () => {
+            syncExportChunkInputs();
+            updatePngImportMeta();
+        });
+        [exportWidthInput, exportHeightInput].forEach((input) => {
+            input.addEventListener('input', () => {
+                exportPresetSelect.value = 'custom';
+                syncExportChunkInputs();
+                updatePngImportMeta();
+            });
+            input.addEventListener('change', () => {
+                exportPresetSelect.value = 'custom';
+                syncExportChunkInputs();
+                updatePngImportMeta();
+            });
         });
 
         zoomOutButton.addEventListener('click', () => setPreviewZoom(previewZoom / 1.25));
@@ -5232,6 +6185,56 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             sourceHeightInput.value = String(Math.max(1, snappedBottom - snappedY));
             invalidatePreview('Preview is out of date. Click "Preview blocks" again before importing.');
             updatePngImportMeta();
+        });
+        exportButton.addEventListener('click', async () => {
+            if (importMode !== 'single') {
+                setStatus('Chunk export is only available when working from a single PNG source.', 'error');
+                return;
+            }
+            if (!loadedImage) {
+                setStatus('Load a PNG before exporting chunk files.', 'error');
+                return;
+            }
+            const sourceX = clamp(Math.round(getNumericInputValue(sourceXInput, 0)), 0, Math.max(0, loadedImage.width - 1));
+            const sourceY = clamp(Math.round(getNumericInputValue(sourceYInput, 0)), 0, Math.max(0, loadedImage.height - 1));
+            const sourceWidth = Math.max(1, Math.min(Math.round(getNumericInputValue(sourceWidthInput, loadedImage.width)), loadedImage.width - sourceX));
+            const sourceHeight = Math.max(1, Math.min(Math.round(getNumericInputValue(sourceHeightInput, loadedImage.height)), loadedImage.height - sourceY));
+            const chunkSize = getExportChunkSize();
+            progressStartedAt = Date.now();
+            setImportBusy(true);
+            setProgress({
+                phase: 'Preparing chunk export',
+                completed: 0,
+                total: 1,
+                detail: 'Validating the PNG crop and opening a destination folder.'
+            });
+            exportMeta.textContent = 'Exporting chunk PNGs…';
+            try {
+                const result = await exportPngChunksToDirectory({
+                    image: loadedImage,
+                    sourceName: resolvedPngLabel || resolvedPngUrl || 'png-import',
+                    sourceX,
+                    sourceY,
+                    sourceWidth,
+                    sourceHeight,
+                    chunkTileWidth: chunkSize.width,
+                    chunkTileHeight: chunkSize.height,
+                    skipEmpty: exportSkipEmptyCheckbox.checked
+                }, async (progress) => {
+                    setProgress(progress);
+                });
+                exportMeta.textContent = `Exported ${result.exportedChunks} chunk PNGs to ${result.directoryName}. The folder also contains ${PNG_CHUNK_EXPORT_MANIFEST_NAME} so the chunk-folder importer can rebuild the larger map automatically.`;
+                setStatus(
+                    `Exported ${result.exportedChunks} chunk PNGs to ${result.directoryName}.`,
+                    'success'
+                );
+            } catch (error) {
+                exportMeta.textContent = error instanceof Error ? error.message : 'Failed to export chunk PNGs.';
+                setStatus(error instanceof Error ? error.message : 'Failed to export chunk PNGs.', 'error');
+            } finally {
+                setImportBusy(false);
+                setProgress(null);
+            }
         });
 
         previewCanvas.addEventListener('click', (event) => {
@@ -5301,20 +6304,59 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 detail: 'Starting PNG preview generation.'
             });
             try {
-                const draft = await buildPngImportDraftFromPng({
-                    url: resolvedPngUrl,
-                    sourceX: getNumericInputValue(sourceXInput, 0),
-                    sourceY: getNumericInputValue(sourceYInput, 0),
-                    sourceWidth: getNumericInputValue(sourceWidthInput, 0),
-                    sourceHeight: getNumericInputValue(sourceHeightInput, 0),
-                    worldX: getNumericInputValue(worldXInput, 0),
-                    worldY: getNumericInputValue(worldYInput, 0),
-                    worldWidth: getNumericInputValue(worldWidthInput, 32),
-                    worldHeight: getNumericInputValue(worldHeightInput, 32),
-                    replaceExisting: replaceCheckbox.checked
-                }, async (progress) => {
-                    setProgress(progress);
-                });
+                let draft: PngImportDraft;
+                let previewContextMessage = '';
+                if (importMode === 'folder') {
+                    if (!chunkFolderSelection) {
+                        throw new Error('Choose an exported chunk folder before previewing the reconstructed map.');
+                    }
+                    const composed = await composePngChunkFolderSource(
+                        chunkFolderSelection,
+                        getFolderSelectionRange(),
+                        async (progress) => {
+                            setProgress(progress);
+                        }
+                    );
+                    lastFolderCompose = composed;
+                    const baseWorldX = Math.round(getNumericInputValue(worldXInput, 0));
+                    const baseWorldY = Math.round(getNumericInputValue(worldYInput, 0));
+                    const composedWorldX = baseWorldX + composed.relativeTileX * TILE_SIZE;
+                    const composedWorldY = baseWorldY + composed.relativeTileY * TILE_SIZE;
+                    const composedWorldWidth = composed.columns * TILE_SIZE;
+                    const composedWorldHeight = composed.rows * TILE_SIZE;
+                    worldWidthInput.value = String(composedWorldWidth);
+                    worldHeightInput.value = String(composedWorldHeight);
+                    draft = await buildPngImportDraftFromImage(composed.image, {
+                        sourceX: 0,
+                        sourceY: 0,
+                        sourceWidth: composed.sourceWidth,
+                        sourceHeight: composed.sourceHeight,
+                        worldX: composedWorldX,
+                        worldY: composedWorldY,
+                        worldWidth: composedWorldWidth,
+                        worldHeight: composedWorldHeight
+                    }, async (progress) => {
+                        setProgress(progress);
+                    });
+                    previewContextMessage = composed.totalSelectedChunks > composed.chunkCount
+                        ? ` Preview uses ${composed.chunkCount} chunk PNGs from the selected range (limited from ${composed.totalSelectedChunks}).`
+                        : ` Preview uses ${composed.chunkCount} chunk PNGs from the selected folder range.`;
+                } else {
+                    draft = await buildPngImportDraftFromPng({
+                        url: resolvedPngUrl,
+                        sourceX: getNumericInputValue(sourceXInput, 0),
+                        sourceY: getNumericInputValue(sourceYInput, 0),
+                        sourceWidth: getNumericInputValue(sourceWidthInput, 0),
+                        sourceHeight: getNumericInputValue(sourceHeightInput, 0),
+                        worldX: getNumericInputValue(worldXInput, 0),
+                        worldY: getNumericInputValue(worldYInput, 0),
+                        worldWidth: getNumericInputValue(worldWidthInput, 32),
+                        worldHeight: getNumericInputValue(worldHeightInput, 32),
+                        replaceExisting: replaceCheckbox.checked
+                    }, async (progress) => {
+                        setProgress(progress);
+                    });
+                }
                 previewDraft = draft;
                 previewBlocks = draft.blocks.map((block) => toMapBlockData(block));
                 previewOriginalBlocks = draft.blocks.map((block) => toMapBlockData(block));
@@ -5325,8 +6367,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     ? ` Auto-aligned the source grid by (${draft.sourceGridOffsetX}, ${draft.sourceGridOffsetY}) px before matching.`
                     : '';
                 previewMeta.textContent = draft.uncertainTiles > 0
-                    ? `Preview ready. ${draft.uncertainTiles} tile${draft.uncertainTiles === 1 ? '' : 's'} were low-confidence matches and are outlined in gold.${gridOffsetMessage}`
-                    : `Preview ready. ${draft.blocks.length} tile${draft.blocks.length === 1 ? '' : 's'} matched cleanly.${gridOffsetMessage}`;
+                    ? `Preview ready. ${draft.uncertainTiles} tile${draft.uncertainTiles === 1 ? '' : 's'} were low-confidence matches and are outlined in gold.${gridOffsetMessage}${previewContextMessage}`
+                    : `Preview ready. ${draft.blocks.length} tile${draft.blocks.length === 1 ? '' : 's'} matched cleanly.${gridOffsetMessage}${previewContextMessage}`;
                 refs.modalConfirm.disabled = previewBlocks.length === 0;
                 updatePngImportMeta();
             } catch (error) {
@@ -5354,6 +6396,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             }
             try {
                 setImportBusy(true);
+                const sourceLabel = importMode === 'folder' ? 'chunk folder' : 'PNG';
                 const committedDraft: PngImportDraft = {
                     ...previewDraft,
                     blocks: previewBlocks.map((block) => toMapBlockData(block))
@@ -5362,8 +6405,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 closeModal(true);
                 setStatus(
                     committedDraft.uncertainTiles > 0
-                        ? `Imported ${committedDraft.blocks.length} reviewed draft world tiles from PNG. ${committedDraft.uncertainTiles} tile${committedDraft.uncertainTiles === 1 ? '' : 's'} were low-confidence auto-matches before review.`
-                        : `Imported ${committedDraft.blocks.length} reviewed draft world tiles from PNG.`,
+                        ? `Imported ${committedDraft.blocks.length} reviewed draft world tiles from the ${sourceLabel}. ${committedDraft.uncertainTiles} tile${committedDraft.uncertainTiles === 1 ? '' : 's'} were low-confidence auto-matches before review.`
+                        : `Imported ${committedDraft.blocks.length} reviewed draft world tiles from the ${sourceLabel}.`,
                     committedDraft.uncertainTiles > 0 ? 'neutral' : 'success'
                 );
             } catch (error) {

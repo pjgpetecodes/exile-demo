@@ -1,6 +1,13 @@
-// --- Map size in pixels (constant) ---
-export const MAP_WIDTH = 10000;  // pixels
-export const MAP_HEIGHT = 10000; // pixels
+// --- Map size in pixels ---
+export const DEFAULT_MAP_WIDTH = 10000;
+export const DEFAULT_MAP_HEIGHT = 10000;
+export let MAP_WIDTH = DEFAULT_MAP_WIDTH;
+export let MAP_HEIGHT = DEFAULT_MAP_HEIGHT;
+
+export function setMapBounds(width: number, height: number) {
+    MAP_WIDTH = Math.max(DEFAULT_MAP_WIDTH, Math.ceil(width / 32) * 32);
+    MAP_HEIGHT = Math.max(DEFAULT_MAP_HEIGHT, Math.ceil(height / 32) * 32);
+}
 
 // Sprite scaling factor (adjust as needed)
 export const SPRITE_SCALE = 2.2;
@@ -59,4 +66,3 @@ export function toggleSoundEnabled() {
     setSoundEnabled(!soundEnabled);
     return soundEnabled;
 }
-

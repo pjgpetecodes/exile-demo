@@ -270,21 +270,65 @@ The current importer is intentionally conservative:
 - it is meant for **draft cleanup**, not authoritative one-click conversion
 - low-confidence matches should be reviewed before save
 
+### Split a large PNG into import chunks
+
+If a full-map PNG is too large to review comfortably in one pass, the import modal can now split the currently selected PNG crop into smaller chunk PNGs.
+
+1. Choose **Single PNG**
+2. Load a PNG and set a **tile-aligned** crop
+3. In **Split PNG into import chunks**, pick a chunk preset or enter a custom tile size
+4. Click **Export chunks…**
+5. Choose a destination folder in the browser
+
+The exporter writes:
+
+- one PNG per chunk
+- stable machine-readable chunk filenames
+- `png-import-chunks.manifest.json`
+
+That exported folder is then ready for **Chunk folder** mode.
+
+### Rebuild a larger map from a chunk folder
+
+Choose **Chunk folder** in the same modal when you want the importer to walk an exported folder and reconstruct a larger combined draft.
+
+1. Choose **Chunk folder**
+2. Click **Choose folder…** and select a folder that contains the exported chunk PNGs and manifest
+3. Optionally limit the run with:
+   - chunk column / row ranges
+   - **Max chunks** to process
+4. Leave **Keep the world span matched to the selected chunk range** enabled unless you have a specific reason not to
+5. Set **World left/top** to the world origin for the exported crop
+6. Click **Preview blocks**
+7. Review and fix the reconstructed draft before clicking **Import draft**
+
+Chunk-folder mode uses the stored chunk positions to place each selected chunk back into the correct overall map layout, instead of treating every PNG as an unrelated one-off import.
+
+### Recommended chunk sizes
+
+- **Default:** `16 x 16` tiles
+- **Small / safest:** `8 x 8` tiles
+- **Larger but still practical:** `24 x 16` or `16 x 24`
+
+The hard importer limit is still higher than that, but smaller chunk sizes are much easier to preview, retry, and clean up.
+
 ### Step-by-step workflow
 
 1. Click **Import PNG draft**
-2. Either:
+2. Choose **Single PNG** or **Chunk folder**
+3. For **Single PNG**, either:
    - enter a browser-served PNG path such as `./src/assets/MAP-Exile-BC.png`, or
    - click **Browse…** and pick a local PNG file
-3. If you browse to a local PNG, the importer fills the **PNG crop in the source image** fields from the file automatically, starting with the full image, and it also suggests a **Place matched blocks in the world** size that better matches the game’s rendered scale
-4. Adjust the **PNG crop** in **image pixels** only if you want part of the PNG rather than the whole file. Use **Snap crop to 32px tiles** if the crop needs aligning to tile boundaries.
-5. Fill in the **world placement** fields in world coordinates. The importer keeps the block count from the **source PNG tile grid** and places those blocks across the chosen world area, instead of assuming the target width/height themselves define the tile count.
-6. Click **Preview blocks** to generate the matched tile draft. The importer will also auto-align the source sampling grid when the sprite content suggests the crop is globally offset inside the 32px cells.
-7. Watch the built-in progress bar while preview generation is running. It reports the current stage and estimated time left, and the controls are locked until the pass finishes.
-8. Use the larger preview area to inspect the draft, and use **zoom in / zoom out / fit / 100%** controls if the section is too big or too small to review comfortably.
-9. Click tiles in the preview to inspect or edit their **type**, **palette**, **rotation**, and **translation** before the draft touches the live world. The importer now seeds a best-fit translation automatically from the sampled sprite placement, so edge-aligned pieces often come in already shifted to the correct side.
-10. Decide whether to keep **Replace existing world items inside the target world rectangle** enabled
-11. Click **Import draft**
+4. If you browse to a local PNG, the importer fills the **PNG crop in the source image** fields from the file automatically, starting with the full image, and it also suggests a **Place matched blocks in the world** size that better matches the game’s rendered scale
+5. Adjust the **PNG crop** in **image pixels** only if you want part of the PNG rather than the whole file. Use **Snap crop to 32px tiles** if the crop needs aligning to tile boundaries.
+6. For **Chunk folder**, choose the exported folder and optionally narrow the run with chunk row / column ranges or **Max chunks**
+7. Fill in the **world placement** fields in world coordinates. In **Single PNG** mode, the importer keeps the block count from the **source PNG tile grid** and maps it across the world rectangle you choose. In **Chunk folder** mode, **World left/top** is the origin for the exported crop and the importer keeps the selected chunk range aligned relative to that origin.
+8. Click **Preview blocks** to generate the matched tile draft. The importer will also auto-align the source sampling grid when the sprite content suggests the crop is globally offset inside the 32px cells.
+9. Watch the built-in progress bar while preview generation is running. It reports the current stage and estimated time left, and the controls are locked until the pass finishes.
+10. Use the larger preview area to inspect the draft, and use **zoom in / zoom out / fit / 100%** controls if the section is too big or too small to review comfortably.
+11. Click tiles in the preview to inspect or edit their **type**, **palette**, **rotation**, and **translation** before the draft touches the live world. The importer now seeds a best-fit translation automatically from the sampled sprite placement, so edge-aligned pieces often come in already shifted to the correct side.
+12. Decide whether to keep **Replace existing world items inside the target world rectangle** enabled
+13. Click **Import draft**
 
 After import:
 
@@ -307,6 +351,8 @@ That means:
 - the importer is effectively remapping the source tile grid into the chosen world-space area
 
 If you browse to a PNG file, you usually do **not** need to type the source width or source height manually for a full-image import, because the importer reads those from the selected file and also suggests a target world size that matches the game’s rendered scale more closely.
+
+In **Chunk folder** mode, the target span is derived from the selected chunk range, and the importer uses the chunk metadata to keep that range in the right relative place inside the overall map.
 
 ### Replace vs append behavior
 
@@ -337,13 +383,16 @@ This is why no AI endpoint is required for the current version.
 Recommended workflow:
 
 1. start with a **small region**
-2. click **Preview blocks**
-3. fix obvious bad matches directly in the preview
-4. use the tile **Translation** control when a matched world sprite needs to sit against one side of its 32x32 cell
-5. import the reviewed draft
-6. check the result visually in the designer
-7. use **Preview before save** to inspect the resulting JSON
-8. save only after cleanup
+2. if needed, **export chunks** first and then test the folder importer on a limited range
+3. click **Preview blocks**
+4. fix obvious bad matches directly in the preview
+5. use the tile **Translation** control when a matched world sprite needs to sit against one side of its 32x32 cell
+6. import the reviewed draft
+7. check the result visually in the designer
+8. use **Preview before save** to inspect the resulting JSON
+9. save only after cleanup
+
+Large folder imports can extend the usable runtime world bounds automatically when the reconstructed draft reaches beyond the previous map size.
 
 ### What to expect
 
