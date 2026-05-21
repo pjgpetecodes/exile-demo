@@ -17,9 +17,11 @@ const STAR_COLORS = [
     '#00ff00', '#00aaff', '#ff9900', '#e0e0ff', '#ff00ff', '#00ffff', '#fffacd', '#f8f8ff'
 ];
 let stars: Star[] = [];
+let lastStarUpdateAt = 0;
 const STAR_DENSITY_DIVISOR = 30000;
 const MIN_STAR_COUNT = 200;
 const MAX_STAR_COUNT = 1000;
+const STAR_MOVE_INTERVAL_SCALE_MS = 1000 / 60;
 
 function getStarCount(worldWidth: number, starfieldHeight: number) {
     return Math.max(
@@ -36,11 +38,12 @@ function randomStarWorldPosition(worldWidth: number, starfieldHeight: number) {
 }
 
 function randomStarMoveInterval() {
-    return 120 + Math.floor(Math.random() * 240);
+    return (120 + Math.floor(Math.random() * 240)) * STAR_MOVE_INTERVAL_SCALE_MS;
 }
 
 export function initStars(worldWidth: number, starfieldHeight: number) {
     stars = [];
+    lastStarUpdateAt = 0;
     const starCount = getStarCount(worldWidth, starfieldHeight);
     for (let i = 0; i < starCount; i++) {
         const position = randomStarWorldPosition(worldWidth, starfieldHeight);
@@ -57,9 +60,20 @@ export function initStars(worldWidth: number, starfieldHeight: number) {
     }
 }
 
-function maybeMoveStarsToNewLocations(worldWidth: number, starfieldHeight: number) {
+function getStarElapsedMs(now: number) {
+    if (lastStarUpdateAt === 0) {
+        lastStarUpdateAt = now;
+        return 1000 / 60;
+    }
+
+    const elapsedMs = Math.min(250, Math.max(0, now - lastStarUpdateAt));
+    lastStarUpdateAt = now;
+    return elapsedMs;
+}
+
+function maybeMoveStarsToNewLocations(elapsedMs: number, worldWidth: number, starfieldHeight: number) {
     for (let star of stars) {
-        star.moveTimer++;
+        star.moveTimer += elapsedMs;
         if (star.moveTimer > star.moveInterval) {
             const position = randomStarWorldPosition(worldWidth, starfieldHeight);
             star.worldX = position.x;
@@ -76,14 +90,17 @@ export function updateAndDrawStars(
     camera: { x: number, y: number },
     canvas: HTMLCanvasElement,
     worldWidth: number,
-    starfieldHeight: number
+    starfieldHeight: number,
+    now: number = typeof performance !== 'undefined' ? performance.now() : Date.now()
 ) {
-    maybeMoveStarsToNewLocations(worldWidth, starfieldHeight);
+    const elapsedMs = getStarElapsedMs(now);
+    maybeMoveStarsToNewLocations(elapsedMs, worldWidth, starfieldHeight);
+    const baseAlpha = ctx.globalAlpha;
 
     for (let star of stars) {
         star.x = star.worldX - camera.x * 0.7;
         star.y = star.worldY - camera.y * 0.7;
-        star.twinkleTimer += star.twinkleSpeed / 60;
+        star.twinkleTimer += (star.twinkleSpeed * elapsedMs) / 1000;
         if (star.twinkleTimer > 1.5) {
             let prev = star.colorIndex;
             while (star.colorIndex === prev) {
@@ -96,11 +113,11 @@ export function updateAndDrawStars(
             star.y >= 0 && star.y < canvas.height &&
             star.worldY < starfieldHeight
         ) {
-            ctx.save();
             ctx.fillStyle = STAR_COLORS[star.colorIndex];
             ctx.globalAlpha = 0.7 + 0.3 * Math.sin(star.twinkleTimer * Math.PI);
             ctx.fillRect(Math.round(star.x), Math.round(star.y), 4, 4);
-            ctx.restore();
         }
     }
+
+    ctx.globalAlpha = baseAlpha;
 }

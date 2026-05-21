@@ -29,7 +29,7 @@ import {
     rebuildMapBlockRenderCache
 } from './map.js';
 import { initStars, updateAndDrawStars } from './stars.js';
-import { emitJetpackDots, updateAndDrawJetpackDots, resetJetpackDotEmitTimer } from './jetpack.js';
+import { emitJetpackDots, updateAndDrawJetpackDots, resetJetpackDotEmitTimer, hasActiveJetpackDots } from './jetpack.js';
 import { Button } from './button.js';
 import { Door } from './door.js';
 import { Creature } from './creature.js';
@@ -140,10 +140,12 @@ function applyPaletteDefinitions(definitions: PaletteDefinition[]) {
 
 window.addEventListener('keydown', (event) => {
     keys[event.key] = true;
+    requestImmediateFrame();
 });
 
 window.addEventListener('keyup', (event) => {
     keys[event.key] = false;
+    requestImmediateFrame();
 });
 
 // --- Mouse tracking for debug ---
@@ -153,6 +155,15 @@ window.addEventListener('mousemove', (e) => {
     const rect = canvas.getBoundingClientRect();
     mouseScreen.x = e.clientX - rect.left;
     mouseScreen.y = e.clientY - rect.top;
+    if (gameState.debugMode) {
+        requestImmediateFrame();
+    }
+});
+
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+        requestImmediateFrame();
+    }
 });
 
 window.addEventListener('keydown', (e) => {
@@ -193,6 +204,16 @@ let gameState: GameState & { debugMode: boolean } = {
     debugMode: false
 };
 
+const IDLE_FRAME_DELAY_MS = 125;
+const HIDDEN_FRAME_DELAY_MS = 500;
+const ACTIVE_MOTION_EPSILON = 0.05;
+
+type ScheduledFrameMode = 'raf' | 'timeout' | null;
+
+let scheduledFrameMode: ScheduledFrameMode = null;
+let scheduledFrameHandle: number | null = null;
+let isGameLoopRunning = false;
+
 let spriteSheet: HTMLImageElement;
 let astronautSpriteSource: CanvasImageSource; // Use this for astronaut rendering
 let walkAnimFrame = SPRITE_COL_WALK_START;
@@ -231,6 +252,100 @@ let teleportFlipVertical = false;
 // --- Input state ---
 const keys: Record<string, boolean> = {};
 let prevKeys: Record<string, boolean> = {}
+
+function hasPressedKeys() {
+    for (const key in keys) {
+        if (keys[key]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function hasMovingCollectables() {
+    return collectableEntities.some((collectable) =>
+        !collectable.collected &&
+        !collectable.stored &&
+        !collectable.held &&
+        (
+            !collectable.isGrounded ||
+            Math.abs(collectable.velocity.x) > ACTIVE_MOTION_EPSILON ||
+            Math.abs(collectable.velocity.y) > ACTIVE_MOTION_EPSILON ||
+            collectable.astronautCollisionIgnoreFrames > 0
+        )
+    );
+}
+
+function shouldRunInteractiveFrameRate() {
+    if (isDesignerOpen()) {
+        return true;
+    }
+
+    return (
+        hasPressedKeys() ||
+        teleporting ||
+        flySwitching ||
+        flyDownTransitioning ||
+        throwGuideDots.length > 0 ||
+        hasActiveJetpackDots() ||
+        doorEntities.some((door) => door.animating) ||
+        hasMovingCollectables() ||
+        !astronaut.isLanded ||
+        Math.abs(astronaut.velocity.x) > ACTIVE_MOTION_EPSILON ||
+        Math.abs(astronaut.velocity.y) > ACTIVE_MOTION_EPSILON ||
+        Math.abs(walkSpeed) > ACTIVE_MOTION_EPSILON
+    );
+}
+
+function clearScheduledFrame() {
+    if (scheduledFrameMode === 'raf' && scheduledFrameHandle !== null) {
+        window.cancelAnimationFrame(scheduledFrameHandle);
+    } else if (scheduledFrameMode === 'timeout' && scheduledFrameHandle !== null) {
+        window.clearTimeout(scheduledFrameHandle);
+    }
+
+    scheduledFrameMode = null;
+    scheduledFrameHandle = null;
+}
+
+function requestImmediateFrame() {
+    if (!gameState.isRunning || !mapLoaded || scheduledFrameMode === 'raf') {
+        return;
+    }
+
+    if (scheduledFrameMode === 'timeout') {
+        clearScheduledFrame();
+    }
+
+    scheduledFrameMode = 'raf';
+    scheduledFrameHandle = window.requestAnimationFrame(() => {
+        scheduledFrameMode = null;
+        scheduledFrameHandle = null;
+        void gameLoop();
+    });
+}
+
+function scheduleNextFrame() {
+    if (!gameState.isRunning || !mapLoaded || scheduledFrameMode !== null) {
+        return;
+    }
+
+    const delayMs = document.visibilityState === 'hidden'
+        ? HIDDEN_FRAME_DELAY_MS
+        : (shouldRunInteractiveFrameRate() ? 0 : IDLE_FRAME_DELAY_MS);
+
+    if (delayMs === 0) {
+        requestImmediateFrame();
+        return;
+    }
+
+    scheduledFrameMode = 'timeout';
+    scheduledFrameHandle = window.setTimeout(() => {
+        scheduledFrameMode = null;
+        scheduledFrameHandle = null;
+        requestImmediateFrame();
+    }, delayMs);
+}
 
 function resetFlySwitchAnimationState() {
     flySwitching = false;
@@ -957,7 +1072,7 @@ async function init() {
                     previewSpriteSheetNormalization,
                     normalizeSpriteSheetColors
                 });
-                gameLoop();
+                requestImmediateFrame();
             };
         });
     };
@@ -1006,16 +1121,25 @@ function drawAstronautInWorld(
 
 // When drawing the sprite, ensure the canvas is cleared with a transparent background
 async function gameLoop() {
-    if (!gameState.isRunning || !mapLoaded) return;
+    if (isGameLoopRunning) {
+        return;
+    }
 
-    ctx!.imageSmoothingEnabled = false;
-    ctx!.clearRect(0, 0, canvas.width, canvas.height);
+    isGameLoopRunning = true;
 
-    const camera = getCameraOffset();
+    try {
+        if (!gameState.isRunning || !mapLoaded) return;
 
-    // Update mouse world position
-    mouseWorld.x = Math.round(mouseScreen.x + camera.x);
-    mouseWorld.y = Math.round(mouseScreen.y + camera.y);
+        const frameNow = performance.now();
+
+        ctx!.imageSmoothingEnabled = false;
+        ctx!.clearRect(0, 0, canvas.width, canvas.height);
+
+        const camera = getCameraOffset();
+
+        // Update mouse world position
+        mouseWorld.x = Math.round(mouseScreen.x + camera.x);
+        mouseWorld.y = Math.round(mouseScreen.y + camera.y);
 
     // --- Sprite selection logic (animation, flipping, flying, walking) ---
     // Declare spriteCol/flipSprite/flipVertical only ONCE at the top of gameLoop
@@ -1058,13 +1182,14 @@ async function gameLoop() {
     }
 
     // --- Draw twinkling stars ---
-    updateAndDrawStars(
-        ctx!,
-        camera,
-        canvas,
-        MAP_WIDTH,
-        STARFIELD_HEIGHT
-    );
+        updateAndDrawStars(
+            ctx!,
+            camera,
+            canvas,
+            MAP_WIDTH,
+            STARFIELD_HEIGHT,
+            frameNow
+        );
 
     // --- Draw map blocks ---
     const layerVisibility = worldDesigner?.isActive()
@@ -1091,7 +1216,7 @@ async function gameLoop() {
 
     if (spriteSheet && spriteSheet.complete) {
         if (layerVisibility.doors) {
-            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, doorEntities);
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, doorEntities, frameNow);
         }
         // Draw map blocks (replace mapBlocks with mapBlocksToDraw in overlays below as well)
         // Patch: temporarily override mapBlocks for drawMap by monkey-patching global (not ideal, but drawMap uses global)
@@ -1141,12 +1266,12 @@ async function gameLoop() {
         }
         // Draw map blocks (drawMap uses global mapBlocks, so black_background blocks will be hidden only if not present in mapBlocks)
         // To hide, we need to patch drawMap to accept a blocks array, or temporarily monkey-patch global. For now, just draw overlays using mapBlocksToDraw.
-        drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksBehindAstronaut);
+        drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksBehindAstronaut, frameNow);
         if (layerVisibility.buttons) {
-            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, buttonEntities);
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, buttonEntities, frameNow);
         }
         if (layerVisibility.creatures) {
-            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureEntities);
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureEntities, frameNow);
         }
         if (layerVisibility.collectables) {
             const collectablesToDraw = worldDesigner?.isActive() && !worldDesigner.isPreviewMode()
@@ -1158,7 +1283,8 @@ async function gameLoop() {
                 spriteMap,
                 remappedSpriteSheets,
                 SPRITE_SCALE,
-                collectablesToDraw
+                collectablesToDraw,
+                frameNow
             );
         }
     }
@@ -1166,14 +1292,13 @@ async function gameLoop() {
     if (worldDesigner?.isActive()) {
         drawAstronautInWorld(ctx!, camera, spriteCol, flipSprite, flipVertical);
         if (mapBlocksMaskAstronaut.length > 0) {
-            drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut);
+            drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
         }
         if (heldCollectable) {
-            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, [heldCollectable]);
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, [heldCollectable], frameNow);
         }
         worldDesigner.render(ctx!);
         prevKeys = { ...keys };
-        requestAnimationFrame(gameLoop);
         return;
     }
 
@@ -1756,7 +1881,7 @@ async function gameLoop() {
         }
         ctx!.restore();
         if (mapBlocksMaskAstronaut.length > 0) {
-            drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut);
+            drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
         }
         teleportAnimFrame++;
 
@@ -1794,7 +1919,6 @@ async function gameLoop() {
         }
 
         prevKeys = { ...keys };
-        requestAnimationFrame(gameLoop);
         return;
     }
 
@@ -1852,7 +1976,7 @@ async function gameLoop() {
         ctx!.restore();
 
         if (mapBlocksMaskAstronaut.length > 0) {
-            drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut);
+            drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
         }
 
         // --- Draw tight bounding boxes for world map sprites with collision ---
@@ -1907,7 +2031,7 @@ async function gameLoop() {
         }
 
         if (heldCollectable) {
-            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, [heldCollectable]);
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, [heldCollectable], frameNow);
         }
 
         if (!getSoundEnabled()) {
@@ -1943,7 +2067,12 @@ async function gameLoop() {
     }
 
     prevKeys = { ...keys };
-    requestAnimationFrame(gameLoop);
+    } finally {
+        isGameLoopRunning = false;
+        if (gameState.isRunning && mapLoaded) {
+            scheduleNextFrame();
+        }
+    }
 }
 
 // --- Bounding boxes for astronaut sprites (populated after calculation) ---

@@ -247,7 +247,8 @@ export function drawMap(
     spriteMap: any,
     spriteSheets: CanvasImageSource[],
     SPRITE_SCALE: number,
-    blocks?: MapBlock[] // Optional: blocks to draw instead of global mapBlocks
+    blocks?: MapBlock[], // Optional: blocks to draw instead of global mapBlocks
+    now?: number
 ) {
     if (!spriteMap || !mapLoaded) return;
 
@@ -280,7 +281,8 @@ export function drawMap(
             block.type,
             block.paletteCycle,
             basePalette,
-            spriteSheets.length
+            spriteSheets.length,
+            now
         );
         const sheet = spriteSheets[paletteIdx] || spriteSheets[0];
 
