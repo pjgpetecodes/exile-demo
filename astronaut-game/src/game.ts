@@ -35,8 +35,10 @@ import { Door } from './door.js';
 import { Creature, toCreatureSaveData } from './creature.js';
 import { Collectable } from './collectable.js';
 import { makeBlackTransparent, remapSpritePalette, calculateSpriteCollisionBoundingBoxes, 
-    calculateAstronautSpriteBoundingBoxes, getSolidBlockAtWorld, getAnyBlockAtWorld, 
-    drawEntities, getSpriteTranslationOffset, getTransformedSpriteCanvas, normalizeSpriteTranslation, SpriteTranslation } from './utilities.js';
+calculateAstronautSpriteBoundingBoxes, getSolidBlockAtWorld, getAnyBlockAtWorld, 
+drawEntities, getSpriteTranslationOffset, getSpriteVisibleBounds, getTransformedSpriteCanvas,
+getVisibleCenterRotationOffset, normalizeSpriteTranslation, SpriteTranslation
+} from './utilities.js';
 import { MOVEMENT_SETTINGS, VIEWPORT_SETTINGS } from './settings.js';
 import {
     SPRITE_ROW, SPRITE_COL_STAND, SPRITE_COL_FLY_RIGHT, SPRITE_COL_FLY_DIAGONAL,
@@ -720,46 +722,13 @@ function drawWorldBoundingBoxOverlay(
 
     const drawWorldBBox = (entity: any) => {
         if (!entity.collision) return;
-        const bbox = blockInstanceRotatedBoundingBoxes.get(entity);
-        if (!bbox) return;
-        const scale = SPRITE_SCALE;
-        const tileW = 32 * scale;
-        const tileH = 32 * scale;
-        const drawX = entity.x - camera.x + tileW / 2;
-        const drawY = entity.y - camera.y + tileH / 2;
-        context.save();
-        context.translate(drawX, drawY);
-        if (entity.rotation) {
-            if (entity.rotation >= 1 && entity.rotation <= 4) {
-                context.rotate(((entity.rotation - 1) * Math.PI) / 2);
-            } else if (entity.rotation === 5) {
-                context.scale(-1, 1);
-            } else if (entity.rotation === 6) {
-                context.scale(1, -1);
-            } else if (entity.rotation === 7) {
-                context.scale(-1, -1);
-            }
-        }
-        const rect = findSpriteRectByType(entity.type);
-        const previewSheet = getEntityPreviewSheet(entity);
-        const transformedSprite = rect && previewSheet
-            ? getTransformedSpriteCanvas(
-                previewSheet,
-                rect,
-                typeof entity.rotation === 'number' ? entity.rotation : 1
-            )
-            : null;
-        const translationOffset = getSpriteTranslationOffset(
-            transformedSprite,
-            normalizeSpriteTranslation(entity.translation),
-            scale
+        const bounds = getEntityCollisionBounds(entity);
+        context.strokeRect(
+            entity.x - camera.x + bounds.left,
+            entity.y - camera.y + bounds.top,
+            bounds.right - bounds.left + 1,
+            bounds.bottom - bounds.top + 1
         );
-        const x = -tileW / 2 + translationOffset.x + bbox.minX * scale;
-        const y = -tileH / 2 + translationOffset.y + bbox.minY * scale;
-        const w = bbox.width * scale;
-        const h = bbox.height * scale;
-        context.strokeRect(x, y, w, h);
-        context.restore();
     };
 
     const mapBlocksToDraw = !layerVisibility.world
@@ -1430,7 +1399,6 @@ async function gameLoop() {
         }
         if (layerVisibility.creatures) {
             drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureEntities, frameNow);
-            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureProjectiles, frameNow);
             if (showCreatureOverlays) {
                 drawCreatureOverlays(ctx!, camera);
             }
@@ -1455,6 +1423,9 @@ async function gameLoop() {
         drawAstronautInWorld(ctx!, camera, spriteCol, flipSprite, flipVertical);
         if (mapBlocksMaskAstronaut.length > 0) {
             drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
+        }
+        if (layerVisibility.creatures && creatureProjectiles.length > 0) {
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureProjectiles, frameNow);
         }
         if (heldCollectable) {
             drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, [heldCollectable], frameNow);
@@ -2049,6 +2020,9 @@ async function gameLoop() {
         if (mapBlocksMaskAstronaut.length > 0) {
             drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
         }
+        if (layerVisibility.creatures && creatureProjectiles.length > 0) {
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureProjectiles, frameNow);
+        }
         teleportAnimFrame++;
 
         if (teleportPhase === 'out' && teleportAnimFrame >= TELEPORT_ANIM_FRAMES) {
@@ -2144,6 +2118,9 @@ async function gameLoop() {
         if (mapBlocksMaskAstronaut.length > 0) {
             drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
         }
+        if (layerVisibility.creatures && creatureProjectiles.length > 0) {
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureProjectiles, frameNow);
+        }
 
         // --- Draw tight bounding boxes for world map sprites with collision ---
         if (showTightBoundingBoxes && spriteSheet && spriteSheet.complete) {
@@ -2182,7 +2159,7 @@ async function gameLoop() {
                     }
                 }
                 const rect = findSpriteRectByType(entity.type);
-                const previewSheet = getEntityPreviewSheet(entity);
+                const previewSheet = getEntityPreviewSheet(entity as { palette?: number });
                 const transformedSprite = rect && previewSheet
                     ? getTransformedSpriteCanvas(
                         previewSheet,
@@ -2212,6 +2189,10 @@ async function gameLoop() {
 
         if (heldCollectable) {
             drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, [heldCollectable], frameNow);
+        }
+
+        if (layerVisibility.creatures && creatureProjectiles.length > 0) {
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureProjectiles, frameNow);
         }
 
         if (!getSoundEnabled()) {
@@ -2271,19 +2252,74 @@ type CollisionBounds = {
     bottom: number;
 };
 
-function getEntityCollisionBounds(entity: { type: string, rotation?: number }) {
+function getEntityRenderOffset(entity: {
+    type: string;
+    rotation?: number;
+    translation?: string | null;
+    palette?: number;
+    state?: Record<string, unknown>;
+    flipAroundVisibleCenter?: boolean;
+}) {
+    const rotation = typeof entity.rotation === 'number' ? Math.round(entity.rotation) : 0;
+    const spriteRect = findSpriteRectByType(entity.type);
+    const previewSheet = getEntityPreviewSheet(entity);
+    const transformedSprite = spriteRect && previewSheet
+        ? getTransformedSpriteCanvas(previewSheet, spriteRect, rotation)
+        : null;
+    const translationOffset = getSpriteTranslationOffset(
+        transformedSprite,
+        normalizeSpriteTranslation(entity.translation),
+        SPRITE_SCALE
+    );
+    const authoredRotation = typeof entity.state?.authoredRotation === 'number'
+        ? Math.round(Number(entity.state.authoredRotation))
+        : rotation;
+    const visibleCenterOffset = entity.flipAroundVisibleCenter === true && spriteRect && previewSheet
+        ? getVisibleCenterRotationOffset(previewSheet, spriteRect, authoredRotation, rotation)
+        : { x: 0, y: 0 };
+
+    return {
+        x: translationOffset.x + visibleCenterOffset.x * SPRITE_SCALE,
+        y: translationOffset.y + visibleCenterOffset.y * SPRITE_SCALE
+    };
+}
+
+function getEntityCollisionBounds(entity: {
+    type: string;
+    rotation?: number;
+    translation?: string | null;
+    palette?: number;
+    state?: Record<string, unknown>;
+    flipAroundVisibleCenter?: boolean;
+}) {
     const tileSize = 32 * SPRITE_SCALE;
     const rotation = typeof entity.rotation === "number" ? entity.rotation : 0;
+    const renderOffset = getEntityRenderOffset(entity);
     const bbox =
         worldMapRotatedBoundingBoxes[entity.type]?.[rotation] ||
         blockInstanceRotatedBoundingBoxes.get(entity as object) ||
         worldMapBoundingBoxes[entity.type];
     if (bbox) {
         return {
-            left: bbox.minX * SPRITE_SCALE,
-            right: (bbox.maxX + 1) * SPRITE_SCALE - 1,
-            top: bbox.minY * SPRITE_SCALE,
-            bottom: (bbox.maxY + 1) * SPRITE_SCALE - 1
+            left: renderOffset.x + bbox.minX * SPRITE_SCALE,
+            right: renderOffset.x + (bbox.maxX + 1) * SPRITE_SCALE - 1,
+            top: renderOffset.y + bbox.minY * SPRITE_SCALE,
+            bottom: renderOffset.y + (bbox.maxY + 1) * SPRITE_SCALE - 1
+        };
+    }
+
+    const spriteRect = findSpriteRectByType(entity.type);
+    const previewSheet = getEntityPreviewSheet(entity as { palette?: number });
+    const transformedSprite = spriteRect && previewSheet
+        ? getTransformedSpriteCanvas(previewSheet, spriteRect, rotation)
+        : null;
+    const visibleBounds = getSpriteVisibleBounds(transformedSprite);
+    if (visibleBounds) {
+        return {
+            left: renderOffset.x + visibleBounds.minX * SPRITE_SCALE,
+            right: renderOffset.x + (visibleBounds.maxX + 1) * SPRITE_SCALE - 1,
+            top: renderOffset.y + visibleBounds.minY * SPRITE_SCALE,
+            bottom: renderOffset.y + (visibleBounds.maxY + 1) * SPRITE_SCALE - 1
         };
     }
 
@@ -2385,6 +2421,56 @@ function getEntityPositionFromCenter(
         x: centerX - (collisionBounds.left + collisionBounds.right) / 2,
         y: centerY - (collisionBounds.top + collisionBounds.bottom) / 2
     };
+}
+
+function getStableCreatureAimCenter(creature: Creature, rotation: number) {
+    const spriteRect = findSpriteRectByType(creature.type);
+    const previewSheet = getEntityPreviewSheet(creature);
+    if (!spriteRect || !previewSheet) {
+        const bounds = getEntityCollisionBounds(creature);
+        return getEntityCenter(creature.x, creature.y, bounds);
+    }
+    const transformedSprite = getTransformedSpriteCanvas(previewSheet, spriteRect, rotation, false);
+    const visibleBounds = getSpriteVisibleBounds(transformedSprite);
+    const renderOffset = getEntityRenderOffset({
+        ...creature,
+        rotation
+    });
+    if (!visibleBounds) {
+        return {
+            x: creature.x + renderOffset.x + (spriteRect.w * SPRITE_SCALE) / 2,
+            y: creature.y + renderOffset.y + (spriteRect.h * SPRITE_SCALE) / 2
+        };
+    }
+
+    return {
+        x: creature.x + renderOffset.x + ((visibleBounds.minX + visibleBounds.maxX + 1) / 2) * SPRITE_SCALE,
+        y: creature.y + renderOffset.y + ((visibleBounds.minY + visibleBounds.maxY + 1) / 2) * SPRITE_SCALE
+    };
+}
+
+function getTurretFacingRotations(authoredRotation: number) {
+    const normalizedRotation = typeof authoredRotation === 'number'
+        ? Math.round(authoredRotation)
+        : 1;
+
+    switch (normalizedRotation) {
+        case 5:
+            return { left: 5, right: 1, authoredFacing: -1 };
+        case 2:
+            return { left: 4, right: 2, authoredFacing: 1 };
+        case 4:
+            return { left: 4, right: 2, authoredFacing: -1 };
+        case 3:
+            return { left: 3, right: 6, authoredFacing: -1 };
+        case 6:
+            return { left: 3, right: 6, authoredFacing: 1 };
+        case 7:
+            return { left: 7, right: 6, authoredFacing: -1 };
+        case 1:
+        default:
+            return { left: 5, right: 1, authoredFacing: 1 };
+    }
 }
 
 function clampToRange(value: number, minimum: number, maximum: number) {
@@ -2816,10 +2902,12 @@ function updateCreatures(frameNow: number) {
         const authoredRotation = typeof runtimeState.authoredRotation === 'number'
             ? Math.round(Number(runtimeState.authoredRotation))
             : (runtimeState.authoredRotation = creature.rotation);
+        const turretAimCenter = getStableCreatureAimCenter(creature, authoredRotation);
         const bounds = getEntityCollisionBounds(creature);
         const creatureCenter = getEntityCenter(creature.x, creature.y, bounds);
         const dx = astronautCenter.x - creatureCenter.x;
         const dy = astronautCenter.y - creatureCenter.y;
+        const turretAimDx = astronautCenter.x - turretAimCenter.x;
         const distanceToAstronaut = Math.hypot(dx, dy);
         const trackRange = Math.max(creature.trackRange ?? 0, creature.followRange ?? 0);
         const shouldTrackAstronaut = distanceToAstronaut <= trackRange;
@@ -2947,14 +3035,28 @@ function updateCreatures(frameNow: number) {
         creature.x = Math.round(nextX);
         creature.y = Math.round(nextY);
 
-        if (shouldAutoAim && (authoredRotation === 1 || authoredRotation === 5)) {
-            if (dx < 0) {
-                creature.rotation = 5;
-            } else if (dx > 0) {
-                creature.rotation = 1;
-            } else {
-                creature.rotation = authoredRotation;
+        const shouldUseTurretAutoAim = shouldAutoAim && (
+            creature.fixed ||
+            creature.movementMode === 'turret' ||
+            authoredRotation === 1 ||
+            authoredRotation === 5
+        );
+        if (shouldUseTurretAutoAim) {
+            const aimDeadZone = 4;
+            const facingRotations = getTurretFacingRotations(authoredRotation);
+            const currentAimFacing = typeof runtimeState.aimFacing === 'number'
+                ? Math.sign(Number(runtimeState.aimFacing)) || facingRotations.authoredFacing
+                : facingRotations.authoredFacing;
+            let nextAimFacing = currentAimFacing;
+            if (turretAimDx < -aimDeadZone) {
+                nextAimFacing = -1;
+            } else if (turretAimDx > aimDeadZone) {
+                nextAimFacing = 1;
             }
+            runtimeState.aimFacing = nextAimFacing;
+            creature.rotation = nextAimFacing < 0
+                ? facingRotations.left
+                : facingRotations.right;
         } else {
             creature.rotation = authoredRotation;
         }

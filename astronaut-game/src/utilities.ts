@@ -57,30 +57,28 @@ function getSourceSpriteVisibleBounds(
     return bounds;
 }
 
-export function getVisibleCenterFlipOffset(
+export function getVisibleCenterRotationOffset(
     sheet: CanvasImageSource,
     rect: { x: number; y: number; w: number; h: number },
+    anchorRotation: number = 1,
     rotation: number = 1
 ) {
+    const normalizedAnchorRotation = typeof anchorRotation === 'number' ? Math.round(anchorRotation) : 1;
     const normalizedRotation = typeof rotation === 'number' ? Math.round(rotation) : 1;
-    if (normalizedRotation < 5 || normalizedRotation > 7) {
+    if (normalizedAnchorRotation === normalizedRotation) {
         return { x: 0, y: 0 };
     }
 
-    const visibleBounds = getSourceSpriteVisibleBounds(sheet, rect);
-    if (!visibleBounds) {
+    const anchorSprite = getTransformedSpriteCanvas(sheet, rect, normalizedAnchorRotation, false);
+    const sourceBounds = anchorSprite ? getSpriteVisibleBounds(anchorSprite) : getSourceSpriteVisibleBounds(sheet, rect);
+    const transformedSprite = getTransformedSpriteCanvas(sheet, rect, normalizedRotation, false);
+    const transformedBounds = getSpriteVisibleBounds(transformedSprite);
+    if (!sourceBounds || !transformedBounds) {
         return { x: 0, y: 0 };
     }
-
-    const visibleCenterX = (visibleBounds.minX + visibleBounds.maxX + 1) / 2;
-    const visibleCenterY = (visibleBounds.minY + visibleBounds.maxY + 1) / 2;
     return {
-        x: normalizedRotation === 5 || normalizedRotation === 7
-            ? 2 * (visibleCenterX - rect.w / 2)
-            : 0,
-        y: normalizedRotation === 6 || normalizedRotation === 7
-            ? 2 * (visibleCenterY - rect.h / 2)
-            : 0
+        x: ((sourceBounds.minX + sourceBounds.maxX) - (transformedBounds.minX + transformedBounds.maxX)) / 2,
+        y: ((sourceBounds.minY + sourceBounds.maxY) - (transformedBounds.minY + transformedBounds.maxY)) / 2
     };
 }
 
@@ -133,7 +131,8 @@ function applySpriteRotationTransform(ctx: CanvasRenderingContext2D, rotation: n
 export function getTransformedSpriteCanvas(
     sheet: CanvasImageSource,
     rect: { x: number; y: number; w: number; h: number },
-    rotation: number = 1
+    rotation: number = 1,
+    flipAroundVisibleCenter: boolean = false
 ) {
     if (!sheet || typeof sheet !== 'object') {
         return null;
@@ -147,7 +146,7 @@ export function getTransformedSpriteCanvas(
     }
 
     const normalizedRotation = typeof rotation === 'number' ? Math.round(rotation) : 1;
-    const cacheKey = `${rect.x},${rect.y},${rect.w},${rect.h},${normalizedRotation}`;
+    const cacheKey = `${rect.x},${rect.y},${rect.w},${rect.h},${normalizedRotation},${flipAroundVisibleCenter ? 1 : 0}`;
     const cached = cache.get(cacheKey);
     if (cached) {
         return cached;
@@ -185,9 +184,14 @@ export function getTransformedSpriteCanvas(
 function getRenderedEntitySpriteCanvas(
     sheet: CanvasImageSource,
     rect: { x: number; y: number; w: number; h: number },
-    entity: { cropLeftHalf?: boolean; cropRightHalf?: boolean; rotation?: number }
+    entity: { cropLeftHalf?: boolean; cropRightHalf?: boolean; rotation?: number; flipAroundVisibleCenter?: boolean }
 ): { canvas: HTMLCanvasElement; offsetX: number; offsetY: number } | null {
-    const transformedSprite = getTransformedSpriteCanvas(sheet, rect, entity.rotation ?? 1);
+    const transformedSprite = getTransformedSpriteCanvas(
+        sheet,
+        rect,
+        entity.rotation ?? 1,
+        entity.flipAroundVisibleCenter === true
+    );
     if (!transformedSprite) {
         return null;
     }
@@ -972,8 +976,11 @@ export function drawEntities(
                     normalizeSpriteTranslation(renderPart.translation),
                     SPRITE_SCALE
                 );
+            const authoredRotation = typeof entity.state?.authoredRotation === 'number'
+                ? Math.round(Number(entity.state.authoredRotation))
+                : (typeof renderPart.rotation === 'number' ? Math.round(renderPart.rotation) : 1);
             const visibleCenterFlipOffset = entity.flipAroundVisibleCenter === true
-                ? getVisibleCenterFlipOffset(sheet, rect, renderPart.rotation)
+                ? getVisibleCenterRotationOffset(sheet, rect, authoredRotation, renderPart.rotation)
                 : { x: 0, y: 0 };
             const drawX = renderPart.x
                 + renderedSprite.offsetX * SPRITE_SCALE
