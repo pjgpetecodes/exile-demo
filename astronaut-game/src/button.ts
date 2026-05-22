@@ -9,6 +9,7 @@ type ButtonPart = {
     rotation: number;
     collision: boolean;
     cropLeftHalf?: boolean;
+    cropRightHalf?: boolean;
 };
 
 export class Button {
@@ -26,7 +27,18 @@ export class Button {
     pressOffset: number;
     boxOffsetX: number;
     boxOffsetY: number;
+    capClosedOffsetX: number;
+    capClosedOffsetY: number;
+    capOpenOffsetX: number;
+    capOpenOffsetY: number;
     paletteCycle?: PaletteCycleSettings;
+
+    private static normalizeLegacyBoxOffsetX(value: unknown) {
+        if (value === 8 || value === 4 || value === -8 || value === -12) {
+            return 12;
+        }
+        return typeof value === 'number' ? value : 12;
+    }
 
     constructor(data: any) {
         this.x = data.x;
@@ -41,8 +53,12 @@ export class Button {
         this.linkedDoors = data.linkedDoors ?? [];
         this.collision = data.collision !== undefined ? data.collision : true;
         this.pressOffset = data.pressOffset ?? 2;
-        this.boxOffsetX = data.boxOffsetX ?? 12;
+        this.boxOffsetX = Button.normalizeLegacyBoxOffsetX(data.boxOffsetX);
         this.boxOffsetY = data.boxOffsetY ?? 0;
+        this.capClosedOffsetX = data.capClosedOffsetX ?? 0;
+        this.capClosedOffsetY = data.capClosedOffsetY ?? 0;
+        this.capOpenOffsetX = data.capOpenOffsetX ?? this.pressOffset;
+        this.capOpenOffsetY = data.capOpenOffsetY ?? 0;
         this.paletteCycle = data.paletteCycle;
     }
 
@@ -71,7 +87,10 @@ export class Button {
     }
 
     getCapPart(): ButtonPart {
-        const pressedOffset = this.transformOffset(this.active ? this.pressOffset : 0, 0);
+        const localOffset = this.active
+            ? { x: this.capOpenOffsetX, y: this.capOpenOffsetY }
+            : { x: this.capClosedOffsetX, y: this.capClosedOffsetY };
+        const pressedOffset = this.transformOffset(localOffset.x, localOffset.y);
         return {
             x: this.x + pressedOffset.x,
             y: this.y + pressedOffset.y,

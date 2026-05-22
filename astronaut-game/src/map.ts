@@ -134,6 +134,37 @@ function getBucketedBlocksInViewport(
     return visibleBlocks;
 }
 
+export function getMapBlocksNearWorldPoint(
+    x: number,
+    y: number,
+    SPRITE_SCALE: number,
+    blocks?: MapBlock[]
+) {
+    const bucketMap = getBucketMapForBlocks(blocks);
+    if (!bucketMap) {
+        return blocks || mapBlocks;
+    }
+
+    const tileW = 32 * SPRITE_SCALE;
+    const tileH = 32 * SPRITE_SCALE;
+    const minColumn = Math.floor((x - tileW) / MAP_BLOCK_TILE_SIZE);
+    const maxColumn = Math.floor((x + tileW) / MAP_BLOCK_TILE_SIZE);
+    const minRow = Math.floor((y - tileH) / MAP_BLOCK_TILE_SIZE);
+    const maxRow = Math.floor((y + tileH) / MAP_BLOCK_TILE_SIZE);
+    const nearbyBlocks: MapBlock[] = [];
+
+    for (let row = minRow; row <= maxRow; row += 1) {
+        for (let column = minColumn; column <= maxColumn; column += 1) {
+            const bucket = bucketMap.get(getBucketKey(column, row));
+            if (bucket) {
+                nearbyBlocks.push(...bucket);
+            }
+        }
+    }
+
+    return nearbyBlocks;
+}
+
 export function shouldMaskAstronaut(block: Pick<MapBlock, 'type' | 'collision' | 'maskAstronaut'>) {
     if (typeof block.maskAstronaut === 'boolean') {
         return block.maskAstronaut;

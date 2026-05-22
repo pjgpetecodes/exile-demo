@@ -1,5 +1,6 @@
 import { Button } from './button.js';
 import { Door } from './door.js';
+import { getMapBlocksNearWorldPoint } from './map.js';
 import { resolveAnimatedPaletteIndex } from './palette-cycle.js';
 
 const spriteRectMapCache = new WeakMap<object, Record<string, any>>();
@@ -117,6 +118,80 @@ export function getTransformedSpriteCanvas(
     return canvas;
 }
 
+function getRenderedEntitySpriteCanvas(
+    sheet: CanvasImageSource,
+    rect: { x: number; y: number; w: number; h: number },
+    entity: { cropLeftHalf?: boolean; cropRightHalf?: boolean; rotation?: number }
+): { canvas: HTMLCanvasElement; offsetX: number; offsetY: number } | null {
+    const transformedSprite = getTransformedSpriteCanvas(sheet, rect, entity.rotation ?? 1);
+    if (!transformedSprite) {
+        return null;
+    }
+    if (!entity.cropLeftHalf && !entity.cropRightHalf) {
+        return {
+            canvas: transformedSprite,
+            offsetX: 0,
+            offsetY: 0
+        };
+    }
+    const maskSource = document.createElement('canvas');
+    maskSource.width = rect.w;
+    maskSource.height = rect.h;
+    const maskCtx = maskSource.getContext('2d');
+    if (!maskCtx) {
+        return {
+            canvas: transformedSprite,
+            offsetX: 0,
+            offsetY: 0
+        };
+    }
+    const halfWidth = Math.max(1, Math.floor(rect.w / 2));
+    const cropStartX = entity.cropRightHalf
+        ? Math.max(0, rect.w - halfWidth)
+        : 0;
+    maskCtx.fillStyle = '#ffffff';
+    maskCtx.fillRect(cropStartX, 0, halfWidth, rect.h);
+
+    const transformedMask = getTransformedSpriteCanvas(
+        maskSource,
+        { x: 0, y: 0, w: maskSource.width, h: maskSource.height },
+        entity.rotation ?? 1
+    );
+    const bounds = getSpriteVisibleBounds(transformedMask);
+    if (!transformedMask || !bounds) {
+        return {
+            canvas: transformedSprite,
+            offsetX: 0,
+            offsetY: 0
+        };
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = bounds.width;
+    canvas.height = bounds.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+        return null;
+    }
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(
+        transformedSprite,
+        bounds.minX,
+        bounds.minY,
+        bounds.width,
+        bounds.height,
+        0,
+        0,
+        bounds.width,
+        bounds.height
+    );
+    return {
+        canvas,
+        offsetX: bounds.minX,
+        offsetY: bounds.minY
+    };
+}
+
 export function normalizeSpriteTranslation(translation?: string | null): SpriteTranslation {
     return SPRITE_TRANSLATION_OPTIONS.includes(translation as SpriteTranslation)
         ? translation as SpriteTranslation
@@ -229,9 +304,13 @@ function getEntitySpriteGeometry(
     rect: { x: number; y: number; w: number; h: number },
     SPRITE_SCALE: number
 ) {
-    const sourceX = rect.x;
+    const halfWidth = Math.floor(rect.w / 2);
+    const cropHalf = entity.cropLeftHalf || entity.cropRightHalf;
+    const sourceX = entity.cropRightHalf
+        ? rect.x + rect.w - halfWidth
+        : rect.x;
     const sourceY = rect.y;
-    const sourceW = entity.cropLeftHalf ? Math.floor(rect.w / 2) : rect.w;
+    const sourceW = cropHalf ? halfWidth : rect.w;
     const sourceH = rect.h;
     const drawW = sourceW * SPRITE_SCALE;
     const drawH = sourceH * SPRITE_SCALE;
@@ -255,8 +334,25 @@ function isSolidSpritePixelAtWorld(
     spriteSheetCtx?: CanvasRenderingContext2D
 ): boolean {
     const geometry = getEntitySpriteGeometry(entity, rect, SPRITE_SCALE);
-    const centerX = entity.x + geometry.drawW / 2;
-    const centerY = entity.y + geometry.drawH / 2;
+    const transformedSprite = spriteSheetCtx
+        ? getTransformedSpriteCanvas(
+            spriteSheetCtx.canvas,
+            {
+                x: geometry.sourceX,
+                y: geometry.sourceY,
+                w: geometry.sourceW,
+                h: geometry.sourceH
+            },
+            getEntityRotation(entity)
+        )
+        : null;
+    const translationOffset = getSpriteTranslationOffset(
+        transformedSprite,
+        entity.translation,
+        SPRITE_SCALE
+    );
+    const centerX = entity.x + translationOffset.x + geometry.drawW / 2;
+    const centerY = entity.y + translationOffset.y + geometry.drawH / 2;
 
     let localX = x - centerX;
     let localY = y - centerY;
@@ -403,10 +499,11 @@ export function getAnyBlockAtWorld(
 ): any {
     x = Math.round(x);
     y = Math.round(y);
+    const mapBlockCandidates = getMapBlocksNearWorldPoint(x, y, SPRITE_SCALE, mapBlocks);
+    const tileW = 32 * SPRITE_SCALE;
+    const tileH = 32 * SPRITE_SCALE;
     // Check map blocks
-    for (const b of mapBlocks) {
-        const tileW = 32 * SPRITE_SCALE;
-        const tileH = 32 * SPRITE_SCALE;
+    for (const b of mapBlockCandidates) {
         if (
             x >= b.x && x < b.x + tileW &&
             y >= b.y && y < b.y + tileH
@@ -416,8 +513,6 @@ export function getAnyBlockAtWorld(
     }
     // Check doors
     for (const d of doorEntities) {
-        const tileW = 32 * SPRITE_SCALE;
-        const tileH = 32 * SPRITE_SCALE;
         if (
             x >= d.x && x < d.x + tileW &&
             y >= d.y && y < d.y + tileH
@@ -429,8 +524,6 @@ export function getAnyBlockAtWorld(
     for (const btn of buttonEntities) {
         const parts = btn instanceof Button ? btn.getCollisionParts() : [btn];
         for (const part of parts) {
-            const tileW = 32 * SPRITE_SCALE;
-            const tileH = 32 * SPRITE_SCALE;
             if (
                 x >= part.x && x < part.x + tileW &&
                 y >= part.y && y < part.y + tileH
@@ -441,8 +534,6 @@ export function getAnyBlockAtWorld(
     }
     // Check creatures
     for (const c of creatureEntities) {
-        const tileW = 32 * SPRITE_SCALE;
-        const tileH = 32 * SPRITE_SCALE;
         if (
             x >= c.x && x < c.x + tileW &&
             y >= c.y && y < c.y + tileH
@@ -466,8 +557,9 @@ export function getSolidBlockAtWorld(
     x = Math.round(x);
     y = Math.round(y);
     const spriteSheetCtx = (window as any)._spriteSheetCtx as CanvasRenderingContext2D | undefined;
+    const mapBlockCandidates = getMapBlocksNearWorldPoint(x, y, SPRITE_SCALE, mapBlocks);
     // Check map blocks
-    for (const b of mapBlocks) {
+    for (const b of mapBlockCandidates) {
         if (!isEntitySolid(b)) {
             continue;
         }
@@ -776,15 +868,8 @@ export function drawEntities(
         const renderParts = entity instanceof Button ? entity.getRenderParts() : [entity];
 
         for (const renderPart of renderParts) {
-            const geometry = getEntitySpriteGeometry(renderPart, rectMap[renderPart.type] || { x: 0, y: 0, w: 32, h: 32 }, SPRITE_SCALE);
-            if (
-                renderPart.x + geometry.drawW < minX || renderPart.x > maxX ||
-                renderPart.y + geometry.drawH < minY || renderPart.y > maxY
-            ) continue;
-
             const rect = rectMap[renderPart.type];
             if (!rect) continue;
-            const partGeometry = getEntitySpriteGeometry(renderPart, rect, SPRITE_SCALE);
 
             let paletteIdx = 0;
             let paletteDebug = "";
@@ -814,15 +899,16 @@ export function drawEntities(
                 now
             );
             const sheet = spriteSheets[paletteIdx] || spriteSheets[0];
-            const transformedSprite = getTransformedSpriteCanvas(sheet, {
-                x: partGeometry.sourceX,
-                y: partGeometry.sourceY,
-                w: partGeometry.sourceW,
-                h: partGeometry.sourceH
-            }, renderPart.rotation ?? 1);
-            if (!transformedSprite) continue;
-            const drawW = transformedSprite.width * SPRITE_SCALE;
-            const drawH = transformedSprite.height * SPRITE_SCALE;
+            const renderedSprite = getRenderedEntitySpriteCanvas(sheet, rect, renderPart);
+            if (!renderedSprite) continue;
+            const drawX = renderPart.x + renderedSprite.offsetX * SPRITE_SCALE;
+            const drawY = renderPart.y + renderedSprite.offsetY * SPRITE_SCALE;
+            const drawW = renderedSprite.canvas.width * SPRITE_SCALE;
+            const drawH = renderedSprite.canvas.height * SPRITE_SCALE;
+            if (
+                drawX + drawW < minX || drawX > maxX ||
+                drawY + drawH < minY || drawY > maxY
+            ) continue;
 
             // --- DEBUG: Draw palette info above door ---
             if (
@@ -847,9 +933,9 @@ export function drawEntities(
             }
 
             ctx.drawImage(
-                transformedSprite,
-                renderPart.x - camera.x,
-                renderPart.y - camera.y,
+                renderedSprite.canvas,
+                drawX - camera.x,
+                drawY - camera.y,
                 drawW,
                 drawH
             );

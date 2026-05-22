@@ -8,9 +8,11 @@ import { PaletteCycleSettings, Position } from './types/index.js';
 import { buildDefaultPaletteCycle, getEffectivePaletteCycle } from './palette-cycle.js';
 import { normalizeSpriteTranslation, SPRITE_TRANSLATION_OPTIONS, SpriteTranslation } from './utilities.js';
 
-export type DesignerCategory = 'world' | 'buttons' | 'doors' | 'creatures' | 'collectables';
+export type DesignerCategory = 'world' | 'buttons' | 'doors' | 'creatures' | 'collectables' | 'custom';
 export type DesignerMode = 'edit' | 'preview';
 export type DesignerTool = 'select' | 'place';
+type RuntimeDesignerCategory = Exclude<DesignerCategory, 'custom'>;
+type SpritePickerCategoryFilter = 'all' | DesignerCategory;
 
 export type ButtonSaveData = {
     x: number;
@@ -26,6 +28,10 @@ export type ButtonSaveData = {
     pressOffset?: number;
     boxOffsetX?: number;
     boxOffsetY?: number;
+    capClosedOffsetX?: number;
+    capClosedOffsetY?: number;
+    capOpenOffsetX?: number;
+    capOpenOffsetY?: number;
     paletteCycle?: PaletteCycleSettings;
 };
 
@@ -90,6 +96,26 @@ export type LayerVisibility = Record<DesignerCategory, boolean>;
 export type SpriteCatalogEntry = {
     name: string;
     palette: number;
+};
+
+export type CustomSpriteInstance = {
+    x: number;
+    y: number;
+    type: string;
+    customSpriteId: string;
+};
+
+export type CustomSpriteMember = {
+    category: RuntimeDesignerCategory;
+    offsetX: number;
+    offsetY: number;
+    data: MapBlock | ButtonSaveData | DoorSaveData | CreatureSaveData | CollectableSaveData;
+};
+
+export type CustomSpriteDefinition = {
+    id: string;
+    name: string;
+    members: CustomSpriteMember[];
 };
 
 export type PaletteRemapEntry = {
@@ -172,6 +198,7 @@ export interface WorldDesigner {
     setViewportExpanded(expanded: boolean): void;
     getCamera(): Position;
     getLayerVisibility(): LayerVisibility;
+    getDebugSelection(): Selection | null;
     shouldShowCollisionOverlay(): boolean;
     shouldDisableCollisionInPreview(): boolean;
     render(ctx: CanvasRenderingContext2D): void;
@@ -199,7 +226,13 @@ type PickerDrag = {
 
 type ClipboardEntry = {
     category: DesignerCategory;
-    data: MapBlock | ButtonSaveData | DoorSaveData | CreatureSaveData | CollectableSaveData;
+    data: MapBlock | ButtonSaveData | DoorSaveData | CreatureSaveData | CollectableSaveData | CustomSpriteInstance;
+};
+
+type DesignerSnapshot = {
+    worldData: RawWorldData;
+    customSpriteDefinitions: CustomSpriteDefinition[];
+    customSpriteInstances: CustomSpriteInstance[];
 };
 
 type SavePreviewFile = {
@@ -415,15 +448,30 @@ type PersistedDesignerUiState = {
     disableCollisionInPreview: boolean;
     layerVisibility: LayerVisibility;
     camera: Position;
+    viewportWidth?: number;
+    viewportHeight?: number;
     hasOpenedOnce: boolean;
     spritePickerOpen: boolean;
     spritePickerFilter: string;
+    spritePickerCategoryFilter: SpritePickerCategoryFilter;
     magnifierEnabled: boolean;
     viewportExpanded: boolean;
     soundEnabled: boolean;
     paletteDesignerOpen: boolean;
     selectedPaletteIndex: number;
     palettePreviewType: string;
+    buttonDefaults?: ButtonDefaultOverrides;
+    customSpriteDefinitions?: CustomSpriteDefinition[];
+    customSpriteInstances?: CustomSpriteInstance[];
+};
+
+type ButtonDefaultOverrides = {
+    capPalette?: number | null;
+    boxPalette?: number | null;
+    capClosedOffsetX?: number | null;
+    capClosedOffsetY?: number | null;
+    capOpenOffsetX?: number | null;
+    capOpenOffsetY?: number | null;
 };
 
 type ContextMenuState = {
@@ -461,7 +509,7 @@ type DesignerState = {
     objectSnapGuides: ObjectSnapGuide[];
     activeObjectSnapMode: ObjectSnapMode;
     lastPointerCanvas: Position | null;
-    dragStartSnapshot: RawWorldData | null;
+    dragStartSnapshot: DesignerSnapshot | null;
     panningView: boolean;
     pendingRightPan: boolean;
     panStartCanvas: Position | null;
@@ -475,6 +523,7 @@ type DesignerState = {
     hasOpenedOnce: boolean;
     spritePickerOpen: boolean;
     spritePickerFilter: string;
+    spritePickerCategoryFilter: SpritePickerCategoryFilter;
     magnifierEnabled: boolean;
     pickerDrag: PickerDrag | null;
     pickerDragCanvas: Position | null;
@@ -483,12 +532,15 @@ type DesignerState = {
     paletteDesignerOpen: boolean;
     selectedPaletteIndex: number;
     palettePreviewType: string;
+    buttonDefaults: ButtonDefaultOverrides;
     paletteDefinitions: PaletteDefinition[];
     lastSavedPaletteDefinitions: PaletteDefinition[];
+    customSpriteDefinitions: CustomSpriteDefinition[];
+    customSpriteInstances: CustomSpriteInstance[];
     contextMenu: ContextMenuState;
     suppressContextMenuOnce: boolean;
-    undoStack: RawWorldData[];
-    redoStack: RawWorldData[];
+    undoStack: DesignerSnapshot[];
+    redoStack: DesignerSnapshot[];
     lastSavedSnapshot: RawWorldData;
 };
 
@@ -502,6 +554,7 @@ type ControlRefs = {
     spritePreviewMeta: HTMLDivElement;
     spritePicker: HTMLDetailsElement;
     spritePickerFilter: HTMLInputElement;
+    spritePickerCategoryFilter: HTMLSelectElement;
     spritePickerGrid: HTMLDivElement;
     rotationSelect: HTMLSelectElement;
     translationSelect: HTMLSelectElement;
@@ -580,13 +633,18 @@ const MAGNIFIER_ZOOM = 6;
 const MAGNIFIER_CURSOR_OFFSET = 26;
 const OBJECT_SNAP_THRESHOLD = 20;
 const OBJECT_SNAP_ALIGNMENT_THRESHOLD = 24;
+const BUTTON_DEFAULT_PRESS_OFFSET = 3;
+const BUTTON_DEFAULT_BOX_OFFSET_X = 12;
+const BUTTON_DEFAULT_BOX_OFFSET_Y = 0;
 const CATEGORY_LABELS: Record<DesignerCategory, string> = {
     world: 'World items',
     buttons: 'Buttons',
     doors: 'Doors',
     creatures: 'Creatures',
-    collectables: 'Collectables'
+    collectables: 'Collectables',
+    custom: 'Custom sprites'
 };
+let customSpriteDefinitionResolver: ((instance: CustomSpriteInstance) => CustomSpriteDefinition | null) | null = null;
 
 const SAVE_FILE_LABELS: Record<keyof RawWorldData, string> = {
     worldMap: 'world_map.json',
@@ -633,6 +691,13 @@ function toMapBlockData(block: MapBlock): MapBlock {
 }
 
 function toButtonData(button: any): ButtonSaveData {
+    const normalizedBoxOffsetX = [8, 4, -8, -12].includes(button.boxOffsetX)
+        ? 12
+        : (button.boxOffsetX ?? 12);
+    const capClosedOffsetX = button.capClosedOffsetX ?? 0;
+    const capClosedOffsetY = button.capClosedOffsetY ?? 0;
+    const capOpenOffsetX = button.capOpenOffsetX ?? (button.pressOffset ?? 2);
+    const capOpenOffsetY = button.capOpenOffsetY ?? 0;
     return {
         x: button.x,
         y: button.y,
@@ -644,9 +709,13 @@ function toButtonData(button: any): ButtonSaveData {
         active: button.defaultActive ?? button.active ?? false,
         linkedDoors: Array.isArray(button.linkedDoors) ? [...button.linkedDoors] : [],
         collision: button.collision !== false,
-        pressOffset: button.pressOffset ?? 2,
-        boxOffsetX: button.boxOffsetX ?? 12,
+        pressOffset: capOpenOffsetX - capClosedOffsetX,
+        boxOffsetX: normalizedBoxOffsetX,
         boxOffsetY: button.boxOffsetY ?? 0,
+        capClosedOffsetX,
+        capClosedOffsetY,
+        capOpenOffsetX,
+        capOpenOffsetY,
         ...(button.paletteCycle ? { paletteCycle: deepClone(button.paletteCycle) } : {})
     };
 }
@@ -727,7 +796,11 @@ function snapshotsEqual(left: RawWorldData, right: RawWorldData) {
     return stableStringify(left) === stableStringify(right);
 }
 
-function getDefaultType(spriteTypes: string[], category: DesignerCategory) {
+function designerSnapshotsEqual(left: DesignerSnapshot, right: DesignerSnapshot) {
+    return stableStringify(left) === stableStringify(right);
+}
+
+function getDefaultType(spriteTypes: string[], category: RuntimeDesignerCategory) {
     const preferred = {
         world: ['floor_full', 'floor_grass', 'wall_full', 'ship_1'],
         buttons: ['button', 'button_box'],
@@ -751,12 +824,15 @@ function buildLayerVisibility(): LayerVisibility {
         buttons: true,
         doors: true,
         creatures: true,
-        collectables: true
+        collectables: true,
+        custom: true
     };
 }
 
 function getRectAtPosition(x: number, y: number, category: DesignerCategory): Rect {
-    const width = category === 'buttons' ? TILE_SIZE + 14 : TILE_SIZE;
+    const width = category === 'buttons'
+        ? TILE_SIZE + 14
+        : TILE_SIZE;
     const height = TILE_SIZE;
     return {
         left: x,
@@ -768,7 +844,83 @@ function getRectAtPosition(x: number, y: number, category: DesignerCategory): Re
     };
 }
 
+function invertButtonOffset(offsetX: number, offsetY: number, rotation: number) {
+    if (rotation >= 1 && rotation <= 4) {
+        const angle = -((rotation - 1) * Math.PI) / 2;
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        return {
+            x: Math.round(offsetX * cos - offsetY * sin),
+            y: Math.round(offsetX * sin + offsetY * cos)
+        };
+    }
+
+    if (rotation === 5) {
+        return { x: -offsetX, y: offsetY };
+    }
+    if (rotation === 6) {
+        return { x: offsetX, y: -offsetY };
+    }
+    if (rotation === 7) {
+        return { x: -offsetX, y: -offsetY };
+    }
+
+    return { x: offsetX, y: offsetY };
+}
+
 function getEntityRect(entity: any, category: DesignerCategory) {
+    if (category === 'buttons' && entity instanceof Button) {
+        const partRects = entity.getRenderParts().map((part) => ({
+            left: part.x,
+            top: part.y,
+            right: part.x + ((part.cropLeftHalf || part.cropRightHalf) ? TILE_SIZE / 2 : TILE_SIZE),
+            bottom: part.y + TILE_SIZE
+        }));
+        const left = Math.min(...partRects.map((rect) => rect.left));
+        const top = Math.min(...partRects.map((rect) => rect.top));
+        const right = Math.max(...partRects.map((rect) => rect.right));
+        const bottom = Math.max(...partRects.map((rect) => rect.bottom));
+        return {
+            left,
+            top,
+            right,
+            bottom,
+            width: right - left,
+            height: bottom - top
+        };
+    }
+    if (category === 'custom') {
+        const instance = entity as CustomSpriteInstance;
+        const definition = customSpriteDefinitionResolver?.(instance) ?? null;
+        if (!definition || definition.members.length === 0) {
+            return getRectAtPosition(instance.x, instance.y, 'world');
+        }
+        const partRects = definition.members.map((member) => {
+            const absoluteX = instance.x + member.offsetX;
+            const absoluteY = instance.y + member.offsetY;
+            if (member.category === 'buttons') {
+                const button = new Button({
+                    ...(deepClone(member.data) as ButtonSaveData),
+                    x: absoluteX,
+                    y: absoluteY
+                });
+                return getEntityRect(button, 'buttons');
+            }
+            return getRectAtPosition(absoluteX, absoluteY, member.category);
+        });
+        const left = Math.min(...partRects.map((rect) => rect.left));
+        const top = Math.min(...partRects.map((rect) => rect.top));
+        const right = Math.max(...partRects.map((rect) => rect.right));
+        const bottom = Math.max(...partRects.map((rect) => rect.bottom));
+        return {
+            left,
+            top,
+            right,
+            bottom,
+            width: right - left,
+            height: bottom - top
+        };
+    }
     return getRectAtPosition(entity.x, entity.y, category);
 }
 
@@ -2065,27 +2217,77 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
     };
     const persistedState = loadPersistedState();
+    const restoredViewportExpanded = persistedState?.viewportExpanded === true;
+    const restoredCustomSpriteDefinitions = Array.isArray(persistedState?.customSpriteDefinitions)
+        ? deepClone(persistedState?.customSpriteDefinitions ?? [])
+        : [];
+    const restoredCustomSpriteInstances = Array.isArray(persistedState?.customSpriteInstances)
+        ? deepClone(persistedState?.customSpriteInstances ?? [])
+        : [];
+    const getAstronautCenteredCamera = () => {
+        const focus = host.getFocusWorldPosition();
+        return host.clampCamera({
+            x: focus.x - host.canvas.width / 2,
+            y: focus.y - host.canvas.height / 2
+        });
+    };
     const defaultTypeByCategory = {
         world: getDefaultType(spriteTypes, 'world'),
         buttons: getDefaultType(spriteTypes, 'buttons'),
         doors: getDefaultType(spriteTypes, 'doors'),
         creatures: getDefaultType(spriteTypes, 'creatures'),
-        collectables: getDefaultType(spriteTypes, 'collectables')
+        collectables: getDefaultType(spriteTypes, 'collectables'),
+        custom: restoredCustomSpriteDefinitions[0]?.id ?? ''
     };
     const restoredTypeByCategory: Record<DesignerCategory, string> = {
         world: spriteTypes.includes(persistedState?.typeByCategory?.world ?? '') ? persistedState!.typeByCategory.world : defaultTypeByCategory.world,
         buttons: spriteTypes.includes(persistedState?.typeByCategory?.buttons ?? '') ? persistedState!.typeByCategory.buttons : defaultTypeByCategory.buttons,
         doors: spriteTypes.includes(persistedState?.typeByCategory?.doors ?? '') ? persistedState!.typeByCategory.doors : defaultTypeByCategory.doors,
         creatures: spriteTypes.includes(persistedState?.typeByCategory?.creatures ?? '') ? persistedState!.typeByCategory.creatures : defaultTypeByCategory.creatures,
-        collectables: spriteTypes.includes(persistedState?.typeByCategory?.collectables ?? '') ? persistedState!.typeByCategory.collectables : defaultTypeByCategory.collectables
+        collectables: spriteTypes.includes(persistedState?.typeByCategory?.collectables ?? '') ? persistedState!.typeByCategory.collectables : defaultTypeByCategory.collectables,
+        custom: restoredCustomSpriteDefinitions.some((definition) => definition.id === persistedState?.typeByCategory?.custom)
+            ? persistedState!.typeByCategory.custom
+            : defaultTypeByCategory.custom
+    };
+    const restoredViewportWidth = Number.isFinite(persistedState?.viewportWidth)
+        ? Math.max(1, Math.round(persistedState!.viewportWidth!))
+        : (restoredViewportExpanded ? window.innerWidth : host.canvas.width);
+    const restoredViewportHeight = Number.isFinite(persistedState?.viewportHeight)
+        ? Math.max(1, Math.round(persistedState!.viewportHeight!))
+        : (restoredViewportExpanded ? window.innerHeight : host.canvas.height);
+    const restoredButtonDefaults: ButtonDefaultOverrides = {
+        capPalette: typeof persistedState?.buttonDefaults?.capPalette === 'number'
+            ? clamp(Math.round(persistedState.buttonDefaults.capPalette), 0, paletteCount - 1)
+            : null,
+        boxPalette: typeof persistedState?.buttonDefaults?.boxPalette === 'number'
+            ? clamp(Math.round(persistedState.buttonDefaults.boxPalette), 0, paletteCount - 1)
+            : null,
+        capClosedOffsetX: Number.isFinite(persistedState?.buttonDefaults?.capClosedOffsetX)
+            ? Math.round(persistedState!.buttonDefaults!.capClosedOffsetX!)
+            : null,
+        capClosedOffsetY: Number.isFinite(persistedState?.buttonDefaults?.capClosedOffsetY)
+            ? Math.round(persistedState!.buttonDefaults!.capClosedOffsetY!)
+            : null,
+        capOpenOffsetX: Number.isFinite(persistedState?.buttonDefaults?.capOpenOffsetX)
+            ? Math.round(persistedState!.buttonDefaults!.capOpenOffsetX!)
+            : null,
+        capOpenOffsetY: Number.isFinite(persistedState?.buttonDefaults?.capOpenOffsetY)
+            ? Math.round(persistedState!.buttonDefaults!.capOpenOffsetY!)
+            : null
     };
     const restoredCamera = persistedState?.camera
         ? host.clampCamera({
-            x: Number.isFinite(persistedState.camera.x) ? persistedState.camera.x : 0,
-            y: Number.isFinite(persistedState.camera.y) ? persistedState.camera.y : 0
+            x: (Number.isFinite(persistedState.camera.x) ? persistedState.camera.x : 0)
+                + restoredViewportWidth / 2
+                - host.canvas.width / 2,
+            y: (Number.isFinite(persistedState.camera.y) ? persistedState.camera.y : 0)
+                + restoredViewportHeight / 2
+                - host.canvas.height / 2
         })
-        : host.clampCamera({ x: 0, y: 0 });
-    const restoredViewportExpanded = persistedState?.viewportExpanded === true;
+        : getAstronautCenteredCamera();
+    const initialCamera = persistedState?.active === true && persistedState?.mode === 'edit'
+        ? restoredCamera
+        : getAstronautCenteredCamera();
     const palettePreviewType = spriteTypes.includes(persistedState?.palettePreviewType ?? '')
         ? persistedState!.palettePreviewType
         : defaultTypeByCategory.world;
@@ -2112,7 +2314,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             ...buildLayerVisibility(),
             ...(persistedState?.layerVisibility ?? {})
         },
-        camera: restoredCamera,
+        camera: initialCamera,
         dirty: false,
         status: 'Designer hidden by default. Press ` to open it.',
         statusTone: 'neutral',
@@ -2137,6 +2339,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         hasOpenedOnce: persistedState?.hasOpenedOnce ?? (persistedState?.active ?? false),
         spritePickerOpen: persistedState?.spritePickerOpen ?? false,
         spritePickerFilter: persistedState?.spritePickerFilter ?? '',
+        spritePickerCategoryFilter: persistedState?.spritePickerCategoryFilter ?? 'all',
         magnifierEnabled: persistedState?.magnifierEnabled ?? false,
         pickerDrag: null,
         pickerDragCanvas: null,
@@ -2145,8 +2348,13 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         paletteDesignerOpen: persistedState?.paletteDesignerOpen ?? false,
         selectedPaletteIndex: clamp(typeof persistedState?.selectedPaletteIndex === 'number' ? persistedState.selectedPaletteIndex : 0, 0, paletteCount - 1),
         palettePreviewType,
+        buttonDefaults: restoredButtonDefaults,
         paletteDefinitions: initialPaletteDefinitions,
         lastSavedPaletteDefinitions: deepClone(initialPaletteDefinitions),
+        customSpriteDefinitions: restoredCustomSpriteDefinitions,
+        customSpriteInstances: restoredCustomSpriteInstances.filter((instance) =>
+            restoredCustomSpriteDefinitions.some((definition) => definition.id === instance.customSpriteId)
+        ),
         contextMenu: {
             screen: null,
             world: null,
@@ -2158,6 +2366,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         redoStack: [],
         lastSavedSnapshot: initialSnapshot
     };
+    customSpriteDefinitionResolver = (instance) =>
+        state.customSpriteDefinitions.find((definition) => definition.id === instance.customSpriteId) ?? null;
 
     const root = document.createElement('div');
     root.className = 'world-designer-panel world-designer-hidden';
@@ -2183,6 +2393,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     <option value="doors">Doors</option>
                     <option value="creatures">Creatures</option>
                     <option value="collectables">Collectables</option>
+                    <option value="custom">Custom sprites</option>
                 </select></label>
                 <label class="world-designer-field">Sprite type<select data-role="type"></select></label>
                 <div class="world-designer-grid-wide">
@@ -2193,7 +2404,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     <details class="world-designer-sprite-picker" data-role="sprite-picker">
                         <summary>Choose from sprite grid</summary>
                         <div class="world-designer-sprite-picker-body">
-                            <label class="world-designer-field world-designer-grid-wide">Filter sprites<input type="text" data-role="sprite-picker-filter" placeholder="Type to filter sprite names" /></label>
+                            <div class="world-designer-grid world-designer-grid-wide">
+                                <label class="world-designer-field">Filter sprites<input type="text" data-role="sprite-picker-filter" placeholder="Type to filter sprite names" /></label>
+                                <label class="world-designer-field">Category filter<select data-role="sprite-picker-category-filter"></select></label>
+                            </div>
                             <div class="world-designer-sprite-picker-grid" data-role="sprite-picker-grid"></div>
                         </div>
                     </details>
@@ -2251,6 +2465,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 <label class="world-designer-checkbox"><input type="checkbox" checked data-layer="doors" /> Doors</label>
                 <label class="world-designer-checkbox"><input type="checkbox" checked data-layer="creatures" /> Creatures</label>
                 <label class="world-designer-checkbox"><input type="checkbox" checked data-layer="collectables" /> Collectables</label>
+                <label class="world-designer-checkbox"><input type="checkbox" checked data-layer="custom" /> Custom sprites</label>
             </div>
         </div>
         <div class="world-designer-section">
@@ -2334,6 +2549,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         spritePreviewMeta: root.querySelector('[data-role="sprite-preview-meta"]') as HTMLDivElement,
         spritePicker: root.querySelector('[data-role="sprite-picker"]') as HTMLDetailsElement,
         spritePickerFilter: root.querySelector('[data-role="sprite-picker-filter"]') as HTMLInputElement,
+        spritePickerCategoryFilter: root.querySelector('[data-role="sprite-picker-category-filter"]') as HTMLSelectElement,
         spritePickerGrid: root.querySelector('[data-role="sprite-picker-grid"]') as HTMLDivElement,
         rotationSelect: root.querySelector('[data-role="rotation"]') as HTMLSelectElement,
         translationSelect: root.querySelector('[data-role="translation"]') as HTMLSelectElement,
@@ -2374,7 +2590,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             buttons: root.querySelector('[data-layer="buttons"]') as HTMLInputElement,
             doors: root.querySelector('[data-layer="doors"]') as HTMLInputElement,
             creatures: root.querySelector('[data-layer="creatures"]') as HTMLInputElement,
-            collectables: root.querySelector('[data-layer="collectables"]') as HTMLInputElement
+            collectables: root.querySelector('[data-layer="collectables"]') as HTMLInputElement,
+            custom: root.querySelector('[data-layer="custom"]') as HTMLInputElement
         },
         modal,
         modalTitle: modal.querySelector('[data-role="modal-title"]') as HTMLHeadingElement,
@@ -2400,6 +2617,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     const dragGhostPadding = 8;
     let modalConfirmAction: (() => void | Promise<void>) | null = null;
     let pngImportObjectUrl: string | null = null;
+    let pendingInspectorFocusKey: string | null = null;
 
     function clearPngImportObjectUrl() {
         if (pngImportObjectUrl) {
@@ -2430,8 +2648,16 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     };
     const initialBodyOverflow = document.body.style.overflow;
 
-    function getSnapshot() {
+    function getWorldSnapshot() {
         return serializeWorldData(host.getRawWorldData());
+    }
+
+    function getSnapshot(): DesignerSnapshot {
+        return {
+            worldData: getWorldSnapshot(),
+            customSpriteDefinitions: deepClone(state.customSpriteDefinitions),
+            customSpriteInstances: deepClone(state.customSpriteInstances)
+        };
     }
 
     function persistDesignerUiState() {
@@ -2454,15 +2680,21 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 disableCollisionInPreview: state.disableCollisionInPreview,
                 layerVisibility: deepClone(state.layerVisibility),
                 camera: { ...state.camera },
+                viewportWidth: host.canvas.width,
+                viewportHeight: host.canvas.height,
                 hasOpenedOnce: state.hasOpenedOnce,
                 spritePickerOpen: state.spritePickerOpen,
                 spritePickerFilter: state.spritePickerFilter,
+                spritePickerCategoryFilter: state.spritePickerCategoryFilter,
                 magnifierEnabled: state.magnifierEnabled,
                 viewportExpanded: state.viewportExpanded,
                 soundEnabled: host.getSoundEnabled(),
                 paletteDesignerOpen: state.paletteDesignerOpen,
                 selectedPaletteIndex: state.selectedPaletteIndex,
-                palettePreviewType: state.palettePreviewType
+                palettePreviewType: state.palettePreviewType,
+                buttonDefaults: deepClone(state.buttonDefaults),
+                customSpriteDefinitions: deepClone(state.customSpriteDefinitions),
+                customSpriteInstances: deepClone(state.customSpriteInstances)
             };
             window.localStorage.setItem(DESIGNER_STATE_STORAGE_KEY, JSON.stringify(payload));
         } catch {
@@ -2471,7 +2703,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function updateDirtyState() {
-        state.dirty = !snapshotsEqual(getSnapshot(), state.lastSavedSnapshot);
+        state.dirty = !snapshotsEqual(getWorldSnapshot(), state.lastSavedSnapshot);
     }
 
     function setStatus(message: string, tone: DesignerState['statusTone'] = 'neutral') {
@@ -2489,6 +2721,28 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         return state.typeByCategory[state.category];
     }
 
+    function getCustomSpriteDefinitionById(id: string | null | undefined) {
+        if (!id) {
+            return null;
+        }
+        return state.customSpriteDefinitions.find((definition) => definition.id === id) ?? null;
+    }
+
+    function getCustomSpriteDefinitionForInstance(instance: CustomSpriteInstance) {
+        return getCustomSpriteDefinitionById(instance.customSpriteId);
+    }
+
+    function createCustomSpriteName() {
+        let index = state.customSpriteDefinitions.length + 1;
+        let candidate = `Custom sprite ${index}`;
+        const existing = new Set(state.customSpriteDefinitions.map((definition) => definition.name));
+        while (existing.has(candidate)) {
+            index += 1;
+            candidate = `Custom sprite ${index}`;
+        }
+        return candidate;
+    }
+
     function setCurrentType(type: string) {
         state.typeByCategory[state.category] = type;
         refs.typeSelect.value = type;
@@ -2497,9 +2751,16 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function refreshSelectOptions() {
-        refs.typeSelect.innerHTML = spriteTypes
-            .map((type) => `<option value="${type}">${type}</option>`)
-            .join('');
+        const selectableTypes = state.category === 'custom'
+            ? state.customSpriteDefinitions.map((definition) => definition.id)
+            : spriteTypes;
+        refs.typeSelect.innerHTML = state.category === 'custom'
+            ? state.customSpriteDefinitions
+                .map((definition) => `<option value="${definition.id}">${definition.name}</option>`)
+                .join('')
+            : spriteTypes
+                .map((type) => `<option value="${type}">${type}</option>`)
+                .join('');
         refs.palettePreviewTypeSelect.innerHTML = spriteTypes
             .map((type) => `<option value="${type}">${type}</option>`)
             .join('');
@@ -2513,6 +2774,18 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.paletteSelect.innerHTML = Array.from({ length: paletteCount }, (_, index) => {
             return `<option value="${index}">${index}</option>`;
         }).join('');
+        refs.spritePickerCategoryFilter.innerHTML = [
+            ['all', 'All sprites'],
+            ['world', 'World items'],
+            ['buttons', 'Buttons'],
+            ['doors', 'Doors'],
+            ['creatures', 'Creatures'],
+            ['collectables', 'Collectables'],
+            ['custom', 'Custom sprites']
+        ].map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
+        if (state.category === 'custom' && !selectableTypes.includes(state.typeByCategory.custom)) {
+            state.typeByCategory.custom = selectableTypes[0] ?? '';
+        }
     }
 
     function syncPaletteCount() {
@@ -2693,7 +2966,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 setStatus('Save world changes before deleting a middle palette.', 'error');
                 return;
             }
-            worldDataToSave = shiftPaletteReferences(getSnapshot(), removedIndex);
+            worldDataToSave = shiftPaletteReferences(getWorldSnapshot(), removedIndex);
         }
 
         const nextPaletteDefinitions = state.paletteDefinitions.filter((_, index) => index !== removedIndex);
@@ -2754,19 +3027,337 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         return host.drawSpritePreview(ctx, type, palette, rotation, false, undefined, translation);
     }
 
-    function renderCurrentSpritePreview() {
-        const type = getCurrentType();
-        const previewTranslation = state.category === 'world' ? state.translation : 'center';
-        const rendered = renderSpritePreviewCanvas(
-            refs.spritePreviewCanvas,
-            type,
-            state.palette,
-            state.rotation,
-            previewTranslation
+    function renderButtonCompositePreviewCanvas(
+        canvas: HTMLCanvasElement,
+        button?: Button
+    ) {
+        clearPreviewCanvas(canvas);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return false;
+
+        const previewButton = button ?? createButtonEntity({
+            x: 0,
+            y: 0,
+            palette: state.palette,
+            rotation: state.rotation,
+            collision: true,
+            active: false,
+            linkedDoors: []
+        });
+        const parts = previewButton.getRenderParts();
+        const sourceTileSize = 32;
+        const sourceRects = parts.map((part) => ({
+            part,
+            left: part.x,
+            top: part.y,
+            width: (part.cropLeftHalf || part.cropRightHalf) ? Math.floor(sourceTileSize / 2) : sourceTileSize,
+            height: sourceTileSize
+        }));
+        const boxRect = sourceRects.find((rect) => rect.part.type === previewButton.boxType) ?? sourceRects[sourceRects.length - 1];
+        if (!boxRect) {
+            return false;
+        }
+        const boxCenterX = boxRect.left + boxRect.width / 2;
+        const boxCenterY = boxRect.top + boxRect.height / 2;
+        const minX = Math.min(...sourceRects.map((rect) => rect.left - boxCenterX));
+        const minY = Math.min(...sourceRects.map((rect) => rect.top - boxCenterY));
+        const maxX = Math.max(...sourceRects.map((rect) => rect.left + rect.width - boxCenterX));
+        const maxY = Math.max(...sourceRects.map((rect) => rect.top + rect.height - boxCenterY));
+        const padding = 8;
+        const availableWidth = Math.max(1, canvas.width - padding * 2);
+        const availableHeight = Math.max(1, canvas.height - padding * 2);
+        const fixedPreviewSpan = sourceTileSize * 3.5;
+        const fittedScale = Math.min(
+            availableWidth / Math.max(1, maxX - minX),
+            availableHeight / Math.max(1, maxY - minY)
         );
+        const scale = Math.max(
+            1,
+            Math.min(
+                fittedScale,
+                Math.min(availableWidth, availableHeight) / fixedPreviewSpan
+            )
+        );
+        const drawTileSize = Math.max(1, Math.round(sourceTileSize * scale));
+        const anchorX = canvas.width / 2;
+        const anchorY = canvas.height / 2;
+
+        for (const rect of sourceRects) {
+            const partCanvas = document.createElement('canvas');
+            partCanvas.width = drawTileSize;
+            partCanvas.height = drawTileSize;
+            const partCtx = partCanvas.getContext('2d');
+            if (!partCtx) {
+                continue;
+            }
+            host.drawSpriteSample(
+                partCtx,
+                rect.part.type,
+                rect.part.palette,
+                rect.part.rotation,
+                true,
+                drawTileSize
+            );
+            const sourceWidth = (rect.part.cropLeftHalf || rect.part.cropRightHalf)
+                ? Math.max(1, Math.floor(partCanvas.width / 2))
+                : partCanvas.width;
+            const sourceStartX = rect.part.cropRightHalf
+                ? Math.max(0, partCanvas.width - sourceWidth)
+                : 0;
+            const destinationWidth = Math.max(1, Math.round(rect.width * scale));
+            const destinationHeight = Math.max(1, Math.round(rect.height * scale));
+            ctx.drawImage(
+                partCanvas,
+                sourceStartX,
+                0,
+                sourceWidth,
+                partCanvas.height,
+                Math.round(anchorX + (rect.left - boxCenterX) * scale),
+                Math.round(anchorY + (rect.top - boxCenterY) * scale),
+                destinationWidth,
+                destinationHeight
+            );
+        }
+
+        return true;
+    }
+
+    function drawSpriteAt(
+        ctx: CanvasRenderingContext2D,
+        x: number,
+        y: number,
+        type: string,
+        palette: number,
+        rotation: number,
+        translation: SpriteTranslation = 'center'
+    ) {
+        const spriteCanvas = document.createElement('canvas');
+        spriteCanvas.width = TILE_SIZE;
+        spriteCanvas.height = TILE_SIZE;
+        const spriteCtx = spriteCanvas.getContext('2d');
+        if (!spriteCtx) {
+            return false;
+        }
+        const rendered = host.drawSpriteSample(
+            spriteCtx,
+            type,
+            palette,
+            rotation,
+            true,
+            TILE_SIZE,
+            translation
+        );
+        if (!rendered) {
+            return false;
+        }
+        ctx.drawImage(spriteCanvas, Math.round(x), Math.round(y));
+        return true;
+    }
+
+    function drawButtonEntityAt(
+        ctx: CanvasRenderingContext2D,
+        button: Button,
+        screenX: number,
+        screenY: number
+    ) {
+        let rendered = false;
+        for (const part of button.getRenderParts()) {
+            const partCanvas = document.createElement('canvas');
+            partCanvas.width = TILE_SIZE;
+            partCanvas.height = TILE_SIZE;
+            const partCtx = partCanvas.getContext('2d');
+            if (!partCtx) {
+                continue;
+            }
+            const partRendered = host.drawSpriteSample(
+                partCtx,
+                part.type,
+                part.palette,
+                part.rotation,
+                true,
+                TILE_SIZE
+            );
+            if (!partRendered) {
+                continue;
+            }
+            rendered = true;
+            const sourceWidth = (part.cropLeftHalf || part.cropRightHalf)
+                ? Math.max(1, Math.floor(partCanvas.width / 2))
+                : partCanvas.width;
+            const sourceStartX = part.cropRightHalf
+                ? Math.max(0, partCanvas.width - sourceWidth)
+                : 0;
+            const destinationWidth = (part.cropLeftHalf || part.cropRightHalf)
+                ? Math.max(1, Math.floor(TILE_SIZE / 2))
+                : TILE_SIZE;
+            ctx.drawImage(
+                partCanvas,
+                sourceStartX,
+                0,
+                sourceWidth,
+                partCanvas.height,
+                Math.round(screenX + (part.x - button.x)),
+                Math.round(screenY + (part.y - button.y)),
+                destinationWidth,
+                TILE_SIZE
+            );
+        }
+        return rendered;
+    }
+
+    function getCustomSpriteDefinitionBounds(definition: CustomSpriteDefinition) {
+        if (definition.members.length === 0) {
+            return { left: 0, top: 0, right: TILE_SIZE, bottom: TILE_SIZE, width: TILE_SIZE, height: TILE_SIZE };
+        }
+        const rects = definition.members.map((member) => {
+            if (member.category === 'buttons') {
+                return getEntityRect(new Button({
+                    ...(deepClone(member.data) as ButtonSaveData),
+                    x: member.offsetX,
+                    y: member.offsetY
+                }), 'buttons');
+            }
+            return getRectAtPosition(member.offsetX, member.offsetY, member.category);
+        });
+        const left = Math.min(...rects.map((rect) => rect.left));
+        const top = Math.min(...rects.map((rect) => rect.top));
+        const right = Math.max(...rects.map((rect) => rect.right));
+        const bottom = Math.max(...rects.map((rect) => rect.bottom));
+        return {
+            left,
+            top,
+            right,
+            bottom,
+            width: right - left,
+            height: bottom - top
+        };
+    }
+
+    function drawCustomSpriteDefinitionAt(
+        ctx: CanvasRenderingContext2D,
+        definition: CustomSpriteDefinition,
+        screenX: number,
+        screenY: number
+    ) {
+        let rendered = false;
+        for (const member of definition.members) {
+            const memberX = screenX + member.offsetX;
+            const memberY = screenY + member.offsetY;
+            if (member.category === 'buttons') {
+                rendered = drawButtonEntityAt(
+                    ctx,
+                    new Button({
+                        ...(deepClone(member.data) as ButtonSaveData),
+                        x: memberX,
+                        y: memberY
+                    }),
+                    memberX,
+                    memberY
+                ) || rendered;
+                continue;
+            }
+            const data = member.data as MapBlock | DoorSaveData | CreatureSaveData | CollectableSaveData;
+            rendered = drawSpriteAt(
+                ctx,
+                memberX,
+                memberY,
+                data.type,
+                typeof data.palette === 'number' ? data.palette : 0,
+                normalizeRotation((data as MapBlock).rotation),
+                member.category === 'world'
+                    ? normalizeSpriteTranslation((data as MapBlock).translation)
+                    : 'center'
+            ) || rendered;
+        }
+        return rendered;
+    }
+
+    function renderCustomSpritePreviewCanvas(
+        canvas: HTMLCanvasElement,
+        definition: CustomSpriteDefinition | null
+    ) {
+        clearPreviewCanvas(canvas);
+        if (!definition) {
+            return false;
+        }
+        const bounds = getCustomSpriteDefinitionBounds(definition);
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = Math.max(1, Math.ceil(bounds.width));
+        tempCanvas.height = Math.max(1, Math.ceil(bounds.height));
+        const tempCtx = tempCanvas.getContext('2d');
+        if (!tempCtx) {
+            return false;
+        }
+        const rendered = drawCustomSpriteDefinitionAt(tempCtx, definition, -bounds.left, -bounds.top);
+        if (!rendered) {
+            return false;
+        }
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            return false;
+        }
+        const padding = 8;
+        const availableWidth = Math.max(1, canvas.width - padding * 2);
+        const availableHeight = Math.max(1, canvas.height - padding * 2);
+        const scale = Math.max(1, Math.min(
+            availableWidth / Math.max(1, tempCanvas.width),
+            availableHeight / Math.max(1, tempCanvas.height)
+        ));
+        const drawWidth = Math.max(1, Math.round(tempCanvas.width * scale));
+        const drawHeight = Math.max(1, Math.round(tempCanvas.height * scale));
+        ctx.drawImage(
+            tempCanvas,
+            Math.round((canvas.width - drawWidth) / 2),
+            Math.round((canvas.height - drawHeight) / 2),
+            drawWidth,
+            drawHeight
+        );
+        return true;
+    }
+
+    function renderCurrentSpritePreview() {
+        const selectedButton = state.selection?.category === 'buttons' && getSelectedItems().length === 1
+            ? state.selection.entity as Button
+            : null;
+        const customDefinition = state.category === 'custom'
+            ? getCustomSpriteDefinitionById(getCurrentType())
+            : null;
+        const type = state.category === 'buttons'
+            ? getCurrentType()
+            : state.category === 'custom'
+                ? (customDefinition?.name ?? 'Custom sprite')
+            : getCurrentType();
+        const previewTranslation = state.category === 'world' ? state.translation : 'center';
+        const rendered = selectedButton
+            ? renderButtonCompositePreviewCanvas(refs.spritePreviewCanvas, selectedButton)
+            : state.category === 'buttons'
+                ? renderSpritePreviewCanvas(
+                refs.spritePreviewCanvas,
+                type,
+                state.palette,
+                state.rotation,
+                'center'
+                )
+            : state.category === 'custom'
+                ? renderCustomSpritePreviewCanvas(refs.spritePreviewCanvas, customDefinition)
+                : renderSpritePreviewCanvas(
+                refs.spritePreviewCanvas,
+                type,
+                state.palette,
+                state.rotation,
+                previewTranslation
+                );
         refs.spritePreviewMeta.textContent = rendered
             ? state.category === 'world'
                 ? `${type} — palette ${state.palette}, rotation ${state.rotation}, translation ${formatSpriteTranslation(state.translation)}`
+                : selectedButton
+                ? `${selectedButton.type} + ${selectedButton.boxType} — ${selectedButton.active ? 'open' : 'closed'} preview`
+                : state.category === 'buttons'
+                ? `${type} — place button/button_box as world sprites, then group and convert to make a live button`
+                : state.category === 'custom'
+                    ? customDefinition
+                        ? `${customDefinition.name} — ${customDefinition.members.length} part${customDefinition.members.length === 1 ? '' : 's'}`
+                        : 'No custom sprites yet'
                 : `${type} — palette ${state.palette}, rotation ${state.rotation}`
             : `${type} — preview unavailable`;
     }
@@ -3616,8 +4207,42 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     function renderSpritePickerGrid() {
         const currentType = getCurrentType();
         const filter = state.spritePickerFilter.trim().toLowerCase();
-        for (const entry of spriteCatalog) {
-            let button = spritePickerButtons.get(entry.name);
+        const activeCategoryFilter = filter.length > 0 ? 'all' : state.spritePickerCategoryFilter;
+        const spriteCategorySets = (() => {
+            const data = host.getRawWorldData();
+            const buttons = new Set<string>(['button', 'button_box']);
+            for (const button of data.buttons) {
+                if (button.type) buttons.add(button.type);
+                if (button.boxType) buttons.add(button.boxType);
+            }
+            const doors = new Set<string>(data.doors.map((door) => door.type));
+            const creatures = new Set<string>(data.creatures.map((creature) => creature.type));
+            const collectables = new Set<string>(data.collectables.map((collectable) => collectable.type));
+            const world = new Set<string>(spriteTypes.filter((type) =>
+                !buttons.has(type) &&
+                !doors.has(type) &&
+                !creatures.has(type) &&
+                !collectables.has(type)
+            ));
+            return { world, buttons, doors, creatures, collectables } satisfies Record<RuntimeDesignerCategory, Set<string>>;
+        })();
+        const pickerEntries = state.category === 'custom' || activeCategoryFilter === 'custom'
+            ? state.customSpriteDefinitions.map((definition) => ({
+                key: `custom:${definition.id}`,
+                name: definition.id,
+                label: definition.name,
+                category: 'custom' as const
+            }))
+            : spriteCatalog.map((entry) => ({
+                key: `sprite:${entry.name}`,
+                name: entry.name,
+                label: entry.name,
+                category: state.category
+            }));
+        const activeKeys = new Set(pickerEntries.map((entry) => entry.key));
+
+        for (const entry of pickerEntries) {
+            let button = spritePickerButtons.get(entry.key);
             if (!button) {
                 button = document.createElement('button');
                 button.type = 'button';
@@ -3632,10 +4257,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
                 const label = document.createElement('div');
                 label.className = 'world-designer-sprite-option-label';
-                label.textContent = entry.name;
+                label.textContent = entry.label;
                 button.appendChild(label);
 
                 button.addEventListener('click', () => {
+                    state.category = entry.category;
                     setCurrentType(entry.name);
                     state.spritePickerOpen = false;
                     refreshPanel();
@@ -3643,8 +4269,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 button.addEventListener('mousedown', (event) => {
                     if (event.button !== 0) return;
                     event.preventDefault();
+                    state.category = entry.category;
                     state.pickerDrag = {
-                        category: state.category,
+                        category: entry.category,
                         type: entry.name,
                         palette: state.palette,
                         rotation: state.rotation,
@@ -3653,28 +4280,45 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     state.pickerDragCanvas = null;
                     setCurrentType(entry.name);
                     button!.classList.add('dragging');
-                    setStatus(`Dragging ${entry.name} onto the world to place it.`, 'neutral');
+                    setStatus(`Dragging ${entry.label} onto the world to place it.`, 'neutral');
                 });
 
-                spritePickerButtons.set(entry.name, button);
+                spritePickerButtons.set(entry.key, button);
                 refs.spritePickerGrid.appendChild(button);
             }
 
-            const matchesFilter = filter.length === 0 || entry.name.toLowerCase().includes(filter);
+            const matchesFilter = filter.length === 0 || entry.label.toLowerCase().includes(filter);
+            const matchesCategory = state.category === 'custom' ||
+                activeCategoryFilter === 'all' ||
+                activeCategoryFilter === 'custom' ||
+                spriteCategorySets[activeCategoryFilter].has(entry.name);
             button.hidden = !matchesFilter;
-            button.style.display = matchesFilter ? '' : 'none';
+            button.style.display = matchesFilter && matchesCategory ? '' : 'none';
+            button.hidden = !(matchesFilter && matchesCategory);
             button.classList.toggle('selected', entry.name === currentType);
             button.classList.toggle('dragging', state.pickerDrag?.type === entry.name);
             const canvas = button.querySelector('canvas');
             if (canvas instanceof HTMLCanvasElement) {
-                renderSpritePreviewCanvas(
-                    canvas,
-                    entry.name,
-                    state.palette,
-                    1,
-                    state.category === 'world' ? state.translation : 'center'
-                );
+                if (entry.category === 'custom') {
+                    renderCustomSpritePreviewCanvas(canvas, getCustomSpriteDefinitionById(entry.name));
+                } else {
+                    renderSpritePreviewCanvas(
+                        canvas,
+                        entry.name,
+                        state.palette,
+                        1,
+                        state.category === 'world' ? state.translation : 'center'
+                    );
+                }
             }
+        }
+
+        for (const [key, button] of spritePickerButtons.entries()) {
+            if (activeKeys.has(key)) {
+                continue;
+            }
+            button.style.display = 'none';
+            button.hidden = true;
         }
     }
 
@@ -3775,6 +4419,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         if (category === 'buttons') return data.buttons as any[];
         if (category === 'doors') return data.doors as any[];
         if (category === 'creatures') return data.creatures as any[];
+        if (category === 'custom') return state.customSpriteInstances;
         return data.collectables as any[];
     }
 
@@ -4097,6 +4742,34 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         return existing.filter((item) => !areSameSelection(item, target));
     }
 
+    function getSelectionDrawOrder(selection: Selection) {
+        const categoryOrder: Record<RuntimeDesignerCategory, number> = {
+            world: 0,
+            doors: 1,
+            buttons: 2,
+            creatures: 3,
+            collectables: 4
+        };
+        const category = selection.category as RuntimeDesignerCategory;
+        const categoryRank = categoryOrder[category] ?? 0;
+        const indexInCategory = getCategoryArray(selection.category).indexOf(selection.entity);
+        return {
+            categoryRank,
+            indexInCategory
+        };
+    }
+
+    function getSelectionsInDrawOrder(selections: Selection[]) {
+        return [...selections].sort((left, right) => {
+            const leftOrder = getSelectionDrawOrder(left);
+            const rightOrder = getSelectionDrawOrder(right);
+            if (leftOrder.categoryRank !== rightOrder.categoryRank) {
+                return leftOrder.categoryRank - rightOrder.categoryRank;
+            }
+            return leftOrder.indexInCategory - rightOrder.indexInCategory;
+        });
+    }
+
     function removeSelectedFromArray() {
         const selections = getSelectedItems();
         for (const selection of selections) {
@@ -4386,70 +5059,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         });
     }
 
-    function convertSpecificSelection(selection: Selection) {
-        if (selection.category === 'world') {
-            const block = selection.entity as MapBlock;
-            const arr = getCategoryArray('world');
-            const index = arr.indexOf(block);
-            if (index >= 0) {
-                arr.splice(index, 1);
-            }
-            const collectable = new Collectable({
-                x: block.x,
-                y: block.y,
-                type: block.type,
-                palette: block.palette ?? 0,
-                rotation: normalizeRotation(block.rotation),
-                name: block.type,
-                weight: 0.2,
-                pickupEnabled: true,
-                storable: true,
-                affectsAstronaut: true,
-                collision: block.collision !== false,
-                collected: false,
-                paletteCycle: block.paletteCycle ? deepClone(block.paletteCycle) : undefined
-            });
-            getCategoryArray('collectables').push(collectable);
-            setSelections([{ category: 'collectables', entity: collectable }]);
-            return;
-        }
-
-        if (selection.category === 'collectables') {
-            const collectable = selection.entity as Collectable;
-            const arr = getCategoryArray('collectables');
-            const index = arr.indexOf(collectable);
-            if (index >= 0) {
-                arr.splice(index, 1);
-            }
-            const block: MapBlock = {
-                x: collectable.x,
-                y: collectable.y,
-                type: collectable.type,
-                palette: collectable.palette ?? 0,
-                rotation: normalizeRotation(collectable.defaultRotation ?? collectable.rotation) as MapBlock['rotation'],
-                translation: 'center',
-                collision: collectable.collision !== false,
-                maskAstronaut: collectable.collision === false,
-                paletteCycle: collectable.paletteCycle ? deepClone(collectable.paletteCycle) : undefined
-            };
-            getCategoryArray('world').push(block);
-            setSelections([{ category: 'world', entity: block }]);
-        }
-    }
-
-    function convertPrimarySelectionToCollectable() {
+    function convertPrimarySelectionToCategory(targetCategory: DesignerCategory, message: string) {
         const selection = getContextMenuTargetSelection();
-        if (!selection || selection.category !== 'world') return;
-        runMutation('Converted world item to collectable.', () => {
-            convertSpecificSelection(selection);
-        });
-    }
-
-    function convertPrimarySelectionToWorldItem() {
-        const selection = getContextMenuTargetSelection();
-        if (!selection || selection.category !== 'collectables') return;
-        runMutation('Converted collectable to world item.', () => {
-            convertSpecificSelection(selection);
+        if (!selection || selection.category === targetCategory) return;
+        runMutation(message, () => {
+            convertSelectionToCategory(selection, targetCategory);
         });
     }
 
@@ -4558,9 +5172,21 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 activateContextMenuSelections();
                 focusSelection();
             }, selectedItems.length === 0 && !selection);
+            addContextMenuActionToContainer(body, 'Group as custom sprite', () => {
+                activateContextMenuSelections();
+                groupSelectionsAsCustomSprite();
+            }, !canGroupSelections(selectedItems.length > 0 ? selectedItems : selection ? [selection] : []));
+            addContextMenuActionToContainer(body, 'Ungroup custom sprite', () => {
+                activateContextMenuSelections();
+                ungroupCustomSpriteSelection();
+            }, selection.category !== 'custom');
+            addContextMenuActionToContainer(body, 'Delete custom sprite type', () => {
+                activateContextMenuSelections();
+                deleteCustomSpriteSelectionDefinition();
+            }, selection.category !== 'custom');
         }, !selection);
 
-        addContextMenuPaletteSubmenu(selectedItems.length === 0);
+        addContextMenuPaletteSubmenu(selectedItems.length === 0 || selection.category === 'custom');
 
         if ('collision' in selection.entity || selection.category === 'world') {
             addContextMenuSubmenu('Properties', (body) => {
@@ -4627,12 +5253,52 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             });
         }
 
-        if (selection.category === 'world' || selection.category === 'collectables') {
+        if (
+            selection.category === 'world' ||
+            selection.category === 'collectables' ||
+            selection.category === 'buttons' ||
+            selection.category === 'doors' ||
+            selection.category === 'custom'
+        ) {
             addContextMenuSubmenu('Convert', (body) => {
                 if (selection.category === 'world') {
-                    addContextMenuActionToContainer(body, 'Convert to collectable', convertPrimarySelectionToCollectable);
-                } else {
-                    addContextMenuActionToContainer(body, 'Convert to world item', convertPrimarySelectionToWorldItem);
+                    addContextMenuActionToContainer(body, 'Convert to collectable', () => {
+                        convertPrimarySelectionToCategory('collectables', 'Converted world item to collectable.');
+                    });
+                    addContextMenuActionToContainer(body, 'Convert to button', () => {
+                        convertPrimarySelectionToCategory('buttons', 'Converted world item to button.');
+                    });
+                    addContextMenuActionToContainer(body, 'Convert to door', () => {
+                        convertPrimarySelectionToCategory('doors', 'Converted world item to door.');
+                    });
+                } else if (selection.category === 'collectables') {
+                    addContextMenuActionToContainer(body, 'Convert to world item', () => {
+                        convertPrimarySelectionToCategory('world', 'Converted collectable to world item.');
+                    });
+                    addContextMenuActionToContainer(body, 'Convert to button', () => {
+                        convertPrimarySelectionToCategory('buttons', 'Converted collectable to button.');
+                    });
+                    addContextMenuActionToContainer(body, 'Convert to door', () => {
+                        convertPrimarySelectionToCategory('doors', 'Converted collectable to door.');
+                    });
+                } else if (selection.category === 'buttons') {
+                    addContextMenuActionToContainer(body, 'Convert to world item', () => {
+                        convertPrimarySelectionToCategory('world', 'Converted button to world item.');
+                    });
+                    addContextMenuActionToContainer(body, 'Convert to collectable', () => {
+                        convertPrimarySelectionToCategory('collectables', 'Converted button to collectable.');
+                    });
+                } else if (selection.category === 'doors') {
+                    addContextMenuActionToContainer(body, 'Convert to world item', () => {
+                        convertPrimarySelectionToCategory('world', 'Converted door to world item.');
+                    });
+                    addContextMenuActionToContainer(body, 'Convert to collectable', () => {
+                        convertPrimarySelectionToCategory('collectables', 'Converted door to collectable.');
+                    });
+                } else if (selection.category === 'custom') {
+                    addContextMenuActionToContainer(body, 'Convert to button', () => {
+                        convertPrimarySelectionToCategory('buttons', 'Converted custom sprite to button.');
+                    }, !canConvertCustomSpriteToButton(selection.entity as CustomSpriteInstance));
                 }
             });
         }
@@ -4702,8 +5368,467 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             .reduce((maxDoorId, door) => Math.max(maxDoorId, door.doorID ?? -1), -1) + 1;
     }
 
+    function getPreferredButtonTypes() {
+        const capType = spriteTypes.includes('button')
+            ? 'button'
+            : getCurrentType();
+        const boxType = spriteTypes.includes('button_box')
+            ? 'button_box'
+            : capType;
+        return { capType, boxType };
+    }
+
+    function getDefaultButtonPalettePair() {
+        const defaultCapPalette = paletteCount > 9 ? 9 : Math.max(0, paletteCount - 1);
+        const defaultBoxPalette = paletteCount > 8 ? 8 : defaultCapPalette;
+        return {
+            capPalette: defaultCapPalette,
+            boxPalette: defaultBoxPalette
+        };
+    }
+
+    function getEffectiveButtonDefaultOverrides() {
+        const paletteDefaults = getDefaultButtonPalettePair();
+        return {
+            capPalette: state.buttonDefaults.capPalette ?? paletteDefaults.capPalette,
+            boxPalette: state.buttonDefaults.boxPalette ?? paletteDefaults.boxPalette,
+            capClosedOffsetX: state.buttonDefaults.capClosedOffsetX ?? 0,
+            capClosedOffsetY: state.buttonDefaults.capClosedOffsetY ?? 0,
+            capOpenOffsetX: state.buttonDefaults.capOpenOffsetX ?? BUTTON_DEFAULT_PRESS_OFFSET,
+            capOpenOffsetY: state.buttonDefaults.capOpenOffsetY ?? 0
+        };
+    }
+
+    function applyButtonDefaultRelativeOffsets(boxOffsetX: number, boxOffsetY: number) {
+        const defaults = getEffectiveButtonDefaultOverrides();
+        return {
+            capClosedOffsetX: boxOffsetX + defaults.capClosedOffsetX,
+            capClosedOffsetY: boxOffsetY + defaults.capClosedOffsetY,
+            capOpenOffsetX: boxOffsetX + defaults.capOpenOffsetX,
+            capOpenOffsetY: boxOffsetY + defaults.capOpenOffsetY
+        };
+    }
+
+    function setButtonDefaultOverridesFromButton(button: Button) {
+        const closedRelative = getButtonCapOffsetsRelativeToBox(button, false);
+        const openRelative = getButtonCapOffsetsRelativeToBox(button, true);
+        state.buttonDefaults = {
+            capPalette: button.palette ?? 0,
+            boxPalette: button.boxPalette ?? 0,
+            capClosedOffsetX: closedRelative.x,
+            capClosedOffsetY: closedRelative.y,
+            capOpenOffsetX: openRelative.x,
+            capOpenOffsetY: openRelative.y
+        };
+    }
+
+    function resetButtonDefaultOverrides() {
+        state.buttonDefaults = {
+            capPalette: null,
+            boxPalette: null,
+            capClosedOffsetX: null,
+            capClosedOffsetY: null,
+            capOpenOffsetX: null,
+            capOpenOffsetY: null
+        };
+    }
+
+    function createButtonEntity(config: {
+        x: number;
+        y: number;
+        type?: string;
+        palette?: number;
+        boxType?: string;
+        boxPalette?: number;
+        rotation?: number;
+        collision?: boolean;
+        active?: boolean;
+        linkedDoors?: number[];
+        paletteCycle?: PaletteCycleSettings;
+        pressOffset?: number;
+        boxOffsetX?: number;
+        boxOffsetY?: number;
+        capClosedOffsetX?: number;
+        capClosedOffsetY?: number;
+        capOpenOffsetX?: number;
+        capOpenOffsetY?: number;
+    }) {
+        const { capType, boxType } = getPreferredButtonTypes();
+        const defaultButtonOverrides = getEffectiveButtonDefaultOverrides();
+        const boxOffsetX = config.boxOffsetX ?? BUTTON_DEFAULT_BOX_OFFSET_X;
+        const boxOffsetY = config.boxOffsetY ?? BUTTON_DEFAULT_BOX_OFFSET_Y;
+        const defaultCapOffsets = applyButtonDefaultRelativeOffsets(boxOffsetX, boxOffsetY);
+        const capClosedOffsetX = config.capClosedOffsetX ?? defaultCapOffsets.capClosedOffsetX;
+        const capClosedOffsetY = config.capClosedOffsetY ?? defaultCapOffsets.capClosedOffsetY;
+        const capOpenOffsetX = config.capOpenOffsetX ?? defaultCapOffsets.capOpenOffsetX;
+        const capOpenOffsetY = config.capOpenOffsetY ?? defaultCapOffsets.capOpenOffsetY;
+        return new Button({
+            x: config.x,
+            y: config.y,
+            type: config.type ?? capType,
+            palette: config.palette ?? defaultButtonOverrides.capPalette,
+            boxType: config.boxType ?? boxType,
+            boxPalette: config.boxPalette ?? defaultButtonOverrides.boxPalette,
+            rotation: normalizeRotation(config.rotation ?? state.rotation),
+            linkedDoors: config.linkedDoors ?? [],
+            collision: config.collision !== false,
+            active: config.active ?? false,
+            pressOffset: config.pressOffset ?? (capOpenOffsetX - capClosedOffsetX),
+            boxOffsetX,
+            boxOffsetY,
+            capClosedOffsetX,
+            capClosedOffsetY,
+            capOpenOffsetX,
+            capOpenOffsetY,
+            paletteCycle: config.paletteCycle ? deepClone(config.paletteCycle) : undefined
+        });
+    }
+
+    function createCustomSpriteInstance(definition: CustomSpriteDefinition, x: number, y: number): CustomSpriteInstance {
+        return {
+            x: Math.round(x),
+            y: Math.round(y),
+            type: definition.name,
+            customSpriteId: definition.id
+        };
+    }
+
+    function renameCustomSpriteDefinition(definition: CustomSpriteDefinition, nextName: string) {
+        definition.name = nextName;
+        for (const instance of state.customSpriteInstances) {
+            if (instance.customSpriteId === definition.id) {
+                instance.type = nextName;
+            }
+        }
+    }
+
+    function deleteCustomSpriteDefinition(definitionId: string) {
+        state.customSpriteDefinitions = state.customSpriteDefinitions.filter((definition) => definition.id !== definitionId);
+        state.customSpriteInstances = state.customSpriteInstances.filter((instance) => instance.customSpriteId !== definitionId);
+        if (state.typeByCategory.custom === definitionId) {
+            state.typeByCategory.custom = state.customSpriteDefinitions[0]?.id ?? '';
+        }
+        if (state.selection?.category === 'custom' && state.selection.entity.customSpriteId === definitionId) {
+            setSelections([]);
+        }
+    }
+
+    function canGroupSelections(selections = getSelectedItems()) {
+        return selections.length > 1 && selections.every((selection) => selection.category !== 'custom');
+    }
+
+    function groupSelectionsAsCustomSprite() {
+        const selections = getSelectionsInDrawOrder(getSelectedItems());
+        if (!canGroupSelections(selections)) {
+            setStatus('Select at least two non-custom objects to group them into a custom sprite.', 'error');
+            return;
+        }
+        runMutation('Grouped selection as a custom sprite.', () => {
+            const anchorX = Math.min(...selections.map((selection) => Math.round(selection.entity.x)));
+            const anchorY = Math.min(...selections.map((selection) => Math.round(selection.entity.y)));
+            const definition: CustomSpriteDefinition = {
+                id: `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+                name: createCustomSpriteName(),
+                members: selections.map((selection) => ({
+                    category: selection.category as RuntimeDesignerCategory,
+                    offsetX: Math.round(selection.entity.x) - anchorX,
+                    offsetY: Math.round(selection.entity.y) - anchorY,
+                    data: serializeSelectionEntity(selection) as MapBlock | ButtonSaveData | DoorSaveData | CreatureSaveData | CollectableSaveData
+                }))
+            };
+            state.customSpriteDefinitions.push(definition);
+            removeSelectedFromArray();
+            const instance = createCustomSpriteInstance(definition, anchorX, anchorY);
+            state.customSpriteInstances.push(instance);
+            state.typeByCategory.custom = definition.id;
+            setSelections([{ category: 'custom', entity: instance }]);
+        });
+    }
+
+    function ungroupCustomSpriteSelection() {
+        if (!state.selection || state.selection.category !== 'custom') {
+            setStatus('Select a custom sprite to ungroup it.', 'error');
+            return;
+        }
+        const instance = state.selection.entity as CustomSpriteInstance;
+        const definition = getCustomSpriteDefinitionForInstance(instance);
+        if (!definition) {
+            setStatus('This custom sprite definition is missing.', 'error');
+            return;
+        }
+        runMutation('Ungrouped custom sprite.', () => {
+            const customInstances = getCategoryArray('custom');
+            const instanceIndex = customInstances.indexOf(instance);
+            if (instanceIndex >= 0) {
+                customInstances.splice(instanceIndex, 1);
+            }
+            const restoredSelections: Selection[] = [];
+            for (const member of definition.members) {
+                const clone = deepClone(member.data);
+                clone.x = Math.round(instance.x + member.offsetX);
+                clone.y = Math.round(instance.y + member.offsetY);
+                const entity = createSelectionEntity(member.category, clone);
+                getCategoryArray(member.category).push(entity);
+                restoredSelections.push({ category: member.category, entity });
+            }
+            setSelections(restoredSelections, restoredSelections[0] ?? null);
+        });
+    }
+
+    function deleteCustomSpriteSelectionDefinition() {
+        if (!state.selection || state.selection.category !== 'custom') {
+            setStatus('Select a custom sprite to delete its saved type.', 'error');
+            return;
+        }
+        const instance = state.selection.entity as CustomSpriteInstance;
+        const definition = getCustomSpriteDefinitionForInstance(instance);
+        if (!definition) {
+            setStatus('This custom sprite definition is missing.', 'error');
+            return;
+        }
+        runMutation('Deleted custom sprite type.', () => {
+            deleteCustomSpriteDefinition(definition.id);
+        });
+    }
+
+    function buildButtonEntityFromCustomSpriteInstance(instance: CustomSpriteInstance) {
+        const definition = getCustomSpriteDefinitionForInstance(instance);
+        if (!definition) {
+            throw new Error('This custom sprite definition is missing.');
+        }
+        const capMember = definition.members.find((member) => member.data.type === 'button');
+        const boxMember = definition.members.find((member) => member.data.type === 'button_box');
+        if (!capMember || !boxMember) {
+            throw new Error('Custom sprite needs one "button" part and one "button_box" part before it can convert to a button.');
+        }
+        const capData = capMember.data as ButtonSaveData | MapBlock | CollectableSaveData;
+        const boxData = boxMember.data as ButtonSaveData | MapBlock | DoorSaveData | CreatureSaveData | CollectableSaveData;
+        const rotation = normalizeRotation(capData.rotation);
+        const localBoxOffset = invertButtonOffset(
+            boxMember.offsetX - capMember.offsetX,
+            boxMember.offsetY - capMember.offsetY,
+            rotation
+        );
+        const buttonDefaults = state.buttonDefaults;
+        const closedCapOffsetX = -localBoxOffset.x;
+        const closedCapOffsetY = -localBoxOffset.y;
+        const defaultOpenTravel = BUTTON_DEFAULT_PRESS_OFFSET + 5;
+        const capTravelX = localBoxOffset.x < 0 ? defaultOpenTravel : -defaultOpenTravel;
+        const capOpenOffsetX = buttonDefaults.capOpenOffsetX ?? (closedCapOffsetX + capTravelX);
+        const capOpenOffsetY = buttonDefaults.capOpenOffsetY ?? closedCapOffsetY;
+        return createButtonEntity({
+            x: Math.round(instance.x + boxMember.offsetX),
+            y: Math.round(instance.y + boxMember.offsetY),
+            type: capData.type,
+            palette: typeof buttonDefaults.capPalette === 'number'
+                ? buttonDefaults.capPalette
+                : (typeof capData.palette === 'number' ? capData.palette : undefined),
+            boxType: boxData.type,
+            boxPalette: typeof buttonDefaults.boxPalette === 'number'
+                ? buttonDefaults.boxPalette
+                : (typeof boxData.palette === 'number' ? boxData.palette : undefined),
+            rotation,
+            collision: ('collision' in capData ? capData.collision !== false : true) && ('collision' in boxData ? boxData.collision !== false : true),
+            active: false,
+            linkedDoors: [],
+            paletteCycle: capData.paletteCycle ? deepClone(capData.paletteCycle) : undefined,
+            pressOffset: capOpenOffsetX - (buttonDefaults.capClosedOffsetX ?? closedCapOffsetX),
+            boxOffsetX: 0,
+            boxOffsetY: 0,
+            capClosedOffsetX: buttonDefaults.capClosedOffsetX ?? closedCapOffsetX,
+            capClosedOffsetY: buttonDefaults.capClosedOffsetY ?? closedCapOffsetY,
+            capOpenOffsetX,
+            capOpenOffsetY
+        });
+    }
+
+    function canConvertCustomSpriteToButton(instance: CustomSpriteInstance) {
+        const definition = getCustomSpriteDefinitionForInstance(instance);
+        return !!definition &&
+            definition.members.some((member) => member.data.type === 'button') &&
+            definition.members.some((member) => member.data.type === 'button_box');
+    }
+
+    function getButtonCapLocalOffsets(button: ButtonSaveData | Button, open: boolean) {
+        const closed = {
+            x: button.capClosedOffsetX ?? 0,
+            y: button.capClosedOffsetY ?? 0
+        };
+        const openOffsets = {
+            x: button.capOpenOffsetX ?? (button.pressOffset ?? 2),
+            y: button.capOpenOffsetY ?? 0
+        };
+        return open ? openOffsets : closed;
+    }
+
+    function getButtonCapOffsetsRelativeToBox(button: ButtonSaveData | Button, open: boolean) {
+        const cap = getButtonCapLocalOffsets(button, open);
+        return {
+            x: cap.x - (button.boxOffsetX ?? BUTTON_DEFAULT_BOX_OFFSET_X),
+            y: cap.y - (button.boxOffsetY ?? BUTTON_DEFAULT_BOX_OFFSET_Y)
+        };
+    }
+
+    function createDoorEntity(config: {
+        x: number;
+        y: number;
+        palette?: number;
+        rotation?: number;
+        collision?: boolean;
+        paletteCycle?: PaletteCycleSettings;
+    }) {
+        const doorId = getNextDoorId();
+        const type = state.typeByCategory.doors;
+        return new Door({
+            x: config.x,
+            y: config.y,
+            z: 0,
+            type,
+            palette: config.palette ?? state.palette,
+            rotation: normalizeRotation(config.rotation ?? state.rotation),
+            name: `${type}_${doorId}`,
+            doorID: doorId,
+            locked: false,
+            open: false,
+            collision: config.collision !== false,
+            palette_locked: null,
+            palette_unlocked: null,
+            paletteCycle: config.paletteCycle ? deepClone(config.paletteCycle) : undefined
+        });
+    }
+
+    function getConvertTargetCategory(selection: Selection): DesignerCategory | null {
+        if (selection.category === 'custom') {
+            return canConvertCustomSpriteToButton(selection.entity as CustomSpriteInstance) ? 'buttons' : null;
+        }
+        if (selection.category === 'world') {
+            if (state.category === 'buttons' || state.category === 'doors' || state.category === 'collectables') {
+                return state.category;
+            }
+            return 'collectables';
+        }
+        if (selection.category === 'collectables') {
+            if (state.category === 'buttons' || state.category === 'doors' || state.category === 'world') {
+                return state.category;
+            }
+            return 'world';
+        }
+        if (selection.category === 'buttons' || selection.category === 'doors') {
+            if (state.category === 'world' || state.category === 'collectables') {
+                return state.category;
+            }
+        }
+        return null;
+    }
+
+    function getConvertActionLabel(selection: Selection): string {
+        const target = getConvertTargetCategory(selection);
+        if (!target) {
+            return 'Convert';
+        }
+        return `Convert to ${CATEGORY_LABELS[target].toLowerCase().replace(/^[a-z]/, (letter) => letter.toUpperCase())}`;
+    }
+
+    function getConvertActionMessage(targetCategory: DesignerCategory) {
+        const label = CATEGORY_LABELS[targetCategory].toLowerCase();
+        return `Converted selection to ${label.endsWith('s') ? label : `a ${label}`}.`;
+    }
+
+    function convertSelectionToCategory(selection: Selection, targetCategory: DesignerCategory) {
+        if (selection.category === targetCategory) {
+            return;
+        }
+        const sourceArray = getCategoryArray(selection.category);
+        const sourceIndex = sourceArray.indexOf(selection.entity);
+        if (sourceIndex >= 0) {
+            sourceArray.splice(sourceIndex, 1);
+        }
+
+        if (targetCategory === 'collectables') {
+            const block = selection.entity as MapBlock;
+            const collectable = new Collectable({
+                x: block.x,
+                y: block.y,
+                type: block.type,
+                palette: block.palette ?? 0,
+                rotation: normalizeRotation(block.rotation),
+                name: block.type,
+                weight: 0.2,
+                pickupEnabled: true,
+                storable: true,
+                affectsAstronaut: true,
+                collision: block.collision !== false,
+                collected: false,
+                paletteCycle: block.paletteCycle ? deepClone(block.paletteCycle) : undefined
+            });
+            getCategoryArray('collectables').push(collectable);
+            setSelections([{ category: 'collectables', entity: collectable }]);
+            return;
+        }
+
+        if (targetCategory === 'world') {
+            const sourceEntity = selection.entity as Collectable | Button | Door;
+            const block: MapBlock = {
+                x: sourceEntity.x,
+                y: sourceEntity.y,
+                type: sourceEntity.type,
+                palette: sourceEntity.palette ?? 0,
+                rotation: normalizeRotation((sourceEntity as Collectable).defaultRotation ?? sourceEntity.rotation) as MapBlock['rotation'],
+                translation: 'center',
+                collision: sourceEntity.collision !== false,
+                maskAstronaut: sourceEntity.collision === false,
+                paletteCycle: sourceEntity.paletteCycle ? deepClone(sourceEntity.paletteCycle) : undefined
+            };
+            getCategoryArray('world').push(block);
+            setSelections([{ category: 'world', entity: block }]);
+            return;
+        }
+
+        const basePalette = typeof selection.entity.palette === 'number' ? selection.entity.palette : state.palette;
+        const baseRotation = normalizeRotation(selection.entity.rotation);
+        const baseCollision = 'collision' in selection.entity ? selection.entity.collision !== false : true;
+        const basePaletteCycle = 'paletteCycle' in selection.entity ? selection.entity.paletteCycle : undefined;
+
+        if (selection.category === 'custom' && targetCategory === 'buttons') {
+            const button = buildButtonEntityFromCustomSpriteInstance(selection.entity as CustomSpriteInstance);
+            getCategoryArray('buttons').push(button);
+            setSelections([{ category: 'buttons', entity: button }]);
+            return;
+        }
+
+        if (targetCategory === 'buttons') {
+            const button = createButtonEntity({
+                x: selection.entity.x,
+                y: selection.entity.y,
+                rotation: baseRotation,
+                collision: baseCollision,
+                active: false,
+                linkedDoors: [],
+                paletteCycle: basePaletteCycle
+            });
+            getCategoryArray('buttons').push(button);
+            setSelections([{ category: 'buttons', entity: button }]);
+            return;
+        }
+
+        if (targetCategory === 'doors') {
+            const door = createDoorEntity({
+                x: selection.entity.x,
+                y: selection.entity.y,
+                palette: basePalette,
+                rotation: baseRotation,
+                collision: baseCollision,
+                paletteCycle: basePaletteCycle
+            });
+            getCategoryArray('doors').push(door);
+            setSelections([{ category: 'doors', entity: door }]);
+        }
+    }
+
     function serializeSelectionEntity(selection: Selection): ClipboardEntry['data'] {
-        return deepClone(selection.category === 'world'
+        return deepClone(selection.category === 'custom'
+            ? selection.entity
+            : selection.category === 'world'
             ? toMapBlockData(selection.entity)
             : selection.category === 'buttons'
                 ? toButtonData(selection.entity)
@@ -4718,6 +5843,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         category: DesignerCategory,
         data: ClipboardEntry['data']
     ) {
+        if (category === 'custom') {
+            return deepClone(data as CustomSpriteInstance);
+        }
         if (category === 'world') {
             return data as MapBlock;
         }
@@ -4767,41 +5895,40 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
 
         if (state.category === 'buttons') {
-            const entity = new Button({
+            const entity: MapBlock = {
                 x,
                 y,
                 type,
-                palette: state.palette,
-                boxType: spriteTypes.includes('button_box') ? 'button_box' : type,
-                boxPalette: state.palette,
-                rotation: state.rotation,
-                linkedDoors: [],
                 collision: true,
-                active: false,
-                pressOffset: 2,
-                boxOffsetX: 12,
-                boxOffsetY: 0
-            });
-            getCategoryArray('buttons').push(entity);
-            setSelections([{ category: 'buttons', entity }]);
+                maskAstronaut: false,
+                palette: state.palette,
+                rotation: state.rotation as MapBlock['rotation'],
+                translation: 'center'
+            };
+            getCategoryArray('world').push(entity);
+            setSelections([{ category: 'world', entity }]);
+            return;
+        }
+
+        if (state.category === 'custom') {
+            const definition = getCustomSpriteDefinitionById(type);
+            if (!definition) {
+                setStatus('Create a custom sprite by grouping placed items first.', 'error');
+                return;
+            }
+            const entity = createCustomSpriteInstance(definition, x, y);
+            getCategoryArray('custom').push(entity);
+            setSelections([{ category: 'custom', entity }]);
             return;
         }
 
         if (state.category === 'doors') {
-            const entity = new Door({
+            const entity = createDoorEntity({
                 x,
                 y,
-                z: 0,
-                type,
                 palette: state.palette,
                 rotation: state.rotation,
-                name: `${type}_${getNextDoorId()}`,
-                doorID: getNextDoorId(),
-                locked: false,
-                open: false,
-                collision: true,
-                palette_locked: null,
-                palette_unlocked: null
+                collision: true
             });
             getCategoryArray('doors').push(entity);
             setSelections([{ category: 'doors', entity }]);
@@ -4842,7 +5969,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         setSelections([{ category: 'collectables', entity }]);
     }
 
-    function commitMutation(before: RawWorldData, message: string) {
+    function commitMutation(before: DesignerSnapshot, message: string) {
         state.undoStack.push(before);
         if (state.undoStack.length > HISTORY_LIMIT) {
             state.undoStack.shift();
@@ -4873,6 +6000,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
         for (const creature of [...data.creatures].reverse()) {
             candidates.push({ category: 'creatures', entity: creature });
+        }
+        for (const customSprite of [...state.customSpriteInstances].reverse()) {
+            candidates.push({ category: 'custom', entity: customSprite });
         }
         for (const button of [...data.buttons].reverse()) {
             candidates.push({ category: 'buttons', entity: button });
@@ -5022,6 +6152,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             x: rect.left - host.canvas.width / 2 + rect.width / 2,
             y: rect.top - host.canvas.height / 2 + rect.height / 2
         });
+        persistDesignerUiState();
         setStatus('Camera centered on selection.', 'neutral');
     }
 
@@ -5076,6 +6207,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     function rotateSelection() {
         const selections = getSelectedItems();
         if (selections.length === 0) return;
+        if (selections.some((selection) => selection.category === 'custom')) {
+            setStatus('Custom sprites keep the rotation authored into their grouped parts.', 'neutral');
+            return;
+        }
         runMutation('Rotated selection.', () => {
             for (const selection of selections) {
                 selection.entity.rotation = ((normalizeRotation(selection.entity.rotation) % 7) + 1);
@@ -5104,8 +6239,13 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         setSelections(selection ? [selection] : [], selection);
     }
 
-    function restoreSnapshot(snapshot: RawWorldData, message: string) {
-        host.replaceRawWorldData(snapshot);
+    function restoreSnapshot(snapshot: DesignerSnapshot, message: string) {
+        host.replaceRawWorldData(snapshot.worldData);
+        state.customSpriteDefinitions = deepClone(snapshot.customSpriteDefinitions);
+        state.customSpriteInstances = deepClone(snapshot.customSpriteInstances);
+        if (!getCustomSpriteDefinitionById(state.typeByCategory.custom)) {
+            state.typeByCategory.custom = state.customSpriteDefinitions[0]?.id ?? '';
+        }
         state.selection = null;
         state.selectedItems = [];
         updateDirtyState();
@@ -5128,7 +6268,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function getSavePreview(): SavePreviewState {
-        const snapshot = getSnapshot();
+        const snapshot = getWorldSnapshot();
         const errors: string[] = [];
         const spriteTypeSet = new Set(spriteTypes);
         const paletteMax = paletteCount - 1;
@@ -5276,7 +6416,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             return;
         }
 
-        const snapshot = getSnapshot();
+        const snapshot = getWorldSnapshot();
         const liveAstronautPosition = host.getFocusWorldPosition();
         const astronautStartChanged =
             snapshot.astronautStart.x !== state.lastSavedSnapshot.astronautStart.x ||
@@ -6781,7 +7921,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
 
         if (selections.length > 1) {
-            refs.selectionSummary.textContent = `${selections.length} objects selected. Drag any selected object to move the group.`;
+            refs.selectionSummary.textContent = `${selections.length} objects selected. Drag any selected object to move the group, or right-click to group them as a custom sprite.`;
             refs.convertButton.textContent = 'Convert';
             refs.convertButton.disabled = true;
             refs.deleteButton.disabled = false;
@@ -6793,13 +7933,12 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
 
         const { category, entity } = state.selection!;
-        refs.selectionSummary.textContent = `${CATEGORY_LABELS[category]}: ${entity.type} at (${entity.x}, ${entity.y})`;
-        refs.convertButton.disabled = !(category === 'world' || category === 'collectables');
-        refs.convertButton.textContent = category === 'world'
-            ? 'Convert to collectable'
-            : category === 'collectables'
-                ? 'Convert to world item'
-                : 'Convert';
+        refs.selectionSummary.textContent = category === 'custom'
+            ? `${CATEGORY_LABELS[category]}: ${entity.type} at (${entity.x}, ${entity.y})`
+            : `${CATEGORY_LABELS[category]}: ${entity.type} at (${entity.x}, ${entity.y})`;
+        const convertTarget = getConvertTargetCategory(state.selection!);
+        refs.convertButton.disabled = !convertTarget;
+        refs.convertButton.textContent = getConvertActionLabel(state.selection!);
         refs.deleteButton.disabled = false;
         refs.duplicateButton.disabled = false;
         refs.sendToBackButton.disabled = false;
@@ -6816,9 +7955,14 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const row = document.createElement('label');
         row.className = 'world-designer-checkbox';
         const input = document.createElement('input');
+        const focusKey = label;
         input.type = 'checkbox';
         input.checked = checked;
-        input.addEventListener('change', () => onChange(input.checked));
+        input.dataset.inspectorKey = focusKey;
+        input.addEventListener('change', () => {
+            pendingInspectorFocusKey = focusKey;
+            onChange(input.checked);
+        });
         row.appendChild(input);
         row.append(label);
         container.appendChild(row);
@@ -6835,8 +7979,13 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         field.className = 'world-designer-field';
         field.textContent = label;
         const input = multiline ? document.createElement('textarea') : document.createElement('input');
+        const focusKey = label;
         input.value = value;
-        input.addEventListener('change', () => onCommit(input.value));
+        input.dataset.inspectorKey = focusKey;
+        input.addEventListener('change', () => {
+            pendingInspectorFocusKey = focusKey;
+            onCommit(input.value);
+        });
         field.appendChild(input);
         container.appendChild(field);
     }
@@ -6852,10 +8001,15 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         field.className = 'world-designer-field';
         field.textContent = label;
         const input = document.createElement('input');
+        const focusKey = label;
         input.type = 'number';
         input.step = String(step);
         input.value = String(value);
-        input.addEventListener('change', () => onCommit(Number(input.value)));
+        input.dataset.inspectorKey = focusKey;
+        input.addEventListener('change', () => {
+            pendingInspectorFocusKey = focusKey;
+            onCommit(Number(input.value));
+        });
         field.appendChild(input);
         container.appendChild(field);
     }
@@ -6871,6 +8025,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         field.className = 'world-designer-field';
         field.textContent = label;
         const select = document.createElement('select');
+        const focusKey = label;
         for (const optionValue of options) {
             const option = document.createElement('option');
             option.value = optionValue;
@@ -6878,9 +8033,133 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             select.appendChild(option);
         }
         select.value = value;
-        select.addEventListener('change', () => onCommit(select.value));
+        select.dataset.inspectorKey = focusKey;
+        select.addEventListener('change', () => {
+            pendingInspectorFocusKey = focusKey;
+            onCommit(select.value);
+        });
         field.appendChild(select);
         container.appendChild(field);
+    }
+
+    function addOptionSelectInspector(
+        container: HTMLElement,
+        label: string,
+        value: string,
+        options: Array<{ value: string; label: string }>,
+        onCommit: (value: string) => void
+    ) {
+        const field = document.createElement('label');
+        field.className = 'world-designer-field';
+        field.textContent = label;
+        const select = document.createElement('select');
+        const focusKey = label;
+        for (const optionValue of options) {
+            const option = document.createElement('option');
+            option.value = optionValue.value;
+            option.textContent = optionValue.label;
+            select.appendChild(option);
+        }
+        select.value = value;
+        select.dataset.inspectorKey = focusKey;
+        select.addEventListener('change', () => {
+            pendingInspectorFocusKey = focusKey;
+            onCommit(select.value);
+        });
+        field.appendChild(select);
+        container.appendChild(field);
+    }
+
+    function restorePendingInspectorFocus() {
+        if (!pendingInspectorFocusKey) {
+            return;
+        }
+        const selector = `[data-inspector-key="${CSS.escape(pendingInspectorFocusKey)}"]`;
+        const field = refs.inspector.querySelector(selector);
+        pendingInspectorFocusKey = null;
+        if (!(field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement || field instanceof HTMLSelectElement)) {
+            return;
+        }
+        if (field.disabled) {
+            return;
+        }
+        field.focus();
+        if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) {
+            field.select();
+        }
+    }
+
+    function addInspectorAction(
+        container: HTMLElement,
+        label: string,
+        onClick: () => void
+    ) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = label;
+        button.addEventListener('click', onClick);
+        container.appendChild(button);
+    }
+
+    function renderButtonDefaultsInspector(container: HTMLElement, selectedButton: Button | null) {
+        const effectiveDefaults = getEffectiveButtonDefaultOverrides();
+        const paletteOptions = Array.from({ length: paletteCount }, (_, index) => ({
+            value: String(index),
+            label: `Palette ${index}`
+        }));
+        const accordion = document.createElement('details');
+        const accordionSummary = document.createElement('summary');
+        accordionSummary.textContent = 'Defaults for new buttons and button conversions';
+        accordion.appendChild(accordionSummary);
+        const body = document.createElement('div');
+        const summary = document.createElement('div');
+        summary.className = 'world-designer-summary';
+        summary.textContent = 'Existing buttons keep their own values.';
+        body.appendChild(summary);
+        addOptionSelectInspector(body, 'Default button cap palette', String(effectiveDefaults.capPalette), paletteOptions, (value) => {
+            runMutation('Updated default button cap palette.', () => {
+                state.buttonDefaults.capPalette = clamp(Math.round(Number(value)), 0, paletteCount - 1);
+            });
+        });
+        addOptionSelectInspector(body, 'Default box palette', String(effectiveDefaults.boxPalette), paletteOptions, (value) => {
+            runMutation('Updated default button box palette.', () => {
+                state.buttonDefaults.boxPalette = clamp(Math.round(Number(value)), 0, paletteCount - 1);
+            });
+        });
+        addNumberInspector(body, 'Default closed cap offset X (from box)', effectiveDefaults.capClosedOffsetX, (value) => {
+            runMutation('Updated default closed button cap X.', () => {
+                state.buttonDefaults.capClosedOffsetX = Math.round(value);
+            });
+        });
+        addNumberInspector(body, 'Default closed cap offset Y (from box)', effectiveDefaults.capClosedOffsetY, (value) => {
+            runMutation('Updated default closed button cap Y.', () => {
+                state.buttonDefaults.capClosedOffsetY = Math.round(value);
+            });
+        });
+        addNumberInspector(body, 'Default open cap offset X (from box)', effectiveDefaults.capOpenOffsetX, (value) => {
+            runMutation('Updated default open button cap X.', () => {
+                state.buttonDefaults.capOpenOffsetX = Math.round(value);
+            });
+        });
+        addNumberInspector(body, 'Default open cap offset Y (from box)', effectiveDefaults.capOpenOffsetY, (value) => {
+            runMutation('Updated default open button cap Y.', () => {
+                state.buttonDefaults.capOpenOffsetY = Math.round(value);
+            });
+        });
+        if (selectedButton) {
+            addInspectorAction(body, 'Use selected button as new-button defaults', () => {
+                runMutation('Copied selected button to button defaults.', () => {
+                    setButtonDefaultOverridesFromButton(selectedButton);
+                });
+            });
+        }
+        addInspectorAction(body, 'Reset button defaults', () => {
+            runMutation('Reset button defaults.', () => {
+                resetButtonDefaultOverrides();
+            });
+        });
+        accordion.appendChild(body);
+        container.appendChild(accordion);
     }
 
     function refreshInspector() {
@@ -6893,12 +8172,54 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 summary.className = 'world-designer-summary';
                 summary.textContent = 'Multi-selection active. Inspector editing is limited to single-object selection.';
                 refs.inspector.appendChild(summary);
+                if (state.category === 'buttons') {
+                    renderButtonDefaultsInspector(refs.inspector, null);
+                }
+            } else if (state.category === 'buttons') {
+                renderButtonDefaultsInspector(refs.inspector, null);
             }
             return;
         }
 
         const { category, entity } = state.selection;
         const container = refs.inspector;
+
+        if (category === 'custom') {
+            const definition = getCustomSpriteDefinitionForInstance(entity as CustomSpriteInstance);
+            addTextInspector(container, 'Name', definition?.name ?? entity.type, (value) => {
+                runMutation('Renamed custom sprite.', () => {
+                    const trimmed = value.trim();
+                    const nextName = trimmed.length > 0 ? trimmed : createCustomSpriteName();
+                    if (definition) {
+                        renameCustomSpriteDefinition(definition, nextName);
+                    } else {
+                        entity.type = nextName;
+                    }
+                });
+            });
+            addNumberInspector(container, 'X', entity.x, (value) => {
+                runMutation('Updated X position.', () => {
+                    entity.x = Math.round(value);
+                });
+            });
+            addNumberInspector(container, 'Y', entity.y, (value) => {
+                runMutation('Updated Y position.', () => {
+                    entity.y = Math.round(value);
+                });
+            });
+            const summary = document.createElement('div');
+            summary.className = 'world-designer-summary';
+            summary.textContent = definition
+                ? `${definition.members.length} part${definition.members.length === 1 ? '' : 's'}. Use Convert to button for a live runtime button, or right-click to ungroup.`
+                : 'Missing custom sprite definition.';
+            container.appendChild(summary);
+            if (definition) {
+                addInspectorAction(container, 'Delete custom sprite type', () => {
+                    deleteCustomSpriteSelectionDefinition();
+                });
+            }
+            return;
+        }
 
         addSelectInspector(container, 'Type', entity.type, spriteTypes, (value) => {
             runMutation('Updated sprite type.', () => {
@@ -6937,11 +8258,23 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 }
             );
         }
-        addNumberInspector(container, 'Palette', entity.palette ?? 0, (value) => {
-            runMutation('Updated palette.', () => {
-                entity.palette = clamp(Math.round(value), 0, paletteCount - 1);
+        const paletteOptions = Array.from({ length: paletteCount }, (_, index) => ({
+            value: String(index),
+            label: `Palette ${index}`
+        }));
+        if (category === 'buttons') {
+            addOptionSelectInspector(container, 'Button cap palette', String(entity.palette ?? 0), paletteOptions, (value) => {
+                runMutation('Updated palette.', () => {
+                    entity.palette = clamp(Math.round(Number(value)), 0, paletteCount - 1);
+                });
             });
-        });
+        } else {
+            addNumberInspector(container, 'Palette', entity.palette ?? 0, (value) => {
+                runMutation('Updated palette.', () => {
+                    entity.palette = clamp(Math.round(value), 0, paletteCount - 1);
+                });
+            });
+        }
         const effectivePaletteCycle = getEffectivePaletteCycle(entity.type, entity.paletteCycle, paletteCount);
         if (effectivePaletteCycle) {
             const isTeleporterDefault = entity.type === 'teleporter_pad' && !entity.paletteCycle;
@@ -7035,14 +8368,52 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     entity.boxType = value;
                 });
             });
-            addNumberInspector(container, 'Box palette', entity.boxPalette ?? 0, (value) => {
+            addOptionSelectInspector(container, 'Box palette', String(entity.boxPalette ?? 0), paletteOptions, (value) => {
                 runMutation('Updated button box palette.', () => {
-                    entity.boxPalette = clamp(Math.round(value), 0, paletteCount - 1);
+                    entity.boxPalette = clamp(Math.round(Number(value)), 0, paletteCount - 1);
                 });
             });
+            const closedCapOffset = getButtonCapOffsetsRelativeToBox(entity, false);
+            const openCapOffset = getButtonCapOffsetsRelativeToBox(entity, true);
+            const buttonDesignerSummary = document.createElement('div');
+            buttonDesignerSummary.className = 'world-designer-summary';
+            buttonDesignerSummary.textContent = 'Button cap offsets are authored in button-local space relative to the box, then rotated/flipped with the button.';
+            container.appendChild(buttonDesignerSummary);
+            addNumberInspector(container, 'Closed cap offset X (from box)', closedCapOffset.x, (value) => {
+                runMutation('Updated closed button cap X.', () => {
+                    entity.capClosedOffsetX = (entity.boxOffsetX ?? BUTTON_DEFAULT_BOX_OFFSET_X) + Math.round(value);
+                    entity.pressOffset = (entity.capOpenOffsetX ?? (entity.pressOffset ?? BUTTON_DEFAULT_PRESS_OFFSET))
+                        - (entity.capClosedOffsetX ?? 0);
+                });
+            });
+            addNumberInspector(container, 'Closed cap offset Y (from box)', closedCapOffset.y, (value) => {
+                runMutation('Updated closed button cap Y.', () => {
+                    entity.capClosedOffsetY = (entity.boxOffsetY ?? BUTTON_DEFAULT_BOX_OFFSET_Y) + Math.round(value);
+                });
+            });
+            addNumberInspector(container, 'Open cap offset X (from box)', openCapOffset.x, (value) => {
+                runMutation('Updated open button cap X.', () => {
+                    entity.capOpenOffsetX = (entity.boxOffsetX ?? BUTTON_DEFAULT_BOX_OFFSET_X) + Math.round(value);
+                    entity.pressOffset = (entity.capOpenOffsetX ?? (entity.pressOffset ?? BUTTON_DEFAULT_PRESS_OFFSET))
+                        - (entity.capClosedOffsetX ?? 0);
+                });
+            });
+            addNumberInspector(container, 'Open cap offset Y (from box)', openCapOffset.y, (value) => {
+                runMutation('Updated open button cap Y.', () => {
+                    entity.capOpenOffsetY = (entity.boxOffsetY ?? BUTTON_DEFAULT_BOX_OFFSET_Y) + Math.round(value);
+                });
+            });
+            renderButtonDefaultsInspector(container, entity);
         }
 
         if (category === 'doors') {
+            const paletteOptions = [
+                { value: '', label: 'Base palette' },
+                ...Array.from({ length: paletteCount }, (_, index) => ({
+                    value: String(index),
+                    label: `Palette ${index}`
+                }))
+            ];
             addTextInspector(container, 'Name', entity.name ?? '', (value) => {
                 runMutation('Updated door name.', () => {
                     entity.name = value;
@@ -7065,16 +8436,38 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     entity.defaultOpen = checked;
                 });
             });
-            addNumberInspector(container, 'Locked palette', typeof entity.palette_locked === 'number' ? entity.palette_locked : -1, (value) => {
-                runMutation('Updated locked palette.', () => {
-                    entity.palette_locked = value < 0 ? null : clamp(Math.round(value), 0, paletteCount - 1);
-                });
-            });
-            addNumberInspector(container, 'Unlocked palette', typeof entity.palette_unlocked === 'number' ? entity.palette_unlocked : -1, (value) => {
-                runMutation('Updated unlocked palette.', () => {
-                    entity.palette_unlocked = value < 0 ? null : clamp(Math.round(value), 0, paletteCount - 1);
-                });
-            });
+            addOptionSelectInspector(
+                container,
+                'Locked palette',
+                typeof entity.palette_locked === 'number' ? String(entity.palette_locked) : '',
+                paletteOptions,
+                (value) => {
+                    runMutation('Updated locked palette.', () => {
+                        entity.palette_locked = value === ''
+                            ? null
+                            : clamp(Math.round(Number(value)), 0, paletteCount - 1);
+                        if (state.selection?.category === 'doors' && state.selection.entity === entity) {
+                            state.palette = entity.palette;
+                        }
+                    });
+                }
+            );
+            addOptionSelectInspector(
+                container,
+                'Unlocked palette',
+                typeof entity.palette_unlocked === 'number' ? String(entity.palette_unlocked) : '',
+                paletteOptions,
+                (value) => {
+                    runMutation('Updated unlocked palette.', () => {
+                        entity.palette_unlocked = value === ''
+                            ? null
+                            : clamp(Math.round(Number(value)), 0, paletteCount - 1);
+                        if (state.selection?.category === 'doors' && state.selection.entity === entity) {
+                            state.palette = entity.palette;
+                        }
+                    });
+                }
+            );
         }
 
         if (category === 'creatures') {
@@ -7133,6 +8526,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function refreshPanel() {
+        refreshSelectOptions();
         refs.root.classList.toggle('world-designer-hidden', !state.active);
         refs.activeToggle.textContent = state.active ? 'Hide panel' : 'Show panel';
         refs.expandViewportCheckbox.checked = state.viewportExpanded;
@@ -7144,6 +8538,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.translationSelect.value = state.translation;
         refs.paletteSelect.value = String(state.palette);
         refs.translationSelect.disabled = state.category !== 'world' && state.selection?.category !== 'world';
+        refs.rotationSelect.disabled = state.category === 'custom';
+        refs.paletteSelect.disabled = state.category === 'custom';
         refs.snapCheckbox.checked = state.snapToGrid;
         refs.objectSnapCheckbox.checked = state.objectSnapEnabled;
         refs.snapOffsetXInput.value = String(state.snapOffsetX);
@@ -7156,6 +8552,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.disablePreviewCollisionCheckbox.disabled = state.mode !== 'preview';
         refs.spritePicker.open = state.spritePickerOpen;
         refs.spritePickerFilter.value = state.spritePickerFilter;
+        refs.spritePickerCategoryFilter.value = state.spritePickerCategoryFilter;
+        refs.spritePickerCategoryFilter.disabled = state.spritePickerFilter.trim().length > 0;
 
         for (const [category, checkbox] of Object.entries(refs.layerCheckboxes) as Array<[DesignerCategory, HTMLInputElement]>) {
             checkbox.checked = state.layerVisibility[category];
@@ -7166,6 +8564,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         renderSpritePickerGrid();
         updateSelectionSummary();
         refreshInspector();
+        restorePendingInspectorFocus();
         refreshPaletteDesigner();
         refreshStatus();
         persistDesignerUiState();
@@ -7222,12 +8621,18 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
     function updateSelectionFromInspectorState() {
         if (!state.selection) return;
-        state.rotation = normalizeRotation(state.selection.entity.rotation);
+        state.rotation = state.selection.category === 'custom'
+            ? state.rotation
+            : normalizeRotation(state.selection.entity.rotation);
         state.translation = state.selection.category === 'world'
             ? normalizeSpriteTranslation(state.selection.entity.translation)
             : 'center';
-        state.palette = clamp(state.selection.entity.palette ?? 0, 0, paletteCount - 1);
-        state.typeByCategory[state.selection.category] = state.selection.entity.type;
+        state.palette = state.selection.category === 'custom'
+            ? state.palette
+            : clamp(state.selection.entity.palette ?? 0, 0, paletteCount - 1);
+        state.typeByCategory[state.selection.category] = state.selection.category === 'custom'
+            ? state.selection.entity.customSpriteId
+            : state.selection.entity.type;
         refreshPanel();
     }
 
@@ -7240,18 +8645,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
     function convertSelection() {
         if (!state.selection) return;
-        if (state.selection.category === 'world') {
-            runMutation('Converted world item to collectable.', () => {
-                convertSpecificSelection(state.selection!);
-            });
-            return;
-        }
-
-        if (state.selection.category === 'collectables') {
-            runMutation('Converted collectable to world item.', () => {
-                convertSpecificSelection(state.selection!);
-            });
-        }
+        const targetCategory = getConvertTargetCategory(state.selection);
+        if (!targetCategory) return;
+        runMutation(getConvertActionMessage(targetCategory), () => {
+            convertSelectionToCategory(state.selection!, targetCategory);
+        });
     }
 
     function screenToWorld(x: number, y: number) {
@@ -7331,6 +8729,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             y: clamp(focus.y, 0, MAP_HEIGHT)
         };
         moveCameraToWorldCenter(state.overviewHoverWorld.x, state.overviewHoverWorld.y);
+        persistDesignerUiState();
     }
 
     function setAstronautStartToViewCenter() {
@@ -7495,6 +8894,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             state.panStartCanvas = null;
             state.panStartCamera = null;
             state.lastPointerCanvas = null;
+            persistDesignerUiState();
             setStatus('Moved camera by right-dragging.', 'neutral');
             return;
         }
@@ -7535,7 +8935,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             const before = state.dragStartSnapshot;
             state.dragStartSnapshot = null;
             const after = getSnapshot();
-            if (snapshotsEqual(before, after)) {
+            if (designerSnapshotsEqual(before, after)) {
                 host.afterWorldDataMutated();
                 updateDirtyState();
                 refreshPanel();
@@ -7582,6 +8982,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         if (!state.overviewDragging) return;
         state.overviewDragging = false;
         if (!state.overviewHoverWorld) return;
+        persistDesignerUiState();
         setStatus('Moved camera from the overview navigator.', 'neutral');
     }
 
@@ -7717,6 +9118,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
     }
 
+    function handleWindowBeforeUnload() {
+        persistDesignerUiState();
+    }
+
     function setDesignerActive(nextActive: boolean) {
         if (state.active === nextActive) return;
         state.active = nextActive;
@@ -7748,7 +9153,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             buttons: '#f59e0b',
             doors: '#ef4444',
             creatures: '#22c55e',
-            collectables: '#a855f7'
+            collectables: '#a855f7',
+            custom: '#facc15'
         };
 
         for (const [category, visible] of Object.entries(state.layerVisibility) as Array<[DesignerCategory, boolean]>) {
@@ -7907,6 +9313,19 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     refs.typeSelect.addEventListener('change', () => {
         const selection = getSingleEditableSelection();
         if (selection) {
+            if (selection.category === 'custom') {
+                const definition = getCustomSpriteDefinitionById(refs.typeSelect.value);
+                if (!definition) {
+                    return;
+                }
+                runMutation('Updated custom sprite type.', () => {
+                    selection.entity.customSpriteId = definition.id;
+                    selection.entity.type = definition.name;
+                    state.typeByCategory.custom = definition.id;
+                });
+                updateSelectionFromInspectorState();
+                return;
+            }
             runMutation('Updated sprite type.', () => {
                 selection.entity.type = refs.typeSelect.value;
                 state.typeByCategory[selection.category] = refs.typeSelect.value;
@@ -7921,6 +9340,14 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     });
     refs.spritePickerFilter.addEventListener('input', () => {
         state.spritePickerFilter = refs.spritePickerFilter.value;
+        if (state.spritePickerFilter.trim().length > 0) {
+            refs.spritePickerCategoryFilter.value = 'all';
+        }
+        renderSpritePickerGrid();
+        persistDesignerUiState();
+    });
+    refs.spritePickerCategoryFilter.addEventListener('change', () => {
+        state.spritePickerCategoryFilter = refs.spritePickerCategoryFilter.value as SpritePickerCategoryFilter;
         renderSpritePickerGrid();
         persistDesignerUiState();
     });
@@ -8123,6 +9550,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('mousedown', handleWindowMouseDown);
     window.addEventListener('resize', resizeExpandedViewport);
+    window.addEventListener('beforeunload', handleWindowBeforeUnload);
 
     refreshSelectOptions();
     if (restoredViewportExpanded) {
@@ -8149,6 +9577,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         getLayerVisibility() {
             return state.layerVisibility;
         },
+        getDebugSelection() {
+            return state.selection;
+        },
         shouldShowCollisionOverlay() {
             return state.active && state.showCollisionOverlay;
         },
@@ -8169,6 +9600,21 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             const spriteOutlinesVisible = host.getShowSpriteOutlines();
             if (refs.showSpriteOutlineCheckbox.checked !== spriteOutlinesVisible) {
                 refs.showSpriteOutlineCheckbox.checked = spriteOutlinesVisible;
+            }
+
+            if (state.layerVisibility.custom) {
+                for (const instance of state.customSpriteInstances) {
+                    const definition = getCustomSpriteDefinitionForInstance(instance);
+                    if (!definition) {
+                        continue;
+                    }
+                    drawCustomSpriteDefinitionAt(
+                        ctx,
+                        definition,
+                        instance.x - state.camera.x,
+                        instance.y - state.camera.y
+                    );
+                }
             }
 
             const selections = getSelectedItems();
@@ -8246,14 +9692,21 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 const placement = resolvePlacementPosition(world.x, world.y, state.pickerDrag.category);
                 const ghostCtx = dragGhostCanvas.getContext('2d');
                 if (ghostCtx) {
-                    host.drawSpritePreview(
-                        ghostCtx,
-                        state.pickerDrag.type,
-                        state.pickerDrag.palette,
-                        state.pickerDrag.rotation,
-                        true,
-                        dragGhostTargetSize
-                    );
+                    if (state.pickerDrag.category === 'custom') {
+                        renderCustomSpritePreviewCanvas(
+                            dragGhostCanvas,
+                            getCustomSpriteDefinitionById(state.pickerDrag.type)
+                        );
+                    } else {
+                        host.drawSpritePreview(
+                            ghostCtx,
+                            state.pickerDrag.type,
+                            state.pickerDrag.palette,
+                            state.pickerDrag.rotation,
+                            true,
+                            dragGhostTargetSize
+                        );
+                    }
                 }
                 ctx.save();
                 ctx.globalAlpha = 0.75;
@@ -8293,6 +9746,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         },
         destroy() {
             setViewportExpanded(false);
+            customSpriteDefinitionResolver = null;
             closeContextMenu();
             refs.overviewCanvas.removeEventListener('mousedown', handleOverviewMouseDown);
             refs.overviewCanvas.removeEventListener('mousemove', handleOverviewMouseMove);
@@ -8306,6 +9760,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             window.removeEventListener('keyup', handleKeyUp);
             window.removeEventListener('mousedown', handleWindowMouseDown);
             window.removeEventListener('resize', resizeExpandedViewport);
+            window.removeEventListener('beforeunload', handleWindowBeforeUnload);
             root.remove();
             modal.remove();
             paletteFlyout.remove();

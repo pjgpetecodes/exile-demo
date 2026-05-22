@@ -1,20 +1,24 @@
 [
   {
-    "x": 4902,
-    "y": 783,
+    "x": 8909,
+    "y": 401,
     "type": "button",
     "palette": 9,
     "boxType": "button_box",
     "boxPalette": 8,
     "rotation": 1,
-    "active": false,
+    "active": true,
     "linkedDoors": [
       0,
       1
     ],
     "collision": true,
-    "pressOffset": 3,
-    "boxOffsetX": 12,
-    "boxOffsetY": 0
+    "pressOffset": 5,
+    "boxOffsetX": 10,
+    "boxOffsetY": 1,
+    "capClosedOffsetX": -5,
+    "capClosedOffsetY": 0,
+    "capOpenOffsetX": 0,
+    "capOpenOffsetY": 0
   }
 ]

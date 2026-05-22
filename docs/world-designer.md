@@ -9,6 +9,7 @@ The world designer is an in-app editor for building and maintaining the playable
 - doors
 - creatures
 - collectables
+- custom sprites
 - astronaut start position
 
 It saves back into the JSON files in `astronaut-game\src\assets`.
@@ -29,6 +30,8 @@ It saves back into the JSON files in `astronaut-game\src\assets`.
 The designer starts hidden by default.
 
 The designer now remembers its UI state in browser storage, including the active tool, mode, category, sprite choice, palette, camera, viewport expansion, and palette-flyout selection.
+
+Custom sprite definitions and placed custom-sprite instances are also kept in browser storage. They are a designer-authoring aid and are not written to the JSON asset files until you convert them into normal runtime entities such as buttons.
 
 ## What the designer saves
 
@@ -84,8 +87,33 @@ When a single item is selected, the inspector shows editable properties such as:
    - Doors
    - Creatures
    - Collectables
+   - Custom sprites
 5. Choose a sprite type
 6. Click in the world to place it
+
+The **Buttons** category is now a button-part authoring aid: placing from it drops normal sprite parts into the world instead of immediately creating a runtime button entity.
+
+To author a live button visually:
+
+1. place `button` and `button_box` as separate **World items**
+2. arrange them until they look right
+3. multi-select them
+4. right-click and choose **Group as custom sprite**
+5. select the resulting custom sprite and choose **Convert to button**
+
+That conversion keeps the live `button` cap animated and derives its initial offsets / press direction from the grouped layout.
+
+After conversion, use the button inspector to tune:
+
+- **Button cap palette**
+- **Closed cap offset X/Y (from box)**
+- **Open cap offset X/Y (from box)**
+
+Those offsets are authored in button-local space relative to the box, and the runtime still applies the button's rotation or flip to them.
+
+The button inspector also includes a **defaults for new buttons and button conversions** section. Those defaults only affect buttons created after you change them; existing buttons keep their own saved cap palette, box palette, and cap offsets.
+
+If you want to turn an existing world item or collectable into a **Door** or **Button**, select it, switch the target **Category**, and click **Convert**. The right-click context menu also exposes explicit convert actions.
 
 You can also use:
 
@@ -157,12 +185,15 @@ The designer now includes:
 - a live sprite preview
 - a sprite grid picker in a collapsed accordion
 - a text filter for narrowing sprite names in the grid
+- a category filter for narrowing the grid to world items, buttons, doors, creatures, or collectables
 
 You can:
 
 - choose a sprite by name from the dropdown
 - open the **Choose from sprite grid** accordion
 - type in the filter box to narrow the grid
+- use the category filter to narrow the grid by designer category
+- when you type in the search box, the picker temporarily searches across the full sprite set again
 - click a sprite in the grid to select it
 - drag a sprite from the grid onto the world to place it
 
@@ -170,7 +201,7 @@ You can:
 
 ### Main view
 
-- **right-click a placed object** = open a context-aware menu with grouped **Edit**, **Palette**, **Properties**, **Collectable**, **Convert**, and **Defaults** submenus depending on the item type, including actions such as collision toggles, astronaut masking, collectable flags, conversion between world items and collectables, door/button default-state toggles, and layer-order actions such as **Send to back** and **Bring to front**
+- **right-click a placed object** = open a context-aware menu with grouped **Edit**, **Palette**, **Properties**, **Collectable**, **Convert**, and **Defaults** submenus depending on the item type, including actions such as collision toggles, astronaut masking, collectable flags, conversion between world items and collectables, **Group as custom sprite**, **Ungroup custom sprite**, button conversion from custom sprites, door/button default-state toggles, and layer-order actions such as **Send to back** and **Bring to front**
 - **right-click empty space** = open a context menu to paste the copied selection there, set the astronaut start there, or move the live astronaut there
 - **right mouse drag on empty space** = pan camera
 - **Center on astronaut** = recenters the editor on the live astronaut
@@ -515,9 +546,11 @@ Buttons and doors are linked by numeric IDs.
 
 1. Place or select a **door**
 2. In the inspector, set **Door ID**
-3. Place or select a **button**
-4. In the button inspector, set **Linked door IDs (comma separated)**
-5. Save
+3. Place `button` and `button_box` as separate **World items**
+4. Group them as a **Custom sprite**
+5. Convert that custom sprite to a **button**
+6. In the button inspector, set **Linked door IDs (comma separated)**
+7. Save
 
 ### Example
 
@@ -566,6 +599,27 @@ After multi-selecting:
 - use duplicate / delete on the whole group
 - use **Ctrl+C** and **Ctrl+V** to copy and paste the whole selection
 - auto-pan can occur when dragging toward the edge of the screen
+
+## Custom sprites and grouping
+
+Custom sprites let you turn a placed arrangement of normal sprites into one reusable designer item.
+
+1. Place the source pieces in the world, usually as **World items**
+2. Multi-select the pieces
+3. Right-click and choose **Group as custom sprite**
+4. The designer replaces the loose pieces with one placed **Custom sprite**
+5. Switch the category to **Custom sprites** to place more copies from the picker
+
+You can right-click a custom sprite and choose **Ungroup custom sprite** at any time to restore the original pieces.
+
+Custom sprites can also be:
+
+- renamed from the inspector **Name** field
+- deleted as a saved type from the inspector or the right-click menu
+
+Deleting a custom sprite type removes all placed instances that use that saved custom sprite.
+
+This is especially useful for buttons, where the `button` cap and `button_box` base can be authored visually first and only converted into a runtime button after the layout looks correct.
 
 ## Keyboard shortcuts
 

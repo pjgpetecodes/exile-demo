@@ -467,6 +467,15 @@ let throwGuideDotEmitTimer = 0;
 let worldDesigner: WorldDesigner | null = null;
 const STARFIELD_HEIGHT = Math.min(MAP_HEIGHT, 2000);
 
+(window as any).__exileDebug = {
+    getButtons: () => buttonEntities,
+    getSelectedDesignerSelection: () => worldDesigner?.getDebugSelection() ?? null,
+    getSelectedDesignerButton: () => {
+        const selection = worldDesigner?.getDebugSelection() ?? null;
+        return selection?.category === 'buttons' ? selection.entity : null;
+    }
+};
+
 function isDesignerOpen() {
     return !!worldDesigner?.isActive();
 }
@@ -523,6 +532,10 @@ async function loadButtons() {
 
 function syncButtonStatesToDoors() {
     for (const button of buttonEntities) {
+        if (worldDesigner?.isActive() && !worldDesigner.isPreviewMode()) {
+            button.active = button.defaultActive ?? button.active ?? false;
+            continue;
+        }
         if (!Array.isArray(button.linkedDoors) || button.linkedDoors.length === 0) {
             continue;
         }
@@ -681,7 +694,8 @@ function drawWorldBoundingBoxOverlay(
         buttons: true,
         doors: true,
         creatures: true,
-        collectables: true
+        collectables: true,
+        custom: true
     }
 ) {
     context.save();
