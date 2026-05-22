@@ -6,7 +6,7 @@ import { Creature } from './creature.js';
 import { Collectable } from './collectable.js';
 import { PaletteCycleSettings, Position } from './types/index.js';
 import { buildDefaultPaletteCycle, getEffectivePaletteCycle } from './palette-cycle.js';
-import { normalizeSpriteTranslation, SPRITE_TRANSLATION_OPTIONS, SpriteTranslation } from './utilities.js';
+import { getSpriteVisibleBounds, normalizeSpriteTranslation, SPRITE_TRANSLATION_OPTIONS, SpriteTranslation } from './utilities.js';
 
 export type DesignerCategory = 'world' | 'buttons' | 'doors' | 'creatures' | 'collectables' | 'custom';
 export type DesignerMode = 'edit' | 'preview';
@@ -3292,6 +3292,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         if (!rendered) {
             return false;
         }
+        const visibleBounds = getSpriteVisibleBounds(tempCanvas);
+        if (!visibleBounds) {
+            return false;
+        }
         const ctx = canvas.getContext('2d');
         if (!ctx) {
             return false;
@@ -3299,14 +3303,18 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const padding = 8;
         const availableWidth = Math.max(1, canvas.width - padding * 2);
         const availableHeight = Math.max(1, canvas.height - padding * 2);
-        const scale = Math.max(1, Math.min(
-            availableWidth / Math.max(1, tempCanvas.width),
-            availableHeight / Math.max(1, tempCanvas.height)
-        ));
-        const drawWidth = Math.max(1, Math.round(tempCanvas.width * scale));
-        const drawHeight = Math.max(1, Math.round(tempCanvas.height * scale));
+        const scale = Math.min(
+            availableWidth / Math.max(1, visibleBounds.width),
+            availableHeight / Math.max(1, visibleBounds.height)
+        );
+        const drawWidth = Math.max(1, Math.round(visibleBounds.width * scale));
+        const drawHeight = Math.max(1, Math.round(visibleBounds.height * scale));
         ctx.drawImage(
             tempCanvas,
+            visibleBounds.minX,
+            visibleBounds.minY,
+            visibleBounds.width,
+            visibleBounds.height,
             Math.round((canvas.width - drawWidth) / 2),
             Math.round((canvas.height - drawHeight) / 2),
             drawWidth,
