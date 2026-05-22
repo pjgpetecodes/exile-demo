@@ -32,7 +32,7 @@ import { initStars, updateAndDrawStars } from './stars.js';
 import { emitJetpackDots, updateAndDrawJetpackDots, resetJetpackDotEmitTimer, hasActiveJetpackDots } from './jetpack.js';
 import { Button } from './button.js';
 import { Door } from './door.js';
-import { Creature } from './creature.js';
+import { Creature, toCreatureSaveData } from './creature.js';
 import { Collectable } from './collectable.js';
 import { makeBlackTransparent, remapSpritePalette, calculateSpriteCollisionBoundingBoxes, 
     calculateAstronautSpriteBoundingBoxes, getSolidBlockAtWorld, getAnyBlockAtWorld, 
@@ -42,7 +42,7 @@ import {
     SPRITE_ROW, SPRITE_COL_STAND, SPRITE_COL_FLY_RIGHT, SPRITE_COL_FLY_DIAGONAL,
     SPRITE_COL_FLY_FLOAT, SPRITE_COL_FLY_DOWN, SPRITE_COL_WALK_START, SPRITE_COL_WALK_RIGHT1,
     SPRITE_COL_WALK_RIGHT2, SPRITE_COL_WALK_END, TELEPORT_ANIM_FRAMES, MAP_WIDTH, MAP_HEIGHT,
-    SPRITE_SCALE, rememberSound, teleportSound, buttonOnSound, doorOpenSound, doorCloseSound, getSound, saveSound, ouchSounds,
+    SPRITE_SCALE, rememberSound, teleportSound, buttonOnSound, doorOpenSound, doorCloseSound, getSound, saveSound, ouchSounds, creatureManifestSounds,
     setMapBounds,
     getSoundEnabled, setSoundEnabled, toggleSoundEnabled
 } from './constants.js';
@@ -462,8 +462,23 @@ type ThrowGuideDot = {
     hueDrift: number;
     flickerOffset: number;
 };
+type CreatureProjectileKind = 'bullet' | 'grenade' | 'energy_pod';
+type CreatureProjectile = {
+    x: number;
+    y: number;
+    type: string;
+    palette: number;
+    rotation: number;
+    velocity: Position;
+    kind: CreatureProjectileKind;
+    homing: boolean;
+    remainingFrames: number;
+    damage: number;
+    sourceEntityId?: number;
+};
 let throwGuideDots: ThrowGuideDot[] = [];
 let throwGuideDotEmitTimer = 0;
+let creatureProjectiles: CreatureProjectile[] = [];
 let worldDesigner: WorldDesigner | null = null;
 const STARFIELD_HEIGHT = Math.min(MAP_HEIGHT, 2000);
 
@@ -552,6 +567,7 @@ async function loadDoors() {
 async function loadCreatures() {
     const arr = await fetchFreshJson<any[]>('./src/assets/creatures.json');
     creatureEntities = arr.map((data: any) => assignEntityId(new Creature(data)));
+    creatureProjectiles = [];
 }
 async function loadCollectables() {
     const arr = await fetchFreshJson<any[]>('./src/assets/collectables.json');
@@ -780,6 +796,7 @@ function replaceRawWorldData(data: RawWorldData) {
     doorEntities = data.doors.map((door) => assignEntityId(new Door(door)));
     buttonEntities = data.buttons.map((button) => assignEntityId(new Button(button)));
     creatureEntities = data.creatures.map((creature) => assignEntityId(new Creature(creature)));
+    creatureProjectiles = [];
     collectableEntities = data.collectables.map((collectable) => assignEntityId(new Collectable(collectable)));
     updateAstronautStartPosition(data.astronautStart, true);
     afterWorldDataMutated();
@@ -975,15 +992,23 @@ function drawCustomPalettePreview(
 }
 
 async function saveWorldData(data: RawWorldData) {
-    const res = await fetch('http://localhost:3001/save-world-data', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(data)
-    });
+    const res = await postDesignerSaveRequest('http://localhost:3001/save-world-data', data);
     if (!res.ok) {
         throw new Error(await getDesignerSaveError(res, 'Failed to save world data.'));
+    }
+}
+
+async function postDesignerSaveRequest(url: string, body: unknown) {
+    try {
+        return await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(body)
+        });
+    } catch {
+        throw new Error('This save/normalize feature is only available when the local designer save server is running on port 3001. The deployed app can still load and play normally.');
     }
 }
 
@@ -1015,15 +1040,9 @@ async function getDesignerSaveError(res: Response, fallbackMessage: string, unav
 }
 
 async function savePaletteDefinitions(paletteDefinitions: PaletteDefinition[], worldData?: RawWorldData) {
-    const res = await fetch('http://localhost:3001/save-designer-assets', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            palettes: paletteDefinitions,
-            ...(worldData ? { worldData } : {})
-        })
+    const res = await postDesignerSaveRequest('http://localhost:3001/save-designer-assets', {
+        palettes: paletteDefinitions,
+        ...(worldData ? { worldData } : {})
     });
     if (!res.ok) {
         throw new Error(await getDesignerSaveError(res, 'Failed to save palette data.'));
@@ -1032,13 +1051,7 @@ async function savePaletteDefinitions(paletteDefinitions: PaletteDefinition[], w
 }
 
 async function postSpriteSheetNormalization(dryRun: boolean): Promise<SpriteSheetNormalizationReport> {
-    const res = await fetch('http://localhost:3001/normalize-sprite-sheet', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ dryRun })
-    });
+    const res = await postDesignerSaveRequest('http://localhost:3001/normalize-sprite-sheet', { dryRun });
     if (!res.ok) {
         throw new Error(await getDesignerSaveError(
             res,
@@ -1196,6 +1209,10 @@ async function init() {
                     getShowSpriteOutlines: () => showWorldBoundingBoxes,
                     setShowSpriteOutlines: (value: boolean) => {
                         showWorldBoundingBoxes = value;
+                    },
+                    getShowCreatureOverlays: () => showCreatureOverlays,
+                    setShowCreatureOverlays: (value: boolean) => {
+                        showCreatureOverlays = value;
                     },
                     drawSpriteOutlineOverlay: drawWorldBoundingBoxOverlay,
                     getSpriteTypes,
@@ -1413,6 +1430,10 @@ async function gameLoop() {
         }
         if (layerVisibility.creatures) {
             drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureEntities, frameNow);
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureProjectiles, frameNow);
+            if (showCreatureOverlays) {
+                drawCreatureOverlays(ctx!, camera);
+            }
         }
         if (layerVisibility.collectables) {
             const collectablesToDraw = worldDesigner?.isActive() && !worldDesigner.isPreviewMode()
@@ -1567,6 +1588,10 @@ async function gameLoop() {
         (doorCollision as any)._closeDelay = 0;
     }
 
+    updateCreatures(frameNow);
+    updateCreatureSounds(frameNow);
+    updateCreatureProjectiles();
+    resolveAstronautCreatureCollisions();
     updateThrowAngle();
     handleCollectableInteractions();
     updateHeldCollectablePosition();
@@ -2351,6 +2376,739 @@ function getEntityCenter(
     };
 }
 
+function getEntityPositionFromCenter(
+    centerX: number,
+    centerY: number,
+    collisionBounds: CollisionBounds
+) {
+    return {
+        x: centerX - (collisionBounds.left + collisionBounds.right) / 2,
+        y: centerY - (collisionBounds.top + collisionBounds.bottom) / 2
+    };
+}
+
+function clampToRange(value: number, minimum: number, maximum: number) {
+    return Math.max(minimum, Math.min(maximum, value));
+}
+
+function getProjectileSpriteType(kind: CreatureProjectileKind) {
+    if (kind === 'grenade') {
+        return 'grenade';
+    }
+    if (kind === 'energy_pod') {
+        return 'energy_pod2';
+    }
+    return 'bullet1';
+}
+
+function spawnEnergyPodCollectable(projectile: CreatureProjectile) {
+    const pod = assignEntityId(new Collectable({
+        x: Math.round(projectile.x),
+        y: Math.round(projectile.y),
+        type: 'energy_pod2',
+        palette: projectile.palette ?? 0,
+        rotation: projectile.rotation,
+        collected: false,
+        name: 'energy_pod',
+        weight: 0.1,
+        pickupEnabled: true,
+        storable: false,
+        affectsAstronaut: false,
+        collision: false,
+        velocity: { x: 0, y: 0 },
+        isGrounded: false,
+        ttlFrames: MOVEMENT_SETTINGS.creatureEnergyPodLifetimeFrames,
+        ambientSoundKey: 'get',
+        ambientSoundIntervalMs: 900
+    }));
+    collectableEntities.push(pod);
+}
+
+function playRuntimeSound(audio: HTMLAudioElement, volume = 1) {
+    if (!getSoundEnabled()) {
+        return;
+    }
+    audio.volume = Math.max(0, Math.min(1, volume));
+    try {
+        audio.currentTime = 0;
+        audio.play();
+    } catch {}
+}
+
+function playManifestSound(key: string, volume = 1) {
+    const audio = creatureManifestSounds[key];
+    if (!audio) {
+        return;
+    }
+    playRuntimeSound(audio, volume);
+}
+
+function cleanupCollectableReferences(collectable: Collectable) {
+    if (heldCollectable === collectable) {
+        heldCollectable = null;
+    }
+    const storedIndex = storedCollectables.indexOf(collectable);
+    if (storedIndex >= 0) {
+        storedCollectables.splice(storedIndex, 1);
+        if (storedCollectables.length === 0) {
+            inventoryCycleIndex = -1;
+        } else if (inventoryCycleIndex >= storedCollectables.length) {
+            inventoryCycleIndex = storedCollectables.length - 1;
+        }
+    }
+}
+
+function removeCollectableEntity(collectable: Collectable) {
+    cleanupCollectableReferences(collectable);
+    const index = collectableEntities.indexOf(collectable);
+    if (index >= 0) {
+        collectableEntities.splice(index, 1);
+    }
+}
+
+function applyAstronautImpact(sourceX: number, sourceY: number, force: number) {
+    const astronautRect = getAstronautRect();
+    const astronautCenterX = (astronautRect.left + astronautRect.right) / 2;
+    const astronautCenterY = (astronautRect.top + astronautRect.bottom) / 2;
+    const dx = astronautCenterX - sourceX;
+    const dy = astronautCenterY - sourceY;
+    const distance = Math.max(1, Math.hypot(dx, dy));
+    astronaut.velocity.x += (dx / distance) * force;
+    astronaut.velocity.y += (dy / distance) * Math.max(0.8, force * 0.65);
+    playRuntimeSound(ouchSounds[Math.floor(Math.random() * ouchSounds.length)], 0.8);
+}
+
+function markCreatureDamaged(creature: Creature, damage: number) {
+    creature.currentDamage = Math.max(0, (creature.currentDamage ?? 0) + damage);
+    const runtimeState = creature.state ?? {};
+    runtimeState.damageFlashUntil = performance.now() + 180;
+    creature.state = runtimeState;
+}
+
+function spawnCreatureCarryProxy(creature: Creature) {
+    const proxy = assignEntityId(new Collectable({
+        x: creature.x,
+        y: creature.y,
+        type: creature.type,
+        palette: creature.palette ?? 0,
+        rotation: creature.rotation,
+        collected: false,
+        name: creature.type,
+        weight: 0.3,
+        pickupEnabled: true,
+        storable: false,
+        affectsAstronaut: false,
+        collision: false,
+        velocity: { x: 0, y: 0 },
+        isGrounded: false,
+        creaturePayload: toCreatureSaveData(creature)
+    }));
+    collectableEntities.push(proxy);
+    return proxy;
+}
+
+function removeCreatureEntity(creature: Creature) {
+    const index = creatureEntities.indexOf(creature);
+    if (index >= 0) {
+        creatureEntities.splice(index, 1);
+    }
+}
+
+function handleCreatureDeath(creature: Creature) {
+    removeCreatureEntity(creature);
+    if (creature.pickupEnabled) {
+        const proxy = spawnCreatureCarryProxy(creature);
+        proxy.ttlFrames = undefined;
+        proxy.ambientSoundKey = undefined;
+    }
+}
+
+function applyDamageToCreature(creature: Creature, damage: number) {
+    if (damage <= 0) {
+        return false;
+    }
+    markCreatureDamaged(creature, damage);
+    if (creature.currentDamage >= Math.max(1, creature.killForce)) {
+        handleCreatureDeath(creature);
+        return true;
+    }
+    return false;
+}
+
+function projectileOverlapsCreature(projectile: CreatureProjectile, creature: Creature) {
+    const projectileBounds = getEntityCollisionBounds(projectile);
+    const projectileRect = getEntityRect(projectile.x, projectile.y, projectileBounds);
+    const creatureBounds = getEntityCollisionBounds(creature);
+    const creatureRect = getEntityRect(creature.x, creature.y, creatureBounds);
+    return (
+        projectileRect.right >= creatureRect.left &&
+        projectileRect.left <= creatureRect.right &&
+        projectileRect.bottom >= creatureRect.top &&
+        projectileRect.top <= creatureRect.bottom
+    );
+}
+
+function explodeProjectile(projectile: CreatureProjectile) {
+    const radius = projectile.kind === 'grenade' ? 96 : 52;
+    for (const creature of [...creatureEntities]) {
+        if (creature.entityId === projectile.sourceEntityId) {
+            continue;
+        }
+        const creatureBounds = getEntityCollisionBounds(creature);
+        const creatureCenter = getEntityCenter(creature.x, creature.y, creatureBounds);
+        const distance = Math.hypot(creatureCenter.x - projectile.x, creatureCenter.y - projectile.y);
+        if (distance > radius) {
+            continue;
+        }
+        const damage = Math.max(0.5, projectile.damage * (1 - distance / radius));
+        applyDamageToCreature(creature, damage);
+    }
+
+    const astronautRect = getAstronautRect();
+    const astronautCenter = {
+        x: (astronautRect.left + astronautRect.right) / 2,
+        y: (astronautRect.top + astronautRect.bottom) / 2
+    };
+    const astronautDistance = Math.hypot(astronautCenter.x - projectile.x, astronautCenter.y - projectile.y);
+    if (astronautDistance <= radius) {
+        applyAstronautImpact(projectile.x, projectile.y, Math.max(0.8, projectile.damage * (1 - astronautDistance / radius)));
+    }
+}
+
+function getNearestPickupCreature() {
+    let bestCreature: Creature | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    for (const creature of creatureEntities) {
+        if (!creature.pickupEnabled || creature.fixed) continue;
+        const bounds = getEntityCollisionBounds(creature);
+        const creatureCenter = getEntityCenter(creature.x, creature.y, bounds);
+        const distance = Math.hypot(creatureCenter.x - astronaut.position.x, creatureCenter.y - astronaut.position.y);
+        if (distance > MOVEMENT_SETTINGS.collectablePickupRange) continue;
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            bestCreature = creature;
+        }
+    }
+
+    return bestCreature;
+}
+
+function spawnCreatureProjectile(creature: Creature, targetX: number, targetY: number) {
+    if (creature.fireMode === 'none') {
+        return;
+    }
+
+    const kind: CreatureProjectileKind = creature.fireMode === 'grenades'
+        ? 'grenade'
+        : creature.fireMode === 'energy_pods'
+            ? 'energy_pod'
+            : 'bullet';
+    const bounds = getEntityCollisionBounds(creature);
+    const creatureCenter = getEntityCenter(creature.x, creature.y, bounds);
+    const creatureRect = getEntityRect(creature.x, creature.y, bounds);
+    const dx = targetX - creatureCenter.x;
+    const dy = targetY - creatureCenter.y;
+    const distance = Math.max(1, Math.hypot(dx, dy));
+    const directionX = dx / distance;
+    const directionY = dy / distance;
+    const speed = Math.max(1, creature.projectileSpeed);
+    const baseVelocity = kind === 'grenade'
+        ? {
+            x: directionX * speed,
+            y: directionY * speed - 1.2
+        }
+        : kind === 'energy_pod'
+            ? {
+                x: directionX * Math.max(1, speed * 0.85),
+                y: directionY * Math.max(1, speed * 0.85) - 0.5
+            }
+            : {
+                x: directionX * speed,
+                y: directionY * speed
+            };
+    const projectileRotation = directionX < 0 ? 5 : 1;
+    const projectileBounds = getEntityCollisionBounds({
+        type: getProjectileSpriteType(kind),
+        rotation: projectileRotation
+    });
+    const creatureHalfWidth = (creatureRect.right - creatureRect.left + 1) / 2;
+    const creatureHalfHeight = (creatureRect.bottom - creatureRect.top + 1) / 2;
+    const projectileHalfExtent = Math.max(
+        (projectileBounds.right - projectileBounds.left + 1) / 2,
+        (projectileBounds.bottom - projectileBounds.top + 1) / 2
+    );
+    const distanceToCreatureEdge = Math.min(
+        Number.POSITIVE_INFINITY,
+        directionX === 0 ? Number.POSITIVE_INFINITY : creatureHalfWidth / Math.max(0.001, Math.abs(directionX)),
+        directionY === 0 ? Number.POSITIVE_INFINITY : creatureHalfHeight / Math.max(0.001, Math.abs(directionY))
+    );
+    const muzzlePadding = 2;
+    const projectileSpawnCenter = {
+        x: creatureCenter.x + directionX * (distanceToCreatureEdge + projectileHalfExtent + muzzlePadding),
+        y: creatureCenter.y + directionY * (distanceToCreatureEdge + projectileHalfExtent + muzzlePadding)
+    };
+    const projectileSpawnPosition = getEntityPositionFromCenter(
+        projectileSpawnCenter.x,
+        projectileSpawnCenter.y,
+        projectileBounds
+    );
+
+    creatureProjectiles.push({
+        x: projectileSpawnPosition.x,
+        y: projectileSpawnPosition.y,
+        type: getProjectileSpriteType(kind),
+        palette: creature.palette ?? 0,
+        rotation: projectileRotation,
+        velocity: baseVelocity,
+        kind,
+        homing: creature.homingBullets && kind === 'bullet',
+        remainingFrames: kind === 'energy_pod'
+            ? MOVEMENT_SETTINGS.creatureEnergyPodLifetimeFrames
+            : MOVEMENT_SETTINGS.creatureProjectileLifetimeFrames,
+        damage: Math.max(1, creature.damageOnContact || 1),
+        sourceEntityId: creature.entityId
+    });
+}
+
+function projectileHitsWorld(projectile: CreatureProjectile, nextX: number, nextY: number) {
+    const bounds = getEntityCollisionBounds(projectile);
+    return (
+        collidesAtSide(nextX, nextY, bounds, 'left') ||
+        collidesAtSide(nextX, nextY, bounds, 'right') ||
+        collidesAtSide(nextX, nextY, bounds, 'top') ||
+        collidesAtSide(nextX, nextY, bounds, 'bottom')
+    );
+}
+
+function projectileOverlapsAstronaut(projectile: CreatureProjectile) {
+    const bounds = getEntityCollisionBounds(projectile);
+    const projectileRect = getEntityRect(projectile.x, projectile.y, bounds);
+    const astronautRect = getAstronautRect();
+    return (
+        projectileRect.right >= astronautRect.left &&
+        projectileRect.left <= astronautRect.right &&
+        projectileRect.bottom >= astronautRect.top &&
+        projectileRect.top <= astronautRect.bottom
+    );
+}
+
+function updateCreatureProjectiles() {
+    const nextProjectiles: CreatureProjectile[] = [];
+    for (const projectile of creatureProjectiles) {
+        let expired = false;
+
+        if (projectile.homing) {
+            const bounds = getEntityCollisionBounds(projectile);
+            const projectileCenter = getEntityCenter(projectile.x, projectile.y, bounds);
+            const astronautRect = getAstronautRect();
+            const astronautCenter = {
+                x: (astronautRect.left + astronautRect.right) / 2,
+                y: (astronautRect.top + astronautRect.bottom) / 2
+            };
+            const dx = astronautCenter.x - projectileCenter.x;
+            const dy = astronautCenter.y - projectileCenter.y;
+            const distance = Math.max(1, Math.hypot(dx, dy));
+            const targetVx = (dx / distance) * Math.max(1, Math.hypot(projectile.velocity.x, projectile.velocity.y));
+            const targetVy = (dy / distance) * Math.max(1, Math.hypot(projectile.velocity.x, projectile.velocity.y));
+            projectile.velocity.x += (targetVx - projectile.velocity.x) * 0.08;
+            projectile.velocity.y += (targetVy - projectile.velocity.y) * 0.08;
+        }
+
+        if (projectile.kind !== 'bullet') {
+            projectile.velocity.y = Math.min(
+                projectile.velocity.y + MOVEMENT_SETTINGS.creatureProjectileGravity,
+                MOVEMENT_SETTINGS.creatureProjectileTerminalVelocity
+            );
+        }
+
+        const targetX = projectile.x + projectile.velocity.x;
+        const targetY = projectile.y + projectile.velocity.y;
+        const steps = Math.max(1, Math.ceil(Math.max(Math.abs(projectile.velocity.x), Math.abs(projectile.velocity.y))));
+
+        for (let step = 0; step < steps; step++) {
+            const nextX = projectile.x + (targetX - projectile.x) / Math.max(1, steps - step);
+            const nextY = projectile.y + (targetY - projectile.y) / Math.max(1, steps - step);
+
+            if (projectileHitsWorld(projectile, nextX, nextY)) {
+                if (projectile.kind === 'grenade') {
+                    explodeProjectile(projectile);
+                    expired = true;
+                } else if (projectile.kind === 'energy_pod') {
+                    spawnEnergyPodCollectable(projectile);
+                    expired = true;
+                } else {
+                    expired = true;
+                }
+                break;
+            }
+
+            projectile.x = nextX;
+            projectile.y = nextY;
+
+            for (const creature of [...creatureEntities]) {
+                if (creature.entityId === projectile.sourceEntityId) {
+                    continue;
+                }
+                if (!projectileOverlapsCreature(projectile, creature)) {
+                    continue;
+                }
+                const wasRemoved = applyDamageToCreature(
+                    creature,
+                    projectile.kind === 'grenade' ? projectile.damage * 1.5 : projectile.damage
+                );
+                if (projectile.kind === 'energy_pod') {
+                    spawnEnergyPodCollectable(projectile);
+                }
+                if (projectile.kind === 'grenade') {
+                    explodeProjectile(projectile);
+                }
+                expired = true;
+                if (wasRemoved) {
+                    playManifestSound('get', 0.55);
+                }
+                break;
+            }
+            if (expired) {
+                break;
+            }
+
+            if (projectileOverlapsAstronaut(projectile)) {
+                if (projectile.kind === 'grenade') {
+                    explodeProjectile(projectile);
+                } else {
+                    applyAstronautImpact(projectile.x, projectile.y, Math.max(0.9, projectile.damage));
+                }
+                expired = true;
+                break;
+            }
+        }
+
+        projectile.remainingFrames--;
+        if (projectile.remainingFrames <= 0) {
+            if (projectile.kind === 'grenade') {
+                explodeProjectile(projectile);
+            } else if (projectile.kind === 'energy_pod') {
+                spawnEnergyPodCollectable(projectile);
+            }
+            expired = true;
+        }
+
+        if (!expired) {
+            nextProjectiles.push(projectile);
+        }
+    }
+    creatureProjectiles = nextProjectiles;
+}
+
+function updateCreatures(frameNow: number) {
+    const astronautRect = getAstronautRect();
+    const astronautCenter = {
+        x: (astronautRect.left + astronautRect.right) / 2,
+        y: (astronautRect.top + astronautRect.bottom) / 2
+    };
+
+    for (const creature of creatureEntities) {
+        creature.previousX = creature.x;
+        creature.previousY = creature.y;
+
+        const runtimeState = creature.state ?? {};
+        const authoredRotation = typeof runtimeState.authoredRotation === 'number'
+            ? Math.round(Number(runtimeState.authoredRotation))
+            : (runtimeState.authoredRotation = creature.rotation);
+        const bounds = getEntityCollisionBounds(creature);
+        const creatureCenter = getEntityCenter(creature.x, creature.y, bounds);
+        const dx = astronautCenter.x - creatureCenter.x;
+        const dy = astronautCenter.y - creatureCenter.y;
+        const distanceToAstronaut = Math.hypot(dx, dy);
+        const trackRange = Math.max(creature.trackRange ?? 0, creature.followRange ?? 0);
+        const shouldTrackAstronaut = distanceToAstronaut <= trackRange;
+        const shouldAutoAim = shouldTrackAstronaut && (creature.followsAstronaut || creature.fireMode !== 'none');
+        const homeDistance = Math.hypot(creature.x - creature.homeX, creature.y - creature.homeY);
+
+        if (creature.teleportHome && homeDistance > creature.teleportHomeDistance) {
+            creature.x = Math.round(creature.homeX);
+            creature.y = Math.round(creature.homeY);
+            runtimeState.patrolDirection = 1;
+            creature.state = runtimeState;
+            continue;
+        }
+
+        const speed = creature.fixed ? 0 : creature.speed;
+        let nextX = creature.x;
+        let nextY = creature.y;
+        let horizontalDirection = typeof runtimeState.patrolDirection === 'number'
+            ? Math.sign(Number(runtimeState.patrolDirection)) || 1
+            : 1;
+
+        if (creature.movementMode === 'ground') {
+            const jumpVelocity = typeof runtimeState.jumpVelocity === 'number'
+                ? Number(runtimeState.jumpVelocity)
+                : 0;
+            if (creature.followsAstronaut && shouldTrackAstronaut) {
+                horizontalDirection = Math.sign(dx) || horizontalDirection;
+            } else {
+                if (creature.x <= creature.patrolMinX) {
+                    horizontalDirection = 1;
+                } else if (creature.x >= creature.patrolMaxX) {
+                    horizontalDirection = -1;
+                }
+            }
+            nextX = clampToRange(
+                creature.x + horizontalDirection * speed,
+                creature.patrolMinX,
+                creature.patrolMaxX
+            );
+            if (jumpVelocity !== 0) {
+                nextY = creature.y + jumpVelocity;
+                const updatedJumpVelocity = jumpVelocity + MOVEMENT_SETTINGS.creatureProjectileGravity * 7;
+                if (nextY >= creature.homeY) {
+                    nextY = creature.homeY;
+                    runtimeState.jumpVelocity = 0;
+                } else {
+                    runtimeState.jumpVelocity = updatedJumpVelocity;
+                }
+            } else {
+                nextY = creature.homeY;
+                const nextJumpAt = typeof runtimeState.nextJumpAt === 'number'
+                    ? Number(runtimeState.nextJumpAt)
+                    : 0;
+                if (
+                    creature.canJump &&
+                    shouldTrackAstronaut &&
+                    frameNow >= nextJumpAt &&
+                    (Math.abs(dy) > 18 || Math.abs(dx) < 72)
+                ) {
+                    runtimeState.jumpVelocity = -Math.max(2, creature.jumpStrength);
+                    runtimeState.nextJumpAt = frameNow + 1200;
+                }
+            }
+        } else if (creature.movementMode === 'fly' || creature.movementMode === 'hover') {
+            if (creature.followsAstronaut && shouldTrackAstronaut) {
+                nextX = clampToRange(
+                    creature.x + (Math.sign(dx) || 0) * speed,
+                    creature.patrolMinX,
+                    creature.patrolMaxX
+                );
+                if (creature.movementMode === 'fly') {
+                    nextY = clampToRange(
+                        creature.y + (Math.sign(dy) || 0) * Math.max(0.5, speed * 0.75),
+                        creature.patrolMinY,
+                        creature.patrolMaxY
+                    );
+                }
+            } else {
+                if (creature.x <= creature.patrolMinX) {
+                    horizontalDirection = 1;
+                } else if (creature.x >= creature.patrolMaxX) {
+                    horizontalDirection = -1;
+                }
+                nextX = clampToRange(
+                    creature.x + horizontalDirection * speed,
+                    creature.patrolMinX,
+                    creature.patrolMaxX
+                );
+            }
+
+            const hoverPhase = typeof runtimeState.hoverPhase === 'number'
+                ? Number(runtimeState.hoverPhase)
+                : (frameNow / 180);
+            const nextHoverPhase = hoverPhase + Math.max(0.02, speed * 0.04);
+            runtimeState.hoverPhase = nextHoverPhase;
+
+            if (creature.movementMode === 'hover') {
+                nextY = clampToRange(
+                    creature.homeY + Math.sin(nextHoverPhase) * creature.hoverAmplitude,
+                    creature.patrolMinY,
+                    creature.patrolMaxY
+                );
+            } else if (!creature.followsAstronaut || !shouldTrackAstronaut) {
+                const midY = (creature.patrolMinY + creature.patrolMaxY) / 2;
+                const amplitude = Math.max(2, (creature.patrolMaxY - creature.patrolMinY) / 2);
+                nextY = clampToRange(
+                    midY + Math.sin(nextHoverPhase) * amplitude,
+                    creature.patrolMinY,
+                    creature.patrolMaxY
+                );
+            }
+        }
+
+        runtimeState.patrolDirection = horizontalDirection;
+        if (creature.fireMode !== 'none' && shouldTrackAstronaut) {
+            const nextFireAt = typeof runtimeState.nextFireAt === 'number'
+                ? Number(runtimeState.nextFireAt)
+                : 0;
+            if (frameNow >= nextFireAt) {
+                spawnCreatureProjectile(creature, astronautCenter.x, astronautCenter.y);
+                runtimeState.nextFireAt = frameNow + Math.max(250, creature.fireCooldownMs);
+            }
+        }
+        creature.state = runtimeState;
+        creature.x = Math.round(nextX);
+        creature.y = Math.round(nextY);
+
+        if (shouldAutoAim && (authoredRotation === 1 || authoredRotation === 5)) {
+            if (dx < 0) {
+                creature.rotation = 5;
+            } else if (dx > 0) {
+                creature.rotation = 1;
+            } else {
+                creature.rotation = authoredRotation;
+            }
+        } else {
+            creature.rotation = authoredRotation;
+        }
+    }
+
+    for (const predator of [...creatureEntities]) {
+        if (!predator.canEatWasps) {
+            continue;
+        }
+        const predatorBounds = getEntityCollisionBounds(predator);
+        const predatorCenter = getEntityCenter(predator.x, predator.y, predatorBounds);
+        const prey = creatureEntities.find((candidate) =>
+            candidate !== predator &&
+            /^wasp/i.test(candidate.type) &&
+            Math.hypot(
+                getEntityCenter(candidate.x, candidate.y, getEntityCollisionBounds(candidate)).x - predatorCenter.x,
+                getEntityCenter(candidate.x, candidate.y, getEntityCollisionBounds(candidate)).y - predatorCenter.y
+            ) <= 42
+        );
+        if (!prey) {
+            continue;
+        }
+        removeCreatureEntity(prey);
+        predator.currentDamage = Math.max(0, predator.currentDamage - 0.5);
+        playManifestSound('get', 0.5);
+    }
+}
+
+function resolveAstronautCreatureCollisions() {
+    for (const creature of creatureEntities) {
+        const astronautRect = getAstronautRect();
+        const bounds = getEntityCollisionBounds(creature);
+        const creatureRect = getEntityRect(creature.x, creature.y, bounds);
+        const overlapX = Math.min(astronautRect.right, creatureRect.right) - Math.max(astronautRect.left, creatureRect.left) + 1;
+        const overlapY = Math.min(astronautRect.bottom, creatureRect.bottom) - Math.max(astronautRect.top, creatureRect.top) + 1;
+
+        if (overlapX <= 0 || overlapY <= 0) {
+            continue;
+        }
+
+        const creatureDeltaX = creature.x - creature.previousX;
+        const creatureDeltaY = creature.y - creature.previousY;
+        const astronautCenterX = (astronautRect.left + astronautRect.right) / 2;
+        const creatureCenterX = (creatureRect.left + creatureRect.right) / 2;
+        const astronautCenterY = (astronautRect.top + astronautRect.bottom) / 2;
+        const creatureCenterY = (creatureRect.top + creatureRect.bottom) / 2;
+
+        if (creature.pushAstronaut && creature.collision) {
+            const resolveHorizontally = Math.abs(creatureDeltaX) >= Math.abs(creatureDeltaY) || overlapX <= overlapY;
+            if (resolveHorizontally) {
+                const horizontalDirection = creatureDeltaX !== 0
+                    ? Math.sign(creatureDeltaX)
+                    : astronautCenterX < creatureCenterX ? -1 : 1;
+                gameState.astronaut.position.x += horizontalDirection * Math.ceil(overlapX);
+                astronaut.velocity.x = 0;
+            } else {
+                const verticalDirection = creatureDeltaY !== 0
+                    ? Math.sign(creatureDeltaY)
+                    : astronautCenterY < creatureCenterY ? -1 : 1;
+                gameState.astronaut.position.y += verticalDirection * Math.ceil(overlapY);
+                astronaut.velocity.y = 0;
+            }
+        }
+
+        if (creature.hostile && creature.damageOnContact > 0) {
+            const runtimeState = creature.state ?? {};
+            const nextSoundAt = typeof runtimeState.nextContactSoundAt === 'number'
+                ? Number(runtimeState.nextContactSoundAt)
+                : 0;
+            const now = performance.now();
+            if (now >= nextSoundAt) {
+                const ouchSound = ouchSounds[Math.floor(Math.random() * ouchSounds.length)];
+                try {
+                    ouchSound.currentTime = 0;
+                    ouchSound.play();
+                } catch {}
+                runtimeState.nextContactSoundAt = now + 600;
+                creature.state = runtimeState;
+            }
+        }
+    }
+}
+
+function updateCreatureSounds(frameNow: number) {
+    if (!getSoundEnabled()) {
+        return;
+    }
+
+    const astronautRect = getAstronautRect();
+    const astronautCenter = {
+        x: (astronautRect.left + astronautRect.right) / 2,
+        y: (astronautRect.top + astronautRect.bottom) / 2
+    };
+
+    for (const creature of creatureEntities) {
+        if (!creature.sound?.enabled || !creature.sound.sound) {
+            continue;
+        }
+
+        const audio = creatureManifestSounds[creature.sound.sound];
+        if (!audio) {
+            continue;
+        }
+
+        const bounds = getEntityCollisionBounds(creature);
+        const creatureCenter = getEntityCenter(creature.x, creature.y, bounds);
+        const distance = Math.hypot(
+            astronautCenter.x - creatureCenter.x,
+            astronautCenter.y - creatureCenter.y
+        );
+        const range = Math.max(1, creature.sound.range);
+        if (distance > range) {
+            continue;
+        }
+
+        const runtimeState = creature.state ?? {};
+        const nextSoundAt = typeof runtimeState.nextAmbientSoundAt === 'number'
+            ? Number(runtimeState.nextAmbientSoundAt)
+            : 0;
+        if (frameNow < nextSoundAt) {
+            continue;
+        }
+
+        const varianceWindow = Math.max(0, creature.sound.randomVarianceMs);
+        const variance = varianceWindow > 0
+            ? (Math.random() * 2 - 1) * varianceWindow
+            : 0;
+        runtimeState.nextAmbientSoundAt = frameNow + Math.max(250, creature.sound.intervalMs + variance);
+        creature.state = runtimeState;
+
+        playRuntimeSound(audio, creature.sound.volume * (1 - distance / range));
+    }
+}
+
+function drawCreatureOverlays(context: CanvasRenderingContext2D, camera: Position) {
+    const now = performance.now();
+    for (const creature of creatureEntities) {
+        const bounds = getEntityCollisionBounds(creature);
+        const rect = getEntityRect(creature.x, creature.y, bounds);
+        const screenX = rect.left - camera.x;
+        const screenY = rect.top - camera.y;
+        const width = rect.right - rect.left + 1;
+        const height = rect.bottom - rect.top + 1;
+        const damageFlashUntil = typeof creature.state?.damageFlashUntil === 'number'
+            ? Number(creature.state.damageFlashUntil)
+            : 0;
+        if (creature.damageFlash && damageFlashUntil > now) {
+            context.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+            context.lineWidth = 2;
+            context.strokeRect(screenX - 1, screenY - 1, width + 2, height + 2);
+        }
+    }
+}
+
 function getHeldCollectableTargetPosition(): Position {
     if (!heldCollectable) {
         return {
@@ -2519,6 +3277,17 @@ function releaseHeldCollectable(velocity: Position = { x: 0, y: 0 }) {
     const isThrown = velocity.x !== 0 || velocity.y !== 0;
     const releasePosition = getReleasedCollectablePosition(isThrown);
     const releaseVelocity = isThrown ? velocity : getDroppedCollectableReleaseVelocity();
+    if (heldCollectable.creaturePayload) {
+        const restoredCreature = assignEntityId(new Creature({
+            ...heldCollectable.creaturePayload,
+            x: Math.round(releasePosition.x),
+            y: Math.round(releasePosition.y)
+        }));
+        creatureEntities.push(restoredCreature);
+        removeCollectableEntity(heldCollectable);
+        heldCollectable = null;
+        return;
+    }
     heldCollectable.release(
         releasePosition.x,
         releasePosition.y,
@@ -2534,6 +3303,14 @@ function handleCollectableInteractions() {
         if (pickupTarget) {
             pickupTarget.hold(facingLeft);
             heldCollectable = pickupTarget;
+        } else {
+            const pickupCreature = getNearestPickupCreature();
+            if (pickupCreature) {
+                const proxy = spawnCreatureCarryProxy(pickupCreature);
+                removeCreatureEntity(pickupCreature);
+                proxy.hold(facingLeft);
+                heldCollectable = proxy;
+            }
         }
     }
 
@@ -2863,7 +3640,32 @@ function updateSingleCollectablePhysics(collectable: Collectable) {
 }
 
 function updateCollectablePhysics() {
-    for (const collectable of collectableEntities) {
+    const now = performance.now();
+    for (const collectable of [...collectableEntities]) {
+        if (typeof collectable.ambientSoundKey === 'string') {
+            const nextAmbientSoundAt = typeof collectable.nextAmbientSoundAt === 'number'
+                ? collectable.nextAmbientSoundAt
+                : 0;
+            if (now >= nextAmbientSoundAt) {
+                const bounds = getEntityCollisionBounds(collectable);
+                const center = getEntityCenter(collectable.x, collectable.y, bounds);
+                const distance = Math.hypot(center.x - astronaut.position.x, center.y - astronaut.position.y);
+                const range = 280;
+                if (distance <= range) {
+                    playManifestSound(collectable.ambientSoundKey, 0.35 * (1 - distance / range));
+                }
+                collectable.nextAmbientSoundAt = now + Math.max(250, collectable.ambientSoundIntervalMs ?? 1000);
+            }
+        }
+
+        if (typeof collectable.ttlFrames === 'number') {
+            collectable.ttlFrames--;
+            if (collectable.ttlFrames <= 0) {
+                playManifestSound('teleport', 0.45);
+                removeCollectableEntity(collectable);
+                continue;
+            }
+        }
         updateSingleCollectablePhysics(collectable);
     }
 }
@@ -2922,6 +3724,7 @@ function updateAndDrawThrowGuide(context: CanvasRenderingContext2D, camera: Posi
 // --- Show tight bounding boxes toggle ---
 let showTightBoundingBoxes = false; // Red sprite-based bounding boxes
 let showWorldBoundingBoxes = false; // Green world-coordinate bounding boxes
+let showCreatureOverlays = false;
 window.addEventListener('keydown', (e) => {
     if (isDesignerOpen()) return;
     if (e.key === 'b') showTightBoundingBoxes = !showTightBoundingBoxes;

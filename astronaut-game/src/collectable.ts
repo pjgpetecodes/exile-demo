@@ -1,4 +1,4 @@
-import { PaletteCycleSettings, Position } from './types/index.js';
+import { CreatureSaveData, PaletteCycleSettings, Position } from './types/index.js';
 
 export class Collectable {
     x: number;
@@ -21,6 +21,11 @@ export class Collectable {
     astronautCollisionIgnoreFrames: number;
     entityId?: number;
     paletteCycle?: PaletteCycleSettings;
+    ttlFrames?: number;
+    ambientSoundKey?: string;
+    ambientSoundIntervalMs?: number;
+    nextAmbientSoundAt?: number;
+    creaturePayload?: CreatureSaveData;
 
     constructor(data: any) {
         this.x = data.x;
@@ -42,6 +47,11 @@ export class Collectable {
         this.velocity = data.velocity ?? { x: 0, y: 0 };
         this.astronautCollisionIgnoreFrames = data.astronautCollisionIgnoreFrames ?? 0;
         this.paletteCycle = data.paletteCycle;
+        this.ttlFrames = typeof data.ttlFrames === 'number' ? data.ttlFrames : undefined;
+        this.ambientSoundKey = typeof data.ambientSoundKey === 'string' ? data.ambientSoundKey : undefined;
+        this.ambientSoundIntervalMs = typeof data.ambientSoundIntervalMs === 'number' ? data.ambientSoundIntervalMs : undefined;
+        this.nextAmbientSoundAt = typeof data.nextAmbientSoundAt === 'number' ? data.nextAmbientSoundAt : undefined;
+        this.creaturePayload = data.creaturePayload;
     }
 
     collect() {

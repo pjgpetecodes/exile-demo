@@ -1,10 +1,15 @@
 import { MAP_HEIGHT, MAP_WIDTH, SPRITE_SCALE } from './constants.js';
+import { CREATURE_SOUND_MANIFEST } from './assets/creature-sound-manifest.js';
 import { MapBlock, shouldMaskAstronaut } from './map.js';
 import { Button } from './button.js';
 import { Door } from './door.js';
-import { Creature } from './creature.js';
+import { Creature, toCreatureSaveData } from './creature.js';
 import { Collectable } from './collectable.js';
-import { PaletteCycleSettings, Position } from './types/index.js';
+import {
+    CreatureSaveData,
+    PaletteCycleSettings,
+    Position
+} from './types/index.js';
 import { buildDefaultPaletteCycle, getEffectivePaletteCycle } from './palette-cycle.js';
 import { getSpriteVisibleBounds, normalizeSpriteTranslation, SPRITE_TRANSLATION_OPTIONS, SpriteTranslation } from './utilities.js';
 
@@ -49,16 +54,6 @@ export type DoorSaveData = {
     palette_locked?: number | null;
     palette_unlocked?: number | null;
     collision?: boolean;
-    paletteCycle?: PaletteCycleSettings;
-};
-
-export type CreatureSaveData = {
-    x: number;
-    y: number;
-    type: string;
-    palette?: number;
-    rotation?: number;
-    state?: Record<string, unknown>;
     paletteCycle?: PaletteCycleSettings;
 };
 
@@ -151,6 +146,8 @@ export interface WorldDesignerHost {
     setSoundEnabled(enabled: boolean): void;
     getShowSpriteOutlines(): boolean;
     setShowSpriteOutlines(value: boolean): void;
+    getShowCreatureOverlays(): boolean;
+    setShowCreatureOverlays(value: boolean): void;
     drawSpriteOutlineOverlay(ctx: CanvasRenderingContext2D, camera: Position, layerVisibility: LayerVisibility): void;
     getSpriteTypes(): string[];
     getSpriteCatalog(): SpriteCatalogEntry[];
@@ -430,6 +427,16 @@ type ObjectSnapResolution = {
     guides: ObjectSnapGuide[];
 };
 
+type DesignerSectionId =
+    | 'overview'
+    | 'mode-placement'
+    | 'mode-and-sprite'
+    | 'placement-actions'
+    | 'selection'
+    | 'preview-toggles'
+    | 'keyboard-shortcuts'
+    | 'palette-remaps';
+
 type PersistedDesignerUiState = {
     active: boolean;
     mode: DesignerMode;
@@ -445,6 +452,7 @@ type PersistedDesignerUiState = {
     snapOffsetY: number;
     nudgeAmount: number;
     showCollisionOverlay: boolean;
+    showCreatureOverlays: boolean;
     disableCollisionInPreview: boolean;
     layerVisibility: LayerVisibility;
     camera: Position;
@@ -463,6 +471,7 @@ type PersistedDesignerUiState = {
     buttonDefaults?: ButtonDefaultOverrides;
     customSpriteDefinitions?: CustomSpriteDefinition[];
     customSpriteInstances?: CustomSpriteInstance[];
+    sectionOpenState?: Partial<Record<DesignerSectionId, boolean>>;
 };
 
 type ButtonDefaultOverrides = {
@@ -495,6 +504,7 @@ type DesignerState = {
     snapOffsetY: number;
     nudgeAmount: number;
     showCollisionOverlay: boolean;
+    showCreatureOverlays: boolean;
     disableCollisionInPreview: boolean;
     layerVisibility: LayerVisibility;
     camera: Position;
@@ -537,6 +547,7 @@ type DesignerState = {
     lastSavedPaletteDefinitions: PaletteDefinition[];
     customSpriteDefinitions: CustomSpriteDefinition[];
     customSpriteInstances: CustomSpriteInstance[];
+    sectionOpenState: Partial<Record<DesignerSectionId, boolean>>;
     contextMenu: ContextMenuState;
     suppressContextMenuOnce: boolean;
     undoStack: DesignerSnapshot[];
@@ -579,6 +590,7 @@ type ControlRefs = {
     sendToBackButton: HTMLButtonElement;
     bringToFrontButton: HTMLButtonElement;
     focusButton: HTMLButtonElement;
+    convertTargetSelect: HTMLSelectElement;
     convertButton: HTMLButtonElement;
     focusAstronautButton: HTMLButtonElement;
     moveAstronautButton: HTMLButtonElement;
@@ -587,6 +599,7 @@ type ControlRefs = {
     addAtCenterButton: HTMLButtonElement;
     setAstronautStartButton: HTMLButtonElement;
     showCollisionCheckbox: HTMLInputElement;
+    showCreatureOverlaysCheckbox: HTMLInputElement;
     showSpriteOutlineCheckbox: HTMLInputElement;
     magnifierCheckbox: HTMLInputElement;
     disablePreviewCollisionCheckbox: HTMLInputElement;
@@ -676,6 +689,10 @@ function formatSpriteTranslation(translation?: string | null) {
     return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
+function categorySupportsTranslation(category: DesignerCategory) {
+    return category === 'world' || category === 'creatures';
+}
+
 function toMapBlockData(block: MapBlock): MapBlock {
     return {
         x: block.x,
@@ -740,15 +757,10 @@ function toDoorData(door: any): DoorSaveData {
 }
 
 function toCreatureData(creature: any): CreatureSaveData {
-    return {
-        x: creature.x,
-        y: creature.y,
-        type: creature.type,
-        palette: creature.palette ?? 0,
-        rotation: normalizeRotation(creature.rotation),
-        state: deepClone(creature.state ?? {}),
-        ...(creature.paletteCycle ? { paletteCycle: deepClone(creature.paletteCycle) } : {})
-    };
+    return toCreatureSaveData({
+        ...creature,
+        rotation: normalizeRotation(creature.rotation)
+    });
 }
 
 function toCollectableData(collectable: any): CollectableSaveData {
@@ -1629,6 +1641,20 @@ function createDesignerStyles() {
             padding: 12px;
             backdrop-filter: blur(10px);
         }
+        .world-designer-drag-handle {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            cursor: move;
+            user-select: none;
+        }
+        .world-designer-drag-title {
+            flex: 1 1 auto;
+        }
+        .world-designer-drag-active {
+            user-select: none;
+        }
         .world-designer-panel h2,
         .world-designer-panel h3 {
             margin: 0 0 8px;
@@ -1646,6 +1672,41 @@ function createDesignerStyles() {
             border-top: 1px solid rgba(148, 163, 184, 0.2);
             margin-top: 10px;
             padding-top: 10px;
+        }
+        .world-designer-accordion {
+            border-radius: 8px;
+            background: rgba(15, 23, 42, 0.78);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            overflow: hidden;
+        }
+        .world-designer-accordion summary {
+            cursor: pointer;
+            padding: 10px 12px;
+            color: #f8fafc;
+            user-select: none;
+            list-style: none;
+            font-weight: 600;
+        }
+        .world-designer-accordion summary::-webkit-details-marker {
+            display: none;
+        }
+        .world-designer-accordion summary::before {
+            content: '▸';
+            display: inline-block;
+            margin-right: 8px;
+            transition: transform 0.15s ease;
+        }
+        .world-designer-accordion[open] summary::before {
+            transform: rotate(90deg);
+        }
+        .world-designer-accordion-body {
+            padding: 0 12px 12px;
+        }
+        .world-designer-accordion-body > :first-child {
+            margin-top: 0;
+        }
+        .world-designer-accordion-body > :last-child {
+            margin-bottom: 0;
         }
         .world-designer-field {
             display: flex;
@@ -2294,6 +2355,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     if (typeof persistedState?.soundEnabled === 'boolean') {
         host.setSoundEnabled(persistedState.soundEnabled);
     }
+    if (typeof persistedState?.showCreatureOverlays === 'boolean') {
+        host.setShowCreatureOverlays(persistedState.showCreatureOverlays);
+    }
     const state: DesignerState = {
         active: persistedState?.active ?? false,
         mode: persistedState?.mode === 'preview' ? 'preview' : 'edit',
@@ -2309,6 +2373,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         snapOffsetY: normalizeSnapOffset(Number(persistedState?.snapOffsetY) || 0),
         nudgeAmount: clamp(Number(persistedState?.nudgeAmount) || 1, 1, 64),
         showCollisionOverlay: persistedState?.showCollisionOverlay ?? false,
+        showCreatureOverlays: persistedState?.showCreatureOverlays ?? false,
         disableCollisionInPreview: persistedState?.disableCollisionInPreview ?? false,
         layerVisibility: {
             ...buildLayerVisibility(),
@@ -2355,6 +2420,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         customSpriteInstances: restoredCustomSpriteInstances.filter((instance) =>
             restoredCustomSpriteDefinitions.some((definition) => definition.id === instance.customSpriteId)
         ),
+        sectionOpenState: { ...(persistedState?.sectionOpenState ?? {}) },
         contextMenu: {
             screen: null,
             world: null,
@@ -2372,18 +2438,21 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     const root = document.createElement('div');
     root.className = 'world-designer-panel world-designer-hidden';
     root.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
-            <h2>World Designer</h2>
+        <div class="world-designer-drag-handle" data-role="panel-drag-handle">
+            <h2 class="world-designer-drag-title">World Designer</h2>
             <button type="button" data-role="active-toggle">Hide panel</button>
         </div>
         <div class="world-designer-status" data-role="status"></div>
-        <div class="world-designer-section">
-            <h3>Overview navigator</h3>
+        <details class="world-designer-section world-designer-accordion" data-section-id="overview">
+            <summary>Overview navigator</summary>
+            <div class="world-designer-accordion-body">
             <div class="world-designer-summary">Zoomed-out world view. Move the cursor to preview the 1:1 viewport, then drag with the left mouse button to pan the main view.</div>
             <canvas class="world-designer-overview" data-role="overview" width="320" height="220"></canvas>
-        </div>
-        <div class="world-designer-section">
-            <h3>Mode and placement</h3>
+            </div>
+        </details>
+        <details class="world-designer-section world-designer-accordion" data-section-id="mode-and-sprite">
+            <summary>Mode and sprite setup</summary>
+            <div class="world-designer-accordion-body">
             <div class="world-designer-grid">
                 <label class="world-designer-field">Mode<select data-role="mode"><option value="edit">Edit</option><option value="preview">Preview</option></select></label>
                 <label class="world-designer-field">Tool<select data-role="tool"><option value="select">Select / move</option><option value="place">Place new</option></select></label>
@@ -2422,6 +2491,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     </div>
                 </div>
             </div>
+            </div>
+        </details>
+        <details class="world-designer-section world-designer-accordion" data-section-id="placement-actions">
+            <summary>Placement and actions</summary>
+            <div class="world-designer-accordion-body">
             <label class="world-designer-checkbox"><input type="checkbox" data-role="snap" /> Snap rough placement to 32px grid</label>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="object-snap" /> Snap to nearby object edges</label>
             <div class="world-designer-grid" style="margin-top:8px;">
@@ -2440,22 +2514,31 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 <button type="button" data-role="send-to-back">Send to back</button>
                 <button type="button" data-role="bring-to-front">Bring to front</button>
                 <button type="button" data-role="focus">Focus selection</button>
+                <label class="world-designer-field" style="min-width:180px;">
+                    <span>Convert to</span>
+                    <select data-role="convert-target"></select>
+                </label>
                 <button type="button" data-role="convert">Convert</button>
                 <button type="button" data-role="png-import">Import PNG draft</button>
                 <button type="button" data-role="normalize-sprite-sheet">Normalize sprite colors</button>
                 <button type="button" data-role="save-preview">Preview before save</button>
             </div>
-        </div>
-        <div class="world-designer-section">
-            <h3>Selection</h3>
+            </div>
+        </details>
+        <details class="world-designer-section world-designer-accordion" data-section-id="selection">
+            <summary>Selection</summary>
+            <div class="world-designer-accordion-body">
             <div class="world-designer-summary" data-role="selection-summary">Nothing selected.</div>
             <div data-role="inspector"></div>
-        </div>
-        <div class="world-designer-section">
-            <h3>Preview toggles</h3>
+            </div>
+        </details>
+        <details class="world-designer-section world-designer-accordion" data-section-id="preview-toggles">
+            <summary>Preview toggles</summary>
+            <div class="world-designer-accordion-body">
             <label class="world-designer-checkbox"><input type="checkbox" data-role="sound-enabled" /> Sound enabled</label>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="expand-viewport" /> Expand viewport to window</label>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="show-collision" /> Show collision outlines</label>
+            <label class="world-designer-checkbox"><input type="checkbox" data-role="show-creature-overlays" /> Show creature overlays</label>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="show-sprite-outlines" /> Show sprite outlines (F)</label>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="magnifier-enabled" /> Show magnifier</label>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="disable-preview-collision" /> Disable collision during preview</label>
@@ -2467,9 +2550,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 <label class="world-designer-checkbox"><input type="checkbox" checked data-layer="collectables" /> Collectables</label>
                 <label class="world-designer-checkbox"><input type="checkbox" checked data-layer="custom" /> Custom sprites</label>
             </div>
-        </div>
-        <div class="world-designer-section">
-            <h3>Keyboard shortcuts</h3>
+            </div>
+        </details>
+        <details class="world-designer-section world-designer-accordion" data-section-id="keyboard-shortcuts">
+            <summary>Keyboard shortcuts</summary>
+            <div class="world-designer-accordion-body">
             <ul class="world-designer-shortcuts">
                 <li><strong>\`</strong> show/hide panel</li>
                 <li><strong>1</strong> select tool, <strong>2</strong> place tool, <strong>M</strong> toggle preview mode</li>
@@ -2480,7 +2565,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 <li><strong>F</strong> toggle sprite outlines, <strong>G</strong> toggle grid snap, <strong>X</strong> toggle magnifier, <strong>Ctrl+S</strong> preview before save</li>
                 <li><strong>Ctrl+Z</strong> undo, <strong>Ctrl+Y</strong> or <strong>Ctrl+Shift+Z</strong> redo</li>
             </ul>
-        </div>
+            </div>
+        </details>
     `;
     document.body.appendChild(root);
 
@@ -2508,8 +2594,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     const paletteFlyout = document.createElement('div');
     paletteFlyout.className = 'world-designer-flyout world-designer-flyout-hidden';
     paletteFlyout.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
-            <h2 style="margin:0;">Palette Designer</h2>
+        <div class="world-designer-drag-handle" data-role="palette-flyout-drag-handle">
+            <h2 class="world-designer-drag-title" style="margin:0;">Palette Designer</h2>
             <button type="button" data-role="palette-flyout-close">Close</button>
         </div>
         <div class="world-designer-summary" data-role="palette-usage"></div>
@@ -2526,15 +2612,19 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 <canvas class="world-designer-sprite-canvas world-designer-palette-preview" data-role="palette-preview-canvas" width="320" height="120"></canvas>
             </div>
         </div>
-        <div class="world-designer-section">
-            <h3>Color remaps</h3>
+        <details class="world-designer-section world-designer-accordion" data-section-id="palette-remaps">
+            <summary>Color remaps</summary>
+            <div class="world-designer-accordion-body">
             <div class="world-designer-palette-mappings" data-role="palette-mappings"></div>
             <div class="world-designer-actions" style="margin-top:8px;">
                 <button type="button" data-role="palette-add-mapping">Add remap</button>
             </div>
-        </div>
+            </div>
+        </details>
     `;
     document.body.appendChild(paletteFlyout);
+    const panelDragHandle = root.querySelector('[data-role="panel-drag-handle"]') as HTMLDivElement;
+    const paletteFlyoutDragHandle = paletteFlyout.querySelector('[data-role="palette-flyout-drag-handle"]') as HTMLDivElement;
     const magnifierCanvas = document.createElement('canvas');
     magnifierCanvas.width = Math.max(1, Math.round(MAGNIFIER_SIZE / MAGNIFIER_ZOOM));
     magnifierCanvas.height = Math.max(1, Math.round(MAGNIFIER_SIZE / MAGNIFIER_ZOOM));
@@ -2574,6 +2664,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         sendToBackButton: root.querySelector('[data-role="send-to-back"]') as HTMLButtonElement,
         bringToFrontButton: root.querySelector('[data-role="bring-to-front"]') as HTMLButtonElement,
         focusButton: root.querySelector('[data-role="focus"]') as HTMLButtonElement,
+        convertTargetSelect: root.querySelector('[data-role="convert-target"]') as HTMLSelectElement,
         convertButton: root.querySelector('[data-role="convert"]') as HTMLButtonElement,
         focusAstronautButton: root.querySelector('[data-role="focus-astronaut"]') as HTMLButtonElement,
         moveAstronautButton: root.querySelector('[data-role="move-astronaut"]') as HTMLButtonElement,
@@ -2582,6 +2673,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         addAtCenterButton: root.querySelector('[data-role="add-center"]') as HTMLButtonElement,
         setAstronautStartButton: root.querySelector('[data-role="set-start"]') as HTMLButtonElement,
         showCollisionCheckbox: root.querySelector('[data-role="show-collision"]') as HTMLInputElement,
+        showCreatureOverlaysCheckbox: root.querySelector('[data-role="show-creature-overlays"]') as HTMLInputElement,
         showSpriteOutlineCheckbox: root.querySelector('[data-role="show-sprite-outlines"]') as HTMLInputElement,
         magnifierCheckbox: root.querySelector('[data-role="magnifier-enabled"]') as HTMLInputElement,
         disablePreviewCollisionCheckbox: root.querySelector('[data-role="disable-preview-collision"]') as HTMLInputElement,
@@ -2613,6 +2705,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         paletteAddMappingButton: paletteFlyout.querySelector('[data-role="palette-add-mapping"]') as HTMLButtonElement,
         paletteSaveButton: paletteFlyout.querySelector('[data-role="palette-save"]') as HTMLButtonElement
     };
+    const sectionAccordions = [
+        ...Array.from(root.querySelectorAll('[data-section-id]')),
+        ...Array.from(paletteFlyout.querySelectorAll('[data-section-id]'))
+    ] as HTMLDetailsElement[];
     const spritePickerButtons = new Map<string, HTMLButtonElement>();
     const dragGhostPadding = 8;
     let modalConfirmAction: (() => void | Promise<void>) | null = null;
@@ -2650,6 +2746,60 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     };
     const initialBodyOverflow = document.body.style.overflow;
 
+    function clampOverlayPosition(element: HTMLElement, left: number, top: number) {
+        const maxLeft = Math.max(8, window.innerWidth - element.offsetWidth - 8);
+        const maxTop = Math.max(8, window.innerHeight - element.offsetHeight - 8);
+        return {
+            left: clamp(left, 8, maxLeft),
+            top: clamp(top, 8, maxTop)
+        };
+    }
+
+    function attachDraggableSurface(element: HTMLElement, handle: HTMLElement) {
+        let dragPointerId: number | null = null;
+        let dragOffsetX = 0;
+        let dragOffsetY = 0;
+        handle.addEventListener('pointerdown', (event) => {
+            const target = event.target as HTMLElement | null;
+            if (!target || target.closest('button, input, select, textarea, label, summary, canvas, a')) {
+                return;
+            }
+            const rect = element.getBoundingClientRect();
+            dragPointerId = event.pointerId;
+            dragOffsetX = event.clientX - rect.left;
+            dragOffsetY = event.clientY - rect.top;
+            element.style.left = `${rect.left}px`;
+            element.style.top = `${rect.top}px`;
+            element.style.right = 'auto';
+            element.classList.add('world-designer-drag-active');
+            handle.setPointerCapture(event.pointerId);
+            event.preventDefault();
+        });
+        handle.addEventListener('pointermove', (event) => {
+            if (dragPointerId !== event.pointerId) {
+                return;
+            }
+            const next = clampOverlayPosition(element, event.clientX - dragOffsetX, event.clientY - dragOffsetY);
+            element.style.left = `${next.left}px`;
+            element.style.top = `${next.top}px`;
+        });
+        const stopDrag = (event: PointerEvent) => {
+            if (dragPointerId !== event.pointerId) {
+                return;
+            }
+            dragPointerId = null;
+            element.classList.remove('world-designer-drag-active');
+            if (handle.hasPointerCapture(event.pointerId)) {
+                handle.releasePointerCapture(event.pointerId);
+            }
+        };
+        handle.addEventListener('pointerup', stopDrag);
+        handle.addEventListener('pointercancel', stopDrag);
+    }
+
+    attachDraggableSurface(root, panelDragHandle);
+    attachDraggableSurface(paletteFlyout, paletteFlyoutDragHandle);
+
     function getWorldSnapshot() {
         return serializeWorldData(host.getRawWorldData());
     }
@@ -2679,6 +2829,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 snapOffsetY: state.snapOffsetY,
                 nudgeAmount: state.nudgeAmount,
                 showCollisionOverlay: state.showCollisionOverlay,
+                showCreatureOverlays: host.getShowCreatureOverlays(),
                 disableCollisionInPreview: state.disableCollisionInPreview,
                 layerVisibility: deepClone(state.layerVisibility),
                 camera: { ...state.camera },
@@ -2696,7 +2847,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 palettePreviewType: state.palettePreviewType,
                 buttonDefaults: deepClone(state.buttonDefaults),
                 customSpriteDefinitions: deepClone(state.customSpriteDefinitions),
-                customSpriteInstances: deepClone(state.customSpriteInstances)
+                customSpriteInstances: deepClone(state.customSpriteInstances),
+                sectionOpenState: deepClone(state.sectionOpenState)
             };
             window.localStorage.setItem(DESIGNER_STATE_STORAGE_KEY, JSON.stringify(payload));
         } catch {
@@ -2707,6 +2859,29 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     function invalidateOverviewBase() {
         overviewBaseDirty = true;
     }
+
+    function refreshSectionAccordions() {
+        for (const accordion of sectionAccordions) {
+            const sectionId = accordion.dataset.sectionId as DesignerSectionId | undefined;
+            if (!sectionId) {
+                continue;
+            }
+            accordion.open = state.sectionOpenState[sectionId] === true;
+        }
+    }
+
+    for (const accordion of sectionAccordions) {
+        accordion.open = false;
+        accordion.addEventListener('toggle', () => {
+            const sectionId = accordion.dataset.sectionId as DesignerSectionId | undefined;
+            if (!sectionId) {
+                return;
+            }
+            state.sectionOpenState[sectionId] = accordion.open;
+            persistDesignerUiState();
+        });
+    }
+    refreshSectionAccordions();
 
     function updateDirtyState() {
         state.dirty = !snapshotsEqual(getWorldSnapshot(), state.lastSavedSnapshot);
@@ -3341,7 +3516,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             : state.category === 'custom'
                 ? (customDefinition?.name ?? 'Custom sprite')
             : getCurrentType();
-        const previewTranslation = state.category === 'world' ? state.translation : 'center';
+        const previewTranslation = categorySupportsTranslation(state.category) ? state.translation : 'center';
         const rendered = selectedButton
             ? renderButtonCompositePreviewCanvas(refs.spritePreviewCanvas, selectedButton)
             : state.category === 'buttons'
@@ -3362,7 +3537,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 previewTranslation
                 );
         refs.spritePreviewMeta.textContent = rendered
-            ? state.category === 'world'
+            ? categorySupportsTranslation(state.category)
                 ? `${type} — palette ${state.palette}, rotation ${state.rotation}, translation ${formatSpriteTranslation(state.translation)}`
                 : selectedButton
                 ? `${selectedButton.type} + ${selectedButton.boxType} — ${selectedButton.active ? 'open' : 'closed'} preview`
@@ -4736,7 +4911,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         if (primary) {
             state.category = primary.category;
             state.rotation = normalizeRotation(primary.entity.rotation);
-            state.translation = primary.category === 'world'
+            state.translation = categorySupportsTranslation(primary.category)
                 ? normalizeSpriteTranslation(primary.entity.translation)
                 : 'center';
             state.palette = primary.entity.palette ?? 0;
@@ -5276,12 +5451,16 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             selection.category === 'collectables' ||
             selection.category === 'buttons' ||
             selection.category === 'doors' ||
+            selection.category === 'creatures' ||
             selection.category === 'custom'
         ) {
             addContextMenuSubmenu('Convert', (body) => {
                 if (selection.category === 'world') {
                     addContextMenuActionToContainer(body, 'Convert to collectable', () => {
                         convertPrimarySelectionToCategory('collectables', 'Converted world item to collectable.');
+                    });
+                    addContextMenuActionToContainer(body, 'Convert to creature', () => {
+                        convertPrimarySelectionToCategory('creatures', 'Converted world item to creature.');
                     });
                     addContextMenuActionToContainer(body, 'Convert to button', () => {
                         convertPrimarySelectionToCategory('buttons', 'Converted world item to button.');
@@ -5292,6 +5471,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 } else if (selection.category === 'collectables') {
                     addContextMenuActionToContainer(body, 'Convert to world item', () => {
                         convertPrimarySelectionToCategory('world', 'Converted collectable to world item.');
+                    });
+                    addContextMenuActionToContainer(body, 'Convert to creature', () => {
+                        convertPrimarySelectionToCategory('creatures', 'Converted collectable to creature.');
                     });
                     addContextMenuActionToContainer(body, 'Convert to button', () => {
                         convertPrimarySelectionToCategory('buttons', 'Converted collectable to button.');
@@ -5312,6 +5494,13 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     });
                     addContextMenuActionToContainer(body, 'Convert to collectable', () => {
                         convertPrimarySelectionToCategory('collectables', 'Converted door to collectable.');
+                    });
+                } else if (selection.category === 'creatures') {
+                    addContextMenuActionToContainer(body, 'Convert to world item', () => {
+                        convertPrimarySelectionToCategory('world', 'Converted creature to world item.');
+                    });
+                    addContextMenuActionToContainer(body, 'Convert to collectable', () => {
+                        convertPrimarySelectionToCategory('collectables', 'Converted creature to collectable.');
                     });
                 } else if (selection.category === 'custom') {
                     addContextMenuActionToContainer(body, 'Convert to button', () => {
@@ -5720,18 +5909,23 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             return canConvertCustomSpriteToButton(selection.entity as CustomSpriteInstance) ? 'buttons' : null;
         }
         if (selection.category === 'world') {
-            if (state.category === 'buttons' || state.category === 'doors' || state.category === 'collectables') {
+            if (state.category === 'buttons' || state.category === 'doors' || state.category === 'collectables' || state.category === 'creatures') {
                 return state.category;
             }
             return 'collectables';
         }
         if (selection.category === 'collectables') {
-            if (state.category === 'buttons' || state.category === 'doors' || state.category === 'world') {
+            if (state.category === 'buttons' || state.category === 'doors' || state.category === 'world' || state.category === 'creatures') {
                 return state.category;
             }
             return 'world';
         }
         if (selection.category === 'buttons' || selection.category === 'doors') {
+            if (state.category === 'world' || state.category === 'collectables') {
+                return state.category;
+            }
+        }
+        if (selection.category === 'creatures') {
             if (state.category === 'world' || state.category === 'collectables') {
                 return state.category;
             }
@@ -5750,6 +5944,22 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     function getConvertActionMessage(targetCategory: DesignerCategory) {
         const label = CATEGORY_LABELS[targetCategory].toLowerCase();
         return `Converted selection to ${label.endsWith('s') ? label : `a ${label}`}.`;
+    }
+
+    function getConvertTargetCategories(selection: Selection): DesignerCategory[] {
+        if (selection.category === 'custom') {
+            return canConvertCustomSpriteToButton(selection.entity as CustomSpriteInstance) ? ['buttons'] : [];
+        }
+        if (selection.category === 'world') {
+            return ['collectables', 'creatures', 'buttons', 'doors'];
+        }
+        if (selection.category === 'collectables') {
+            return ['world', 'creatures', 'buttons', 'doors'];
+        }
+        if (selection.category === 'buttons' || selection.category === 'doors' || selection.category === 'creatures') {
+            return ['world', 'collectables'];
+        }
+        return [];
     }
 
     function convertSelectionToCategory(selection: Selection, targetCategory: DesignerCategory) {
@@ -5785,14 +5995,16 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
 
         if (targetCategory === 'world') {
-            const sourceEntity = selection.entity as Collectable | Button | Door;
+            const sourceEntity = selection.entity as Collectable | Button | Door | Creature;
             const block: MapBlock = {
                 x: sourceEntity.x,
                 y: sourceEntity.y,
                 type: sourceEntity.type,
                 palette: sourceEntity.palette ?? 0,
                 rotation: normalizeRotation((sourceEntity as Collectable).defaultRotation ?? sourceEntity.rotation) as MapBlock['rotation'],
-                translation: 'center',
+                translation: 'translation' in sourceEntity && typeof sourceEntity.translation === 'string'
+                    ? normalizeSpriteTranslation(sourceEntity.translation)
+                    : 'center',
                 collision: sourceEntity.collision !== false,
                 maskAstronaut: sourceEntity.collision === false,
                 paletteCycle: sourceEntity.paletteCycle ? deepClone(sourceEntity.paletteCycle) : undefined
@@ -5840,6 +6052,24 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             });
             getCategoryArray('doors').push(door);
             setSelections([{ category: 'doors', entity: door }]);
+            return;
+        }
+
+        if (targetCategory === 'creatures') {
+            const creature = new Creature({
+                x: selection.entity.x,
+                y: selection.entity.y,
+                type: selection.entity.type,
+                palette: basePalette,
+                rotation: baseRotation,
+                translation: 'translation' in selection.entity && typeof selection.entity.translation === 'string'
+                    ? normalizeSpriteTranslation(selection.entity.translation)
+                    : 'center',
+                state: {},
+                paletteCycle: basePaletteCycle ? deepClone(basePaletteCycle) : undefined
+            });
+            getCategoryArray('creatures').push(creature);
+            setSelections([{ category: 'creatures', entity: creature }]);
         }
     }
 
@@ -5960,6 +6190,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 type,
                 palette: state.palette,
                 rotation: state.rotation,
+                translation: state.translation,
                 state: {}
             });
             getCategoryArray('creatures').push(entity);
@@ -6230,6 +6461,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         runMutation('Rotated selection.', () => {
             for (const selection of selections) {
                 selection.entity.rotation = ((normalizeRotation(selection.entity.rotation) % 7) + 1);
+                if (selection.category === 'creatures') {
+                    selection.entity.state = selection.entity.state ?? {};
+                    selection.entity.state.authoredRotation = selection.entity.rotation;
+                }
                 if (selection.category === 'collectables' && 'defaultRotation' in selection.entity) {
                     selection.entity.defaultRotation = selection.entity.rotation;
                 }
@@ -7923,12 +8158,22 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function updateSelectionSummary() {
+        const resetConvertControls = () => {
+            refs.convertTargetSelect.innerHTML = '';
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = 'No conversion available';
+            refs.convertTargetSelect.appendChild(placeholder);
+            refs.convertTargetSelect.value = '';
+            refs.convertTargetSelect.disabled = true;
+            refs.convertButton.disabled = true;
+            refs.convertButton.textContent = 'Convert';
+        };
         const selections = getSelectedItems();
         if (selections.length === 0) {
             const astronautStart = getAstronautStartPosition();
             refs.selectionSummary.textContent = `Nothing selected. Astronaut start: (${astronautStart.x}, ${astronautStart.y})`;
-            refs.convertButton.textContent = 'Convert';
-            refs.convertButton.disabled = true;
+            resetConvertControls();
             refs.deleteButton.disabled = true;
             refs.duplicateButton.disabled = true;
             refs.sendToBackButton.disabled = true;
@@ -7936,11 +8181,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             refs.focusButton.disabled = true;
             return;
         }
-
         if (selections.length > 1) {
             refs.selectionSummary.textContent = `${selections.length} objects selected. Drag any selected object to move the group, or right-click to group them as a custom sprite.`;
-            refs.convertButton.textContent = 'Convert';
-            refs.convertButton.disabled = true;
+            refs.selectionSummary.textContent = `${selections.length} objects selected. Drag any selected object to move the group, or right-click to group them as a custom sprite.`;
+            resetConvertControls();
             refs.deleteButton.disabled = false;
             refs.duplicateButton.disabled = false;
             refs.sendToBackButton.disabled = false;
@@ -7953,9 +8197,17 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.selectionSummary.textContent = category === 'custom'
             ? `${CATEGORY_LABELS[category]}: ${entity.type} at (${entity.x}, ${entity.y})`
             : `${CATEGORY_LABELS[category]}: ${entity.type} at (${entity.x}, ${entity.y})`;
-        const convertTarget = getConvertTargetCategory(state.selection!);
-        refs.convertButton.disabled = !convertTarget;
-        refs.convertButton.textContent = getConvertActionLabel(state.selection!);
+        const convertTargets = getConvertTargetCategories(state.selection!);
+        refs.convertTargetSelect.innerHTML = '';
+        for (const target of convertTargets) {
+            const option = document.createElement('option');
+            option.value = target;
+            option.textContent = CATEGORY_LABELS[target].replace(/^[a-z]/, (letter) => letter.toUpperCase());
+            refs.convertTargetSelect.appendChild(option);
+        }
+        refs.convertTargetSelect.disabled = convertTargets.length === 0;
+        refs.convertButton.disabled = convertTargets.length === 0;
+        refs.convertButton.textContent = 'Convert';
         refs.deleteButton.disabled = false;
         refs.duplicateButton.disabled = false;
         refs.sendToBackButton.disabled = false;
@@ -8257,6 +8509,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         addNumberInspector(container, 'Rotation', normalizeRotation(entity.rotation), (value) => {
             runMutation('Updated rotation.', () => {
                 entity.rotation = normalizeRotation(value);
+                if (category === 'creatures') {
+                    entity.state = entity.state ?? {};
+                    entity.state.authoredRotation = entity.rotation;
+                }
                 if ('defaultRotation' in entity) {
                     entity.defaultRotation = entity.rotation;
                 }
@@ -8488,7 +8744,291 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
 
         if (category === 'creatures') {
-            addTextInspector(container, 'State JSON', stableStringify(entity.state ?? {}), (value) => {
+            const archetypeOptions = [
+                { value: 'custom', label: 'Custom' },
+                { value: 'monkey', label: 'Monkey' },
+                { value: 'bird', label: 'Bird' },
+                { value: 'bee', label: 'Bee / wasp' },
+                { value: 'turret', label: 'Turret' }
+            ];
+            const movementModeOptions = [
+                { value: 'ground', label: 'Ground' },
+                { value: 'fly', label: 'Fly' },
+                { value: 'hover', label: 'Hover' },
+                { value: 'turret', label: 'Turret' }
+            ];
+            const fireModeOptions = [
+                { value: 'none', label: 'None' },
+                { value: 'bullets', label: 'Bullets' },
+                { value: 'grenades', label: 'Grenades' },
+                { value: 'energy_pods', label: 'Energy pods' }
+            ];
+            const soundOptions = [
+                { value: '', label: 'No sound' },
+                ...CREATURE_SOUND_MANIFEST.map((entry) => ({
+                    value: entry.key,
+                    label: entry.label
+                }))
+            ];
+            addOptionSelectInspector(container, 'Archetype', entity.archetype ?? 'custom', archetypeOptions, (value) => {
+                runMutation('Updated creature archetype.', () => {
+                    entity.archetype = value as Creature['archetype'];
+                });
+            });
+            addCheckboxInspector(container, 'Collision enabled', entity.collision ?? false, (checked) => {
+                runMutation('Updated creature collision.', () => {
+                    entity.collision = checked;
+                });
+            });
+            addCheckboxInspector(container, 'Hostile', entity.hostile ?? false, (checked) => {
+                runMutation('Updated hostile flag.', () => {
+                    entity.hostile = checked;
+                });
+            });
+            addNumberInspector(container, 'Damage on contact', entity.damageOnContact ?? 0, (value) => {
+                runMutation('Updated contact damage.', () => {
+                    entity.damageOnContact = Math.max(0, value);
+                });
+            }, 0.1);
+            addCheckboxInspector(container, 'Follows astronaut', entity.followsAstronaut ?? false, (checked) => {
+                runMutation('Updated follow flag.', () => {
+                    entity.followsAstronaut = checked;
+                });
+            });
+            addNumberInspector(container, 'Follow range', entity.followRange ?? 160, (value) => {
+                runMutation('Updated follow range.', () => {
+                    entity.followRange = Math.max(0, value);
+                });
+            });
+            addOptionSelectInspector(container, 'Movement mode', entity.movementMode ?? 'ground', movementModeOptions, (value) => {
+                runMutation('Updated movement mode.', () => {
+                    entity.movementMode = value as Creature['movementMode'];
+                    if (value === 'turret') {
+                        entity.fixed = true;
+                        entity.speed = 0;
+                    }
+                });
+            });
+            addCheckboxInspector(container, 'Fixed in place', entity.fixed ?? false, (checked) => {
+                runMutation('Updated fixed flag.', () => {
+                    entity.fixed = checked;
+                    if (checked) {
+                        entity.movementMode = 'turret';
+                        entity.speed = 0;
+                    } else if (entity.movementMode === 'turret') {
+                        entity.movementMode = 'ground';
+                    }
+                });
+            });
+            addNumberInspector(container, 'Speed', entity.speed ?? 1.5, (value) => {
+                runMutation('Updated creature speed.', () => {
+                    entity.speed = Math.max(0, value);
+                });
+            }, 0.1);
+            addNumberInspector(container, 'Home X', entity.homeX ?? entity.x, (value) => {
+                runMutation('Updated home X.', () => {
+                    entity.homeX = value;
+                });
+            });
+            addNumberInspector(container, 'Home Y', entity.homeY ?? entity.y, (value) => {
+                runMutation('Updated home Y.', () => {
+                    entity.homeY = value;
+                });
+            });
+            addNumberInspector(container, 'Patrol min X', entity.patrolMinX ?? entity.x - 96, (value) => {
+                runMutation('Updated patrol min X.', () => {
+                    entity.patrolMinX = value;
+                });
+            });
+            addNumberInspector(container, 'Patrol max X', entity.patrolMaxX ?? entity.x + 96, (value) => {
+                runMutation('Updated patrol max X.', () => {
+                    entity.patrolMaxX = value;
+                });
+            });
+            addNumberInspector(container, 'Patrol min Y', entity.patrolMinY ?? entity.y - 32, (value) => {
+                runMutation('Updated patrol min Y.', () => {
+                    entity.patrolMinY = value;
+                });
+            });
+            addNumberInspector(container, 'Patrol max Y', entity.patrolMaxY ?? entity.y + 32, (value) => {
+                runMutation('Updated patrol max Y.', () => {
+                    entity.patrolMaxY = value;
+                });
+            });
+            addNumberInspector(container, 'Hover amplitude', entity.hoverAmplitude ?? 0, (value) => {
+                runMutation('Updated hover amplitude.', () => {
+                    entity.hoverAmplitude = Math.max(0, value);
+                });
+            }, 0.1);
+            addNumberInspector(container, 'Track range', entity.trackRange ?? entity.followRange ?? 160, (value) => {
+                runMutation('Updated track range.', () => {
+                    entity.trackRange = Math.max(0, value);
+                });
+            });
+            addOptionSelectInspector(container, 'Fire mode', entity.fireMode ?? 'none', fireModeOptions, (value) => {
+                runMutation('Updated fire mode.', () => {
+                    entity.fireMode = value as Creature['fireMode'];
+                });
+            });
+            addCheckboxInspector(container, 'Homing bullets', entity.homingBullets ?? false, (checked) => {
+                runMutation('Updated homing setting.', () => {
+                    entity.homingBullets = checked;
+                });
+            });
+            addNumberInspector(container, 'Fire cooldown (ms)', entity.fireCooldownMs ?? 1200, (value) => {
+                runMutation('Updated fire cooldown.', () => {
+                    entity.fireCooldownMs = Math.max(0, value);
+                });
+            });
+            addNumberInspector(container, 'Projectile speed', entity.projectileSpeed ?? 3, (value) => {
+                runMutation('Updated projectile speed.', () => {
+                    entity.projectileSpeed = Math.max(0, value);
+                });
+            }, 0.1);
+            addCheckboxInspector(container, 'Can eat wasps', entity.canEatWasps ?? false, (checked) => {
+                runMutation('Updated predator flag.', () => {
+                    entity.canEatWasps = checked;
+                });
+            });
+            addCheckboxInspector(container, 'Can jump', entity.canJump ?? false, (checked) => {
+                runMutation('Updated jump flag.', () => {
+                    entity.canJump = checked;
+                });
+            });
+            addNumberInspector(container, 'Jump strength', entity.jumpStrength ?? 6, (value) => {
+                runMutation('Updated jump strength.', () => {
+                    entity.jumpStrength = Math.max(0, value);
+                });
+            }, 0.1);
+            addCheckboxInspector(container, 'Teleport home', entity.teleportHome ?? false, (checked) => {
+                runMutation('Updated teleport-home flag.', () => {
+                    entity.teleportHome = checked;
+                });
+            });
+            addNumberInspector(container, 'Teleport distance', entity.teleportHomeDistance ?? 512, (value) => {
+                runMutation('Updated teleport-home distance.', () => {
+                    entity.teleportHomeDistance = Math.max(0, value);
+                });
+            });
+            addCheckboxInspector(container, 'Push astronaut', entity.pushAstronaut ?? true, (checked) => {
+                runMutation('Updated push flag.', () => {
+                    entity.pushAstronaut = checked;
+                });
+            });
+            addCheckboxInspector(container, 'Can be picked up', entity.pickupEnabled ?? false, (checked) => {
+                runMutation('Updated pickup flag.', () => {
+                    entity.pickupEnabled = checked;
+                    if (!checked) {
+                        entity.storable = false;
+                    }
+                });
+            });
+            addCheckboxInspector(container, 'Storable', entity.storable ?? false, (checked) => {
+                runMutation('Updated storable flag.', () => {
+                    entity.storable = checked;
+                    if (checked) {
+                        entity.pickupEnabled = true;
+                    }
+                });
+            });
+            addNumberInspector(container, 'Current damage', entity.currentDamage ?? 0, (value) => {
+                runMutation('Updated damage state.', () => {
+                    entity.currentDamage = Math.max(0, value);
+                });
+            }, 0.1);
+            addNumberInspector(container, 'Force required to kill', entity.killForce ?? 3, (value) => {
+                runMutation('Updated kill-force threshold.', () => {
+                    entity.killForce = Math.max(0, value);
+                });
+            }, 0.1);
+            addNumberInspector(container, 'Visible energy', entity.visibleEnergy ?? 1, (value) => {
+                runMutation('Updated visible energy.', () => {
+                    entity.visibleEnergy = Math.max(0, value);
+                });
+            }, 0.1);
+            addCheckboxInspector(container, 'Damage flash visible', entity.damageFlash ?? true, (checked) => {
+                runMutation('Updated damage flash flag.', () => {
+                    entity.damageFlash = checked;
+                });
+            });
+            addCheckboxInspector(container, 'Makes sound', entity.sound?.enabled ?? false, (checked) => {
+                runMutation('Updated sound-enabled flag.', () => {
+                    entity.sound = {
+                        enabled: checked,
+                        sound: entity.sound?.sound ?? '',
+                        intervalMs: entity.sound?.intervalMs ?? 3000,
+                        randomVarianceMs: entity.sound?.randomVarianceMs ?? 0,
+                        range: entity.sound?.range ?? 320,
+                        volume: entity.sound?.volume ?? 1
+                    };
+                });
+            });
+            addOptionSelectInspector(container, 'Sound', entity.sound?.sound ?? '', soundOptions, (value) => {
+                runMutation('Updated creature sound.', () => {
+                    entity.sound = {
+                        enabled: entity.sound?.enabled ?? value !== '',
+                        sound: value,
+                        intervalMs: entity.sound?.intervalMs ?? 3000,
+                        randomVarianceMs: entity.sound?.randomVarianceMs ?? 0,
+                        range: entity.sound?.range ?? 320,
+                        volume: entity.sound?.volume ?? 1
+                    };
+                });
+            });
+            addNumberInspector(container, 'Sound interval (ms)', entity.sound?.intervalMs ?? 3000, (value) => {
+                runMutation('Updated sound interval.', () => {
+                    entity.sound = {
+                        enabled: entity.sound?.enabled ?? false,
+                        sound: entity.sound?.sound ?? '',
+                        intervalMs: Math.max(0, value),
+                        randomVarianceMs: entity.sound?.randomVarianceMs ?? 0,
+                        range: entity.sound?.range ?? 320,
+                        volume: entity.sound?.volume ?? 1
+                    };
+                });
+            });
+            addNumberInspector(container, 'Sound randomness (ms)', entity.sound?.randomVarianceMs ?? 0, (value) => {
+                runMutation('Updated sound randomness.', () => {
+                    entity.sound = {
+                        enabled: entity.sound?.enabled ?? false,
+                        sound: entity.sound?.sound ?? '',
+                        intervalMs: entity.sound?.intervalMs ?? 3000,
+                        randomVarianceMs: Math.max(0, value),
+                        range: entity.sound?.range ?? 320,
+                        volume: entity.sound?.volume ?? 1
+                    };
+                });
+            });
+            addNumberInspector(container, 'Sound range', entity.sound?.range ?? 320, (value) => {
+                runMutation('Updated sound range.', () => {
+                    entity.sound = {
+                        enabled: entity.sound?.enabled ?? false,
+                        sound: entity.sound?.sound ?? '',
+                        intervalMs: entity.sound?.intervalMs ?? 3000,
+                        randomVarianceMs: entity.sound?.randomVarianceMs ?? 0,
+                        range: Math.max(0, value),
+                        volume: entity.sound?.volume ?? 1
+                    };
+                });
+            });
+            addNumberInspector(container, 'Sound volume', entity.sound?.volume ?? 1, (value) => {
+                runMutation('Updated sound volume.', () => {
+                    entity.sound = {
+                        enabled: entity.sound?.enabled ?? false,
+                        sound: entity.sound?.sound ?? '',
+                        intervalMs: entity.sound?.intervalMs ?? 3000,
+                        randomVarianceMs: entity.sound?.randomVarianceMs ?? 0,
+                        range: entity.sound?.range ?? 320,
+                        volume: Math.max(0, value)
+                    };
+                });
+            }, 0.1);
+            const accordion = document.createElement('details');
+            const summary = document.createElement('summary');
+            summary.textContent = 'Advanced state JSON';
+            accordion.appendChild(summary);
+            const advancedBody = document.createElement('div');
+            addTextInspector(advancedBody, 'State JSON', stableStringify(entity.state ?? {}), (value) => {
                 try {
                     const parsed = value.trim().length === 0 ? {} : JSON.parse(value);
                     runMutation('Updated creature state.', () => {
@@ -8498,6 +9038,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     setStatus('Creature state must be valid JSON.', 'error');
                 }
             }, true);
+            accordion.appendChild(advancedBody);
+            container.appendChild(accordion);
         }
 
         if (category === 'collectables') {
@@ -8554,7 +9096,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.rotationSelect.value = String(state.rotation);
         refs.translationSelect.value = state.translation;
         refs.paletteSelect.value = String(state.palette);
-        refs.translationSelect.disabled = state.category !== 'world' && state.selection?.category !== 'world';
+        refs.translationSelect.disabled = !categorySupportsTranslation(state.category) && !categorySupportsTranslation(state.selection?.category ?? 'custom');
         refs.rotationSelect.disabled = state.category === 'custom';
         refs.paletteSelect.disabled = state.category === 'custom';
         refs.snapCheckbox.checked = state.snapToGrid;
@@ -8563,6 +9105,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.snapOffsetYInput.value = String(state.snapOffsetY);
         refs.nudgeInput.value = String(state.nudgeAmount);
         refs.showCollisionCheckbox.checked = state.showCollisionOverlay;
+        refs.showCreatureOverlaysCheckbox.checked = host.getShowCreatureOverlays();
         refs.showSpriteOutlineCheckbox.checked = host.getShowSpriteOutlines();
         refs.magnifierCheckbox.checked = state.magnifierEnabled;
         refs.disablePreviewCollisionCheckbox.checked = state.disableCollisionInPreview;
@@ -8641,7 +9184,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         state.rotation = state.selection.category === 'custom'
             ? state.rotation
             : normalizeRotation(state.selection.entity.rotation);
-        state.translation = state.selection.category === 'world'
+        state.translation = categorySupportsTranslation(state.selection.category)
             ? normalizeSpriteTranslation(state.selection.entity.translation)
             : 'center';
         state.palette = state.selection.category === 'custom'
@@ -8662,7 +9205,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
     function convertSelection() {
         if (!state.selection) return;
-        const targetCategory = getConvertTargetCategory(state.selection);
+        const targetCategory = refs.convertTargetSelect.value as DesignerCategory;
         if (!targetCategory) return;
         runMutation(getConvertActionMessage(targetCategory), () => {
             convertSelectionToCategory(state.selection!, targetCategory);
@@ -9400,6 +9943,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         if (selection) {
             runMutation('Updated rotation.', () => {
                 selection.entity.rotation = rotation;
+                if (selection.category === 'creatures') {
+                    selection.entity.state = selection.entity.state ?? {};
+                    selection.entity.state.authoredRotation = rotation;
+                }
                 if ('defaultRotation' in selection.entity) {
                     selection.entity.defaultRotation = rotation;
                 }
@@ -9413,7 +9960,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     refs.translationSelect.addEventListener('change', () => {
         const translation = normalizeSpriteTranslation(refs.translationSelect.value);
         const selection = getSingleEditableSelection();
-        if (selection?.category === 'world') {
+        if (selection && categorySupportsTranslation(selection.category)) {
             runMutation('Updated translation.', () => {
                 selection.entity.translation = translation;
             });
@@ -9486,6 +10033,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     });
     refs.showCollisionCheckbox.addEventListener('change', () => {
         state.showCollisionOverlay = refs.showCollisionCheckbox.checked;
+    });
+    refs.showCreatureOverlaysCheckbox.addEventListener('change', () => {
+        state.showCreatureOverlays = refs.showCreatureOverlaysCheckbox.checked;
+        host.setShowCreatureOverlays(state.showCreatureOverlays);
+        persistDesignerUiState();
     });
     refs.showSpriteOutlineCheckbox.addEventListener('change', () => {
         host.setShowSpriteOutlines(refs.showSpriteOutlineCheckbox.checked);

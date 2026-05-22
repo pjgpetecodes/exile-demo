@@ -29,9 +29,11 @@ It saves back into the JSON files in `astronaut-game\src\assets`.
 
 The designer starts hidden by default.
 
-The designer now remembers its UI state in browser storage, including the active tool, mode, category, sprite choice, palette, camera, viewport expansion, and palette-flyout selection.
+The designer now remembers its UI state in browser storage, including the active tool, mode, category, sprite choice, palette, camera, viewport expansion, palette-flyout selection, and which accordion sections you last left open.
 
-Custom sprite definitions and placed custom-sprite instances are also kept in browser storage. They are a designer-authoring aid and are not written to the JSON asset files until you convert them into normal runtime entities such as buttons.
+The main designer sections and palette-remap section now start **collapsed by default** until you open them. The old large top block is now split into separate **Mode and sprite setup** and **Placement and actions** accordions so the core controls are easier to scan.
+
+Custom sprite definitions and placed custom-sprite instances are also kept in browser storage. They are a designer-authoring aid and are not written to the JSON asset files until you convert them into normal runtime entities such as buttons or creatures.
 
 ## What the designer saves
 
@@ -113,7 +115,7 @@ Those offsets are authored in button-local space relative to the box, and the ru
 
 The button inspector also includes a **defaults for new buttons and button conversions** section. Those defaults only affect buttons created after you change them; existing buttons keep their own saved cap palette, box palette, and cap offsets.
 
-If you want to turn an existing world item or collectable into a **Door** or **Button**, select it, switch the target **Category**, and click **Convert**. The right-click context menu also exposes explicit convert actions.
+If you want to turn an existing world item or collectable into a **Door**, **Button**, or **Creature**, select it, choose the target from the main **Convert to** dropdown, and click **Convert**. The right-click context menu also exposes explicit convert actions. Converting into a creature now preserves the source sprite's authored translation, so offset pieces such as turrets keep their visual placement.
 
 You can also use:
 
@@ -138,6 +140,10 @@ You can also use modifier keys whether that toggle is on or off:
    - the top controls for type / palette / rotation / translation
    - the inspector for detailed editing
 
+The top translation control now applies to both **world items** and **creatures**.
+
+If you want to inspect creature health/energy feedback while tuning, enable **Show creature overlays** in **Preview toggles**.
+
 Selected items can be:
 
 - moved by dragging
@@ -154,6 +160,65 @@ Selected items can be:
 
 For **collectables**, the inspector also lets you control **Weight**, **Can be picked up**, **Storable**, and **Affects astronaut**.
 
+For **creatures**, the inspector now exposes typed controls instead of relying on raw JSON as the primary workflow. The current first-pass creature controls cover:
+
+- **Archetype**
+- **Collision enabled**
+- **Hostile**
+- **Damage on contact**
+- **Follows astronaut**
+- **Follow range**
+- **Movement mode** (`Ground`, `Fly`, `Hover`, `Turret`)
+- **Fixed in place**
+- **Speed**
+- **Home X / Home Y**
+- **Patrol min/max X**
+- **Patrol min/max Y**
+- **Hover amplitude**
+- **Track range**
+- **Fire mode** (`None`, `Bullets`, `Grenades`, `Energy pods`)
+- **Homing bullets**
+- **Fire cooldown**
+- **Projectile speed**
+- **Can eat wasps**
+- **Can jump**
+- **Jump strength**
+- **Teleport home**
+- **Teleport distance**
+- **Push astronaut**
+- **Can be picked up**
+- **Storable**
+- **Current damage**
+- **Force required to kill**
+- **Visible energy**
+- **Damage flash visible**
+- **Makes sound**
+- **Sound**
+- **Sound interval**
+- **Sound randomness**
+- **Sound range**
+- **Sound volume**
+
+There is still an **Advanced state JSON** accordion for temporary debugging/runtime state, but typed fields are now the main authoring path.
+
+Creature sound choices come from the checked-in manifest at `astronaut-game\src\assets\creature-sound-manifest.ts`, so adding a new WAV for creature use should include an entry there. Runtime creature sound playback now uses those manifest entries with distance falloff from the creature to the astronaut, and active energy pods reuse the same managed sound path for their repeating bling / expiry cues.
+
+The current creature runtime also supports a first-pass projectile layer driven by the authored **Fire mode**, **Homing bullets**, **Fire cooldown**, and **Projectile speed** fields:
+
+- **Bullets** travel directly toward the astronaut, with optional homing adjustment.
+- **Grenades** arc under gravity and explode on impact or expiry, applying area damage/force.
+- **Energy pods** travel as projectiles first, then turn into pickup-only collectables when they hit the world or expire.
+
+Additional runtime creature behavior now includes:
+
+- archetype-driven movement for ground, flying, hovering, and fixed-turret creatures
+- teleport-home fallback based on the authored home point and distance threshold
+- pseudo-jump behavior for ground creatures with **Can jump**
+- hostile contact damage / shove behavior
+- wasp-eating predator behavior for creatures with **Can eat wasps**
+- live creature pickup for **Can be picked up** creatures; they can be carried and dropped, but not stored
+- optional creature overlays and damage-flash feedback during play
+
 A cannon-style object should usually be authored as:
 
 - a collectable
@@ -164,6 +229,8 @@ A cannon-style object should usually be authored as:
 ## 3. Edit palettes
 
 Use the **Palettes** button beside the normal palette selector to open the palette flyout.
+
+Both the main designer panel and the palette flyout can now be dragged by their header bars.
 
 In the flyout you can:
 
