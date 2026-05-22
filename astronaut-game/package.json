@@ -4,7 +4,7 @@
   "description": "A simple 2D game featuring an astronaut character with flying mechanics and weak gravity.",
   "main": "src/game.ts",
   "scripts": {
-    "start": "lite-server --config bs-config.js --no-open",
+    "start": "node static-server.cjs",
     "save-server": "node designer-save-server.cjs",
     "build": "tsc",
     "dev": "concurrently \"tsc --watch\" \"lite-server --config bs-config.js --no-open\" \"node designer-save-server.cjs\""

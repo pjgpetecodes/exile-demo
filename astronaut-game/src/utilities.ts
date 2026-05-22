@@ -6,6 +6,7 @@ import { resolveAnimatedPaletteIndex } from './palette-cycle.js';
 const spriteRectMapCache = new WeakMap<object, Record<string, any>>();
 const transformedSpriteCanvasCache = new WeakMap<object, Map<string, HTMLCanvasElement>>();
 const transformedSpriteBoundsCache = new WeakMap<object, SpriteVisibleBounds | null>();
+const sourceSpriteBoundsCache = new WeakMap<object, Map<string, SpriteVisibleBounds | null>>();
 
 export type SpriteTranslation = 'center' | 'top' | 'right' | 'bottom' | 'left';
 
@@ -19,6 +20,69 @@ type SpriteVisibleBounds = {
 };
 
 export const SPRITE_TRANSLATION_OPTIONS: SpriteTranslation[] = ['center', 'top', 'right', 'bottom', 'left'];
+
+function getSourceSpriteVisibleBounds(
+    sheet: CanvasImageSource,
+    rect: { x: number; y: number; w: number; h: number }
+) {
+    if (!sheet || typeof sheet !== 'object') {
+        return null;
+    }
+
+    const cacheOwner = sheet as object;
+    let cache = sourceSpriteBoundsCache.get(cacheOwner);
+    if (!cache) {
+        cache = new Map<string, SpriteVisibleBounds | null>();
+        sourceSpriteBoundsCache.set(cacheOwner, cache);
+    }
+
+    const cacheKey = `${rect.x},${rect.y},${rect.w},${rect.h}`;
+    if (cache.has(cacheKey)) {
+        return cache.get(cacheKey) ?? null;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = rect.w;
+    canvas.height = rect.h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+        cache.set(cacheKey, null);
+        return null;
+    }
+
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(sheet, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h);
+    const bounds = getSpriteVisibleBounds(canvas);
+    cache.set(cacheKey, bounds);
+    return bounds;
+}
+
+export function getVisibleCenterFlipOffset(
+    sheet: CanvasImageSource,
+    rect: { x: number; y: number; w: number; h: number },
+    rotation: number = 1
+) {
+    const normalizedRotation = typeof rotation === 'number' ? Math.round(rotation) : 1;
+    if (normalizedRotation < 5 || normalizedRotation > 7) {
+        return { x: 0, y: 0 };
+    }
+
+    const visibleBounds = getSourceSpriteVisibleBounds(sheet, rect);
+    if (!visibleBounds) {
+        return { x: 0, y: 0 };
+    }
+
+    const visibleCenterX = (visibleBounds.minX + visibleBounds.maxX + 1) / 2;
+    const visibleCenterY = (visibleBounds.minY + visibleBounds.maxY + 1) / 2;
+    return {
+        x: normalizedRotation === 5 || normalizedRotation === 7
+            ? 2 * (visibleCenterX - rect.w / 2)
+            : 0,
+        y: normalizedRotation === 6 || normalizedRotation === 7
+            ? 2 * (visibleCenterY - rect.h / 2)
+            : 0
+    };
+}
 
 function buildSpriteRectMap(spriteMap: any) {
     if (spriteMap instanceof Array) {
@@ -901,8 +965,24 @@ export function drawEntities(
             const sheet = spriteSheets[paletteIdx] || spriteSheets[0];
             const renderedSprite = getRenderedEntitySpriteCanvas(sheet, rect, renderPart);
             if (!renderedSprite) continue;
-            const drawX = renderPart.x + renderedSprite.offsetX * SPRITE_SCALE;
-            const drawY = renderPart.y + renderedSprite.offsetY * SPRITE_SCALE;
+            const translationOffset = entity instanceof Button
+                ? { x: 0, y: 0 }
+                : getSpriteTranslationOffset(
+                    renderedSprite.canvas,
+                    normalizeSpriteTranslation(renderPart.translation),
+                    SPRITE_SCALE
+                );
+            const visibleCenterFlipOffset = entity.flipAroundVisibleCenter === true
+                ? getVisibleCenterFlipOffset(sheet, rect, renderPart.rotation)
+                : { x: 0, y: 0 };
+            const drawX = renderPart.x
+                + renderedSprite.offsetX * SPRITE_SCALE
+                + translationOffset.x
+                + visibleCenterFlipOffset.x * SPRITE_SCALE;
+            const drawY = renderPart.y
+                + renderedSprite.offsetY * SPRITE_SCALE
+                + translationOffset.y
+                + visibleCenterFlipOffset.y * SPRITE_SCALE;
             const drawW = renderedSprite.canvas.width * SPRITE_SCALE;
             const drawH = renderedSprite.canvas.height * SPRITE_SCALE;
             if (

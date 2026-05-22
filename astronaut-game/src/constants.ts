@@ -1,3 +1,5 @@
+import { CREATURE_SOUND_MANIFEST } from './assets/creature-sound-manifest.js';
+
 // --- Map size in pixels ---
 export const DEFAULT_MAP_WIDTH = 10000;
 export const DEFAULT_MAP_HEIGHT = 10000;
@@ -38,6 +40,10 @@ export const ouchSounds = [
     new Audio('./src/assets/ouch_2.wav')
 ];
 
+export const creatureManifestSounds = Object.fromEntries(
+    CREATURE_SOUND_MANIFEST.map((entry) => [entry.key, new Audio(entry.path)])
+) as Record<string, HTMLAudioElement>;
+
 const SOUND_EFFECTS = [
     rememberSound,
     teleportSound,
@@ -46,7 +52,8 @@ const SOUND_EFFECTS = [
     doorCloseSound,
     getSound,
     saveSound,
-    ...ouchSounds
+    ...ouchSounds,
+    ...Object.values(creatureManifestSounds)
 ];
 
 let soundEnabled = true;
