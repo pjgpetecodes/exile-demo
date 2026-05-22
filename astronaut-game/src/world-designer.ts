@@ -2618,6 +2618,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     let modalConfirmAction: (() => void | Promise<void>) | null = null;
     let pngImportObjectUrl: string | null = null;
     let pendingInspectorFocusKey: string | null = null;
+    const overviewBaseCanvas = document.createElement('canvas');
+    let overviewBaseDirty = true;
 
     function clearPngImportObjectUrl() {
         if (pngImportObjectUrl) {
@@ -2700,6 +2702,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         } catch {
             // Ignore storage failures and keep the designer usable.
         }
+    }
+
+    function invalidateOverviewBase() {
+        overviewBaseDirty = true;
     }
 
     function updateDirtyState() {
@@ -5988,6 +5994,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
         state.redoStack = [];
         host.afterWorldDataMutated();
+        invalidateOverviewBase();
         updateDirtyState();
         refreshPanel();
         setStatus(message, 'neutral');
@@ -6105,7 +6112,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         };
     }
 
-    function updateDraggedItems(point: Position, refreshUi = true) {
+    function updateDraggedItems(point: Position, refreshUi = false) {
         if (!state.dragging || !state.dragAnchorWorld) return;
 
         const autoPan = getAutoPanDelta(point);
@@ -6148,9 +6155,6 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 target.y + snapDeltaY
             );
         }
-
-        host.afterWorldDataMutated();
-        updateDirtyState();
         if (refreshUi) {
             refreshPanel();
         }
@@ -6260,6 +6264,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
         state.selection = null;
         state.selectedItems = [];
+        invalidateOverviewBase();
         updateDirtyState();
         refreshPanel();
         setStatus(message, 'neutral');
@@ -9150,16 +9155,23 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refreshPanel();
     }
 
-    function drawOverview() {
-        const ctx = refs.overviewCanvas.getContext('2d');
+    function redrawOverviewBase() {
+        if (
+            overviewBaseCanvas.width !== refs.overviewCanvas.width ||
+            overviewBaseCanvas.height !== refs.overviewCanvas.height
+        ) {
+            overviewBaseCanvas.width = refs.overviewCanvas.width;
+            overviewBaseCanvas.height = refs.overviewCanvas.height;
+        }
+        const ctx = overviewBaseCanvas.getContext('2d');
         if (!ctx) return;
 
-        ctx.clearRect(0, 0, refs.overviewCanvas.width, refs.overviewCanvas.height);
+        ctx.clearRect(0, 0, overviewBaseCanvas.width, overviewBaseCanvas.height);
         ctx.fillStyle = '#020617';
-        ctx.fillRect(0, 0, refs.overviewCanvas.width, refs.overviewCanvas.height);
+        ctx.fillRect(0, 0, overviewBaseCanvas.width, overviewBaseCanvas.height);
 
-        const scaleX = refs.overviewCanvas.width / MAP_WIDTH;
-        const scaleY = refs.overviewCanvas.height / MAP_HEIGHT;
+        const scaleX = overviewBaseCanvas.width / MAP_WIDTH;
+        const scaleY = overviewBaseCanvas.height / MAP_HEIGHT;
         const colors: Record<DesignerCategory, string> = {
             world: '#38bdf8',
             buttons: '#f59e0b',
@@ -9197,6 +9209,25 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             10,
             10
         );
+        overviewBaseDirty = false;
+    }
+
+    function drawOverview() {
+        const ctx = refs.overviewCanvas.getContext('2d');
+        if (!ctx) return;
+
+        if (
+            overviewBaseDirty ||
+            overviewBaseCanvas.width !== refs.overviewCanvas.width ||
+            overviewBaseCanvas.height !== refs.overviewCanvas.height
+        ) {
+            redrawOverviewBase();
+        }
+
+        ctx.clearRect(0, 0, refs.overviewCanvas.width, refs.overviewCanvas.height);
+        ctx.drawImage(overviewBaseCanvas, 0, 0);
+        const scaleX = refs.overviewCanvas.width / MAP_WIDTH;
+        const scaleY = refs.overviewCanvas.height / MAP_HEIGHT;
 
         for (const selection of getSelectedItems()) {
             const rect = getEntityRect(selection.entity, selection.category);
@@ -9472,6 +9503,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     for (const [category, checkbox] of Object.entries(refs.layerCheckboxes) as Array<[DesignerCategory, HTMLInputElement]>) {
         checkbox.addEventListener('change', () => {
             state.layerVisibility[category] = checkbox.checked;
+            invalidateOverviewBase();
         });
     }
     refs.savePreviewButton.addEventListener('click', openSavePreview);
