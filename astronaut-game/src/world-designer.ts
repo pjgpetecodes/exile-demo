@@ -4305,6 +4305,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             button.hidden = !(matchesFilter && matchesCategory);
             button.classList.toggle('selected', entry.name === currentType);
             button.classList.toggle('dragging', state.pickerDrag?.type === entry.name);
+            const label = button.querySelector('.world-designer-sprite-option-label');
+            if (label instanceof HTMLDivElement) {
+                label.textContent = entry.label;
+            }
             const canvas = button.querySelector('canvas');
             if (canvas instanceof HTMLCanvasElement) {
                 if (entry.category === 'custom') {
