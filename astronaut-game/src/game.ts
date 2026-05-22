@@ -43,6 +43,7 @@ import {
     SPRITE_COL_FLY_FLOAT, SPRITE_COL_FLY_DOWN, SPRITE_COL_WALK_START, SPRITE_COL_WALK_RIGHT1,
     SPRITE_COL_WALK_RIGHT2, SPRITE_COL_WALK_END, TELEPORT_ANIM_FRAMES, MAP_WIDTH, MAP_HEIGHT,
     SPRITE_SCALE, rememberSound, teleportSound, buttonOnSound, doorOpenSound, doorCloseSound, getSound, saveSound, ouchSounds,
+    setMapBounds,
     getSoundEnabled, setSoundEnabled, toggleSoundEnabled
 } from './constants.js';
 import {
@@ -68,6 +69,7 @@ let palettes: Array<{ from: [number, number, number], to: [number, number, numbe
 let remappedSpriteSheets: CanvasImageSource[] = [];
 let colorAliases: Record<string, [number, number, number]> = {};
 const customPalettePreviewCache = new Map<string, CanvasImageSource>();
+const WORLD_BOUNDS_PADDING = Math.ceil(32 * SPRITE_SCALE * 2);
 const COLLECTABLE_PHYSICS_SETTINGS = {
     gravity: MOVEMENT_SETTINGS.collectableGravity,
     terminalVelocity: MOVEMENT_SETTINGS.collectableTerminalVelocity,
@@ -465,6 +467,15 @@ let throwGuideDotEmitTimer = 0;
 let worldDesigner: WorldDesigner | null = null;
 const STARFIELD_HEIGHT = Math.min(MAP_HEIGHT, 2000);
 
+(window as any).__exileDebug = {
+    getButtons: () => buttonEntities,
+    getSelectedDesignerSelection: () => worldDesigner?.getDebugSelection() ?? null,
+    getSelectedDesignerButton: () => {
+        const selection = worldDesigner?.getDebugSelection() ?? null;
+        return selection?.category === 'buttons' ? selection.entity : null;
+    }
+};
+
 function isDesignerOpen() {
     return !!worldDesigner?.isActive();
 }
@@ -521,6 +532,10 @@ async function loadButtons() {
 
 function syncButtonStatesToDoors() {
     for (const button of buttonEntities) {
+        if (worldDesigner?.isActive() && !worldDesigner.isPreviewMode()) {
+            button.active = button.defaultActive ?? button.active ?? false;
+            continue;
+        }
         if (!Array.isArray(button.linkedDoors) || button.linkedDoors.length === 0) {
             continue;
         }
@@ -616,11 +631,52 @@ function rebuildBlockInstanceBoundingBoxes() {
     assignRotatedBoundingBoxes(collectableEntities);
 }
 
+function syncRuntimeMapBounds() {
+    let maxRight = 0;
+    let maxBottom = 0;
+    const approximateEntitySpan = Math.ceil(32 * SPRITE_SCALE);
+    const considerEntities = (entities: Array<{ x: number; y: number }>) => {
+        for (const entity of entities) {
+            if (!Number.isFinite(entity.x) || !Number.isFinite(entity.y)) {
+                continue;
+            }
+            maxRight = Math.max(maxRight, entity.x + approximateEntitySpan);
+            maxBottom = Math.max(maxBottom, entity.y + approximateEntitySpan);
+        }
+    };
+
+    considerEntities(mapBlocks);
+    considerEntities(doorEntities);
+    considerEntities(buttonEntities);
+    considerEntities(creatureEntities);
+    considerEntities(collectableEntities);
+
+    const astronautStart = getAstronautStartPosition();
+    if (Number.isFinite(astronautStart.x) && Number.isFinite(astronautStart.y)) {
+        maxRight = Math.max(maxRight, astronautStart.x + approximateEntitySpan);
+        maxBottom = Math.max(maxBottom, astronautStart.y + approximateEntitySpan);
+    }
+
+    setMapBounds(
+        Math.max(MAP_WIDTH, maxRight + WORLD_BOUNDS_PADDING),
+        Math.max(MAP_HEIGHT, maxBottom + WORLD_BOUNDS_PADDING)
+    );
+}
+
+function ensureWorldBounds(width: number, height: number) {
+    setMapBounds(
+        Math.max(MAP_WIDTH, Math.round(width)),
+        Math.max(MAP_HEIGHT, Math.round(height))
+    );
+}
+
 function afterWorldDataMutated() {
     syncButtonStatesToDoors();
     syncCollectableRuntimeState();
     rebuildMapBlockRenderCache();
     rebuildBlockInstanceBoundingBoxes();
+    syncRuntimeMapBounds();
+    initStars(MAP_WIDTH, Math.min(MAP_HEIGHT, 2000));
 }
 
 function clampCamera(camera: Position) {
@@ -638,7 +694,8 @@ function drawWorldBoundingBoxOverlay(
         buttons: true,
         doors: true,
         creatures: true,
-        collectables: true
+        collectables: true,
+        custom: true
     }
 ) {
     context.save();
@@ -1116,6 +1173,7 @@ async function init() {
                 }
 
                 rebuildBlockInstanceBoundingBoxes();
+                syncRuntimeMapBounds();
 
                 // --- Calculate astronaut sprite bounding boxes at startup ---
                 astronautBoundingBoxes = await calculateAstronautSpriteBoundingBoxes(
@@ -1149,6 +1207,7 @@ async function init() {
                     getColorAliases: () => deepClone(colorAliases),
                     getPaletteCount: () => Math.max(remappedSpriteSheets.length, palettes.length, 1),
                     clampCamera,
+                    ensureWorldBounds,
                     saveWorldData,
                     savePaletteDefinitions,
                     previewSpriteSheetNormalization,

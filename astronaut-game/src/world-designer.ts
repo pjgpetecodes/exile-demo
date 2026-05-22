@@ -6,11 +6,13 @@ import { Creature } from './creature.js';
 import { Collectable } from './collectable.js';
 import { PaletteCycleSettings, Position } from './types/index.js';
 import { buildDefaultPaletteCycle, getEffectivePaletteCycle } from './palette-cycle.js';
-import { normalizeSpriteTranslation, SPRITE_TRANSLATION_OPTIONS, SpriteTranslation } from './utilities.js';
+import { getSpriteVisibleBounds, normalizeSpriteTranslation, SPRITE_TRANSLATION_OPTIONS, SpriteTranslation } from './utilities.js';
 
-export type DesignerCategory = 'world' | 'buttons' | 'doors' | 'creatures' | 'collectables';
+export type DesignerCategory = 'world' | 'buttons' | 'doors' | 'creatures' | 'collectables' | 'custom';
 export type DesignerMode = 'edit' | 'preview';
 export type DesignerTool = 'select' | 'place';
+type RuntimeDesignerCategory = Exclude<DesignerCategory, 'custom'>;
+type SpritePickerCategoryFilter = 'all' | DesignerCategory;
 
 export type ButtonSaveData = {
     x: number;
@@ -26,6 +28,10 @@ export type ButtonSaveData = {
     pressOffset?: number;
     boxOffsetX?: number;
     boxOffsetY?: number;
+    capClosedOffsetX?: number;
+    capClosedOffsetY?: number;
+    capOpenOffsetX?: number;
+    capOpenOffsetY?: number;
     paletteCycle?: PaletteCycleSettings;
 };
 
@@ -90,6 +96,26 @@ export type LayerVisibility = Record<DesignerCategory, boolean>;
 export type SpriteCatalogEntry = {
     name: string;
     palette: number;
+};
+
+export type CustomSpriteInstance = {
+    x: number;
+    y: number;
+    type: string;
+    customSpriteId: string;
+};
+
+export type CustomSpriteMember = {
+    category: RuntimeDesignerCategory;
+    offsetX: number;
+    offsetY: number;
+    data: MapBlock | ButtonSaveData | DoorSaveData | CreatureSaveData | CollectableSaveData;
+};
+
+export type CustomSpriteDefinition = {
+    id: string;
+    name: string;
+    members: CustomSpriteMember[];
 };
 
 export type PaletteRemapEntry = {
@@ -158,6 +184,7 @@ export interface WorldDesignerHost {
     getColorAliases(): Record<string, [number, number, number]>;
     getPaletteCount(): number;
     clampCamera(camera: Position): Position;
+    ensureWorldBounds(width: number, height: number): void;
     saveWorldData(data: RawWorldData): Promise<void>;
     savePaletteDefinitions(palettes: PaletteDefinition[], worldData?: RawWorldData): Promise<void>;
     previewSpriteSheetNormalization(): Promise<SpriteSheetNormalizationReport>;
@@ -171,6 +198,7 @@ export interface WorldDesigner {
     setViewportExpanded(expanded: boolean): void;
     getCamera(): Position;
     getLayerVisibility(): LayerVisibility;
+    getDebugSelection(): Selection | null;
     shouldShowCollisionOverlay(): boolean;
     shouldDisableCollisionInPreview(): boolean;
     render(ctx: CanvasRenderingContext2D): void;
@@ -198,7 +226,13 @@ type PickerDrag = {
 
 type ClipboardEntry = {
     category: DesignerCategory;
-    data: MapBlock | ButtonSaveData | DoorSaveData | CreatureSaveData | CollectableSaveData;
+    data: MapBlock | ButtonSaveData | DoorSaveData | CreatureSaveData | CollectableSaveData | CustomSpriteInstance;
+};
+
+type DesignerSnapshot = {
+    worldData: RawWorldData;
+    customSpriteDefinitions: CustomSpriteDefinition[];
+    customSpriteInstances: CustomSpriteInstance[];
 };
 
 type SavePreviewFile = {
@@ -245,7 +279,7 @@ type PngImportTileMatch = {
 };
 
 type PngImportDraft = {
-    blocks: MapBlock[];
+    blocks: Array<MapBlock | null>;
     columns: number;
     rows: number;
     worldX: number;
@@ -264,6 +298,101 @@ type PngImportProgress = {
     total: number;
     detail: string;
 };
+
+type PngImportSourceMode = 'single' | 'folder';
+type PngImportWorkTab = 'import' | 'export';
+
+type PngChunkEntry = {
+    fileName: string;
+    chunkColumn: number;
+    chunkRow: number;
+    sourceTileX: number;
+    sourceTileY: number;
+    tileWidth: number;
+    tileHeight: number;
+    pixelX: number;
+    pixelY: number;
+    pixelWidth: number;
+    pixelHeight: number;
+};
+
+type PngChunkManifest = {
+    version: 1;
+    sourceName: string;
+    tileSize: number;
+    crop: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    };
+    chunkTileWidth: number;
+    chunkTileHeight: number;
+    totalSourceColumns: number;
+    totalSourceRows: number;
+    totalChunkColumns: number;
+    totalChunkRows: number;
+    chunks: PngChunkEntry[];
+};
+
+type PngChunkFolderSelection = {
+    directoryName: string;
+    manifest: PngChunkManifest;
+    files: Map<string, File>;
+    emptyChunkFileNames: Set<string>;
+};
+
+type PngChunkSelectionRange = {
+    minChunkColumn: number;
+    maxChunkColumn: number;
+    minChunkRow: number;
+    maxChunkRow: number;
+    maxChunks: number;
+};
+
+type PngChunkComposedSource = {
+    image: HTMLImageElement;
+    manifest: PngChunkManifest;
+    selectedChunks: PngChunkEntry[];
+    chunkCount: number;
+    totalSelectedChunks: number;
+    sourceWidth: number;
+    sourceHeight: number;
+    columns: number;
+    rows: number;
+    activeTileIndexes: Set<number>;
+};
+
+type BrowserFileSystemWriteChunk =
+    | Blob
+    | BufferSource
+    | string
+    | { type: 'write'; position?: number; data: Blob | BufferSource | string }
+    | { type: 'seek'; position: number }
+    | { type: 'truncate'; size: number };
+
+interface BrowserWritableFileStream {
+    write(data: BrowserFileSystemWriteChunk): Promise<void>;
+    close(): Promise<void>;
+}
+
+interface BrowserFileHandle {
+    kind: 'file';
+    name: string;
+    getFile(): Promise<File>;
+    createWritable(): Promise<BrowserWritableFileStream>;
+}
+
+interface BrowserDirectoryHandle {
+    kind: 'directory';
+    name: string;
+    getFileHandle(name: string, options?: { create?: boolean }): Promise<BrowserFileHandle>;
+    values(): AsyncIterable<BrowserFileHandle | BrowserDirectoryHandle>;
+}
+
+interface BrowserWindowWithDirectoryPicker extends Window {
+    showDirectoryPicker?: () => Promise<BrowserDirectoryHandle>;
+}
 
 type Rect = {
     left: number;
@@ -319,15 +448,30 @@ type PersistedDesignerUiState = {
     disableCollisionInPreview: boolean;
     layerVisibility: LayerVisibility;
     camera: Position;
+    viewportWidth?: number;
+    viewportHeight?: number;
     hasOpenedOnce: boolean;
     spritePickerOpen: boolean;
     spritePickerFilter: string;
+    spritePickerCategoryFilter: SpritePickerCategoryFilter;
     magnifierEnabled: boolean;
     viewportExpanded: boolean;
     soundEnabled: boolean;
     paletteDesignerOpen: boolean;
     selectedPaletteIndex: number;
     palettePreviewType: string;
+    buttonDefaults?: ButtonDefaultOverrides;
+    customSpriteDefinitions?: CustomSpriteDefinition[];
+    customSpriteInstances?: CustomSpriteInstance[];
+};
+
+type ButtonDefaultOverrides = {
+    capPalette?: number | null;
+    boxPalette?: number | null;
+    capClosedOffsetX?: number | null;
+    capClosedOffsetY?: number | null;
+    capOpenOffsetX?: number | null;
+    capOpenOffsetY?: number | null;
 };
 
 type ContextMenuState = {
@@ -365,7 +509,7 @@ type DesignerState = {
     objectSnapGuides: ObjectSnapGuide[];
     activeObjectSnapMode: ObjectSnapMode;
     lastPointerCanvas: Position | null;
-    dragStartSnapshot: RawWorldData | null;
+    dragStartSnapshot: DesignerSnapshot | null;
     panningView: boolean;
     pendingRightPan: boolean;
     panStartCanvas: Position | null;
@@ -379,6 +523,7 @@ type DesignerState = {
     hasOpenedOnce: boolean;
     spritePickerOpen: boolean;
     spritePickerFilter: string;
+    spritePickerCategoryFilter: SpritePickerCategoryFilter;
     magnifierEnabled: boolean;
     pickerDrag: PickerDrag | null;
     pickerDragCanvas: Position | null;
@@ -387,12 +532,15 @@ type DesignerState = {
     paletteDesignerOpen: boolean;
     selectedPaletteIndex: number;
     palettePreviewType: string;
+    buttonDefaults: ButtonDefaultOverrides;
     paletteDefinitions: PaletteDefinition[];
     lastSavedPaletteDefinitions: PaletteDefinition[];
+    customSpriteDefinitions: CustomSpriteDefinition[];
+    customSpriteInstances: CustomSpriteInstance[];
     contextMenu: ContextMenuState;
     suppressContextMenuOnce: boolean;
-    undoStack: RawWorldData[];
-    redoStack: RawWorldData[];
+    undoStack: DesignerSnapshot[];
+    redoStack: DesignerSnapshot[];
     lastSavedSnapshot: RawWorldData;
 };
 
@@ -406,6 +554,7 @@ type ControlRefs = {
     spritePreviewMeta: HTMLDivElement;
     spritePicker: HTMLDetailsElement;
     spritePickerFilter: HTMLInputElement;
+    spritePickerCategoryFilter: HTMLSelectElement;
     spritePickerGrid: HTMLDivElement;
     rotationSelect: HTMLSelectElement;
     translationSelect: HTMLSelectElement;
@@ -472,6 +621,9 @@ const PNG_IMPORT_SAMPLE_SIZE = 32;
 const PNG_IMPORT_WARNING_SCORE = 58;
 const PNG_IMPORT_PALETTE_SCORE_WEIGHT = 0.2;
 const PNG_IMPORT_MAX_TILES = 4096;
+const PNG_CHUNK_EXPORT_MANIFEST_NAME = 'png-import-chunks.manifest.json';
+const PNG_CHUNK_DEFAULT_TILE_WIDTH = 16;
+const PNG_CHUNK_DEFAULT_TILE_HEIGHT = 16;
 const PNG_IMPORT_PREVIEW_MAX_DIMENSION = 960;
 const PNG_IMPORT_PREVIEW_MIN_TILE_SIZE = 18;
 const PNG_IMPORT_PREVIEW_MAX_TILE_SIZE = 48;
@@ -481,13 +633,18 @@ const MAGNIFIER_ZOOM = 6;
 const MAGNIFIER_CURSOR_OFFSET = 26;
 const OBJECT_SNAP_THRESHOLD = 20;
 const OBJECT_SNAP_ALIGNMENT_THRESHOLD = 24;
+const BUTTON_DEFAULT_PRESS_OFFSET = 3;
+const BUTTON_DEFAULT_BOX_OFFSET_X = 12;
+const BUTTON_DEFAULT_BOX_OFFSET_Y = 0;
 const CATEGORY_LABELS: Record<DesignerCategory, string> = {
     world: 'World items',
     buttons: 'Buttons',
     doors: 'Doors',
     creatures: 'Creatures',
-    collectables: 'Collectables'
+    collectables: 'Collectables',
+    custom: 'Custom sprites'
 };
+let customSpriteDefinitionResolver: ((instance: CustomSpriteInstance) => CustomSpriteDefinition | null) | null = null;
 
 const SAVE_FILE_LABELS: Record<keyof RawWorldData, string> = {
     worldMap: 'world_map.json',
@@ -534,6 +691,13 @@ function toMapBlockData(block: MapBlock): MapBlock {
 }
 
 function toButtonData(button: any): ButtonSaveData {
+    const normalizedBoxOffsetX = [8, 4, -8, -12].includes(button.boxOffsetX)
+        ? 12
+        : (button.boxOffsetX ?? 12);
+    const capClosedOffsetX = button.capClosedOffsetX ?? 0;
+    const capClosedOffsetY = button.capClosedOffsetY ?? 0;
+    const capOpenOffsetX = button.capOpenOffsetX ?? (button.pressOffset ?? 2);
+    const capOpenOffsetY = button.capOpenOffsetY ?? 0;
     return {
         x: button.x,
         y: button.y,
@@ -545,9 +709,13 @@ function toButtonData(button: any): ButtonSaveData {
         active: button.defaultActive ?? button.active ?? false,
         linkedDoors: Array.isArray(button.linkedDoors) ? [...button.linkedDoors] : [],
         collision: button.collision !== false,
-        pressOffset: button.pressOffset ?? 2,
-        boxOffsetX: button.boxOffsetX ?? 12,
+        pressOffset: capOpenOffsetX - capClosedOffsetX,
+        boxOffsetX: normalizedBoxOffsetX,
         boxOffsetY: button.boxOffsetY ?? 0,
+        capClosedOffsetX,
+        capClosedOffsetY,
+        capOpenOffsetX,
+        capOpenOffsetY,
         ...(button.paletteCycle ? { paletteCycle: deepClone(button.paletteCycle) } : {})
     };
 }
@@ -628,7 +796,11 @@ function snapshotsEqual(left: RawWorldData, right: RawWorldData) {
     return stableStringify(left) === stableStringify(right);
 }
 
-function getDefaultType(spriteTypes: string[], category: DesignerCategory) {
+function designerSnapshotsEqual(left: DesignerSnapshot, right: DesignerSnapshot) {
+    return stableStringify(left) === stableStringify(right);
+}
+
+function getDefaultType(spriteTypes: string[], category: RuntimeDesignerCategory) {
     const preferred = {
         world: ['floor_full', 'floor_grass', 'wall_full', 'ship_1'],
         buttons: ['button', 'button_box'],
@@ -652,12 +824,15 @@ function buildLayerVisibility(): LayerVisibility {
         buttons: true,
         doors: true,
         creatures: true,
-        collectables: true
+        collectables: true,
+        custom: true
     };
 }
 
 function getRectAtPosition(x: number, y: number, category: DesignerCategory): Rect {
-    const width = category === 'buttons' ? TILE_SIZE + 14 : TILE_SIZE;
+    const width = category === 'buttons'
+        ? TILE_SIZE + 14
+        : TILE_SIZE;
     const height = TILE_SIZE;
     return {
         left: x,
@@ -669,7 +844,83 @@ function getRectAtPosition(x: number, y: number, category: DesignerCategory): Re
     };
 }
 
+function invertButtonOffset(offsetX: number, offsetY: number, rotation: number) {
+    if (rotation >= 1 && rotation <= 4) {
+        const angle = -((rotation - 1) * Math.PI) / 2;
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        return {
+            x: Math.round(offsetX * cos - offsetY * sin),
+            y: Math.round(offsetX * sin + offsetY * cos)
+        };
+    }
+
+    if (rotation === 5) {
+        return { x: -offsetX, y: offsetY };
+    }
+    if (rotation === 6) {
+        return { x: offsetX, y: -offsetY };
+    }
+    if (rotation === 7) {
+        return { x: -offsetX, y: -offsetY };
+    }
+
+    return { x: offsetX, y: offsetY };
+}
+
 function getEntityRect(entity: any, category: DesignerCategory) {
+    if (category === 'buttons' && entity instanceof Button) {
+        const partRects = entity.getRenderParts().map((part) => ({
+            left: part.x,
+            top: part.y,
+            right: part.x + ((part.cropLeftHalf || part.cropRightHalf) ? TILE_SIZE / 2 : TILE_SIZE),
+            bottom: part.y + TILE_SIZE
+        }));
+        const left = Math.min(...partRects.map((rect) => rect.left));
+        const top = Math.min(...partRects.map((rect) => rect.top));
+        const right = Math.max(...partRects.map((rect) => rect.right));
+        const bottom = Math.max(...partRects.map((rect) => rect.bottom));
+        return {
+            left,
+            top,
+            right,
+            bottom,
+            width: right - left,
+            height: bottom - top
+        };
+    }
+    if (category === 'custom') {
+        const instance = entity as CustomSpriteInstance;
+        const definition = customSpriteDefinitionResolver?.(instance) ?? null;
+        if (!definition || definition.members.length === 0) {
+            return getRectAtPosition(instance.x, instance.y, 'world');
+        }
+        const partRects = definition.members.map((member) => {
+            const absoluteX = instance.x + member.offsetX;
+            const absoluteY = instance.y + member.offsetY;
+            if (member.category === 'buttons') {
+                const button = new Button({
+                    ...(deepClone(member.data) as ButtonSaveData),
+                    x: absoluteX,
+                    y: absoluteY
+                });
+                return getEntityRect(button, 'buttons');
+            }
+            return getRectAtPosition(absoluteX, absoluteY, member.category);
+        });
+        const left = Math.min(...partRects.map((rect) => rect.left));
+        const top = Math.min(...partRects.map((rect) => rect.top));
+        const right = Math.max(...partRects.map((rect) => rect.right));
+        const bottom = Math.max(...partRects.map((rect) => rect.bottom));
+        return {
+            left,
+            top,
+            right,
+            bottom,
+            width: right - left,
+            height: bottom - top
+        };
+    }
     return getRectAtPosition(entity.x, entity.y, category);
 }
 
@@ -717,6 +968,10 @@ function getSuggestedPngImportWorldSpan(sourceSize: number) {
     return Math.max(1, Math.round(getPngImportSourceTileCount(sourceSize) * TILE_SIZE));
 }
 
+function getPngImportWorldSpanFromTileCount(tileCount: number) {
+    return Math.max(1, Math.round(tileCount * TILE_SIZE));
+}
+
 function normalizeSnapOffset(value: number) {
     const rounded = Math.round(value);
     return ((rounded % 32) + 32) % 32;
@@ -757,6 +1012,584 @@ function yieldToUi() {
     return new Promise<void>((resolve) => {
         requestAnimationFrame(() => resolve());
     });
+}
+
+function padInteger(value: number, minimumDigits: number) {
+    return Math.max(0, Math.round(value)).toString().padStart(minimumDigits, '0');
+}
+
+function getChunkBaseName(sourceName: string) {
+    const withoutExtension = sourceName.replace(/\.[^.]+$/, '');
+    const normalized = withoutExtension
+        .trim()
+        .replace(/[^a-z0-9]+/gi, '-')
+        .replace(/^-+|-+$/g, '')
+        .toLowerCase();
+    return normalized || 'png-import';
+}
+
+function buildPngChunkFileName(sourceName: string, entry: PngChunkEntry) {
+    const baseName = getChunkBaseName(sourceName);
+    return `${baseName}__r${padInteger(entry.chunkRow, 4)}__c${padInteger(entry.chunkColumn, 4)}__tx${padInteger(entry.sourceTileX, 5)}__ty${padInteger(entry.sourceTileY, 5)}__w${padInteger(entry.tileWidth, 4)}__h${padInteger(entry.tileHeight, 4)}.png`;
+}
+
+function parsePngChunkFileName(fileName: string): PngChunkEntry | null {
+    const match = /__r(\d+)__c(\d+)__tx(\d+)__ty(\d+)__w(\d+)__h(\d+)\.png$/i.exec(fileName);
+    if (!match) {
+        return null;
+    }
+    const chunkRow = Number(match[1]);
+    const chunkColumn = Number(match[2]);
+    const sourceTileX = Number(match[3]);
+    const sourceTileY = Number(match[4]);
+    const tileWidth = Number(match[5]);
+    const tileHeight = Number(match[6]);
+    if (
+        !Number.isFinite(chunkRow) ||
+        !Number.isFinite(chunkColumn) ||
+        !Number.isFinite(sourceTileX) ||
+        !Number.isFinite(sourceTileY) ||
+        !Number.isFinite(tileWidth) ||
+        !Number.isFinite(tileHeight) ||
+        tileWidth <= 0 ||
+        tileHeight <= 0
+    ) {
+        return null;
+    }
+    return {
+        fileName,
+        chunkColumn: Math.round(chunkColumn),
+        chunkRow: Math.round(chunkRow),
+        sourceTileX: Math.round(sourceTileX),
+        sourceTileY: Math.round(sourceTileY),
+        tileWidth: Math.round(tileWidth),
+        tileHeight: Math.round(tileHeight),
+        pixelX: Math.round(sourceTileX) * PNG_IMPORT_SOURCE_TILE_SIZE,
+        pixelY: Math.round(sourceTileY) * PNG_IMPORT_SOURCE_TILE_SIZE,
+        pixelWidth: Math.round(tileWidth) * PNG_IMPORT_SOURCE_TILE_SIZE,
+        pixelHeight: Math.round(tileHeight) * PNG_IMPORT_SOURCE_TILE_SIZE
+    };
+}
+
+function getDirectoryPicker() {
+    const picker = (window as BrowserWindowWithDirectoryPicker).showDirectoryPicker;
+    if (!picker) {
+        throw new Error('This browser does not support choosing a folder. Use a Chromium-based browser with the File System Access API enabled.');
+    }
+    return picker.bind(window as BrowserWindowWithDirectoryPicker);
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, type = 'image/png') {
+    return new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((blob) => {
+            if (blob) {
+                resolve(blob);
+                return;
+            }
+            reject(new Error('Could not create a PNG blob from the chunk canvas.'));
+        }, type);
+    });
+}
+
+async function writeBlobToDirectory(directoryHandle: BrowserDirectoryHandle, fileName: string, blob: Blob) {
+    const fileHandle = await directoryHandle.getFileHandle(fileName, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+}
+
+async function writeTextToDirectory(directoryHandle: BrowserDirectoryHandle, fileName: string, text: string) {
+    const blob = new Blob([text], { type: 'application/json' });
+    await writeBlobToDirectory(directoryHandle, fileName, blob);
+}
+
+function isImageDataEmpty(imageData: ImageData) {
+    for (let index = 0; index < imageData.data.length; index += 4) {
+        const alpha = imageData.data[index + 3];
+        if (alpha === 0) {
+            continue;
+        }
+        if (
+            imageData.data[index] !== 0 ||
+            imageData.data[index + 1] !== 0 ||
+            imageData.data[index + 2] !== 0
+        ) {
+            return false;
+        }
+    }
+    return true;
+}
+
+async function loadImageFromBlob(blob: Blob) {
+    const url = URL.createObjectURL(blob);
+    try {
+        const image = new Image();
+        image.decoding = 'async';
+        await new Promise<void>((resolve, reject) => {
+            image.onload = () => resolve();
+            image.onerror = () => reject(new Error('Failed to decode an exported PNG chunk.'));
+            image.src = url;
+        });
+        return image;
+    } finally {
+        URL.revokeObjectURL(url);
+    }
+}
+
+async function isChunkFileEmpty(file: File) {
+    const bitmap = await createImageBitmap(file);
+    try {
+        const canvas = document.createElement('canvas');
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            throw new Error('Could not create a canvas context while analyzing chunk PNGs.');
+        }
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(bitmap, 0, 0);
+        return isImageDataEmpty(ctx.getImageData(0, 0, canvas.width, canvas.height));
+    } finally {
+        bitmap.close();
+    }
+}
+
+function normalizePngChunkManifest(raw: unknown): PngChunkManifest {
+    if (!raw || typeof raw !== 'object') {
+        throw new Error('Chunk manifest is missing or invalid.');
+    }
+    const manifestRecord = raw as Record<string, unknown>;
+    const cropRecord = manifestRecord.crop;
+    if (!cropRecord || typeof cropRecord !== 'object') {
+        throw new Error('Chunk manifest is missing crop metadata.');
+    }
+    const crop = cropRecord as Record<string, unknown>;
+    const rawChunks = Array.isArray(manifestRecord.chunks) ? manifestRecord.chunks : [];
+    const chunks = rawChunks.map((entry, index) => {
+        if (!entry || typeof entry !== 'object') {
+            throw new Error(`Chunk manifest entry ${index + 1} is invalid.`);
+        }
+        const record = entry as Record<string, unknown>;
+        const chunkEntry: PngChunkEntry = {
+            fileName: String(record.fileName ?? ''),
+            chunkColumn: Number(record.chunkColumn),
+            chunkRow: Number(record.chunkRow),
+            sourceTileX: Number(record.sourceTileX),
+            sourceTileY: Number(record.sourceTileY),
+            tileWidth: Number(record.tileWidth),
+            tileHeight: Number(record.tileHeight),
+            pixelX: Number(record.pixelX),
+            pixelY: Number(record.pixelY),
+            pixelWidth: Number(record.pixelWidth),
+            pixelHeight: Number(record.pixelHeight)
+        };
+        if (
+            !chunkEntry.fileName ||
+            !Number.isFinite(chunkEntry.chunkColumn) ||
+            !Number.isFinite(chunkEntry.chunkRow) ||
+            !Number.isFinite(chunkEntry.sourceTileX) ||
+            !Number.isFinite(chunkEntry.sourceTileY) ||
+            !Number.isFinite(chunkEntry.tileWidth) ||
+            !Number.isFinite(chunkEntry.tileHeight) ||
+            !Number.isFinite(chunkEntry.pixelX) ||
+            !Number.isFinite(chunkEntry.pixelY) ||
+            !Number.isFinite(chunkEntry.pixelWidth) ||
+            !Number.isFinite(chunkEntry.pixelHeight)
+        ) {
+            throw new Error(`Chunk manifest entry ${index + 1} is incomplete.`);
+        }
+        return {
+            ...chunkEntry,
+            chunkColumn: Math.round(chunkEntry.chunkColumn),
+            chunkRow: Math.round(chunkEntry.chunkRow),
+            sourceTileX: Math.round(chunkEntry.sourceTileX),
+            sourceTileY: Math.round(chunkEntry.sourceTileY),
+            tileWidth: Math.round(chunkEntry.tileWidth),
+            tileHeight: Math.round(chunkEntry.tileHeight),
+            pixelX: Math.round(chunkEntry.pixelX),
+            pixelY: Math.round(chunkEntry.pixelY),
+            pixelWidth: Math.round(chunkEntry.pixelWidth),
+            pixelHeight: Math.round(chunkEntry.pixelHeight)
+        };
+    });
+    const manifest: PngChunkManifest = {
+        version: 1,
+        sourceName: String(manifestRecord.sourceName ?? 'png-import'),
+        tileSize: Math.round(Number(manifestRecord.tileSize)),
+        crop: {
+            x: Math.round(Number(crop.x)),
+            y: Math.round(Number(crop.y)),
+            width: Math.round(Number(crop.width)),
+            height: Math.round(Number(crop.height))
+        },
+        chunkTileWidth: Math.round(Number(manifestRecord.chunkTileWidth)),
+        chunkTileHeight: Math.round(Number(manifestRecord.chunkTileHeight)),
+        totalSourceColumns: Math.round(Number(manifestRecord.totalSourceColumns)),
+        totalSourceRows: Math.round(Number(manifestRecord.totalSourceRows)),
+        totalChunkColumns: Math.round(Number(manifestRecord.totalChunkColumns)),
+        totalChunkRows: Math.round(Number(manifestRecord.totalChunkRows)),
+        chunks
+    };
+    if (
+        manifest.tileSize !== PNG_IMPORT_SOURCE_TILE_SIZE ||
+        manifest.crop.x < 0 ||
+        manifest.crop.y < 0 ||
+        manifest.crop.width <= 0 ||
+        manifest.crop.height <= 0 ||
+        manifest.chunkTileWidth <= 0 ||
+        manifest.chunkTileHeight <= 0 ||
+        manifest.totalSourceColumns <= 0 ||
+        manifest.totalSourceRows <= 0 ||
+        manifest.totalChunkColumns <= 0 ||
+        manifest.totalChunkRows <= 0
+    ) {
+        throw new Error('Chunk manifest metadata is invalid or unsupported.');
+    }
+    return manifest;
+}
+
+function buildChunkManifestFromFiles(directoryName: string, entries: PngChunkEntry[]) {
+    if (entries.length === 0) {
+        throw new Error('The selected folder does not contain any chunk PNGs with a supported naming pattern.');
+    }
+    const minTileX = Math.min(...entries.map((entry) => entry.sourceTileX));
+    const minTileY = Math.min(...entries.map((entry) => entry.sourceTileY));
+    const maxTileX = Math.max(...entries.map((entry) => entry.sourceTileX + entry.tileWidth));
+    const maxTileY = Math.max(...entries.map((entry) => entry.sourceTileY + entry.tileHeight));
+    const maxChunkColumn = Math.max(...entries.map((entry) => entry.chunkColumn));
+    const maxChunkRow = Math.max(...entries.map((entry) => entry.chunkRow));
+    return normalizePngChunkManifest({
+        version: 1,
+        sourceName: directoryName,
+        tileSize: PNG_IMPORT_SOURCE_TILE_SIZE,
+        crop: {
+            x: minTileX * PNG_IMPORT_SOURCE_TILE_SIZE,
+            y: minTileY * PNG_IMPORT_SOURCE_TILE_SIZE,
+            width: (maxTileX - minTileX) * PNG_IMPORT_SOURCE_TILE_SIZE,
+            height: (maxTileY - minTileY) * PNG_IMPORT_SOURCE_TILE_SIZE
+        },
+        chunkTileWidth: Math.max(...entries.map((entry) => entry.tileWidth)),
+        chunkTileHeight: Math.max(...entries.map((entry) => entry.tileHeight)),
+        totalSourceColumns: maxTileX - minTileX,
+        totalSourceRows: maxTileY - minTileY,
+        totalChunkColumns: maxChunkColumn + 1,
+        totalChunkRows: maxChunkRow + 1,
+        chunks: entries.map((entry) => ({
+            ...entry,
+            sourceTileX: entry.sourceTileX,
+            sourceTileY: entry.sourceTileY
+        }))
+    });
+}
+
+async function exportPngChunksToDirectory(config: {
+    image: HTMLImageElement;
+    sourceName: string;
+    sourceX: number;
+    sourceY: number;
+    sourceWidth: number;
+    sourceHeight: number;
+    chunkTileWidth: number;
+    chunkTileHeight: number;
+    skipEmpty: boolean;
+    shouldCancel?: () => boolean;
+}, onProgress?: (progress: PngImportProgress) => void | Promise<void>) {
+    if (
+        config.sourceX % PNG_IMPORT_SOURCE_TILE_SIZE !== 0 ||
+        config.sourceY % PNG_IMPORT_SOURCE_TILE_SIZE !== 0 ||
+        config.sourceWidth % PNG_IMPORT_SOURCE_TILE_SIZE !== 0 ||
+        config.sourceHeight % PNG_IMPORT_SOURCE_TILE_SIZE !== 0
+    ) {
+        throw new Error('Chunk export requires a source crop aligned to 32px tile boundaries.');
+    }
+    const directoryHandle = await getDirectoryPicker()();
+    const totalSourceColumns = config.sourceWidth / PNG_IMPORT_SOURCE_TILE_SIZE;
+    const totalSourceRows = config.sourceHeight / PNG_IMPORT_SOURCE_TILE_SIZE;
+    const totalChunkColumns = Math.ceil(totalSourceColumns / config.chunkTileWidth);
+    const totalChunkRows = Math.ceil(totalSourceRows / config.chunkTileHeight);
+    const sourceTileOriginX = Math.round(config.sourceX / PNG_IMPORT_SOURCE_TILE_SIZE);
+    const sourceTileOriginY = Math.round(config.sourceY / PNG_IMPORT_SOURCE_TILE_SIZE);
+    const chunkCanvas = document.createElement('canvas');
+    const chunkContext = chunkCanvas.getContext('2d');
+    if (!chunkContext) {
+        throw new Error('Could not create a canvas context for chunk export.');
+    }
+    chunkContext.imageSmoothingEnabled = false;
+
+    const chunks: PngChunkEntry[] = [];
+    const totalChunkCount = Math.max(1, totalChunkColumns * totalChunkRows);
+    let processedChunks = 0;
+    let exportedChunks = 0;
+    let skippedChunks = 0;
+    const progressStep = Math.max(1, Math.floor(totalChunkCount / 40));
+    let lastYieldAt = 0;
+
+    for (let chunkRow = 0; chunkRow < totalChunkRows; chunkRow += 1) {
+        for (let chunkColumn = 0; chunkColumn < totalChunkColumns; chunkColumn += 1) {
+            if (config.shouldCancel?.()) {
+                throw new Error('Chunk export cancelled.');
+            }
+            const sourceTileX = sourceTileOriginX + chunkColumn * config.chunkTileWidth;
+            const sourceTileY = sourceTileOriginY + chunkRow * config.chunkTileHeight;
+            const tileWidth = Math.min(config.chunkTileWidth, totalSourceColumns - chunkColumn * config.chunkTileWidth);
+            const tileHeight = Math.min(config.chunkTileHeight, totalSourceRows - chunkRow * config.chunkTileHeight);
+            const pixelX = sourceTileX * PNG_IMPORT_SOURCE_TILE_SIZE;
+            const pixelY = sourceTileY * PNG_IMPORT_SOURCE_TILE_SIZE;
+            const pixelWidth = tileWidth * PNG_IMPORT_SOURCE_TILE_SIZE;
+            const pixelHeight = tileHeight * PNG_IMPORT_SOURCE_TILE_SIZE;
+            const entry: PngChunkEntry = {
+                fileName: '',
+                chunkColumn,
+                chunkRow,
+                sourceTileX,
+                sourceTileY,
+                tileWidth,
+                tileHeight,
+                pixelX,
+                pixelY,
+                pixelWidth,
+                pixelHeight
+            };
+            entry.fileName = buildPngChunkFileName(config.sourceName, entry);
+            if (chunkCanvas.width !== pixelWidth) {
+                chunkCanvas.width = pixelWidth;
+            }
+            if (chunkCanvas.height !== pixelHeight) {
+                chunkCanvas.height = pixelHeight;
+            }
+            chunkContext.imageSmoothingEnabled = false;
+            chunkContext.clearRect(0, 0, chunkCanvas.width, chunkCanvas.height);
+            chunkContext.drawImage(
+                config.image,
+                pixelX,
+                pixelY,
+                pixelWidth,
+                pixelHeight,
+                0,
+                0,
+                pixelWidth,
+                pixelHeight
+            );
+            const shouldWrite = !config.skipEmpty || !isImageDataEmpty(
+                chunkContext.getImageData(0, 0, pixelWidth, pixelHeight)
+            );
+            if (shouldWrite) {
+                const blob = await canvasToBlob(chunkCanvas);
+                await writeBlobToDirectory(directoryHandle, entry.fileName, blob);
+                chunks.push(entry);
+                exportedChunks += 1;
+            } else {
+                skippedChunks += 1;
+            }
+            processedChunks += 1;
+            const shouldReportProgress = processedChunks === totalChunkCount ||
+                processedChunks - lastYieldAt >= progressStep;
+            if (onProgress && shouldReportProgress) {
+                await onProgress({
+                    phase: 'Exporting chunk PNGs',
+                    completed: processedChunks,
+                    total: totalChunkCount,
+                    detail: `Processed ${processedChunks} of ${totalChunkCount} chunks. Exported ${exportedChunks}, skipped ${skippedChunks}. Current chunk: row ${chunkRow + 1}, column ${chunkColumn + 1}.`
+                });
+            }
+            if (shouldReportProgress) {
+                lastYieldAt = processedChunks;
+                await yieldToUi();
+            }
+        }
+    }
+
+    const manifest: PngChunkManifest = {
+        version: 1,
+        sourceName: config.sourceName,
+        tileSize: PNG_IMPORT_SOURCE_TILE_SIZE,
+        crop: {
+            x: config.sourceX,
+            y: config.sourceY,
+            width: config.sourceWidth,
+            height: config.sourceHeight
+        },
+        chunkTileWidth: config.chunkTileWidth,
+        chunkTileHeight: config.chunkTileHeight,
+        totalSourceColumns,
+        totalSourceRows,
+        totalChunkColumns,
+        totalChunkRows,
+        chunks
+    };
+    await writeTextToDirectory(
+        directoryHandle,
+        PNG_CHUNK_EXPORT_MANIFEST_NAME,
+        `${JSON.stringify(manifest, null, 2)}\n`
+    );
+    return {
+        directoryName: directoryHandle.name,
+        manifest,
+        exportedChunks: chunks.length,
+        skippedChunks,
+        totalChunkCount
+    };
+}
+
+async function readPngChunkFolderSelection(
+    directoryHandle: BrowserDirectoryHandle,
+    onProgress?: (progress: PngImportProgress) => void | Promise<void>
+) {
+    const files = new Map<string, File>();
+    let processedEntries = 0;
+    for await (const entry of directoryHandle.values()) {
+        processedEntries += 1;
+        if (entry.kind === 'file') {
+            files.set(entry.name, await entry.getFile());
+        }
+        if (onProgress) {
+            await onProgress({
+                phase: 'Reading chunk folder',
+                completed: processedEntries,
+                total: Math.max(processedEntries, 1),
+                detail: `Scanning ${entry.name}.`
+            });
+        }
+    }
+    const manifestFile = files.get(PNG_CHUNK_EXPORT_MANIFEST_NAME);
+    let manifest: PngChunkManifest;
+    if (manifestFile) {
+        manifest = normalizePngChunkManifest(JSON.parse(await manifestFile.text()));
+    } else {
+        const parsedEntries = [...files.keys()]
+            .filter((name) => name.toLowerCase().endsWith('.png'))
+            .map((name) => parsePngChunkFileName(name))
+            .filter((entry): entry is PngChunkEntry => entry !== null);
+        manifest = buildChunkManifestFromFiles(directoryHandle.name, parsedEntries);
+    }
+    for (const chunk of manifest.chunks) {
+        if (!files.has(chunk.fileName)) {
+            throw new Error(`Chunk folder is missing ${chunk.fileName}, which is referenced by the manifest.`);
+        }
+    }
+    const emptyChunkFileNames = new Set<string>();
+    for (let index = 0; index < manifest.chunks.length; index += 1) {
+        const chunk = manifest.chunks[index];
+        const file = files.get(chunk.fileName);
+        if (!file) {
+            continue;
+        }
+        if (await isChunkFileEmpty(file)) {
+            emptyChunkFileNames.add(chunk.fileName);
+        }
+        if (onProgress) {
+            await onProgress({
+                phase: 'Checking chunk occupancy',
+                completed: index + 1,
+                total: manifest.chunks.length,
+                detail: `Inspecting ${chunk.fileName}.`
+            });
+        }
+    }
+    return {
+        directoryName: directoryHandle.name,
+        manifest,
+        files,
+        emptyChunkFileNames
+    };
+}
+
+function getPngChunkSelectionEntries(
+    selection: PngChunkFolderSelection,
+    range: PngChunkSelectionRange
+) {
+    const filteredChunks = selection.manifest.chunks
+        .filter((chunk) => (
+            chunk.chunkColumn >= range.minChunkColumn &&
+            chunk.chunkColumn <= range.maxChunkColumn &&
+            chunk.chunkRow >= range.minChunkRow &&
+            chunk.chunkRow <= range.maxChunkRow
+        ))
+        .sort((left, right) => (
+            left.chunkRow === right.chunkRow
+                ? left.chunkColumn - right.chunkColumn
+                : left.chunkRow - right.chunkRow
+        ));
+    const totalSelectedChunks = filteredChunks.length;
+    const limitedChunks = range.maxChunks > 0
+        ? filteredChunks
+            .filter((chunk) => !selection.emptyChunkFileNames.has(chunk.fileName))
+            .slice(0, range.maxChunks)
+        : filteredChunks;
+    return {
+        selectedChunks: limitedChunks,
+        totalSelectedChunks
+    };
+}
+
+async function composePngChunkFolderSource(
+    selection: PngChunkFolderSelection,
+    range: PngChunkSelectionRange,
+    onProgress?: (progress: PngImportProgress) => void | Promise<void>
+) {
+    const { selectedChunks, totalSelectedChunks } = getPngChunkSelectionEntries(selection, range);
+    if (selectedChunks.length === 0) {
+        throw new Error('The selected chunk range did not include any exported PNG chunks.');
+    }
+    const cropTileOriginX = Math.round(selection.manifest.crop.x / PNG_IMPORT_SOURCE_TILE_SIZE);
+    const cropTileOriginY = Math.round(selection.manifest.crop.y / PNG_IMPORT_SOURCE_TILE_SIZE);
+    const columns = selection.manifest.totalSourceColumns;
+    const rows = selection.manifest.totalSourceRows;
+    const activeTileIndexes = new Set<number>();
+    for (const chunk of selectedChunks) {
+        const startColumn = chunk.sourceTileX - cropTileOriginX;
+        const startRow = chunk.sourceTileY - cropTileOriginY;
+        for (let row = 0; row < chunk.tileHeight; row += 1) {
+            for (let column = 0; column < chunk.tileWidth; column += 1) {
+                activeTileIndexes.add((startRow + row) * columns + startColumn + column);
+            }
+        }
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = columns * PNG_IMPORT_SOURCE_TILE_SIZE;
+    canvas.height = rows * PNG_IMPORT_SOURCE_TILE_SIZE;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+        throw new Error('Could not create a canvas context for chunk composition.');
+    }
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    for (let index = 0; index < selectedChunks.length; index += 1) {
+        const chunk = selectedChunks[index];
+        const file = selection.files.get(chunk.fileName);
+        if (!file) {
+            throw new Error(`The chunk folder is missing ${chunk.fileName}.`);
+        }
+        const bitmap = await createImageBitmap(file);
+        const destinationX = (chunk.sourceTileX - cropTileOriginX) * PNG_IMPORT_SOURCE_TILE_SIZE;
+        const destinationY = (chunk.sourceTileY - cropTileOriginY) * PNG_IMPORT_SOURCE_TILE_SIZE;
+        ctx.drawImage(bitmap, destinationX, destinationY);
+        bitmap.close();
+        if (onProgress) {
+            await onProgress({
+                phase: 'Composing chunk folder',
+                completed: index + 1,
+                total: selectedChunks.length,
+                detail: `Placed ${chunk.fileName}.`
+            });
+            await yieldToUi();
+        }
+    }
+    const image = await loadImageFromBlob(await canvasToBlob(canvas));
+    return {
+        image,
+        manifest: selection.manifest,
+        selectedChunks,
+        chunkCount: selectedChunks.length,
+        totalSelectedChunks,
+        sourceWidth: canvas.width,
+        sourceHeight: canvas.height,
+        columns,
+        rows,
+        activeTileIndexes
+    };
 }
 
 function parsePaletteCyclePalettes(value: string, paletteCount: number) {
@@ -1073,6 +1906,48 @@ function createDesignerStyles() {
             padding: 12px;
             margin-bottom: 12px;
         }
+        .world-designer-import-tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .world-designer-import-tab {
+            border-radius: 999px;
+            padding: 8px 14px;
+        }
+        .world-designer-import-tab.selected {
+            border-color: rgba(56, 189, 248, 0.9);
+            box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.35);
+            background: rgba(8, 47, 73, 0.75);
+        }
+        .world-designer-import-paths {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 10px;
+        }
+        .world-designer-import-path {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 6px;
+            padding: 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(148, 163, 184, 0.24);
+            background: rgba(15, 23, 42, 0.72);
+            text-align: left;
+        }
+        .world-designer-import-path strong {
+            font-size: 13px;
+        }
+        .world-designer-import-path span {
+            color: #cbd5e1;
+        }
+        .world-designer-import-path.selected {
+            border-color: rgba(56, 189, 248, 0.9);
+            box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.35);
+            background: rgba(8, 47, 73, 0.75);
+        }
         .world-designer-import-card:last-child {
             margin-bottom: 0;
         }
@@ -1088,6 +1963,10 @@ function createDesignerStyles() {
             width: 100%;
             height: 12px;
             accent-color: #38bdf8;
+        }
+        .world-designer-import-progress-actions {
+            display: flex;
+            justify-content: flex-end;
         }
         .world-designer-import-toolbar {
             display: flex;
@@ -1338,27 +2217,77 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
     };
     const persistedState = loadPersistedState();
+    const restoredViewportExpanded = persistedState?.viewportExpanded === true;
+    const restoredCustomSpriteDefinitions = Array.isArray(persistedState?.customSpriteDefinitions)
+        ? deepClone(persistedState?.customSpriteDefinitions ?? [])
+        : [];
+    const restoredCustomSpriteInstances = Array.isArray(persistedState?.customSpriteInstances)
+        ? deepClone(persistedState?.customSpriteInstances ?? [])
+        : [];
+    const getAstronautCenteredCamera = () => {
+        const focus = host.getFocusWorldPosition();
+        return host.clampCamera({
+            x: focus.x - host.canvas.width / 2,
+            y: focus.y - host.canvas.height / 2
+        });
+    };
     const defaultTypeByCategory = {
         world: getDefaultType(spriteTypes, 'world'),
         buttons: getDefaultType(spriteTypes, 'buttons'),
         doors: getDefaultType(spriteTypes, 'doors'),
         creatures: getDefaultType(spriteTypes, 'creatures'),
-        collectables: getDefaultType(spriteTypes, 'collectables')
+        collectables: getDefaultType(spriteTypes, 'collectables'),
+        custom: restoredCustomSpriteDefinitions[0]?.id ?? ''
     };
     const restoredTypeByCategory: Record<DesignerCategory, string> = {
         world: spriteTypes.includes(persistedState?.typeByCategory?.world ?? '') ? persistedState!.typeByCategory.world : defaultTypeByCategory.world,
         buttons: spriteTypes.includes(persistedState?.typeByCategory?.buttons ?? '') ? persistedState!.typeByCategory.buttons : defaultTypeByCategory.buttons,
         doors: spriteTypes.includes(persistedState?.typeByCategory?.doors ?? '') ? persistedState!.typeByCategory.doors : defaultTypeByCategory.doors,
         creatures: spriteTypes.includes(persistedState?.typeByCategory?.creatures ?? '') ? persistedState!.typeByCategory.creatures : defaultTypeByCategory.creatures,
-        collectables: spriteTypes.includes(persistedState?.typeByCategory?.collectables ?? '') ? persistedState!.typeByCategory.collectables : defaultTypeByCategory.collectables
+        collectables: spriteTypes.includes(persistedState?.typeByCategory?.collectables ?? '') ? persistedState!.typeByCategory.collectables : defaultTypeByCategory.collectables,
+        custom: restoredCustomSpriteDefinitions.some((definition) => definition.id === persistedState?.typeByCategory?.custom)
+            ? persistedState!.typeByCategory.custom
+            : defaultTypeByCategory.custom
+    };
+    const restoredViewportWidth = Number.isFinite(persistedState?.viewportWidth)
+        ? Math.max(1, Math.round(persistedState!.viewportWidth!))
+        : (restoredViewportExpanded ? window.innerWidth : host.canvas.width);
+    const restoredViewportHeight = Number.isFinite(persistedState?.viewportHeight)
+        ? Math.max(1, Math.round(persistedState!.viewportHeight!))
+        : (restoredViewportExpanded ? window.innerHeight : host.canvas.height);
+    const restoredButtonDefaults: ButtonDefaultOverrides = {
+        capPalette: typeof persistedState?.buttonDefaults?.capPalette === 'number'
+            ? clamp(Math.round(persistedState.buttonDefaults.capPalette), 0, paletteCount - 1)
+            : null,
+        boxPalette: typeof persistedState?.buttonDefaults?.boxPalette === 'number'
+            ? clamp(Math.round(persistedState.buttonDefaults.boxPalette), 0, paletteCount - 1)
+            : null,
+        capClosedOffsetX: Number.isFinite(persistedState?.buttonDefaults?.capClosedOffsetX)
+            ? Math.round(persistedState!.buttonDefaults!.capClosedOffsetX!)
+            : null,
+        capClosedOffsetY: Number.isFinite(persistedState?.buttonDefaults?.capClosedOffsetY)
+            ? Math.round(persistedState!.buttonDefaults!.capClosedOffsetY!)
+            : null,
+        capOpenOffsetX: Number.isFinite(persistedState?.buttonDefaults?.capOpenOffsetX)
+            ? Math.round(persistedState!.buttonDefaults!.capOpenOffsetX!)
+            : null,
+        capOpenOffsetY: Number.isFinite(persistedState?.buttonDefaults?.capOpenOffsetY)
+            ? Math.round(persistedState!.buttonDefaults!.capOpenOffsetY!)
+            : null
     };
     const restoredCamera = persistedState?.camera
         ? host.clampCamera({
-            x: Number.isFinite(persistedState.camera.x) ? persistedState.camera.x : 0,
-            y: Number.isFinite(persistedState.camera.y) ? persistedState.camera.y : 0
+            x: (Number.isFinite(persistedState.camera.x) ? persistedState.camera.x : 0)
+                + restoredViewportWidth / 2
+                - host.canvas.width / 2,
+            y: (Number.isFinite(persistedState.camera.y) ? persistedState.camera.y : 0)
+                + restoredViewportHeight / 2
+                - host.canvas.height / 2
         })
-        : host.clampCamera({ x: 0, y: 0 });
-    const restoredViewportExpanded = persistedState?.viewportExpanded === true;
+        : getAstronautCenteredCamera();
+    const initialCamera = persistedState?.active === true && persistedState?.mode === 'edit'
+        ? restoredCamera
+        : getAstronautCenteredCamera();
     const palettePreviewType = spriteTypes.includes(persistedState?.palettePreviewType ?? '')
         ? persistedState!.palettePreviewType
         : defaultTypeByCategory.world;
@@ -1385,7 +2314,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             ...buildLayerVisibility(),
             ...(persistedState?.layerVisibility ?? {})
         },
-        camera: restoredCamera,
+        camera: initialCamera,
         dirty: false,
         status: 'Designer hidden by default. Press ` to open it.',
         statusTone: 'neutral',
@@ -1410,6 +2339,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         hasOpenedOnce: persistedState?.hasOpenedOnce ?? (persistedState?.active ?? false),
         spritePickerOpen: persistedState?.spritePickerOpen ?? false,
         spritePickerFilter: persistedState?.spritePickerFilter ?? '',
+        spritePickerCategoryFilter: persistedState?.spritePickerCategoryFilter ?? 'all',
         magnifierEnabled: persistedState?.magnifierEnabled ?? false,
         pickerDrag: null,
         pickerDragCanvas: null,
@@ -1418,8 +2348,13 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         paletteDesignerOpen: persistedState?.paletteDesignerOpen ?? false,
         selectedPaletteIndex: clamp(typeof persistedState?.selectedPaletteIndex === 'number' ? persistedState.selectedPaletteIndex : 0, 0, paletteCount - 1),
         palettePreviewType,
+        buttonDefaults: restoredButtonDefaults,
         paletteDefinitions: initialPaletteDefinitions,
         lastSavedPaletteDefinitions: deepClone(initialPaletteDefinitions),
+        customSpriteDefinitions: restoredCustomSpriteDefinitions,
+        customSpriteInstances: restoredCustomSpriteInstances.filter((instance) =>
+            restoredCustomSpriteDefinitions.some((definition) => definition.id === instance.customSpriteId)
+        ),
         contextMenu: {
             screen: null,
             world: null,
@@ -1431,6 +2366,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         redoStack: [],
         lastSavedSnapshot: initialSnapshot
     };
+    customSpriteDefinitionResolver = (instance) =>
+        state.customSpriteDefinitions.find((definition) => definition.id === instance.customSpriteId) ?? null;
 
     const root = document.createElement('div');
     root.className = 'world-designer-panel world-designer-hidden';
@@ -1456,6 +2393,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     <option value="doors">Doors</option>
                     <option value="creatures">Creatures</option>
                     <option value="collectables">Collectables</option>
+                    <option value="custom">Custom sprites</option>
                 </select></label>
                 <label class="world-designer-field">Sprite type<select data-role="type"></select></label>
                 <div class="world-designer-grid-wide">
@@ -1466,7 +2404,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     <details class="world-designer-sprite-picker" data-role="sprite-picker">
                         <summary>Choose from sprite grid</summary>
                         <div class="world-designer-sprite-picker-body">
-                            <label class="world-designer-field world-designer-grid-wide">Filter sprites<input type="text" data-role="sprite-picker-filter" placeholder="Type to filter sprite names" /></label>
+                            <div class="world-designer-grid world-designer-grid-wide">
+                                <label class="world-designer-field">Filter sprites<input type="text" data-role="sprite-picker-filter" placeholder="Type to filter sprite names" /></label>
+                                <label class="world-designer-field">Category filter<select data-role="sprite-picker-category-filter"></select></label>
+                            </div>
                             <div class="world-designer-sprite-picker-grid" data-role="sprite-picker-grid"></div>
                         </div>
                     </details>
@@ -1524,6 +2465,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 <label class="world-designer-checkbox"><input type="checkbox" checked data-layer="doors" /> Doors</label>
                 <label class="world-designer-checkbox"><input type="checkbox" checked data-layer="creatures" /> Creatures</label>
                 <label class="world-designer-checkbox"><input type="checkbox" checked data-layer="collectables" /> Collectables</label>
+                <label class="world-designer-checkbox"><input type="checkbox" checked data-layer="custom" /> Custom sprites</label>
             </div>
         </div>
         <div class="world-designer-section">
@@ -1607,6 +2549,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         spritePreviewMeta: root.querySelector('[data-role="sprite-preview-meta"]') as HTMLDivElement,
         spritePicker: root.querySelector('[data-role="sprite-picker"]') as HTMLDetailsElement,
         spritePickerFilter: root.querySelector('[data-role="sprite-picker-filter"]') as HTMLInputElement,
+        spritePickerCategoryFilter: root.querySelector('[data-role="sprite-picker-category-filter"]') as HTMLSelectElement,
         spritePickerGrid: root.querySelector('[data-role="sprite-picker-grid"]') as HTMLDivElement,
         rotationSelect: root.querySelector('[data-role="rotation"]') as HTMLSelectElement,
         translationSelect: root.querySelector('[data-role="translation"]') as HTMLSelectElement,
@@ -1647,7 +2590,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             buttons: root.querySelector('[data-layer="buttons"]') as HTMLInputElement,
             doors: root.querySelector('[data-layer="doors"]') as HTMLInputElement,
             creatures: root.querySelector('[data-layer="creatures"]') as HTMLInputElement,
-            collectables: root.querySelector('[data-layer="collectables"]') as HTMLInputElement
+            collectables: root.querySelector('[data-layer="collectables"]') as HTMLInputElement,
+            custom: root.querySelector('[data-layer="custom"]') as HTMLInputElement
         },
         modal,
         modalTitle: modal.querySelector('[data-role="modal-title"]') as HTMLHeadingElement,
@@ -1673,6 +2617,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     const dragGhostPadding = 8;
     let modalConfirmAction: (() => void | Promise<void>) | null = null;
     let pngImportObjectUrl: string | null = null;
+    let pendingInspectorFocusKey: string | null = null;
+    const overviewBaseCanvas = document.createElement('canvas');
+    let overviewBaseDirty = true;
 
     function clearPngImportObjectUrl() {
         if (pngImportObjectUrl) {
@@ -1703,8 +2650,16 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     };
     const initialBodyOverflow = document.body.style.overflow;
 
-    function getSnapshot() {
+    function getWorldSnapshot() {
         return serializeWorldData(host.getRawWorldData());
+    }
+
+    function getSnapshot(): DesignerSnapshot {
+        return {
+            worldData: getWorldSnapshot(),
+            customSpriteDefinitions: deepClone(state.customSpriteDefinitions),
+            customSpriteInstances: deepClone(state.customSpriteInstances)
+        };
     }
 
     function persistDesignerUiState() {
@@ -1727,15 +2682,21 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 disableCollisionInPreview: state.disableCollisionInPreview,
                 layerVisibility: deepClone(state.layerVisibility),
                 camera: { ...state.camera },
+                viewportWidth: host.canvas.width,
+                viewportHeight: host.canvas.height,
                 hasOpenedOnce: state.hasOpenedOnce,
                 spritePickerOpen: state.spritePickerOpen,
                 spritePickerFilter: state.spritePickerFilter,
+                spritePickerCategoryFilter: state.spritePickerCategoryFilter,
                 magnifierEnabled: state.magnifierEnabled,
                 viewportExpanded: state.viewportExpanded,
                 soundEnabled: host.getSoundEnabled(),
                 paletteDesignerOpen: state.paletteDesignerOpen,
                 selectedPaletteIndex: state.selectedPaletteIndex,
-                palettePreviewType: state.palettePreviewType
+                palettePreviewType: state.palettePreviewType,
+                buttonDefaults: deepClone(state.buttonDefaults),
+                customSpriteDefinitions: deepClone(state.customSpriteDefinitions),
+                customSpriteInstances: deepClone(state.customSpriteInstances)
             };
             window.localStorage.setItem(DESIGNER_STATE_STORAGE_KEY, JSON.stringify(payload));
         } catch {
@@ -1743,8 +2704,12 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
     }
 
+    function invalidateOverviewBase() {
+        overviewBaseDirty = true;
+    }
+
     function updateDirtyState() {
-        state.dirty = !snapshotsEqual(getSnapshot(), state.lastSavedSnapshot);
+        state.dirty = !snapshotsEqual(getWorldSnapshot(), state.lastSavedSnapshot);
     }
 
     function setStatus(message: string, tone: DesignerState['statusTone'] = 'neutral') {
@@ -1762,6 +2727,28 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         return state.typeByCategory[state.category];
     }
 
+    function getCustomSpriteDefinitionById(id: string | null | undefined) {
+        if (!id) {
+            return null;
+        }
+        return state.customSpriteDefinitions.find((definition) => definition.id === id) ?? null;
+    }
+
+    function getCustomSpriteDefinitionForInstance(instance: CustomSpriteInstance) {
+        return getCustomSpriteDefinitionById(instance.customSpriteId);
+    }
+
+    function createCustomSpriteName() {
+        let index = state.customSpriteDefinitions.length + 1;
+        let candidate = `Custom sprite ${index}`;
+        const existing = new Set(state.customSpriteDefinitions.map((definition) => definition.name));
+        while (existing.has(candidate)) {
+            index += 1;
+            candidate = `Custom sprite ${index}`;
+        }
+        return candidate;
+    }
+
     function setCurrentType(type: string) {
         state.typeByCategory[state.category] = type;
         refs.typeSelect.value = type;
@@ -1770,9 +2757,16 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function refreshSelectOptions() {
-        refs.typeSelect.innerHTML = spriteTypes
-            .map((type) => `<option value="${type}">${type}</option>`)
-            .join('');
+        const selectableTypes = state.category === 'custom'
+            ? state.customSpriteDefinitions.map((definition) => definition.id)
+            : spriteTypes;
+        refs.typeSelect.innerHTML = state.category === 'custom'
+            ? state.customSpriteDefinitions
+                .map((definition) => `<option value="${definition.id}">${definition.name}</option>`)
+                .join('')
+            : spriteTypes
+                .map((type) => `<option value="${type}">${type}</option>`)
+                .join('');
         refs.palettePreviewTypeSelect.innerHTML = spriteTypes
             .map((type) => `<option value="${type}">${type}</option>`)
             .join('');
@@ -1786,6 +2780,18 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.paletteSelect.innerHTML = Array.from({ length: paletteCount }, (_, index) => {
             return `<option value="${index}">${index}</option>`;
         }).join('');
+        refs.spritePickerCategoryFilter.innerHTML = [
+            ['all', 'All sprites'],
+            ['world', 'World items'],
+            ['buttons', 'Buttons'],
+            ['doors', 'Doors'],
+            ['creatures', 'Creatures'],
+            ['collectables', 'Collectables'],
+            ['custom', 'Custom sprites']
+        ].map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
+        if (state.category === 'custom' && !selectableTypes.includes(state.typeByCategory.custom)) {
+            state.typeByCategory.custom = selectableTypes[0] ?? '';
+        }
     }
 
     function syncPaletteCount() {
@@ -1966,7 +2972,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 setStatus('Save world changes before deleting a middle palette.', 'error');
                 return;
             }
-            worldDataToSave = shiftPaletteReferences(getSnapshot(), removedIndex);
+            worldDataToSave = shiftPaletteReferences(getWorldSnapshot(), removedIndex);
         }
 
         const nextPaletteDefinitions = state.paletteDefinitions.filter((_, index) => index !== removedIndex);
@@ -2027,19 +3033,345 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         return host.drawSpritePreview(ctx, type, palette, rotation, false, undefined, translation);
     }
 
-    function renderCurrentSpritePreview() {
-        const type = getCurrentType();
-        const previewTranslation = state.category === 'world' ? state.translation : 'center';
-        const rendered = renderSpritePreviewCanvas(
-            refs.spritePreviewCanvas,
-            type,
-            state.palette,
-            state.rotation,
-            previewTranslation
+    function renderButtonCompositePreviewCanvas(
+        canvas: HTMLCanvasElement,
+        button?: Button
+    ) {
+        clearPreviewCanvas(canvas);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return false;
+
+        const previewButton = button ?? createButtonEntity({
+            x: 0,
+            y: 0,
+            palette: state.palette,
+            rotation: state.rotation,
+            collision: true,
+            active: false,
+            linkedDoors: []
+        });
+        const parts = previewButton.getRenderParts();
+        const sourceTileSize = 32;
+        const sourceRects = parts.map((part) => ({
+            part,
+            left: part.x,
+            top: part.y,
+            width: (part.cropLeftHalf || part.cropRightHalf) ? Math.floor(sourceTileSize / 2) : sourceTileSize,
+            height: sourceTileSize
+        }));
+        const boxRect = sourceRects.find((rect) => rect.part.type === previewButton.boxType) ?? sourceRects[sourceRects.length - 1];
+        if (!boxRect) {
+            return false;
+        }
+        const boxCenterX = boxRect.left + boxRect.width / 2;
+        const boxCenterY = boxRect.top + boxRect.height / 2;
+        const minX = Math.min(...sourceRects.map((rect) => rect.left - boxCenterX));
+        const minY = Math.min(...sourceRects.map((rect) => rect.top - boxCenterY));
+        const maxX = Math.max(...sourceRects.map((rect) => rect.left + rect.width - boxCenterX));
+        const maxY = Math.max(...sourceRects.map((rect) => rect.top + rect.height - boxCenterY));
+        const padding = 8;
+        const availableWidth = Math.max(1, canvas.width - padding * 2);
+        const availableHeight = Math.max(1, canvas.height - padding * 2);
+        const fixedPreviewSpan = sourceTileSize * 3.5;
+        const fittedScale = Math.min(
+            availableWidth / Math.max(1, maxX - minX),
+            availableHeight / Math.max(1, maxY - minY)
         );
+        const scale = Math.max(
+            1,
+            Math.min(
+                fittedScale,
+                Math.min(availableWidth, availableHeight) / fixedPreviewSpan
+            )
+        );
+        const drawTileSize = Math.max(1, Math.round(sourceTileSize * scale));
+        const anchorX = canvas.width / 2;
+        const anchorY = canvas.height / 2;
+
+        for (const rect of sourceRects) {
+            const partCanvas = document.createElement('canvas');
+            partCanvas.width = drawTileSize;
+            partCanvas.height = drawTileSize;
+            const partCtx = partCanvas.getContext('2d');
+            if (!partCtx) {
+                continue;
+            }
+            host.drawSpriteSample(
+                partCtx,
+                rect.part.type,
+                rect.part.palette,
+                rect.part.rotation,
+                true,
+                drawTileSize
+            );
+            const sourceWidth = (rect.part.cropLeftHalf || rect.part.cropRightHalf)
+                ? Math.max(1, Math.floor(partCanvas.width / 2))
+                : partCanvas.width;
+            const sourceStartX = rect.part.cropRightHalf
+                ? Math.max(0, partCanvas.width - sourceWidth)
+                : 0;
+            const destinationWidth = Math.max(1, Math.round(rect.width * scale));
+            const destinationHeight = Math.max(1, Math.round(rect.height * scale));
+            ctx.drawImage(
+                partCanvas,
+                sourceStartX,
+                0,
+                sourceWidth,
+                partCanvas.height,
+                Math.round(anchorX + (rect.left - boxCenterX) * scale),
+                Math.round(anchorY + (rect.top - boxCenterY) * scale),
+                destinationWidth,
+                destinationHeight
+            );
+        }
+
+        return true;
+    }
+
+    function drawSpriteAt(
+        ctx: CanvasRenderingContext2D,
+        x: number,
+        y: number,
+        type: string,
+        palette: number,
+        rotation: number,
+        translation: SpriteTranslation = 'center'
+    ) {
+        const spriteCanvas = document.createElement('canvas');
+        spriteCanvas.width = TILE_SIZE;
+        spriteCanvas.height = TILE_SIZE;
+        const spriteCtx = spriteCanvas.getContext('2d');
+        if (!spriteCtx) {
+            return false;
+        }
+        const rendered = host.drawSpriteSample(
+            spriteCtx,
+            type,
+            palette,
+            rotation,
+            true,
+            TILE_SIZE,
+            translation
+        );
+        if (!rendered) {
+            return false;
+        }
+        ctx.drawImage(spriteCanvas, Math.round(x), Math.round(y));
+        return true;
+    }
+
+    function drawButtonEntityAt(
+        ctx: CanvasRenderingContext2D,
+        button: Button,
+        screenX: number,
+        screenY: number
+    ) {
+        let rendered = false;
+        for (const part of button.getRenderParts()) {
+            const partCanvas = document.createElement('canvas');
+            partCanvas.width = TILE_SIZE;
+            partCanvas.height = TILE_SIZE;
+            const partCtx = partCanvas.getContext('2d');
+            if (!partCtx) {
+                continue;
+            }
+            const partRendered = host.drawSpriteSample(
+                partCtx,
+                part.type,
+                part.palette,
+                part.rotation,
+                true,
+                TILE_SIZE
+            );
+            if (!partRendered) {
+                continue;
+            }
+            rendered = true;
+            const sourceWidth = (part.cropLeftHalf || part.cropRightHalf)
+                ? Math.max(1, Math.floor(partCanvas.width / 2))
+                : partCanvas.width;
+            const sourceStartX = part.cropRightHalf
+                ? Math.max(0, partCanvas.width - sourceWidth)
+                : 0;
+            const destinationWidth = (part.cropLeftHalf || part.cropRightHalf)
+                ? Math.max(1, Math.floor(TILE_SIZE / 2))
+                : TILE_SIZE;
+            ctx.drawImage(
+                partCanvas,
+                sourceStartX,
+                0,
+                sourceWidth,
+                partCanvas.height,
+                Math.round(screenX + (part.x - button.x)),
+                Math.round(screenY + (part.y - button.y)),
+                destinationWidth,
+                TILE_SIZE
+            );
+        }
+        return rendered;
+    }
+
+    function getCustomSpriteDefinitionBounds(definition: CustomSpriteDefinition) {
+        if (definition.members.length === 0) {
+            return { left: 0, top: 0, right: TILE_SIZE, bottom: TILE_SIZE, width: TILE_SIZE, height: TILE_SIZE };
+        }
+        const rects = definition.members.map((member) => {
+            if (member.category === 'buttons') {
+                return getEntityRect(new Button({
+                    ...(deepClone(member.data) as ButtonSaveData),
+                    x: member.offsetX,
+                    y: member.offsetY
+                }), 'buttons');
+            }
+            return getRectAtPosition(member.offsetX, member.offsetY, member.category);
+        });
+        const left = Math.min(...rects.map((rect) => rect.left));
+        const top = Math.min(...rects.map((rect) => rect.top));
+        const right = Math.max(...rects.map((rect) => rect.right));
+        const bottom = Math.max(...rects.map((rect) => rect.bottom));
+        return {
+            left,
+            top,
+            right,
+            bottom,
+            width: right - left,
+            height: bottom - top
+        };
+    }
+
+    function drawCustomSpriteDefinitionAt(
+        ctx: CanvasRenderingContext2D,
+        definition: CustomSpriteDefinition,
+        screenX: number,
+        screenY: number
+    ) {
+        let rendered = false;
+        for (const member of definition.members) {
+            const memberX = screenX + member.offsetX;
+            const memberY = screenY + member.offsetY;
+            if (member.category === 'buttons') {
+                rendered = drawButtonEntityAt(
+                    ctx,
+                    new Button({
+                        ...(deepClone(member.data) as ButtonSaveData),
+                        x: memberX,
+                        y: memberY
+                    }),
+                    memberX,
+                    memberY
+                ) || rendered;
+                continue;
+            }
+            const data = member.data as MapBlock | DoorSaveData | CreatureSaveData | CollectableSaveData;
+            rendered = drawSpriteAt(
+                ctx,
+                memberX,
+                memberY,
+                data.type,
+                typeof data.palette === 'number' ? data.palette : 0,
+                normalizeRotation((data as MapBlock).rotation),
+                member.category === 'world'
+                    ? normalizeSpriteTranslation((data as MapBlock).translation)
+                    : 'center'
+            ) || rendered;
+        }
+        return rendered;
+    }
+
+    function renderCustomSpritePreviewCanvas(
+        canvas: HTMLCanvasElement,
+        definition: CustomSpriteDefinition | null
+    ) {
+        clearPreviewCanvas(canvas);
+        if (!definition) {
+            return false;
+        }
+        const bounds = getCustomSpriteDefinitionBounds(definition);
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = Math.max(1, Math.ceil(bounds.width));
+        tempCanvas.height = Math.max(1, Math.ceil(bounds.height));
+        const tempCtx = tempCanvas.getContext('2d');
+        if (!tempCtx) {
+            return false;
+        }
+        const rendered = drawCustomSpriteDefinitionAt(tempCtx, definition, -bounds.left, -bounds.top);
+        if (!rendered) {
+            return false;
+        }
+        const visibleBounds = getSpriteVisibleBounds(tempCanvas);
+        if (!visibleBounds) {
+            return false;
+        }
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            return false;
+        }
+        const padding = 8;
+        const availableWidth = Math.max(1, canvas.width - padding * 2);
+        const availableHeight = Math.max(1, canvas.height - padding * 2);
+        const scale = Math.min(
+            availableWidth / Math.max(1, visibleBounds.width),
+            availableHeight / Math.max(1, visibleBounds.height)
+        );
+        const drawWidth = Math.max(1, Math.round(visibleBounds.width * scale));
+        const drawHeight = Math.max(1, Math.round(visibleBounds.height * scale));
+        ctx.drawImage(
+            tempCanvas,
+            visibleBounds.minX,
+            visibleBounds.minY,
+            visibleBounds.width,
+            visibleBounds.height,
+            Math.round((canvas.width - drawWidth) / 2),
+            Math.round((canvas.height - drawHeight) / 2),
+            drawWidth,
+            drawHeight
+        );
+        return true;
+    }
+
+    function renderCurrentSpritePreview() {
+        const selectedButton = state.selection?.category === 'buttons' && getSelectedItems().length === 1
+            ? state.selection.entity as Button
+            : null;
+        const customDefinition = state.category === 'custom'
+            ? getCustomSpriteDefinitionById(getCurrentType())
+            : null;
+        const type = state.category === 'buttons'
+            ? getCurrentType()
+            : state.category === 'custom'
+                ? (customDefinition?.name ?? 'Custom sprite')
+            : getCurrentType();
+        const previewTranslation = state.category === 'world' ? state.translation : 'center';
+        const rendered = selectedButton
+            ? renderButtonCompositePreviewCanvas(refs.spritePreviewCanvas, selectedButton)
+            : state.category === 'buttons'
+                ? renderSpritePreviewCanvas(
+                refs.spritePreviewCanvas,
+                type,
+                state.palette,
+                state.rotation,
+                'center'
+                )
+            : state.category === 'custom'
+                ? renderCustomSpritePreviewCanvas(refs.spritePreviewCanvas, customDefinition)
+                : renderSpritePreviewCanvas(
+                refs.spritePreviewCanvas,
+                type,
+                state.palette,
+                state.rotation,
+                previewTranslation
+                );
         refs.spritePreviewMeta.textContent = rendered
             ? state.category === 'world'
                 ? `${type} — palette ${state.palette}, rotation ${state.rotation}, translation ${formatSpriteTranslation(state.translation)}`
+                : selectedButton
+                ? `${selectedButton.type} + ${selectedButton.boxType} — ${selectedButton.active ? 'open' : 'closed'} preview`
+                : state.category === 'buttons'
+                ? `${type} — place button/button_box as world sprites, then group and convert to make a live button`
+                : state.category === 'custom'
+                    ? customDefinition
+                        ? `${customDefinition.name} — ${customDefinition.members.length} part${customDefinition.members.length === 1 ? '' : 's'}`
+                        : 'No custom sprites yet'
                 : `${type} — palette ${state.palette}, rotation ${state.rotation}`
             : `${type} — preview unavailable`;
     }
@@ -2619,8 +3951,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         return candidates;
     }
 
-    async function buildPngImportDraftFromPng(config: {
-        url: string;
+    async function buildPngImportDraftFromImage(image: HTMLImageElement, config: {
         sourceX: number;
         sourceY: number;
         sourceWidth: number;
@@ -2629,13 +3960,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         worldY: number;
         worldWidth: number;
         worldHeight: number;
-        replaceExisting: boolean;
+        activeTileIndexes?: Set<number>;
+        allowGridOffsetInference?: boolean;
     }, onProgress?: (progress: PngImportProgress) => void | Promise<void>) {
-        const url = config.url.trim();
-        if (!url) {
-            throw new Error('Enter a PNG URL before importing.');
-        }
-
         const worldWidth = Math.max(1, Math.round(config.worldWidth));
         const worldHeight = Math.max(1, Math.round(config.worldHeight));
         const worldX = Math.round(config.worldX);
@@ -2645,14 +3972,13 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const sourceHeight = Math.max(1, Math.round(config.sourceHeight));
         if (onProgress) {
             await onProgress({
-                phase: 'Loading PNG',
-                completed: 0,
+                phase: 'Preparing PNG source',
+                completed: 1,
                 total: 1,
-                detail: 'Loading PNG metadata and source image.'
+                detail: 'Using the prepared source image for matching.'
             });
             await yieldToUi();
         }
-        const image = await loadImage(url);
         const sourceX = clamp(Math.round(config.sourceX), 0, Math.max(0, image.width - 1));
         const sourceY = clamp(Math.round(config.sourceY), 0, Math.max(0, image.height - 1));
         const boundedSourceWidth = Math.min(sourceWidth, image.width - sourceX);
@@ -2664,10 +3990,14 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
         const columns = getPngImportSourceTileCount(boundedSourceWidth);
         const rows = getPngImportSourceTileCount(boundedSourceHeight);
-        const tileCount = columns * rows;
-        if (tileCount > PNG_IMPORT_MAX_TILES) {
+        const tileIndexes = config.activeTileIndexes
+            ? [...config.activeTileIndexes].sort((left, right) => left - right)
+            : Array.from({ length: columns * rows }, (_, index) => index);
+        const tileCount = tileIndexes.length;
+        if (!config.activeTileIndexes && tileCount > PNG_IMPORT_MAX_TILES) {
             throw new Error(`PNG import is limited to ${PNG_IMPORT_MAX_TILES} tiles per pass. Reduce the region size and try again.`);
         }
+        const matchingBatchSize = config.activeTileIndexes ? PNG_IMPORT_MAX_TILES : tileCount;
         const worldTileWidth = worldWidth / columns;
         const worldTileHeight = worldHeight / rows;
 
@@ -2695,16 +4025,18 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             gridOffsetY: number,
             phase: string
         ) => {
-            const importedBlocks: MapBlock[] = [];
+            const importedBlocks: Array<MapBlock | null> = new Array<MapBlock | null>(columns * rows).fill(null);
             const tileMatches: PngImportTileMatch[] = [];
             let uncertainTiles = 0;
             const lowConfidenceTileIndexes: number[] = [];
             let processedTiles = 0;
 
-            for (let row = 0; row < rows; row += 1) {
-                const tileSourceY = sourceY + gridOffsetY + (row * tileSourceHeight);
-
-                for (let column = 0; column < columns; column += 1) {
+            for (let batchStart = 0; batchStart < tileIndexes.length; batchStart += matchingBatchSize) {
+                const batchTileIndexes = tileIndexes.slice(batchStart, batchStart + matchingBatchSize);
+                for (const tileIndex of batchTileIndexes) {
+                    const row = Math.floor(tileIndex / columns);
+                    const column = tileIndex % columns;
+                    const tileSourceY = sourceY + gridOffsetY + (row * tileSourceHeight);
                     const tileSourceX = sourceX + gridOffsetX + (column * tileSourceWidth);
                     renderPngImportSourceSample(
                         sourceContext,
@@ -2738,10 +4070,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
                     if (tileMatch.bestScore >= PNG_IMPORT_WARNING_SCORE) {
                         uncertainTiles += 1;
-                        lowConfidenceTileIndexes.push(row * columns + column);
+                        lowConfidenceTileIndexes.push(tileIndex);
                     }
 
-                    importedBlocks.push({
+                    importedBlocks[tileIndex] = {
                         x: Math.round(worldX + column * worldTileWidth),
                         y: Math.round(worldY + row * worldTileHeight),
                         type: tileMatch.bestCandidate.type,
@@ -2750,7 +4082,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                         palette: tileMatch.bestCandidate.palette,
                         rotation: normalizeRotation(tileMatch.bestCandidate.rotation) as MapBlock['rotation'],
                         translation: tileMatch.inferredTranslation
-                    });
+                    };
                     processedTiles += 1;
                 }
 
@@ -2759,7 +4091,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                         phase,
                         completed: processedTiles,
                         total: tileCount,
-                        detail: `Processed row ${row + 1} of ${rows}.`
+                        detail: config.activeTileIndexes
+                            ? `Processed ${processedTiles} of ${tileCount} selected tiles.`
+                            : `Processed ${processedTiles} of ${tileCount} tiles.`
                     });
                     await yieldToUi();
                 }
@@ -2774,8 +4108,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         };
 
         const initialPass = await runMatchingPass(0, 0, 'Matching source tiles');
-        const inferredGridOffset = inferPngImportSourceGridOffset(initialPass.tileMatches);
-        const finalPass = inferredGridOffset.x !== 0 || inferredGridOffset.y !== 0
+        const shouldInferGridOffset = config.allowGridOffsetInference !== false;
+        const inferredGridOffset = shouldInferGridOffset
+            ? inferPngImportSourceGridOffset(initialPass.tileMatches)
+            : { x: 0, y: 0 };
+        const finalPass = shouldInferGridOffset && (inferredGridOffset.x !== 0 || inferredGridOffset.y !== 0)
             ? await runMatchingPass(inferredGridOffset.x, inferredGridOffset.y, 'Refining source alignment')
             : initialPass;
 
@@ -2794,12 +4131,47 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         };
     }
 
-    function applyPngImportDraft(draft: PngImportDraft, replaceExisting: boolean) {
+    async function buildPngImportDraftFromPng(config: {
+        url: string;
+        sourceX: number;
+        sourceY: number;
+        sourceWidth: number;
+        sourceHeight: number;
+        worldX: number;
+        worldY: number;
+        worldWidth: number;
+        worldHeight: number;
+        replaceExisting: boolean;
+    }, onProgress?: (progress: PngImportProgress) => void | Promise<void>) {
+        const url = config.url.trim();
+        if (!url) {
+            throw new Error('Enter a PNG URL before importing.');
+        }
+        if (onProgress) {
+            await onProgress({
+                phase: 'Loading PNG',
+                completed: 0,
+                total: 1,
+                detail: 'Loading PNG metadata and source image.'
+            });
+            await yieldToUi();
+        }
+        const image = await loadImage(url);
+        return buildPngImportDraftFromImage(image, config, onProgress);
+    }
+
+    function applyPngImportDraft(draft: PngImportDraft, replaceExisting: boolean, clearAllExisting: boolean = false) {
+        const draftBlocks = draft.blocks.filter((block): block is MapBlock => block !== null);
         runMutation(
-            `Imported ${draft.blocks.length} draft world tile${draft.blocks.length === 1 ? '' : 's'} from PNG.`,
+            `Imported ${draftBlocks.length} draft world tile${draftBlocks.length === 1 ? '' : 's'} from PNG.`,
             () => {
+                host.ensureWorldBounds(draft.worldX + draft.worldWidth, draft.worldY + draft.worldHeight);
                 const worldMap = getCategoryArray('world') as MapBlock[];
-                if (replaceExisting) {
+                const collectables = getCategoryArray('collectables');
+                if (clearAllExisting) {
+                    worldMap.splice(0, worldMap.length);
+                    collectables.splice(0, collectables.length);
+                } else if (replaceExisting) {
                     for (let index = worldMap.length - 1; index >= 0; index -= 1) {
                         const block = worldMap[index];
                         if (
@@ -2812,7 +4184,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                         }
                     }
                 }
-                const insertedBlocks = draft.blocks.map((block) => toMapBlockData(block));
+                const insertedBlocks = draftBlocks.map((block) => toMapBlockData(block));
                 worldMap.push(...insertedBlocks);
                 setSelections(
                     insertedBlocks.map((block) => ({ category: 'world' as const, entity: block })),
@@ -2837,10 +4209,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const draft = await buildPngImportDraftFromPng(config);
         applyPngImportDraft(draft, config.replaceExisting);
         closeModal();
+        const blockCount = draft.blocks.filter((block): block is MapBlock => block !== null).length;
         setStatus(
             draft.uncertainTiles > 0
-                ? `Imported ${draft.blocks.length} draft world tiles from PNG. ${draft.uncertainTiles} tile${draft.uncertainTiles === 1 ? '' : 's'} had low-confidence matches, so review the result in the designer before saving.`
-                : `Imported ${draft.blocks.length} draft world tiles from PNG.`,
+                ? `Imported ${blockCount} draft world tiles from PNG. ${draft.uncertainTiles} tile${draft.uncertainTiles === 1 ? '' : 's'} had low-confidence matches, so review the result in the designer before saving.`
+                : `Imported ${blockCount} draft world tiles from PNG.`,
             draft.uncertainTiles > 0 ? 'neutral' : 'success'
         );
     }
@@ -2848,8 +4221,42 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     function renderSpritePickerGrid() {
         const currentType = getCurrentType();
         const filter = state.spritePickerFilter.trim().toLowerCase();
-        for (const entry of spriteCatalog) {
-            let button = spritePickerButtons.get(entry.name);
+        const activeCategoryFilter = filter.length > 0 ? 'all' : state.spritePickerCategoryFilter;
+        const spriteCategorySets = (() => {
+            const data = host.getRawWorldData();
+            const buttons = new Set<string>(['button', 'button_box']);
+            for (const button of data.buttons) {
+                if (button.type) buttons.add(button.type);
+                if (button.boxType) buttons.add(button.boxType);
+            }
+            const doors = new Set<string>(data.doors.map((door) => door.type));
+            const creatures = new Set<string>(data.creatures.map((creature) => creature.type));
+            const collectables = new Set<string>(data.collectables.map((collectable) => collectable.type));
+            const world = new Set<string>(spriteTypes.filter((type) =>
+                !buttons.has(type) &&
+                !doors.has(type) &&
+                !creatures.has(type) &&
+                !collectables.has(type)
+            ));
+            return { world, buttons, doors, creatures, collectables } satisfies Record<RuntimeDesignerCategory, Set<string>>;
+        })();
+        const pickerEntries = state.category === 'custom' || activeCategoryFilter === 'custom'
+            ? state.customSpriteDefinitions.map((definition) => ({
+                key: `custom:${definition.id}`,
+                name: definition.id,
+                label: definition.name,
+                category: 'custom' as const
+            }))
+            : spriteCatalog.map((entry) => ({
+                key: `sprite:${entry.name}`,
+                name: entry.name,
+                label: entry.name,
+                category: state.category
+            }));
+        const activeKeys = new Set(pickerEntries.map((entry) => entry.key));
+
+        for (const entry of pickerEntries) {
+            let button = spritePickerButtons.get(entry.key);
             if (!button) {
                 button = document.createElement('button');
                 button.type = 'button';
@@ -2864,10 +4271,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
                 const label = document.createElement('div');
                 label.className = 'world-designer-sprite-option-label';
-                label.textContent = entry.name;
+                label.textContent = entry.label;
                 button.appendChild(label);
 
                 button.addEventListener('click', () => {
+                    state.category = entry.category;
                     setCurrentType(entry.name);
                     state.spritePickerOpen = false;
                     refreshPanel();
@@ -2875,8 +4283,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 button.addEventListener('mousedown', (event) => {
                     if (event.button !== 0) return;
                     event.preventDefault();
+                    state.category = entry.category;
                     state.pickerDrag = {
-                        category: state.category,
+                        category: entry.category,
                         type: entry.name,
                         palette: state.palette,
                         rotation: state.rotation,
@@ -2885,28 +4294,49 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     state.pickerDragCanvas = null;
                     setCurrentType(entry.name);
                     button!.classList.add('dragging');
-                    setStatus(`Dragging ${entry.name} onto the world to place it.`, 'neutral');
+                    setStatus(`Dragging ${entry.label} onto the world to place it.`, 'neutral');
                 });
 
-                spritePickerButtons.set(entry.name, button);
+                spritePickerButtons.set(entry.key, button);
                 refs.spritePickerGrid.appendChild(button);
             }
 
-            const matchesFilter = filter.length === 0 || entry.name.toLowerCase().includes(filter);
+            const matchesFilter = filter.length === 0 || entry.label.toLowerCase().includes(filter);
+            const matchesCategory = state.category === 'custom' ||
+                activeCategoryFilter === 'all' ||
+                activeCategoryFilter === 'custom' ||
+                spriteCategorySets[activeCategoryFilter].has(entry.name);
             button.hidden = !matchesFilter;
-            button.style.display = matchesFilter ? '' : 'none';
+            button.style.display = matchesFilter && matchesCategory ? '' : 'none';
+            button.hidden = !(matchesFilter && matchesCategory);
             button.classList.toggle('selected', entry.name === currentType);
             button.classList.toggle('dragging', state.pickerDrag?.type === entry.name);
+            const label = button.querySelector('.world-designer-sprite-option-label');
+            if (label instanceof HTMLDivElement) {
+                label.textContent = entry.label;
+            }
             const canvas = button.querySelector('canvas');
             if (canvas instanceof HTMLCanvasElement) {
-                renderSpritePreviewCanvas(
-                    canvas,
-                    entry.name,
-                    state.palette,
-                    1,
-                    state.category === 'world' ? state.translation : 'center'
-                );
+                if (entry.category === 'custom') {
+                    renderCustomSpritePreviewCanvas(canvas, getCustomSpriteDefinitionById(entry.name));
+                } else {
+                    renderSpritePreviewCanvas(
+                        canvas,
+                        entry.name,
+                        state.palette,
+                        1,
+                        state.category === 'world' ? state.translation : 'center'
+                    );
+                }
             }
+        }
+
+        for (const [key, button] of spritePickerButtons.entries()) {
+            if (activeKeys.has(key)) {
+                continue;
+            }
+            button.style.display = 'none';
+            button.hidden = true;
         }
     }
 
@@ -3007,6 +4437,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         if (category === 'buttons') return data.buttons as any[];
         if (category === 'doors') return data.doors as any[];
         if (category === 'creatures') return data.creatures as any[];
+        if (category === 'custom') return state.customSpriteInstances;
         return data.collectables as any[];
     }
 
@@ -3329,6 +4760,34 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         return existing.filter((item) => !areSameSelection(item, target));
     }
 
+    function getSelectionDrawOrder(selection: Selection) {
+        const categoryOrder: Record<RuntimeDesignerCategory, number> = {
+            world: 0,
+            doors: 1,
+            buttons: 2,
+            creatures: 3,
+            collectables: 4
+        };
+        const category = selection.category as RuntimeDesignerCategory;
+        const categoryRank = categoryOrder[category] ?? 0;
+        const indexInCategory = getCategoryArray(selection.category).indexOf(selection.entity);
+        return {
+            categoryRank,
+            indexInCategory
+        };
+    }
+
+    function getSelectionsInDrawOrder(selections: Selection[]) {
+        return [...selections].sort((left, right) => {
+            const leftOrder = getSelectionDrawOrder(left);
+            const rightOrder = getSelectionDrawOrder(right);
+            if (leftOrder.categoryRank !== rightOrder.categoryRank) {
+                return leftOrder.categoryRank - rightOrder.categoryRank;
+            }
+            return leftOrder.indexInCategory - rightOrder.indexInCategory;
+        });
+    }
+
     function removeSelectedFromArray() {
         const selections = getSelectedItems();
         for (const selection of selections) {
@@ -3618,70 +5077,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         });
     }
 
-    function convertSpecificSelection(selection: Selection) {
-        if (selection.category === 'world') {
-            const block = selection.entity as MapBlock;
-            const arr = getCategoryArray('world');
-            const index = arr.indexOf(block);
-            if (index >= 0) {
-                arr.splice(index, 1);
-            }
-            const collectable = new Collectable({
-                x: block.x,
-                y: block.y,
-                type: block.type,
-                palette: block.palette ?? 0,
-                rotation: normalizeRotation(block.rotation),
-                name: block.type,
-                weight: 0.2,
-                pickupEnabled: true,
-                storable: true,
-                affectsAstronaut: true,
-                collision: block.collision !== false,
-                collected: false,
-                paletteCycle: block.paletteCycle ? deepClone(block.paletteCycle) : undefined
-            });
-            getCategoryArray('collectables').push(collectable);
-            setSelections([{ category: 'collectables', entity: collectable }]);
-            return;
-        }
-
-        if (selection.category === 'collectables') {
-            const collectable = selection.entity as Collectable;
-            const arr = getCategoryArray('collectables');
-            const index = arr.indexOf(collectable);
-            if (index >= 0) {
-                arr.splice(index, 1);
-            }
-            const block: MapBlock = {
-                x: collectable.x,
-                y: collectable.y,
-                type: collectable.type,
-                palette: collectable.palette ?? 0,
-                rotation: normalizeRotation(collectable.defaultRotation ?? collectable.rotation) as MapBlock['rotation'],
-                translation: 'center',
-                collision: collectable.collision !== false,
-                maskAstronaut: collectable.collision === false,
-                paletteCycle: collectable.paletteCycle ? deepClone(collectable.paletteCycle) : undefined
-            };
-            getCategoryArray('world').push(block);
-            setSelections([{ category: 'world', entity: block }]);
-        }
-    }
-
-    function convertPrimarySelectionToCollectable() {
+    function convertPrimarySelectionToCategory(targetCategory: DesignerCategory, message: string) {
         const selection = getContextMenuTargetSelection();
-        if (!selection || selection.category !== 'world') return;
-        runMutation('Converted world item to collectable.', () => {
-            convertSpecificSelection(selection);
-        });
-    }
-
-    function convertPrimarySelectionToWorldItem() {
-        const selection = getContextMenuTargetSelection();
-        if (!selection || selection.category !== 'collectables') return;
-        runMutation('Converted collectable to world item.', () => {
-            convertSpecificSelection(selection);
+        if (!selection || selection.category === targetCategory) return;
+        runMutation(message, () => {
+            convertSelectionToCategory(selection, targetCategory);
         });
     }
 
@@ -3790,9 +5190,21 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 activateContextMenuSelections();
                 focusSelection();
             }, selectedItems.length === 0 && !selection);
+            addContextMenuActionToContainer(body, 'Group as custom sprite', () => {
+                activateContextMenuSelections();
+                groupSelectionsAsCustomSprite();
+            }, !canGroupSelections(selectedItems.length > 0 ? selectedItems : selection ? [selection] : []));
+            addContextMenuActionToContainer(body, 'Ungroup custom sprite', () => {
+                activateContextMenuSelections();
+                ungroupCustomSpriteSelection();
+            }, selection.category !== 'custom');
+            addContextMenuActionToContainer(body, 'Delete custom sprite type', () => {
+                activateContextMenuSelections();
+                deleteCustomSpriteSelectionDefinition();
+            }, selection.category !== 'custom');
         }, !selection);
 
-        addContextMenuPaletteSubmenu(selectedItems.length === 0);
+        addContextMenuPaletteSubmenu(selectedItems.length === 0 || selection.category === 'custom');
 
         if ('collision' in selection.entity || selection.category === 'world') {
             addContextMenuSubmenu('Properties', (body) => {
@@ -3859,12 +5271,52 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             });
         }
 
-        if (selection.category === 'world' || selection.category === 'collectables') {
+        if (
+            selection.category === 'world' ||
+            selection.category === 'collectables' ||
+            selection.category === 'buttons' ||
+            selection.category === 'doors' ||
+            selection.category === 'custom'
+        ) {
             addContextMenuSubmenu('Convert', (body) => {
                 if (selection.category === 'world') {
-                    addContextMenuActionToContainer(body, 'Convert to collectable', convertPrimarySelectionToCollectable);
-                } else {
-                    addContextMenuActionToContainer(body, 'Convert to world item', convertPrimarySelectionToWorldItem);
+                    addContextMenuActionToContainer(body, 'Convert to collectable', () => {
+                        convertPrimarySelectionToCategory('collectables', 'Converted world item to collectable.');
+                    });
+                    addContextMenuActionToContainer(body, 'Convert to button', () => {
+                        convertPrimarySelectionToCategory('buttons', 'Converted world item to button.');
+                    });
+                    addContextMenuActionToContainer(body, 'Convert to door', () => {
+                        convertPrimarySelectionToCategory('doors', 'Converted world item to door.');
+                    });
+                } else if (selection.category === 'collectables') {
+                    addContextMenuActionToContainer(body, 'Convert to world item', () => {
+                        convertPrimarySelectionToCategory('world', 'Converted collectable to world item.');
+                    });
+                    addContextMenuActionToContainer(body, 'Convert to button', () => {
+                        convertPrimarySelectionToCategory('buttons', 'Converted collectable to button.');
+                    });
+                    addContextMenuActionToContainer(body, 'Convert to door', () => {
+                        convertPrimarySelectionToCategory('doors', 'Converted collectable to door.');
+                    });
+                } else if (selection.category === 'buttons') {
+                    addContextMenuActionToContainer(body, 'Convert to world item', () => {
+                        convertPrimarySelectionToCategory('world', 'Converted button to world item.');
+                    });
+                    addContextMenuActionToContainer(body, 'Convert to collectable', () => {
+                        convertPrimarySelectionToCategory('collectables', 'Converted button to collectable.');
+                    });
+                } else if (selection.category === 'doors') {
+                    addContextMenuActionToContainer(body, 'Convert to world item', () => {
+                        convertPrimarySelectionToCategory('world', 'Converted door to world item.');
+                    });
+                    addContextMenuActionToContainer(body, 'Convert to collectable', () => {
+                        convertPrimarySelectionToCategory('collectables', 'Converted door to collectable.');
+                    });
+                } else if (selection.category === 'custom') {
+                    addContextMenuActionToContainer(body, 'Convert to button', () => {
+                        convertPrimarySelectionToCategory('buttons', 'Converted custom sprite to button.');
+                    }, !canConvertCustomSpriteToButton(selection.entity as CustomSpriteInstance));
                 }
             });
         }
@@ -3934,8 +5386,467 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             .reduce((maxDoorId, door) => Math.max(maxDoorId, door.doorID ?? -1), -1) + 1;
     }
 
+    function getPreferredButtonTypes() {
+        const capType = spriteTypes.includes('button')
+            ? 'button'
+            : getCurrentType();
+        const boxType = spriteTypes.includes('button_box')
+            ? 'button_box'
+            : capType;
+        return { capType, boxType };
+    }
+
+    function getDefaultButtonPalettePair() {
+        const defaultCapPalette = paletteCount > 9 ? 9 : Math.max(0, paletteCount - 1);
+        const defaultBoxPalette = paletteCount > 8 ? 8 : defaultCapPalette;
+        return {
+            capPalette: defaultCapPalette,
+            boxPalette: defaultBoxPalette
+        };
+    }
+
+    function getEffectiveButtonDefaultOverrides() {
+        const paletteDefaults = getDefaultButtonPalettePair();
+        return {
+            capPalette: state.buttonDefaults.capPalette ?? paletteDefaults.capPalette,
+            boxPalette: state.buttonDefaults.boxPalette ?? paletteDefaults.boxPalette,
+            capClosedOffsetX: state.buttonDefaults.capClosedOffsetX ?? 0,
+            capClosedOffsetY: state.buttonDefaults.capClosedOffsetY ?? 0,
+            capOpenOffsetX: state.buttonDefaults.capOpenOffsetX ?? BUTTON_DEFAULT_PRESS_OFFSET,
+            capOpenOffsetY: state.buttonDefaults.capOpenOffsetY ?? 0
+        };
+    }
+
+    function applyButtonDefaultRelativeOffsets(boxOffsetX: number, boxOffsetY: number) {
+        const defaults = getEffectiveButtonDefaultOverrides();
+        return {
+            capClosedOffsetX: boxOffsetX + defaults.capClosedOffsetX,
+            capClosedOffsetY: boxOffsetY + defaults.capClosedOffsetY,
+            capOpenOffsetX: boxOffsetX + defaults.capOpenOffsetX,
+            capOpenOffsetY: boxOffsetY + defaults.capOpenOffsetY
+        };
+    }
+
+    function setButtonDefaultOverridesFromButton(button: Button) {
+        const closedRelative = getButtonCapOffsetsRelativeToBox(button, false);
+        const openRelative = getButtonCapOffsetsRelativeToBox(button, true);
+        state.buttonDefaults = {
+            capPalette: button.palette ?? 0,
+            boxPalette: button.boxPalette ?? 0,
+            capClosedOffsetX: closedRelative.x,
+            capClosedOffsetY: closedRelative.y,
+            capOpenOffsetX: openRelative.x,
+            capOpenOffsetY: openRelative.y
+        };
+    }
+
+    function resetButtonDefaultOverrides() {
+        state.buttonDefaults = {
+            capPalette: null,
+            boxPalette: null,
+            capClosedOffsetX: null,
+            capClosedOffsetY: null,
+            capOpenOffsetX: null,
+            capOpenOffsetY: null
+        };
+    }
+
+    function createButtonEntity(config: {
+        x: number;
+        y: number;
+        type?: string;
+        palette?: number;
+        boxType?: string;
+        boxPalette?: number;
+        rotation?: number;
+        collision?: boolean;
+        active?: boolean;
+        linkedDoors?: number[];
+        paletteCycle?: PaletteCycleSettings;
+        pressOffset?: number;
+        boxOffsetX?: number;
+        boxOffsetY?: number;
+        capClosedOffsetX?: number;
+        capClosedOffsetY?: number;
+        capOpenOffsetX?: number;
+        capOpenOffsetY?: number;
+    }) {
+        const { capType, boxType } = getPreferredButtonTypes();
+        const defaultButtonOverrides = getEffectiveButtonDefaultOverrides();
+        const boxOffsetX = config.boxOffsetX ?? BUTTON_DEFAULT_BOX_OFFSET_X;
+        const boxOffsetY = config.boxOffsetY ?? BUTTON_DEFAULT_BOX_OFFSET_Y;
+        const defaultCapOffsets = applyButtonDefaultRelativeOffsets(boxOffsetX, boxOffsetY);
+        const capClosedOffsetX = config.capClosedOffsetX ?? defaultCapOffsets.capClosedOffsetX;
+        const capClosedOffsetY = config.capClosedOffsetY ?? defaultCapOffsets.capClosedOffsetY;
+        const capOpenOffsetX = config.capOpenOffsetX ?? defaultCapOffsets.capOpenOffsetX;
+        const capOpenOffsetY = config.capOpenOffsetY ?? defaultCapOffsets.capOpenOffsetY;
+        return new Button({
+            x: config.x,
+            y: config.y,
+            type: config.type ?? capType,
+            palette: config.palette ?? defaultButtonOverrides.capPalette,
+            boxType: config.boxType ?? boxType,
+            boxPalette: config.boxPalette ?? defaultButtonOverrides.boxPalette,
+            rotation: normalizeRotation(config.rotation ?? state.rotation),
+            linkedDoors: config.linkedDoors ?? [],
+            collision: config.collision !== false,
+            active: config.active ?? false,
+            pressOffset: config.pressOffset ?? (capOpenOffsetX - capClosedOffsetX),
+            boxOffsetX,
+            boxOffsetY,
+            capClosedOffsetX,
+            capClosedOffsetY,
+            capOpenOffsetX,
+            capOpenOffsetY,
+            paletteCycle: config.paletteCycle ? deepClone(config.paletteCycle) : undefined
+        });
+    }
+
+    function createCustomSpriteInstance(definition: CustomSpriteDefinition, x: number, y: number): CustomSpriteInstance {
+        return {
+            x: Math.round(x),
+            y: Math.round(y),
+            type: definition.name,
+            customSpriteId: definition.id
+        };
+    }
+
+    function renameCustomSpriteDefinition(definition: CustomSpriteDefinition, nextName: string) {
+        definition.name = nextName;
+        for (const instance of state.customSpriteInstances) {
+            if (instance.customSpriteId === definition.id) {
+                instance.type = nextName;
+            }
+        }
+    }
+
+    function deleteCustomSpriteDefinition(definitionId: string) {
+        state.customSpriteDefinitions = state.customSpriteDefinitions.filter((definition) => definition.id !== definitionId);
+        state.customSpriteInstances = state.customSpriteInstances.filter((instance) => instance.customSpriteId !== definitionId);
+        if (state.typeByCategory.custom === definitionId) {
+            state.typeByCategory.custom = state.customSpriteDefinitions[0]?.id ?? '';
+        }
+        if (state.selection?.category === 'custom' && state.selection.entity.customSpriteId === definitionId) {
+            setSelections([]);
+        }
+    }
+
+    function canGroupSelections(selections = getSelectedItems()) {
+        return selections.length > 1 && selections.every((selection) => selection.category !== 'custom');
+    }
+
+    function groupSelectionsAsCustomSprite() {
+        const selections = getSelectionsInDrawOrder(getSelectedItems());
+        if (!canGroupSelections(selections)) {
+            setStatus('Select at least two non-custom objects to group them into a custom sprite.', 'error');
+            return;
+        }
+        runMutation('Grouped selection as a custom sprite.', () => {
+            const anchorX = Math.min(...selections.map((selection) => Math.round(selection.entity.x)));
+            const anchorY = Math.min(...selections.map((selection) => Math.round(selection.entity.y)));
+            const definition: CustomSpriteDefinition = {
+                id: `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+                name: createCustomSpriteName(),
+                members: selections.map((selection) => ({
+                    category: selection.category as RuntimeDesignerCategory,
+                    offsetX: Math.round(selection.entity.x) - anchorX,
+                    offsetY: Math.round(selection.entity.y) - anchorY,
+                    data: serializeSelectionEntity(selection) as MapBlock | ButtonSaveData | DoorSaveData | CreatureSaveData | CollectableSaveData
+                }))
+            };
+            state.customSpriteDefinitions.push(definition);
+            removeSelectedFromArray();
+            const instance = createCustomSpriteInstance(definition, anchorX, anchorY);
+            state.customSpriteInstances.push(instance);
+            state.typeByCategory.custom = definition.id;
+            setSelections([{ category: 'custom', entity: instance }]);
+        });
+    }
+
+    function ungroupCustomSpriteSelection() {
+        if (!state.selection || state.selection.category !== 'custom') {
+            setStatus('Select a custom sprite to ungroup it.', 'error');
+            return;
+        }
+        const instance = state.selection.entity as CustomSpriteInstance;
+        const definition = getCustomSpriteDefinitionForInstance(instance);
+        if (!definition) {
+            setStatus('This custom sprite definition is missing.', 'error');
+            return;
+        }
+        runMutation('Ungrouped custom sprite.', () => {
+            const customInstances = getCategoryArray('custom');
+            const instanceIndex = customInstances.indexOf(instance);
+            if (instanceIndex >= 0) {
+                customInstances.splice(instanceIndex, 1);
+            }
+            const restoredSelections: Selection[] = [];
+            for (const member of definition.members) {
+                const clone = deepClone(member.data);
+                clone.x = Math.round(instance.x + member.offsetX);
+                clone.y = Math.round(instance.y + member.offsetY);
+                const entity = createSelectionEntity(member.category, clone);
+                getCategoryArray(member.category).push(entity);
+                restoredSelections.push({ category: member.category, entity });
+            }
+            setSelections(restoredSelections, restoredSelections[0] ?? null);
+        });
+    }
+
+    function deleteCustomSpriteSelectionDefinition() {
+        if (!state.selection || state.selection.category !== 'custom') {
+            setStatus('Select a custom sprite to delete its saved type.', 'error');
+            return;
+        }
+        const instance = state.selection.entity as CustomSpriteInstance;
+        const definition = getCustomSpriteDefinitionForInstance(instance);
+        if (!definition) {
+            setStatus('This custom sprite definition is missing.', 'error');
+            return;
+        }
+        runMutation('Deleted custom sprite type.', () => {
+            deleteCustomSpriteDefinition(definition.id);
+        });
+    }
+
+    function buildButtonEntityFromCustomSpriteInstance(instance: CustomSpriteInstance) {
+        const definition = getCustomSpriteDefinitionForInstance(instance);
+        if (!definition) {
+            throw new Error('This custom sprite definition is missing.');
+        }
+        const capMember = definition.members.find((member) => member.data.type === 'button');
+        const boxMember = definition.members.find((member) => member.data.type === 'button_box');
+        if (!capMember || !boxMember) {
+            throw new Error('Custom sprite needs one "button" part and one "button_box" part before it can convert to a button.');
+        }
+        const capData = capMember.data as ButtonSaveData | MapBlock | CollectableSaveData;
+        const boxData = boxMember.data as ButtonSaveData | MapBlock | DoorSaveData | CreatureSaveData | CollectableSaveData;
+        const rotation = normalizeRotation(capData.rotation);
+        const localBoxOffset = invertButtonOffset(
+            boxMember.offsetX - capMember.offsetX,
+            boxMember.offsetY - capMember.offsetY,
+            rotation
+        );
+        const buttonDefaults = state.buttonDefaults;
+        const closedCapOffsetX = -localBoxOffset.x;
+        const closedCapOffsetY = -localBoxOffset.y;
+        const defaultOpenTravel = BUTTON_DEFAULT_PRESS_OFFSET + 5;
+        const capTravelX = localBoxOffset.x < 0 ? defaultOpenTravel : -defaultOpenTravel;
+        const capOpenOffsetX = buttonDefaults.capOpenOffsetX ?? (closedCapOffsetX + capTravelX);
+        const capOpenOffsetY = buttonDefaults.capOpenOffsetY ?? closedCapOffsetY;
+        return createButtonEntity({
+            x: Math.round(instance.x + boxMember.offsetX),
+            y: Math.round(instance.y + boxMember.offsetY),
+            type: capData.type,
+            palette: typeof buttonDefaults.capPalette === 'number'
+                ? buttonDefaults.capPalette
+                : (typeof capData.palette === 'number' ? capData.palette : undefined),
+            boxType: boxData.type,
+            boxPalette: typeof buttonDefaults.boxPalette === 'number'
+                ? buttonDefaults.boxPalette
+                : (typeof boxData.palette === 'number' ? boxData.palette : undefined),
+            rotation,
+            collision: ('collision' in capData ? capData.collision !== false : true) && ('collision' in boxData ? boxData.collision !== false : true),
+            active: false,
+            linkedDoors: [],
+            paletteCycle: capData.paletteCycle ? deepClone(capData.paletteCycle) : undefined,
+            pressOffset: capOpenOffsetX - (buttonDefaults.capClosedOffsetX ?? closedCapOffsetX),
+            boxOffsetX: 0,
+            boxOffsetY: 0,
+            capClosedOffsetX: buttonDefaults.capClosedOffsetX ?? closedCapOffsetX,
+            capClosedOffsetY: buttonDefaults.capClosedOffsetY ?? closedCapOffsetY,
+            capOpenOffsetX,
+            capOpenOffsetY
+        });
+    }
+
+    function canConvertCustomSpriteToButton(instance: CustomSpriteInstance) {
+        const definition = getCustomSpriteDefinitionForInstance(instance);
+        return !!definition &&
+            definition.members.some((member) => member.data.type === 'button') &&
+            definition.members.some((member) => member.data.type === 'button_box');
+    }
+
+    function getButtonCapLocalOffsets(button: ButtonSaveData | Button, open: boolean) {
+        const closed = {
+            x: button.capClosedOffsetX ?? 0,
+            y: button.capClosedOffsetY ?? 0
+        };
+        const openOffsets = {
+            x: button.capOpenOffsetX ?? (button.pressOffset ?? 2),
+            y: button.capOpenOffsetY ?? 0
+        };
+        return open ? openOffsets : closed;
+    }
+
+    function getButtonCapOffsetsRelativeToBox(button: ButtonSaveData | Button, open: boolean) {
+        const cap = getButtonCapLocalOffsets(button, open);
+        return {
+            x: cap.x - (button.boxOffsetX ?? BUTTON_DEFAULT_BOX_OFFSET_X),
+            y: cap.y - (button.boxOffsetY ?? BUTTON_DEFAULT_BOX_OFFSET_Y)
+        };
+    }
+
+    function createDoorEntity(config: {
+        x: number;
+        y: number;
+        palette?: number;
+        rotation?: number;
+        collision?: boolean;
+        paletteCycle?: PaletteCycleSettings;
+    }) {
+        const doorId = getNextDoorId();
+        const type = state.typeByCategory.doors;
+        return new Door({
+            x: config.x,
+            y: config.y,
+            z: 0,
+            type,
+            palette: config.palette ?? state.palette,
+            rotation: normalizeRotation(config.rotation ?? state.rotation),
+            name: `${type}_${doorId}`,
+            doorID: doorId,
+            locked: false,
+            open: false,
+            collision: config.collision !== false,
+            palette_locked: null,
+            palette_unlocked: null,
+            paletteCycle: config.paletteCycle ? deepClone(config.paletteCycle) : undefined
+        });
+    }
+
+    function getConvertTargetCategory(selection: Selection): DesignerCategory | null {
+        if (selection.category === 'custom') {
+            return canConvertCustomSpriteToButton(selection.entity as CustomSpriteInstance) ? 'buttons' : null;
+        }
+        if (selection.category === 'world') {
+            if (state.category === 'buttons' || state.category === 'doors' || state.category === 'collectables') {
+                return state.category;
+            }
+            return 'collectables';
+        }
+        if (selection.category === 'collectables') {
+            if (state.category === 'buttons' || state.category === 'doors' || state.category === 'world') {
+                return state.category;
+            }
+            return 'world';
+        }
+        if (selection.category === 'buttons' || selection.category === 'doors') {
+            if (state.category === 'world' || state.category === 'collectables') {
+                return state.category;
+            }
+        }
+        return null;
+    }
+
+    function getConvertActionLabel(selection: Selection): string {
+        const target = getConvertTargetCategory(selection);
+        if (!target) {
+            return 'Convert';
+        }
+        return `Convert to ${CATEGORY_LABELS[target].toLowerCase().replace(/^[a-z]/, (letter) => letter.toUpperCase())}`;
+    }
+
+    function getConvertActionMessage(targetCategory: DesignerCategory) {
+        const label = CATEGORY_LABELS[targetCategory].toLowerCase();
+        return `Converted selection to ${label.endsWith('s') ? label : `a ${label}`}.`;
+    }
+
+    function convertSelectionToCategory(selection: Selection, targetCategory: DesignerCategory) {
+        if (selection.category === targetCategory) {
+            return;
+        }
+        const sourceArray = getCategoryArray(selection.category);
+        const sourceIndex = sourceArray.indexOf(selection.entity);
+        if (sourceIndex >= 0) {
+            sourceArray.splice(sourceIndex, 1);
+        }
+
+        if (targetCategory === 'collectables') {
+            const block = selection.entity as MapBlock;
+            const collectable = new Collectable({
+                x: block.x,
+                y: block.y,
+                type: block.type,
+                palette: block.palette ?? 0,
+                rotation: normalizeRotation(block.rotation),
+                name: block.type,
+                weight: 0.2,
+                pickupEnabled: true,
+                storable: true,
+                affectsAstronaut: true,
+                collision: block.collision !== false,
+                collected: false,
+                paletteCycle: block.paletteCycle ? deepClone(block.paletteCycle) : undefined
+            });
+            getCategoryArray('collectables').push(collectable);
+            setSelections([{ category: 'collectables', entity: collectable }]);
+            return;
+        }
+
+        if (targetCategory === 'world') {
+            const sourceEntity = selection.entity as Collectable | Button | Door;
+            const block: MapBlock = {
+                x: sourceEntity.x,
+                y: sourceEntity.y,
+                type: sourceEntity.type,
+                palette: sourceEntity.palette ?? 0,
+                rotation: normalizeRotation((sourceEntity as Collectable).defaultRotation ?? sourceEntity.rotation) as MapBlock['rotation'],
+                translation: 'center',
+                collision: sourceEntity.collision !== false,
+                maskAstronaut: sourceEntity.collision === false,
+                paletteCycle: sourceEntity.paletteCycle ? deepClone(sourceEntity.paletteCycle) : undefined
+            };
+            getCategoryArray('world').push(block);
+            setSelections([{ category: 'world', entity: block }]);
+            return;
+        }
+
+        const basePalette = typeof selection.entity.palette === 'number' ? selection.entity.palette : state.palette;
+        const baseRotation = normalizeRotation(selection.entity.rotation);
+        const baseCollision = 'collision' in selection.entity ? selection.entity.collision !== false : true;
+        const basePaletteCycle = 'paletteCycle' in selection.entity ? selection.entity.paletteCycle : undefined;
+
+        if (selection.category === 'custom' && targetCategory === 'buttons') {
+            const button = buildButtonEntityFromCustomSpriteInstance(selection.entity as CustomSpriteInstance);
+            getCategoryArray('buttons').push(button);
+            setSelections([{ category: 'buttons', entity: button }]);
+            return;
+        }
+
+        if (targetCategory === 'buttons') {
+            const button = createButtonEntity({
+                x: selection.entity.x,
+                y: selection.entity.y,
+                rotation: baseRotation,
+                collision: baseCollision,
+                active: false,
+                linkedDoors: [],
+                paletteCycle: basePaletteCycle
+            });
+            getCategoryArray('buttons').push(button);
+            setSelections([{ category: 'buttons', entity: button }]);
+            return;
+        }
+
+        if (targetCategory === 'doors') {
+            const door = createDoorEntity({
+                x: selection.entity.x,
+                y: selection.entity.y,
+                palette: basePalette,
+                rotation: baseRotation,
+                collision: baseCollision,
+                paletteCycle: basePaletteCycle
+            });
+            getCategoryArray('doors').push(door);
+            setSelections([{ category: 'doors', entity: door }]);
+        }
+    }
+
     function serializeSelectionEntity(selection: Selection): ClipboardEntry['data'] {
-        return deepClone(selection.category === 'world'
+        return deepClone(selection.category === 'custom'
+            ? selection.entity
+            : selection.category === 'world'
             ? toMapBlockData(selection.entity)
             : selection.category === 'buttons'
                 ? toButtonData(selection.entity)
@@ -3950,6 +5861,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         category: DesignerCategory,
         data: ClipboardEntry['data']
     ) {
+        if (category === 'custom') {
+            return deepClone(data as CustomSpriteInstance);
+        }
         if (category === 'world') {
             return data as MapBlock;
         }
@@ -3999,41 +5913,40 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
 
         if (state.category === 'buttons') {
-            const entity = new Button({
+            const entity: MapBlock = {
                 x,
                 y,
                 type,
-                palette: state.palette,
-                boxType: spriteTypes.includes('button_box') ? 'button_box' : type,
-                boxPalette: state.palette,
-                rotation: state.rotation,
-                linkedDoors: [],
                 collision: true,
-                active: false,
-                pressOffset: 2,
-                boxOffsetX: 12,
-                boxOffsetY: 0
-            });
-            getCategoryArray('buttons').push(entity);
-            setSelections([{ category: 'buttons', entity }]);
+                maskAstronaut: false,
+                palette: state.palette,
+                rotation: state.rotation as MapBlock['rotation'],
+                translation: 'center'
+            };
+            getCategoryArray('world').push(entity);
+            setSelections([{ category: 'world', entity }]);
+            return;
+        }
+
+        if (state.category === 'custom') {
+            const definition = getCustomSpriteDefinitionById(type);
+            if (!definition) {
+                setStatus('Create a custom sprite by grouping placed items first.', 'error');
+                return;
+            }
+            const entity = createCustomSpriteInstance(definition, x, y);
+            getCategoryArray('custom').push(entity);
+            setSelections([{ category: 'custom', entity }]);
             return;
         }
 
         if (state.category === 'doors') {
-            const entity = new Door({
+            const entity = createDoorEntity({
                 x,
                 y,
-                z: 0,
-                type,
                 palette: state.palette,
                 rotation: state.rotation,
-                name: `${type}_${getNextDoorId()}`,
-                doorID: getNextDoorId(),
-                locked: false,
-                open: false,
-                collision: true,
-                palette_locked: null,
-                palette_unlocked: null
+                collision: true
             });
             getCategoryArray('doors').push(entity);
             setSelections([{ category: 'doors', entity }]);
@@ -4074,13 +5987,14 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         setSelections([{ category: 'collectables', entity }]);
     }
 
-    function commitMutation(before: RawWorldData, message: string) {
+    function commitMutation(before: DesignerSnapshot, message: string) {
         state.undoStack.push(before);
         if (state.undoStack.length > HISTORY_LIMIT) {
             state.undoStack.shift();
         }
         state.redoStack = [];
         host.afterWorldDataMutated();
+        invalidateOverviewBase();
         updateDirtyState();
         refreshPanel();
         setStatus(message, 'neutral');
@@ -4105,6 +6019,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
         for (const creature of [...data.creatures].reverse()) {
             candidates.push({ category: 'creatures', entity: creature });
+        }
+        for (const customSprite of [...state.customSpriteInstances].reverse()) {
+            candidates.push({ category: 'custom', entity: customSprite });
         }
         for (const button of [...data.buttons].reverse()) {
             candidates.push({ category: 'buttons', entity: button });
@@ -4195,7 +6112,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         };
     }
 
-    function updateDraggedItems(point: Position, refreshUi = true) {
+    function updateDraggedItems(point: Position, refreshUi = false) {
         if (!state.dragging || !state.dragAnchorWorld) return;
 
         const autoPan = getAutoPanDelta(point);
@@ -4238,9 +6155,6 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 target.y + snapDeltaY
             );
         }
-
-        host.afterWorldDataMutated();
-        updateDirtyState();
         if (refreshUi) {
             refreshPanel();
         }
@@ -4254,6 +6168,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             x: rect.left - host.canvas.width / 2 + rect.width / 2,
             y: rect.top - host.canvas.height / 2 + rect.height / 2
         });
+        persistDesignerUiState();
         setStatus('Camera centered on selection.', 'neutral');
     }
 
@@ -4308,6 +6223,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     function rotateSelection() {
         const selections = getSelectedItems();
         if (selections.length === 0) return;
+        if (selections.some((selection) => selection.category === 'custom')) {
+            setStatus('Custom sprites keep the rotation authored into their grouped parts.', 'neutral');
+            return;
+        }
         runMutation('Rotated selection.', () => {
             for (const selection of selections) {
                 selection.entity.rotation = ((normalizeRotation(selection.entity.rotation) % 7) + 1);
@@ -4336,10 +6255,16 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         setSelections(selection ? [selection] : [], selection);
     }
 
-    function restoreSnapshot(snapshot: RawWorldData, message: string) {
-        host.replaceRawWorldData(snapshot);
+    function restoreSnapshot(snapshot: DesignerSnapshot, message: string) {
+        host.replaceRawWorldData(snapshot.worldData);
+        state.customSpriteDefinitions = deepClone(snapshot.customSpriteDefinitions);
+        state.customSpriteInstances = deepClone(snapshot.customSpriteInstances);
+        if (!getCustomSpriteDefinitionById(state.typeByCategory.custom)) {
+            state.typeByCategory.custom = state.customSpriteDefinitions[0]?.id ?? '';
+        }
         state.selection = null;
         state.selectedItems = [];
+        invalidateOverviewBase();
         updateDirtyState();
         refreshPanel();
         setStatus(message, 'neutral');
@@ -4360,7 +6285,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function getSavePreview(): SavePreviewState {
-        const snapshot = getSnapshot();
+        const snapshot = getWorldSnapshot();
         const errors: string[] = [];
         const spriteTypeSet = new Set(spriteTypes);
         const paletteMax = paletteCount - 1;
@@ -4508,7 +6433,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             return;
         }
 
-        const snapshot = getSnapshot();
+        const snapshot = getWorldSnapshot();
         const liveAstronautPosition = host.getFocusWorldPosition();
         const astronautStartChanged =
             snapshot.astronautStart.x !== state.lastSavedSnapshot.astronautStart.x ||
@@ -4617,11 +6542,36 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         clearPngImportObjectUrl();
         refs.modalBody.innerHTML = `
             <div class="world-designer-summary">
-                Create a rough draft of <strong>world items only</strong> by matching a PNG region against the currently authored world sprite set. Start with a small region, then review and clean up the result in the designer.
+                Create a rough draft of <strong>world items only</strong> by matching PNG pixels against the currently authored world sprite set. This modal now has two separate paths: <strong>Single PNG</strong> for direct small-region imports, and <strong>Chunk folder</strong> for rebuilding larger areas from exported chunks.
             </div>
             <div class="world-designer-import-layout">
                 <div class="world-designer-import-sidebar">
                     <div class="world-designer-import-card">
+                        <h3>Choose an import path</h3>
+                        <div class="world-designer-import-paths">
+                            <button type="button" class="world-designer-import-path" data-role="png-import-mode-single">
+                                <strong>Single PNG</strong>
+                                <span>Import one PNG or one cropped section directly.</span>
+                            </button>
+                            <button type="button" class="world-designer-import-path" data-role="png-import-mode-folder">
+                                <strong>Chunk folder</strong>
+                                <span>Rebuild a larger area from exported chunks.</span>
+                            </button>
+                        </div>
+                        <div class="world-designer-summary">
+                            Pick <strong>Single PNG</strong> for fast small-area imports. Pick <strong>Chunk folder</strong> for staged large-map reconstruction.
+                        </div>
+                    </div>
+                    <div class="world-designer-import-card">
+                        <div class="world-designer-import-tabs">
+                            <button type="button" class="world-designer-import-tab" data-role="png-import-tab-import">Import</button>
+                            <button type="button" class="world-designer-import-tab" data-role="png-import-tab-export">Chunk export</button>
+                        </div>
+                        <div class="world-designer-summary" data-role="png-import-tab-summary">
+                            Import mode previews matched world blocks before they touch the live world.
+                        </div>
+                    </div>
+                    <div class="world-designer-import-card" data-role="png-import-single-source">
                         <div class="world-designer-grid">
                             <label class="world-designer-field world-designer-grid-wide">PNG file or URL
                                 <div style="display:flex;gap:8px;align-items:center;">
@@ -4632,7 +6582,40 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                             </label>
                         </div>
                     </div>
-                    <div class="world-designer-import-card">
+                    <div class="world-designer-import-card" data-role="png-import-folder-source" hidden>
+                        <h3>Exported chunk folder</h3>
+                        <div class="world-designer-actions">
+                            <button type="button" class="world-designer-button-secondary" data-role="png-import-folder-browse">Choose folder…</button>
+                        </div>
+                        <div class="world-designer-grid" style="margin-top:8px;">
+                            <label class="world-designer-field world-designer-grid-wide">Selected folder
+                                <input type="text" data-role="png-import-folder-name" value="No folder selected" readonly />
+                            </label>
+                            <label class="world-designer-field">Chunk column from
+                                <input type="number" data-role="png-import-folder-min-column" value="1" min="1" step="1" />
+                            </label>
+                            <label class="world-designer-field">Chunk column to
+                                <input type="number" data-role="png-import-folder-max-column" value="1" min="1" step="1" />
+                            </label>
+                            <label class="world-designer-field">Chunk row from
+                                <input type="number" data-role="png-import-folder-min-row" value="1" min="1" step="1" />
+                            </label>
+                            <label class="world-designer-field">Chunk row to
+                                <input type="number" data-role="png-import-folder-max-row" value="1" min="1" step="1" />
+                            </label>
+                            <label class="world-designer-field">Max chunks
+                                <input type="number" data-role="png-import-folder-max-chunks" value="0" min="0" step="1" />
+                            </label>
+                        </div>
+                        <label class="world-designer-checkbox">
+                            <input type="checkbox" data-role="png-import-folder-fit-target" checked />
+                            Keep the world span matched to the selected chunk range
+                        </label>
+                        <div class="world-designer-summary" data-role="png-import-folder-meta">
+                            Choose an exported chunk folder to reconstruct a larger map region.
+                        </div>
+                    </div>
+                    <div class="world-designer-import-card" data-role="png-import-source-crop">
                         <h3>PNG crop in the source image</h3>
                         <div class="world-designer-grid">
                             <label class="world-designer-field">Crop left (px)
@@ -4652,7 +6635,49 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                             <button type="button" class="world-designer-button-subtle" data-role="png-import-snap">Snap crop to 32px tiles</button>
                         </div>
                     </div>
-                    <div class="world-designer-import-card">
+                    <div class="world-designer-import-card" data-role="png-import-export-card">
+                        <h3>Split PNG into import chunks</h3>
+                        <div class="world-designer-grid">
+                            <label class="world-designer-field">Chunk preset
+                                <select data-role="png-import-export-preset">
+                                    <option value="4x4">4 x 4 tiles</option>
+                                    <option value="8x8">8 x 8 tiles</option>
+                                    <option value="16x16" selected>16 x 16 tiles</option>
+                                    <option value="24x16">24 x 16 tiles</option>
+                                    <option value="16x24">16 x 24 tiles</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                            </label>
+                            <label class="world-designer-field">Chunk width (tiles)
+                                <input type="number" data-role="png-import-export-width" value="16" min="1" step="1" />
+                            </label>
+                            <label class="world-designer-field">Chunk height (tiles)
+                                <input type="number" data-role="png-import-export-height" value="16" min="1" step="1" />
+                            </label>
+                        </div>
+                        <label class="world-designer-checkbox">
+                            <input type="checkbox" data-role="png-import-export-skip-empty" checked />
+                            Skip fully empty / black chunk PNGs
+                        </label>
+                        <div class="world-designer-actions">
+                            <button type="button" class="world-designer-button-secondary" data-role="png-import-export">Export chunks…</button>
+                        </div>
+                        <div class="world-designer-summary" data-role="png-import-export-meta">
+                            Export chunk PNGs with stable names and a manifest so the folder importer can reconstruct the larger map later.
+                        </div>
+                    </div>
+                    <div class="world-designer-import-card" data-role="png-import-progress-card" hidden>
+                        <h3 data-role="png-import-progress-title">Progress</h3>
+                        <div class="world-designer-import-progress" data-role="png-import-progress">
+                            <progress data-role="png-import-progress-bar" max="1" value="0"></progress>
+                            <div class="world-designer-summary" data-role="png-import-progress-label">Preparing…</div>
+                            <div class="world-designer-summary" data-role="png-import-progress-detail"></div>
+                            <div class="world-designer-import-progress-actions">
+                                <button type="button" class="world-designer-button-secondary" data-role="png-import-progress-cancel" hidden>Cancel chunk export</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="world-designer-import-card" data-role="png-import-world-card">
                         <h3>Place matched blocks in the world</h3>
                         <div class="world-designer-grid">
                             <label class="world-designer-field">World left
@@ -4668,27 +6693,30 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                                 <input type="number" data-role="png-import-world-height" value="${defaultWorldRect.height}" step="1" />
                             </label>
                         </div>
+                        <div class="world-designer-summary" data-role="png-import-world-meta">
+                            In chunk-folder mode, world left/top is the origin for the exported crop and the folder preview keeps the selected chunk range aligned relative to that origin.
+                        </div>
                         <label class="world-designer-checkbox">
                             <input type="checkbox" data-role="png-import-replace" checked />
                             Replace existing world items inside the target area before importing
                         </label>
+                        <label class="world-designer-checkbox">
+                            <input type="checkbox" data-role="png-import-clear-all" />
+                            Clear all existing world items and collectibles before importing
+                        </label>
                     </div>
-                    <div class="world-designer-import-card">
+                    <div class="world-designer-import-card" data-role="png-import-action-card">
                         <div class="world-designer-actions">
                             <button type="button" class="world-designer-button-primary" data-role="png-import-preview">Preview blocks</button>
-                        </div>
-                        <div class="world-designer-import-progress" data-role="png-import-progress" hidden>
-                            <progress data-role="png-import-progress-bar" max="1" value="0"></progress>
-                            <div class="world-designer-summary" data-role="png-import-progress-label">Preparing import…</div>
-                            <div class="world-designer-summary" data-role="png-import-progress-detail"></div>
+                            <button type="button" class="world-designer-button-secondary" data-role="png-import-direct-folder" hidden>Try folder import now</button>
                         </div>
                         <div class="world-designer-summary" data-role="png-import-meta">
                             Loading PNG metadata…
                         </div>
                     </div>
                 </div>
-                <div class="world-designer-import-main">
-                    <div class="world-designer-import-card">
+                <div class="world-designer-import-main" data-role="png-import-main">
+                    <div class="world-designer-import-card" data-role="png-import-preview-card">
                         <div class="world-designer-import-toolbar">
                             <div class="world-designer-summary">
                                 Preview the matched world blocks before importing. Click a tile below to edit its type, palette, rotation, or translation.
@@ -4708,7 +6736,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                             Preview not generated yet.
                         </div>
                     </div>
-                    <div class="world-designer-import-card">
+                    <div class="world-designer-import-card" data-role="png-import-editor-card">
                         <div class="world-designer-grid">
                             <label class="world-designer-field world-designer-grid-wide">Selected preview tile
                                 <input type="text" data-role="png-import-selected-tile" value="No tile selected" readonly />
@@ -4748,22 +6776,56 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         `;
         refs.modal.classList.add('open');
 
+        const singleModeButton = refs.modalBody.querySelector('[data-role="png-import-mode-single"]') as HTMLButtonElement;
+        const folderModeButton = refs.modalBody.querySelector('[data-role="png-import-mode-folder"]') as HTMLButtonElement;
+        const importTabButton = refs.modalBody.querySelector('[data-role="png-import-tab-import"]') as HTMLButtonElement;
+        const exportTabButton = refs.modalBody.querySelector('[data-role="png-import-tab-export"]') as HTMLButtonElement;
+        const tabSummary = refs.modalBody.querySelector('[data-role="png-import-tab-summary"]') as HTMLDivElement;
+        const singleSourceCard = refs.modalBody.querySelector('[data-role="png-import-single-source"]') as HTMLDivElement;
+        const folderSourceCard = refs.modalBody.querySelector('[data-role="png-import-folder-source"]') as HTMLDivElement;
+        const sourceCropCard = refs.modalBody.querySelector('[data-role="png-import-source-crop"]') as HTMLDivElement;
+        const exportCard = refs.modalBody.querySelector('[data-role="png-import-export-card"]') as HTMLDivElement;
+        const progressCard = refs.modalBody.querySelector('[data-role="png-import-progress-card"]') as HTMLDivElement;
+        const progressTitle = refs.modalBody.querySelector('[data-role="png-import-progress-title"]') as HTMLHeadingElement;
+        const progressCancelButton = refs.modalBody.querySelector('[data-role="png-import-progress-cancel"]') as HTMLButtonElement;
+        const worldCard = refs.modalBody.querySelector('[data-role="png-import-world-card"]') as HTMLDivElement;
+        const actionCard = refs.modalBody.querySelector('[data-role="png-import-action-card"]') as HTMLDivElement;
+        const importMain = refs.modalBody.querySelector('[data-role="png-import-main"]') as HTMLDivElement;
+        const previewCard = refs.modalBody.querySelector('[data-role="png-import-preview-card"]') as HTMLDivElement;
+        const editorCard = refs.modalBody.querySelector('[data-role="png-import-editor-card"]') as HTMLDivElement;
         const urlInput = refs.modalBody.querySelector('[data-role="png-import-url"]') as HTMLInputElement;
         const browseButton = refs.modalBody.querySelector('[data-role="png-import-browse"]') as HTMLButtonElement;
         const fileInput = refs.modalBody.querySelector('[data-role="png-import-file"]') as HTMLInputElement;
+        const folderBrowseButton = refs.modalBody.querySelector('[data-role="png-import-folder-browse"]') as HTMLButtonElement;
+        const folderNameInput = refs.modalBody.querySelector('[data-role="png-import-folder-name"]') as HTMLInputElement;
+        const folderMinColumnInput = refs.modalBody.querySelector('[data-role="png-import-folder-min-column"]') as HTMLInputElement;
+        const folderMaxColumnInput = refs.modalBody.querySelector('[data-role="png-import-folder-max-column"]') as HTMLInputElement;
+        const folderMinRowInput = refs.modalBody.querySelector('[data-role="png-import-folder-min-row"]') as HTMLInputElement;
+        const folderMaxRowInput = refs.modalBody.querySelector('[data-role="png-import-folder-max-row"]') as HTMLInputElement;
+        const folderMaxChunksInput = refs.modalBody.querySelector('[data-role="png-import-folder-max-chunks"]') as HTMLInputElement;
+        const folderFitTargetCheckbox = refs.modalBody.querySelector('[data-role="png-import-folder-fit-target"]') as HTMLInputElement;
+        const folderMeta = refs.modalBody.querySelector('[data-role="png-import-folder-meta"]') as HTMLDivElement;
         const sourceXInput = refs.modalBody.querySelector('[data-role="png-import-source-x"]') as HTMLInputElement;
         const sourceYInput = refs.modalBody.querySelector('[data-role="png-import-source-y"]') as HTMLInputElement;
         const sourceWidthInput = refs.modalBody.querySelector('[data-role="png-import-source-width"]') as HTMLInputElement;
         const sourceHeightInput = refs.modalBody.querySelector('[data-role="png-import-source-height"]') as HTMLInputElement;
+        const exportPresetSelect = refs.modalBody.querySelector('[data-role="png-import-export-preset"]') as HTMLSelectElement;
+        const exportWidthInput = refs.modalBody.querySelector('[data-role="png-import-export-width"]') as HTMLInputElement;
+        const exportHeightInput = refs.modalBody.querySelector('[data-role="png-import-export-height"]') as HTMLInputElement;
+        const exportSkipEmptyCheckbox = refs.modalBody.querySelector('[data-role="png-import-export-skip-empty"]') as HTMLInputElement;
+        const exportButton = refs.modalBody.querySelector('[data-role="png-import-export"]') as HTMLButtonElement;
+        const exportMeta = refs.modalBody.querySelector('[data-role="png-import-export-meta"]') as HTMLDivElement;
         const worldXInput = refs.modalBody.querySelector('[data-role="png-import-world-x"]') as HTMLInputElement;
         const worldYInput = refs.modalBody.querySelector('[data-role="png-import-world-y"]') as HTMLInputElement;
         const worldWidthInput = refs.modalBody.querySelector('[data-role="png-import-world-width"]') as HTMLInputElement;
         const worldHeightInput = refs.modalBody.querySelector('[data-role="png-import-world-height"]') as HTMLInputElement;
+        const worldMeta = refs.modalBody.querySelector('[data-role="png-import-world-meta"]') as HTMLDivElement;
         const replaceCheckbox = refs.modalBody.querySelector('[data-role="png-import-replace"]') as HTMLInputElement;
+        const clearAllCheckbox = refs.modalBody.querySelector('[data-role="png-import-clear-all"]') as HTMLInputElement;
         const snapButton = refs.modalBody.querySelector('[data-role="png-import-snap"]') as HTMLButtonElement;
         const previewButton = refs.modalBody.querySelector('[data-role="png-import-preview"]') as HTMLButtonElement;
+        const directFolderImportButton = refs.modalBody.querySelector('[data-role="png-import-direct-folder"]') as HTMLButtonElement;
         const meta = refs.modalBody.querySelector('[data-role="png-import-meta"]') as HTMLDivElement;
-        const progressWrap = refs.modalBody.querySelector('[data-role="png-import-progress"]') as HTMLDivElement;
         const progressBar = refs.modalBody.querySelector('[data-role="png-import-progress-bar"]') as HTMLProgressElement;
         const progressLabel = refs.modalBody.querySelector('[data-role="png-import-progress-label"]') as HTMLDivElement;
         const progressDetail = refs.modalBody.querySelector('[data-role="png-import-progress-detail"]') as HTMLDivElement;
@@ -4788,9 +6850,15 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         let resolvedPngUrl = urlInput.value.trim();
         let resolvedPngLabel = resolvedPngUrl;
         let loadedImage: HTMLImageElement | null = null;
+        let importMode: PngImportSourceMode = 'single';
+        let workTab: PngImportWorkTab = 'import';
+        let progressMode: 'none' | 'import' | 'export' = 'none';
+        let cancelLongRunningRequested = false;
+        let chunkFolderSelection: PngChunkFolderSelection | null = null;
+        let lastFolderCompose: PngChunkComposedSource | null = null;
         let previewDraft: PngImportDraft | null = null;
-        let previewBlocks: MapBlock[] = [];
-        let previewOriginalBlocks: MapBlock[] = [];
+        let previewBlocks: Array<MapBlock | null> = [];
+        let previewOriginalBlocks: Array<MapBlock | null> = [];
         let selectedPreviewIndex = -1;
         let previewTileSize = PNG_IMPORT_PREVIEW_MAX_TILE_SIZE;
         let previewZoom = 1;
@@ -4810,6 +6878,79 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 : null
         );
 
+        const getFolderSelectionRange = (): PngChunkSelectionRange => {
+            if (!chunkFolderSelection) {
+                return {
+                    minChunkColumn: 0,
+                    maxChunkColumn: 0,
+                    minChunkRow: 0,
+                    maxChunkRow: 0,
+                    maxChunks: 0
+                };
+            }
+            const manifest = chunkFolderSelection.manifest;
+            const minChunkColumn = clamp(Math.round(getNumericInputValue(folderMinColumnInput, 1)) - 1, 0, manifest.totalChunkColumns - 1);
+            const maxChunkColumn = clamp(Math.round(getNumericInputValue(folderMaxColumnInput, manifest.totalChunkColumns)) - 1, minChunkColumn, manifest.totalChunkColumns - 1);
+            const minChunkRow = clamp(Math.round(getNumericInputValue(folderMinRowInput, 1)) - 1, 0, manifest.totalChunkRows - 1);
+            const maxChunkRow = clamp(Math.round(getNumericInputValue(folderMaxRowInput, manifest.totalChunkRows)) - 1, minChunkRow, manifest.totalChunkRows - 1);
+            const maxChunks = Math.max(0, Math.round(getNumericInputValue(folderMaxChunksInput, 0)));
+            return {
+                minChunkColumn,
+                maxChunkColumn,
+                minChunkRow,
+                maxChunkRow,
+                maxChunks
+            };
+        };
+
+        const syncFolderRangeInputs = () => {
+            if (!chunkFolderSelection) {
+                folderNameInput.value = 'No folder selected';
+                folderMinColumnInput.value = '1';
+                folderMaxColumnInput.value = '1';
+                folderMinRowInput.value = '1';
+                folderMaxRowInput.value = '1';
+                folderMaxChunksInput.value = '0';
+                folderMeta.textContent = 'Choose an exported chunk folder to reconstruct a larger map region.';
+                return;
+            }
+            const manifest = chunkFolderSelection.manifest;
+            const normalizedRange = getFolderSelectionRange();
+            folderNameInput.value = chunkFolderSelection.directoryName;
+            folderMinColumnInput.value = String(normalizedRange.minChunkColumn + 1);
+            folderMaxColumnInput.value = String(normalizedRange.maxChunkColumn + 1);
+            folderMinRowInput.value = String(normalizedRange.minChunkRow + 1);
+            folderMaxRowInput.value = String(normalizedRange.maxChunkRow + 1);
+            folderMaxChunksInput.value = String(normalizedRange.maxChunks);
+            const selected = getPngChunkSelectionEntries(chunkFolderSelection, normalizedRange);
+            folderMeta.textContent = `Loaded ${chunkFolderSelection.directoryName}. Export grid ${manifest.totalChunkColumns} x ${manifest.totalChunkRows} chunks covering ${manifest.totalSourceColumns} x ${manifest.totalSourceRows} source tiles. Current range includes ${selected.selectedChunks.length} of ${selected.totalSelectedChunks} available chunk PNGs.`;
+        };
+
+        const syncExportChunkInputs = () => {
+            const preset = exportPresetSelect.value;
+            const presetMatch = /^(\d+)x(\d+)$/i.exec(preset);
+            const useCustom = preset === 'custom' || !presetMatch;
+            exportWidthInput.disabled = !useCustom;
+            exportHeightInput.disabled = !useCustom;
+            if (presetMatch && !useCustom) {
+                exportWidthInput.value = presetMatch[1];
+                exportHeightInput.value = presetMatch[2];
+            }
+        };
+
+        const getExportChunkSize = () => ({
+            width: Math.max(1, Math.round(getNumericInputValue(exportWidthInput, PNG_CHUNK_DEFAULT_TILE_WIDTH))),
+            height: Math.max(1, Math.round(getNumericInputValue(exportHeightInput, PNG_CHUNK_DEFAULT_TILE_HEIGHT)))
+        });
+
+        const syncFolderTargetWorldSpan = () => {
+            if (!chunkFolderSelection || !folderFitTargetCheckbox.checked) {
+                return;
+            }
+            worldWidthInput.value = String(getPngImportWorldSpanFromTileCount(chunkFolderSelection.manifest.totalSourceColumns));
+            worldHeightInput.value = String(getPngImportWorldSpanFromTileCount(chunkFolderSelection.manifest.totalSourceRows));
+        };
+
         const formatDuration = (milliseconds: number) => {
             const totalSeconds = Math.max(0, Math.round(milliseconds / 1000));
             const minutes = Math.floor(totalSeconds / 60);
@@ -4819,13 +6960,21 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
         const setProgress = (progress: PngImportProgress | null) => {
             if (!progress) {
-                progressWrap.hidden = true;
+                progressCard.hidden = true;
                 progressBar.value = 0;
-                progressLabel.textContent = 'Preparing import…';
+                progressLabel.textContent = 'Preparing…';
                 progressDetail.textContent = '';
+                progressTitle.textContent = 'Progress';
+                progressCancelButton.hidden = true;
+                progressCancelButton.textContent = 'Cancel';
                 return;
             }
-            progressWrap.hidden = false;
+            progressCard.hidden = false;
+            progressTitle.textContent = progressMode === 'export' ? 'Chunk export progress' : 'Import progress';
+            progressCancelButton.hidden = progressMode === 'none';
+            progressCancelButton.textContent = progressMode === 'export'
+                ? (cancelLongRunningRequested ? 'Cancelling chunk export…' : 'Cancel chunk export')
+                : (cancelLongRunningRequested ? 'Cancelling import…' : 'Cancel import');
             progressBar.max = Math.max(progress.total, 1);
             progressBar.value = clamp(progress.completed, 0, Math.max(progress.total, 1));
             const percent = progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;
@@ -4835,6 +6984,86 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 ? ` About ${formatDuration((elapsed / progress.completed) * (progress.total - progress.completed))} left.`
                 : '';
             progressDetail.textContent = `${progress.detail}${eta}`;
+        };
+
+        const getCancellationMessage = () => (
+            progressMode === 'export' ? 'Chunk export cancelled.' : 'Import cancelled.'
+        );
+
+        const throwIfCancelled = () => {
+            if (cancelLongRunningRequested) {
+                throw new Error(getCancellationMessage());
+            }
+        };
+
+        const handleProgressUpdate = async (progress: PngImportProgress, detailTarget?: HTMLDivElement) => {
+            throwIfCancelled();
+            setProgress(progress);
+            if (detailTarget) {
+                detailTarget.textContent = `${progress.phase}: ${progress.detail}`;
+            }
+        };
+
+        const buildDraftForCurrentImportMode = async () => {
+            let draft: PngImportDraft;
+            let previewContextMessage = '';
+            if (importMode === 'folder') {
+                if (!chunkFolderSelection) {
+                    throw new Error('Choose an exported chunk folder before previewing or importing the reconstructed map.');
+                }
+                const composed = await composePngChunkFolderSource(
+                    chunkFolderSelection,
+                    getFolderSelectionRange(),
+                    async (progress) => {
+                        await handleProgressUpdate(progress, previewMeta);
+                    }
+                );
+                lastFolderCompose = composed;
+                const baseWorldX = Math.round(getNumericInputValue(worldXInput, 0));
+                const baseWorldY = Math.round(getNumericInputValue(worldYInput, 0));
+                const composedWorldX = baseWorldX;
+                const composedWorldY = baseWorldY;
+                const composedWorldWidth = getPngImportWorldSpanFromTileCount(composed.manifest.totalSourceColumns);
+                const composedWorldHeight = getPngImportWorldSpanFromTileCount(composed.manifest.totalSourceRows);
+                worldWidthInput.value = String(composedWorldWidth);
+                worldHeightInput.value = String(composedWorldHeight);
+                draft = await buildPngImportDraftFromImage(composed.image, {
+                    sourceX: 0,
+                    sourceY: 0,
+                    sourceWidth: composed.sourceWidth,
+                    sourceHeight: composed.sourceHeight,
+                    worldX: composedWorldX,
+                    worldY: composedWorldY,
+                    worldWidth: composedWorldWidth,
+                    worldHeight: composedWorldHeight,
+                    activeTileIndexes: composed.activeTileIndexes,
+                    allowGridOffsetInference: false
+                }, async (progress) => {
+                    await handleProgressUpdate(progress, previewMeta);
+                });
+                previewContextMessage = composed.totalSelectedChunks > composed.chunkCount
+                    ? ` Preview uses ${composed.chunkCount} chunk PNGs from the selected range (limited from ${composed.totalSelectedChunks}).`
+                    : ` Preview uses ${composed.chunkCount} chunk PNGs from the selected folder range.`;
+            } else {
+                draft = await buildPngImportDraftFromPng({
+                    url: resolvedPngUrl,
+                    sourceX: getNumericInputValue(sourceXInput, 0),
+                    sourceY: getNumericInputValue(sourceYInput, 0),
+                    sourceWidth: getNumericInputValue(sourceWidthInput, 0),
+                    sourceHeight: getNumericInputValue(sourceHeightInput, 0),
+                    worldX: getNumericInputValue(worldXInput, 0),
+                    worldY: getNumericInputValue(worldYInput, 0),
+                    worldWidth: getNumericInputValue(worldWidthInput, 32),
+                    worldHeight: getNumericInputValue(worldHeightInput, 32),
+                    replaceExisting: replaceCheckbox.checked
+                }, async (progress) => {
+                    await handleProgressUpdate(progress, previewMeta);
+                });
+            }
+            return {
+                draft,
+                previewContextMessage
+            };
         };
 
         const setPreviewZoom = (zoom: number) => {
@@ -4858,24 +7087,80 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             setPreviewZoom(clamp(fitZoom, 0.25, 8));
         };
 
+        const syncImportModeUi = () => {
+            const folderMode = importMode === 'folder';
+            singleModeButton.classList.toggle('selected', !folderMode);
+            folderModeButton.classList.toggle('selected', folderMode);
+            singleSourceCard.hidden = folderMode;
+            sourceCropCard.hidden = folderMode;
+            folderSourceCard.hidden = !folderMode || workTab !== 'import';
+            exportTabButton.disabled = folderMode;
+            if (folderMode && workTab !== 'import') {
+                workTab = 'import';
+            }
+            worldWidthInput.readOnly = folderMode;
+            worldHeightInput.readOnly = folderMode;
+            worldMeta.textContent = folderMode
+                ? 'Chunk-folder mode uses the full folder import width and height, even if you limit the chunk run. World left/top is the origin for that full import area.'
+                : 'Single PNG mode uses the source tile grid from the chosen PNG crop and maps it across the world rectangle you enter here.';
+            refs.modalConfirm.style.display = workTab === 'export' ? 'none' : '';
+        };
+
+        const syncWorkTabUi = () => {
+            const exportTabEnabled = importMode === 'single';
+            const exportTabActive = exportTabEnabled && workTab === 'export';
+            importTabButton.classList.toggle('selected', !exportTabActive);
+            exportTabButton.classList.toggle('selected', exportTabActive);
+            exportTabButton.hidden = !exportTabEnabled;
+            tabSummary.textContent = exportTabActive
+                ? 'Chunk export lets you slice a source PNG into reusable import sections with a manifest.'
+                : 'Import mode previews matched world blocks before they touch the live world.';
+            exportCard.hidden = !exportTabActive;
+            worldCard.hidden = exportTabActive;
+            actionCard.hidden = exportTabActive;
+            importMain.hidden = exportTabActive;
+            previewCard.hidden = exportTabActive;
+            editorCard.hidden = exportTabActive;
+            folderSourceCard.hidden = importMode !== 'folder' || exportTabActive;
+            directFolderImportButton.hidden = exportTabActive || importMode !== 'folder';
+        };
+
         const setImportBusy = (busy: boolean) => {
             importBusy = busy;
             refs.modal.dataset.busy = busy ? 'true' : 'false';
             const controls: Array<HTMLInputElement | HTMLButtonElement | HTMLSelectElement> = [
+                singleModeButton,
+                folderModeButton,
+                importTabButton,
+                exportTabButton,
                 urlInput,
                 browseButton,
                 fileInput,
+                folderBrowseButton,
+                folderMinColumnInput,
+                folderMaxColumnInput,
+                folderMinRowInput,
+                folderMaxRowInput,
+                folderMaxChunksInput,
+                folderFitTargetCheckbox,
                 sourceXInput,
                 sourceYInput,
                 sourceWidthInput,
                 sourceHeightInput,
+                exportPresetSelect,
+                exportWidthInput,
+                exportHeightInput,
+                exportSkipEmptyCheckbox,
+                exportButton,
                 worldXInput,
                 worldYInput,
                 worldWidthInput,
                 worldHeightInput,
                 replaceCheckbox,
+                clearAllCheckbox,
                 snapButton,
                 previewButton,
+                directFolderImportButton,
                 selectedTypeFilterInput,
                 selectedPaletteInput,
                 selectedRotationSelect,
@@ -4891,9 +7176,12 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 control.disabled = busy;
             }
             previewFrame.classList.toggle('busy', busy);
-            progressWrap.classList.toggle('busy', busy);
+            progressCard.classList.toggle('busy', busy);
             selectedTypePicker.style.pointerEvents = busy ? 'none' : '';
             previewCanvas.style.pointerEvents = busy ? 'none' : '';
+            worldWidthInput.disabled = busy || importMode === 'folder';
+            worldHeightInput.disabled = busy || importMode === 'folder';
+            progressCancelButton.disabled = !busy || progressMode === 'none';
             renderImportTypePicker();
             syncSelectedPreviewControls();
         };
@@ -5020,18 +7308,20 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 const row = Math.floor(index / previewDraft.columns);
                 const drawX = column * previewTileSize;
                 const drawY = row * previewTileSize;
-                ctx.save();
-                ctx.translate(drawX, drawY);
-                host.drawSpriteSample(
-                    ctx,
-                    block.type,
-                    typeof block.palette === 'number' ? block.palette : 0,
-                    normalizeRotation(block.rotation),
-                    false,
-                    previewTileSize,
-                    normalizeSpriteTranslation(block.translation)
-                );
-                ctx.restore();
+                if (block) {
+                    ctx.save();
+                    ctx.translate(drawX, drawY);
+                    host.drawSpriteSample(
+                        ctx,
+                        block.type,
+                        typeof block.palette === 'number' ? block.palette : 0,
+                        normalizeRotation(block.rotation),
+                        false,
+                        previewTileSize,
+                        normalizeSpriteTranslation(block.translation)
+                    );
+                    ctx.restore();
+                }
 
                 ctx.strokeStyle = 'rgba(148, 163, 184, 0.18)';
                 ctx.lineWidth = 1;
@@ -5061,6 +7351,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         };
 
         const invalidatePreview = (message: string) => {
+            lastFolderCompose = null;
             previewDraft = null;
             previewBlocks = [];
             previewOriginalBlocks = [];
@@ -5071,6 +7362,21 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         };
 
         const updatePngImportMeta = () => {
+            const previewStateMessage = previewDraft
+                ? ' Preview is ready below; click tiles to edit them before importing.'
+                : ' Preview the blocks before importing so you can review and fix any bad matches.';
+            if (importMode === 'folder') {
+                if (!chunkFolderSelection) {
+                    meta.textContent = 'Choose an exported chunk folder to inspect and rebuild a larger map section.';
+                    return;
+                }
+                const range = getFolderSelectionRange();
+                const { selectedChunks, totalSelectedChunks } = getPngChunkSelectionEntries(chunkFolderSelection, range);
+                const worldX = Math.round(getNumericInputValue(worldXInput, 0));
+                const worldY = Math.round(getNumericInputValue(worldYInput, 0));
+                meta.textContent = `Loaded chunk folder ${chunkFolderSelection.directoryName}. The selected chunk range spans columns ${range.minChunkColumn + 1}-${range.maxChunkColumn + 1} and rows ${range.minChunkRow + 1}-${range.maxChunkRow + 1}, using ${selectedChunks.length} of ${totalSelectedChunks} available chunk PNGs. The importer will place that range relative to world origin (${worldX}, ${worldY}).${previewStateMessage}`;
+                return;
+            }
             if (!loadedImage) {
                 meta.textContent = 'Enter a PNG URL to inspect and import.';
                 return;
@@ -5102,13 +7408,15 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 sourceY % 32 === 0 &&
                 sourceWidth % 32 === 0 &&
                 sourceHeight % 32 === 0;
-            const previewStateMessage = previewDraft
-                ? ' Preview is ready below; click tiles to edit them before importing.'
-                : ' Preview the blocks before importing so you can review and fix any bad matches.';
             meta.textContent = `Loaded ${resolvedPngLabel || resolvedPngUrl} (${loadedImage.width}x${loadedImage.height}). Source rect (${sourceX}, ${sourceY}, ${sourceWidth}x${sourceHeight}) is ${sourceTileAligned ? 'tile-aligned' : 'not tile-aligned'} and spans ${sourceColumns} x ${sourceRows} source tiles. Target world rect ${worldWidth}x${worldHeight} will place those ${sourceColumns} x ${sourceRows} blocks across that world area.${previewStateMessage}`;
         };
 
         const syncPngMetadata = async (options?: { forceFullImageBounds?: boolean }) => {
+            if (importMode === 'folder') {
+                loadedImage = null;
+                updatePngImportMeta();
+                return;
+            }
             const url = resolvedPngUrl.trim();
             if (!url) {
                 loadedImage = null;
@@ -5148,7 +7456,50 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             }
         };
 
+        syncImportModeUi();
+        syncWorkTabUi();
+        syncExportChunkInputs();
+        syncFolderRangeInputs();
         void syncPngMetadata();
+        const switchImportMode = (nextMode: PngImportSourceMode) => {
+            importMode = nextMode;
+            invalidatePreview(importMode === 'folder'
+                ? 'Preview not generated yet. Choose a chunk folder and click "Preview blocks" to inspect the reconstructed map section.'
+                : 'Preview not generated yet. Click "Preview blocks" to inspect the matches.');
+            syncImportModeUi();
+            syncWorkTabUi();
+            if (importMode === 'folder') {
+                syncFolderRangeInputs();
+                syncFolderTargetWorldSpan();
+                updatePngImportMeta();
+            } else {
+                void syncPngMetadata();
+            }
+        };
+        const switchWorkTab = (nextTab: PngImportWorkTab) => {
+            if (nextTab === 'export' && importMode !== 'single') {
+                return;
+            }
+            workTab = nextTab;
+            syncImportModeUi();
+            syncWorkTabUi();
+        };
+        singleModeButton.addEventListener('click', () => switchImportMode('single'));
+        folderModeButton.addEventListener('click', () => switchImportMode('folder'));
+        importTabButton.addEventListener('click', () => switchWorkTab('import'));
+        exportTabButton.addEventListener('click', () => switchWorkTab('export'));
+        progressCancelButton.addEventListener('click', () => {
+            if (!importBusy || progressMode === 'none') {
+                return;
+            }
+            cancelLongRunningRequested = true;
+            setProgress({
+                phase: progressMode === 'export' ? 'Cancelling chunk export' : 'Cancelling import',
+                completed: progressBar.value,
+                total: progressBar.max,
+                detail: 'Finishing the current step before stopping.'
+            });
+        });
         browseButton.addEventListener('click', () => {
             fileInput.click();
         });
@@ -5164,6 +7515,45 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             urlInput.value = file.name;
             void syncPngMetadata({ forceFullImageBounds: true });
         });
+        folderBrowseButton.addEventListener('click', async () => {
+            try {
+                progressStartedAt = Date.now();
+                progressMode = 'import';
+                cancelLongRunningRequested = false;
+                setImportBusy(true);
+                setProgress({
+                    phase: 'Reading chunk folder',
+                    completed: 0,
+                    total: 1,
+                    detail: 'Loading the exported chunk manifest and PNG files.'
+                });
+                const directoryHandle = await getDirectoryPicker()();
+                chunkFolderSelection = await readPngChunkFolderSelection(directoryHandle, async (progress) => {
+                    await handleProgressUpdate(progress, folderMeta);
+                });
+                folderMinColumnInput.value = '1';
+                folderMaxColumnInput.value = String(chunkFolderSelection.manifest.totalChunkColumns);
+                folderMinRowInput.value = '1';
+                folderMaxRowInput.value = String(chunkFolderSelection.manifest.totalChunkRows);
+                folderMaxChunksInput.value = '0';
+                syncFolderRangeInputs();
+                syncFolderTargetWorldSpan();
+                invalidatePreview('Preview not generated yet. Click "Preview blocks" to inspect the reconstructed map section.');
+                updatePngImportMeta();
+            } catch (error) {
+                chunkFolderSelection = null;
+                syncFolderRangeInputs();
+                invalidatePreview(error instanceof Error ? error.message : 'Failed to read the chunk folder.');
+                setStatus(
+                    error instanceof Error ? error.message : 'Failed to read the chunk folder.',
+                    error instanceof Error && error.message === 'Import cancelled.' ? 'neutral' : 'error'
+                );
+            } finally {
+                progressMode = 'none';
+                setImportBusy(false);
+                setProgress(null);
+            }
+        });
 
         urlInput.addEventListener('change', () => {
             clearPngImportObjectUrl();
@@ -5175,7 +7565,12 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         });
 
         const handleImportFieldChanged = () => {
-            invalidatePreview('Preview is out of date. Click "Preview blocks" again before importing.');
+            invalidatePreview(importMode === 'folder'
+                ? 'Preview is out of date. Click "Preview blocks" again before importing the reconstructed chunk range.'
+                : 'Preview is out of date. Click "Preview blocks" again before importing.');
+            if (importMode === 'folder') {
+                syncFolderTargetWorldSpan();
+            }
             updatePngImportMeta();
         };
 
@@ -5191,6 +7586,42 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         ].forEach((input) => {
             input.addEventListener('input', handleImportFieldChanged);
             input.addEventListener('change', handleImportFieldChanged);
+        });
+        [
+            folderMinColumnInput,
+            folderMaxColumnInput,
+            folderMinRowInput,
+            folderMaxRowInput,
+            folderMaxChunksInput
+        ].forEach((input) => {
+            input.addEventListener('input', () => {
+                syncFolderRangeInputs();
+                handleImportFieldChanged();
+            });
+            input.addEventListener('change', () => {
+                syncFolderRangeInputs();
+                handleImportFieldChanged();
+            });
+        });
+        folderFitTargetCheckbox.addEventListener('change', () => {
+            syncFolderTargetWorldSpan();
+            updatePngImportMeta();
+        });
+        exportPresetSelect.addEventListener('change', () => {
+            syncExportChunkInputs();
+            updatePngImportMeta();
+        });
+        [exportWidthInput, exportHeightInput].forEach((input) => {
+            input.addEventListener('input', () => {
+                exportPresetSelect.value = 'custom';
+                syncExportChunkInputs();
+                updatePngImportMeta();
+            });
+            input.addEventListener('change', () => {
+                exportPresetSelect.value = 'custom';
+                syncExportChunkInputs();
+                updatePngImportMeta();
+            });
         });
 
         zoomOutButton.addEventListener('click', () => setPreviewZoom(previewZoom / 1.25));
@@ -5232,6 +7663,66 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             sourceHeightInput.value = String(Math.max(1, snappedBottom - snappedY));
             invalidatePreview('Preview is out of date. Click "Preview blocks" again before importing.');
             updatePngImportMeta();
+        });
+        exportButton.addEventListener('click', async () => {
+            if (importMode !== 'single') {
+                setStatus('Chunk export is only available when working from a single PNG source.', 'error');
+                return;
+            }
+            if (!loadedImage) {
+                setStatus('Load a PNG before exporting chunk files.', 'error');
+                return;
+            }
+            const sourceX = clamp(Math.round(getNumericInputValue(sourceXInput, 0)), 0, Math.max(0, loadedImage.width - 1));
+            const sourceY = clamp(Math.round(getNumericInputValue(sourceYInput, 0)), 0, Math.max(0, loadedImage.height - 1));
+            const sourceWidth = Math.max(1, Math.min(Math.round(getNumericInputValue(sourceWidthInput, loadedImage.width)), loadedImage.width - sourceX));
+            const sourceHeight = Math.max(1, Math.min(Math.round(getNumericInputValue(sourceHeightInput, loadedImage.height)), loadedImage.height - sourceY));
+            const chunkSize = getExportChunkSize();
+            progressStartedAt = Date.now();
+            progressMode = 'export';
+            cancelLongRunningRequested = false;
+            setImportBusy(true);
+            setProgress({
+                phase: 'Preparing chunk export',
+                completed: 0,
+                total: 1,
+                detail: 'Validating the PNG crop and opening a destination folder.'
+            });
+            const totalChunkColumns = Math.ceil((sourceWidth / PNG_IMPORT_SOURCE_TILE_SIZE) / chunkSize.width);
+            const totalChunkRows = Math.ceil((sourceHeight / PNG_IMPORT_SOURCE_TILE_SIZE) / chunkSize.height);
+            const estimatedChunkCount = Math.max(1, totalChunkColumns * totalChunkRows);
+            exportMeta.textContent = `Preparing to export about ${estimatedChunkCount} chunk PNGs (${totalChunkColumns} x ${totalChunkRows}).`;
+            try {
+                const result = await exportPngChunksToDirectory({
+                    image: loadedImage,
+                    sourceName: resolvedPngLabel || resolvedPngUrl || 'png-import',
+                    sourceX,
+                    sourceY,
+                    sourceWidth,
+                    sourceHeight,
+                    chunkTileWidth: chunkSize.width,
+                    chunkTileHeight: chunkSize.height,
+                    skipEmpty: exportSkipEmptyCheckbox.checked,
+                    shouldCancel: () => cancelLongRunningRequested
+                }, async (progress) => {
+                    await handleProgressUpdate(progress, exportMeta);
+                });
+                exportMeta.textContent = `Exported ${result.exportedChunks} chunk PNGs to ${result.directoryName}${result.skippedChunks > 0 ? ` and skipped ${result.skippedChunks} empty chunks` : ''}. The folder also contains ${PNG_CHUNK_EXPORT_MANIFEST_NAME} so the chunk-folder importer can rebuild the larger map automatically.`;
+                setStatus(
+                    `Exported ${result.exportedChunks} chunk PNGs to ${result.directoryName}${result.skippedChunks > 0 ? ` and skipped ${result.skippedChunks} empty chunks` : ''}.`,
+                    'success'
+                );
+            } catch (error) {
+                exportMeta.textContent = error instanceof Error ? error.message : 'Failed to export chunk PNGs.';
+                setStatus(
+                    error instanceof Error ? error.message : 'Failed to export chunk PNGs.',
+                    error instanceof Error && error.message === 'Chunk export cancelled.' ? 'neutral' : 'error'
+                );
+            } finally {
+                progressMode = 'none';
+                setImportBusy(false);
+                setProgress(null);
+            }
         });
 
         previewCanvas.addEventListener('click', (event) => {
@@ -5285,7 +7776,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             if (selectedPreviewIndex < 0 || selectedPreviewIndex >= previewOriginalBlocks.length) {
                 return;
             }
-            previewBlocks[selectedPreviewIndex] = toMapBlockData(previewOriginalBlocks[selectedPreviewIndex]);
+            const originalBlock = previewOriginalBlocks[selectedPreviewIndex];
+            previewBlocks[selectedPreviewIndex] = originalBlock ? toMapBlockData(originalBlock) : null;
             renderPreviewCanvas();
         });
 
@@ -5293,6 +7785,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             progressStartedAt = Date.now();
             previewButton.textContent = 'Generating…';
             previewMeta.textContent = 'Generating preview…';
+            progressMode = 'import';
+            cancelLongRunningRequested = false;
             setImportBusy(true);
             setProgress({
                 phase: 'Preparing import',
@@ -5301,44 +7795,73 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 detail: 'Starting PNG preview generation.'
             });
             try {
-                const draft = await buildPngImportDraftFromPng({
-                    url: resolvedPngUrl,
-                    sourceX: getNumericInputValue(sourceXInput, 0),
-                    sourceY: getNumericInputValue(sourceYInput, 0),
-                    sourceWidth: getNumericInputValue(sourceWidthInput, 0),
-                    sourceHeight: getNumericInputValue(sourceHeightInput, 0),
-                    worldX: getNumericInputValue(worldXInput, 0),
-                    worldY: getNumericInputValue(worldYInput, 0),
-                    worldWidth: getNumericInputValue(worldWidthInput, 32),
-                    worldHeight: getNumericInputValue(worldHeightInput, 32),
-                    replaceExisting: replaceCheckbox.checked
-                }, async (progress) => {
-                    setProgress(progress);
-                });
+                const { draft, previewContextMessage } = await buildDraftForCurrentImportMode();
                 previewDraft = draft;
-                previewBlocks = draft.blocks.map((block) => toMapBlockData(block));
-                previewOriginalBlocks = draft.blocks.map((block) => toMapBlockData(block));
-                selectedPreviewIndex = previewBlocks.length > 0 ? 0 : -1;
+                previewBlocks = draft.blocks.map((block) => (block ? toMapBlockData(block) : null));
+                previewOriginalBlocks = draft.blocks.map((block) => (block ? toMapBlockData(block) : null));
+                selectedPreviewIndex = previewBlocks.findIndex((block) => block !== null);
                 renderPreviewCanvas();
                 fitPreviewZoom();
+                const importedTileCount = draft.blocks.filter((block) => block !== null).length;
                 const gridOffsetMessage = draft.sourceGridOffsetX !== 0 || draft.sourceGridOffsetY !== 0
                     ? ` Auto-aligned the source grid by (${draft.sourceGridOffsetX}, ${draft.sourceGridOffsetY}) px before matching.`
                     : '';
                 previewMeta.textContent = draft.uncertainTiles > 0
-                    ? `Preview ready. ${draft.uncertainTiles} tile${draft.uncertainTiles === 1 ? '' : 's'} were low-confidence matches and are outlined in gold.${gridOffsetMessage}`
-                    : `Preview ready. ${draft.blocks.length} tile${draft.blocks.length === 1 ? '' : 's'} matched cleanly.${gridOffsetMessage}`;
-                refs.modalConfirm.disabled = previewBlocks.length === 0;
+                    ? `Preview ready. ${draft.uncertainTiles} tile${draft.uncertainTiles === 1 ? '' : 's'} were low-confidence matches and are outlined in gold.${gridOffsetMessage}${previewContextMessage}`
+                    : `Preview ready. ${importedTileCount} tile${importedTileCount === 1 ? '' : 's'} matched cleanly.${gridOffsetMessage}${previewContextMessage}`;
+                refs.modalConfirm.disabled = selectedPreviewIndex < 0;
                 updatePngImportMeta();
             } catch (error) {
                 invalidatePreview(error instanceof Error ? error.message : 'Failed to generate the preview.');
                 setStatus(
                     error instanceof Error ? error.message : 'Failed to generate the PNG preview.',
-                    'error'
+                    error instanceof Error && error.message === 'Import cancelled.' ? 'neutral' : 'error'
                 );
             } finally {
+                progressMode = 'none';
                 setImportBusy(false);
                 setProgress(null);
                 previewButton.textContent = 'Preview blocks';
+            }
+        });
+
+        directFolderImportButton.addEventListener('click', async () => {
+            if (importMode !== 'folder') {
+                return;
+            }
+            progressStartedAt = Date.now();
+            previewMeta.textContent = 'Trying folder import without manual review…';
+            progressMode = 'import';
+            cancelLongRunningRequested = false;
+            setImportBusy(true);
+            setProgress({
+                phase: 'Preparing import',
+                completed: 0,
+                total: 1,
+                detail: 'Starting direct chunk-folder import.'
+            });
+            try {
+                const { draft } = await buildDraftForCurrentImportMode();
+                applyPngImportDraft(draft, replaceCheckbox.checked, clearAllCheckbox.checked);
+                closeModal(true);
+                const blockCount = draft.blocks.filter((block): block is MapBlock => block !== null).length;
+                setStatus(
+                    draft.uncertainTiles > 0
+                        ? `Imported ${blockCount} draft world tiles from the chunk folder without manual preview review. ${draft.uncertainTiles} tile${draft.uncertainTiles === 1 ? '' : 's'} were low-confidence matches, so review the result before saving.`
+                        : `Imported ${blockCount} draft world tiles from the chunk folder without manual preview review.`,
+                    draft.uncertainTiles > 0 ? 'neutral' : 'success'
+                );
+            } catch (error) {
+                const message = error instanceof Error ? error.message : 'Failed to import the chunk folder.';
+                previewMeta.textContent = message;
+                setStatus(
+                    message,
+                    error instanceof Error && error.message === 'Import cancelled.' ? 'neutral' : 'error'
+                );
+            } finally {
+                progressMode = 'none';
+                setImportBusy(false);
+                setProgress(null);
             }
         });
 
@@ -5354,16 +7877,18 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             }
             try {
                 setImportBusy(true);
+                const sourceLabel = importMode === 'folder' ? 'chunk folder' : 'PNG';
                 const committedDraft: PngImportDraft = {
                     ...previewDraft,
-                    blocks: previewBlocks.map((block) => toMapBlockData(block))
+                    blocks: previewBlocks.map((block) => (block ? toMapBlockData(block) : null))
                 };
-                applyPngImportDraft(committedDraft, replaceCheckbox.checked);
+                applyPngImportDraft(committedDraft, replaceCheckbox.checked, clearAllCheckbox.checked);
                 closeModal(true);
+                const blockCount = committedDraft.blocks.filter((block): block is MapBlock => block !== null).length;
                 setStatus(
                     committedDraft.uncertainTiles > 0
-                        ? `Imported ${committedDraft.blocks.length} reviewed draft world tiles from PNG. ${committedDraft.uncertainTiles} tile${committedDraft.uncertainTiles === 1 ? '' : 's'} were low-confidence auto-matches before review.`
-                        : `Imported ${committedDraft.blocks.length} reviewed draft world tiles from PNG.`,
+                        ? `Imported ${blockCount} reviewed draft world tiles from the ${sourceLabel}. ${committedDraft.uncertainTiles} tile${committedDraft.uncertainTiles === 1 ? '' : 's'} were low-confidence auto-matches before review.`
+                        : `Imported ${blockCount} reviewed draft world tiles from the ${sourceLabel}.`,
                     committedDraft.uncertainTiles > 0 ? 'neutral' : 'success'
                 );
             } catch (error) {
@@ -5394,6 +7919,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         modalCard?.classList.remove('world-designer-modal-card-import');
         clearPngImportObjectUrl();
         refs.modal.dataset.busy = 'false';
+        refs.modalConfirm.style.display = '';
     }
 
     function updateSelectionSummary() {
@@ -5412,7 +7938,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
 
         if (selections.length > 1) {
-            refs.selectionSummary.textContent = `${selections.length} objects selected. Drag any selected object to move the group.`;
+            refs.selectionSummary.textContent = `${selections.length} objects selected. Drag any selected object to move the group, or right-click to group them as a custom sprite.`;
             refs.convertButton.textContent = 'Convert';
             refs.convertButton.disabled = true;
             refs.deleteButton.disabled = false;
@@ -5424,13 +7950,12 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
 
         const { category, entity } = state.selection!;
-        refs.selectionSummary.textContent = `${CATEGORY_LABELS[category]}: ${entity.type} at (${entity.x}, ${entity.y})`;
-        refs.convertButton.disabled = !(category === 'world' || category === 'collectables');
-        refs.convertButton.textContent = category === 'world'
-            ? 'Convert to collectable'
-            : category === 'collectables'
-                ? 'Convert to world item'
-                : 'Convert';
+        refs.selectionSummary.textContent = category === 'custom'
+            ? `${CATEGORY_LABELS[category]}: ${entity.type} at (${entity.x}, ${entity.y})`
+            : `${CATEGORY_LABELS[category]}: ${entity.type} at (${entity.x}, ${entity.y})`;
+        const convertTarget = getConvertTargetCategory(state.selection!);
+        refs.convertButton.disabled = !convertTarget;
+        refs.convertButton.textContent = getConvertActionLabel(state.selection!);
         refs.deleteButton.disabled = false;
         refs.duplicateButton.disabled = false;
         refs.sendToBackButton.disabled = false;
@@ -5447,9 +7972,14 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const row = document.createElement('label');
         row.className = 'world-designer-checkbox';
         const input = document.createElement('input');
+        const focusKey = label;
         input.type = 'checkbox';
         input.checked = checked;
-        input.addEventListener('change', () => onChange(input.checked));
+        input.dataset.inspectorKey = focusKey;
+        input.addEventListener('change', () => {
+            pendingInspectorFocusKey = focusKey;
+            onChange(input.checked);
+        });
         row.appendChild(input);
         row.append(label);
         container.appendChild(row);
@@ -5466,8 +7996,13 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         field.className = 'world-designer-field';
         field.textContent = label;
         const input = multiline ? document.createElement('textarea') : document.createElement('input');
+        const focusKey = label;
         input.value = value;
-        input.addEventListener('change', () => onCommit(input.value));
+        input.dataset.inspectorKey = focusKey;
+        input.addEventListener('change', () => {
+            pendingInspectorFocusKey = focusKey;
+            onCommit(input.value);
+        });
         field.appendChild(input);
         container.appendChild(field);
     }
@@ -5483,10 +8018,15 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         field.className = 'world-designer-field';
         field.textContent = label;
         const input = document.createElement('input');
+        const focusKey = label;
         input.type = 'number';
         input.step = String(step);
         input.value = String(value);
-        input.addEventListener('change', () => onCommit(Number(input.value)));
+        input.dataset.inspectorKey = focusKey;
+        input.addEventListener('change', () => {
+            pendingInspectorFocusKey = focusKey;
+            onCommit(Number(input.value));
+        });
         field.appendChild(input);
         container.appendChild(field);
     }
@@ -5502,6 +8042,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         field.className = 'world-designer-field';
         field.textContent = label;
         const select = document.createElement('select');
+        const focusKey = label;
         for (const optionValue of options) {
             const option = document.createElement('option');
             option.value = optionValue;
@@ -5509,9 +8050,133 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             select.appendChild(option);
         }
         select.value = value;
-        select.addEventListener('change', () => onCommit(select.value));
+        select.dataset.inspectorKey = focusKey;
+        select.addEventListener('change', () => {
+            pendingInspectorFocusKey = focusKey;
+            onCommit(select.value);
+        });
         field.appendChild(select);
         container.appendChild(field);
+    }
+
+    function addOptionSelectInspector(
+        container: HTMLElement,
+        label: string,
+        value: string,
+        options: Array<{ value: string; label: string }>,
+        onCommit: (value: string) => void
+    ) {
+        const field = document.createElement('label');
+        field.className = 'world-designer-field';
+        field.textContent = label;
+        const select = document.createElement('select');
+        const focusKey = label;
+        for (const optionValue of options) {
+            const option = document.createElement('option');
+            option.value = optionValue.value;
+            option.textContent = optionValue.label;
+            select.appendChild(option);
+        }
+        select.value = value;
+        select.dataset.inspectorKey = focusKey;
+        select.addEventListener('change', () => {
+            pendingInspectorFocusKey = focusKey;
+            onCommit(select.value);
+        });
+        field.appendChild(select);
+        container.appendChild(field);
+    }
+
+    function restorePendingInspectorFocus() {
+        if (!pendingInspectorFocusKey) {
+            return;
+        }
+        const selector = `[data-inspector-key="${CSS.escape(pendingInspectorFocusKey)}"]`;
+        const field = refs.inspector.querySelector(selector);
+        pendingInspectorFocusKey = null;
+        if (!(field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement || field instanceof HTMLSelectElement)) {
+            return;
+        }
+        if (field.disabled) {
+            return;
+        }
+        field.focus();
+        if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) {
+            field.select();
+        }
+    }
+
+    function addInspectorAction(
+        container: HTMLElement,
+        label: string,
+        onClick: () => void
+    ) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = label;
+        button.addEventListener('click', onClick);
+        container.appendChild(button);
+    }
+
+    function renderButtonDefaultsInspector(container: HTMLElement, selectedButton: Button | null) {
+        const effectiveDefaults = getEffectiveButtonDefaultOverrides();
+        const paletteOptions = Array.from({ length: paletteCount }, (_, index) => ({
+            value: String(index),
+            label: `Palette ${index}`
+        }));
+        const accordion = document.createElement('details');
+        const accordionSummary = document.createElement('summary');
+        accordionSummary.textContent = 'Defaults for new buttons and button conversions';
+        accordion.appendChild(accordionSummary);
+        const body = document.createElement('div');
+        const summary = document.createElement('div');
+        summary.className = 'world-designer-summary';
+        summary.textContent = 'Existing buttons keep their own values.';
+        body.appendChild(summary);
+        addOptionSelectInspector(body, 'Default button cap palette', String(effectiveDefaults.capPalette), paletteOptions, (value) => {
+            runMutation('Updated default button cap palette.', () => {
+                state.buttonDefaults.capPalette = clamp(Math.round(Number(value)), 0, paletteCount - 1);
+            });
+        });
+        addOptionSelectInspector(body, 'Default box palette', String(effectiveDefaults.boxPalette), paletteOptions, (value) => {
+            runMutation('Updated default button box palette.', () => {
+                state.buttonDefaults.boxPalette = clamp(Math.round(Number(value)), 0, paletteCount - 1);
+            });
+        });
+        addNumberInspector(body, 'Default closed cap offset X (from box)', effectiveDefaults.capClosedOffsetX, (value) => {
+            runMutation('Updated default closed button cap X.', () => {
+                state.buttonDefaults.capClosedOffsetX = Math.round(value);
+            });
+        });
+        addNumberInspector(body, 'Default closed cap offset Y (from box)', effectiveDefaults.capClosedOffsetY, (value) => {
+            runMutation('Updated default closed button cap Y.', () => {
+                state.buttonDefaults.capClosedOffsetY = Math.round(value);
+            });
+        });
+        addNumberInspector(body, 'Default open cap offset X (from box)', effectiveDefaults.capOpenOffsetX, (value) => {
+            runMutation('Updated default open button cap X.', () => {
+                state.buttonDefaults.capOpenOffsetX = Math.round(value);
+            });
+        });
+        addNumberInspector(body, 'Default open cap offset Y (from box)', effectiveDefaults.capOpenOffsetY, (value) => {
+            runMutation('Updated default open button cap Y.', () => {
+                state.buttonDefaults.capOpenOffsetY = Math.round(value);
+            });
+        });
+        if (selectedButton) {
+            addInspectorAction(body, 'Use selected button as new-button defaults', () => {
+                runMutation('Copied selected button to button defaults.', () => {
+                    setButtonDefaultOverridesFromButton(selectedButton);
+                });
+            });
+        }
+        addInspectorAction(body, 'Reset button defaults', () => {
+            runMutation('Reset button defaults.', () => {
+                resetButtonDefaultOverrides();
+            });
+        });
+        accordion.appendChild(body);
+        container.appendChild(accordion);
     }
 
     function refreshInspector() {
@@ -5524,12 +8189,54 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 summary.className = 'world-designer-summary';
                 summary.textContent = 'Multi-selection active. Inspector editing is limited to single-object selection.';
                 refs.inspector.appendChild(summary);
+                if (state.category === 'buttons') {
+                    renderButtonDefaultsInspector(refs.inspector, null);
+                }
+            } else if (state.category === 'buttons') {
+                renderButtonDefaultsInspector(refs.inspector, null);
             }
             return;
         }
 
         const { category, entity } = state.selection;
         const container = refs.inspector;
+
+        if (category === 'custom') {
+            const definition = getCustomSpriteDefinitionForInstance(entity as CustomSpriteInstance);
+            addTextInspector(container, 'Name', definition?.name ?? entity.type, (value) => {
+                runMutation('Renamed custom sprite.', () => {
+                    const trimmed = value.trim();
+                    const nextName = trimmed.length > 0 ? trimmed : createCustomSpriteName();
+                    if (definition) {
+                        renameCustomSpriteDefinition(definition, nextName);
+                    } else {
+                        entity.type = nextName;
+                    }
+                });
+            });
+            addNumberInspector(container, 'X', entity.x, (value) => {
+                runMutation('Updated X position.', () => {
+                    entity.x = Math.round(value);
+                });
+            });
+            addNumberInspector(container, 'Y', entity.y, (value) => {
+                runMutation('Updated Y position.', () => {
+                    entity.y = Math.round(value);
+                });
+            });
+            const summary = document.createElement('div');
+            summary.className = 'world-designer-summary';
+            summary.textContent = definition
+                ? `${definition.members.length} part${definition.members.length === 1 ? '' : 's'}. Use Convert to button for a live runtime button, or right-click to ungroup.`
+                : 'Missing custom sprite definition.';
+            container.appendChild(summary);
+            if (definition) {
+                addInspectorAction(container, 'Delete custom sprite type', () => {
+                    deleteCustomSpriteSelectionDefinition();
+                });
+            }
+            return;
+        }
 
         addSelectInspector(container, 'Type', entity.type, spriteTypes, (value) => {
             runMutation('Updated sprite type.', () => {
@@ -5568,11 +8275,23 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 }
             );
         }
-        addNumberInspector(container, 'Palette', entity.palette ?? 0, (value) => {
-            runMutation('Updated palette.', () => {
-                entity.palette = clamp(Math.round(value), 0, paletteCount - 1);
+        const paletteOptions = Array.from({ length: paletteCount }, (_, index) => ({
+            value: String(index),
+            label: `Palette ${index}`
+        }));
+        if (category === 'buttons') {
+            addOptionSelectInspector(container, 'Button cap palette', String(entity.palette ?? 0), paletteOptions, (value) => {
+                runMutation('Updated palette.', () => {
+                    entity.palette = clamp(Math.round(Number(value)), 0, paletteCount - 1);
+                });
             });
-        });
+        } else {
+            addNumberInspector(container, 'Palette', entity.palette ?? 0, (value) => {
+                runMutation('Updated palette.', () => {
+                    entity.palette = clamp(Math.round(value), 0, paletteCount - 1);
+                });
+            });
+        }
         const effectivePaletteCycle = getEffectivePaletteCycle(entity.type, entity.paletteCycle, paletteCount);
         if (effectivePaletteCycle) {
             const isTeleporterDefault = entity.type === 'teleporter_pad' && !entity.paletteCycle;
@@ -5666,14 +8385,52 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     entity.boxType = value;
                 });
             });
-            addNumberInspector(container, 'Box palette', entity.boxPalette ?? 0, (value) => {
+            addOptionSelectInspector(container, 'Box palette', String(entity.boxPalette ?? 0), paletteOptions, (value) => {
                 runMutation('Updated button box palette.', () => {
-                    entity.boxPalette = clamp(Math.round(value), 0, paletteCount - 1);
+                    entity.boxPalette = clamp(Math.round(Number(value)), 0, paletteCount - 1);
                 });
             });
+            const closedCapOffset = getButtonCapOffsetsRelativeToBox(entity, false);
+            const openCapOffset = getButtonCapOffsetsRelativeToBox(entity, true);
+            const buttonDesignerSummary = document.createElement('div');
+            buttonDesignerSummary.className = 'world-designer-summary';
+            buttonDesignerSummary.textContent = 'Button cap offsets are authored in button-local space relative to the box, then rotated/flipped with the button.';
+            container.appendChild(buttonDesignerSummary);
+            addNumberInspector(container, 'Closed cap offset X (from box)', closedCapOffset.x, (value) => {
+                runMutation('Updated closed button cap X.', () => {
+                    entity.capClosedOffsetX = (entity.boxOffsetX ?? BUTTON_DEFAULT_BOX_OFFSET_X) + Math.round(value);
+                    entity.pressOffset = (entity.capOpenOffsetX ?? (entity.pressOffset ?? BUTTON_DEFAULT_PRESS_OFFSET))
+                        - (entity.capClosedOffsetX ?? 0);
+                });
+            });
+            addNumberInspector(container, 'Closed cap offset Y (from box)', closedCapOffset.y, (value) => {
+                runMutation('Updated closed button cap Y.', () => {
+                    entity.capClosedOffsetY = (entity.boxOffsetY ?? BUTTON_DEFAULT_BOX_OFFSET_Y) + Math.round(value);
+                });
+            });
+            addNumberInspector(container, 'Open cap offset X (from box)', openCapOffset.x, (value) => {
+                runMutation('Updated open button cap X.', () => {
+                    entity.capOpenOffsetX = (entity.boxOffsetX ?? BUTTON_DEFAULT_BOX_OFFSET_X) + Math.round(value);
+                    entity.pressOffset = (entity.capOpenOffsetX ?? (entity.pressOffset ?? BUTTON_DEFAULT_PRESS_OFFSET))
+                        - (entity.capClosedOffsetX ?? 0);
+                });
+            });
+            addNumberInspector(container, 'Open cap offset Y (from box)', openCapOffset.y, (value) => {
+                runMutation('Updated open button cap Y.', () => {
+                    entity.capOpenOffsetY = (entity.boxOffsetY ?? BUTTON_DEFAULT_BOX_OFFSET_Y) + Math.round(value);
+                });
+            });
+            renderButtonDefaultsInspector(container, entity);
         }
 
         if (category === 'doors') {
+            const paletteOptions = [
+                { value: '', label: 'Base palette' },
+                ...Array.from({ length: paletteCount }, (_, index) => ({
+                    value: String(index),
+                    label: `Palette ${index}`
+                }))
+            ];
             addTextInspector(container, 'Name', entity.name ?? '', (value) => {
                 runMutation('Updated door name.', () => {
                     entity.name = value;
@@ -5696,16 +8453,38 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     entity.defaultOpen = checked;
                 });
             });
-            addNumberInspector(container, 'Locked palette', typeof entity.palette_locked === 'number' ? entity.palette_locked : -1, (value) => {
-                runMutation('Updated locked palette.', () => {
-                    entity.palette_locked = value < 0 ? null : clamp(Math.round(value), 0, paletteCount - 1);
-                });
-            });
-            addNumberInspector(container, 'Unlocked palette', typeof entity.palette_unlocked === 'number' ? entity.palette_unlocked : -1, (value) => {
-                runMutation('Updated unlocked palette.', () => {
-                    entity.palette_unlocked = value < 0 ? null : clamp(Math.round(value), 0, paletteCount - 1);
-                });
-            });
+            addOptionSelectInspector(
+                container,
+                'Locked palette',
+                typeof entity.palette_locked === 'number' ? String(entity.palette_locked) : '',
+                paletteOptions,
+                (value) => {
+                    runMutation('Updated locked palette.', () => {
+                        entity.palette_locked = value === ''
+                            ? null
+                            : clamp(Math.round(Number(value)), 0, paletteCount - 1);
+                        if (state.selection?.category === 'doors' && state.selection.entity === entity) {
+                            state.palette = entity.palette;
+                        }
+                    });
+                }
+            );
+            addOptionSelectInspector(
+                container,
+                'Unlocked palette',
+                typeof entity.palette_unlocked === 'number' ? String(entity.palette_unlocked) : '',
+                paletteOptions,
+                (value) => {
+                    runMutation('Updated unlocked palette.', () => {
+                        entity.palette_unlocked = value === ''
+                            ? null
+                            : clamp(Math.round(Number(value)), 0, paletteCount - 1);
+                        if (state.selection?.category === 'doors' && state.selection.entity === entity) {
+                            state.palette = entity.palette;
+                        }
+                    });
+                }
+            );
         }
 
         if (category === 'creatures') {
@@ -5764,6 +8543,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function refreshPanel() {
+        refreshSelectOptions();
         refs.root.classList.toggle('world-designer-hidden', !state.active);
         refs.activeToggle.textContent = state.active ? 'Hide panel' : 'Show panel';
         refs.expandViewportCheckbox.checked = state.viewportExpanded;
@@ -5775,6 +8555,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.translationSelect.value = state.translation;
         refs.paletteSelect.value = String(state.palette);
         refs.translationSelect.disabled = state.category !== 'world' && state.selection?.category !== 'world';
+        refs.rotationSelect.disabled = state.category === 'custom';
+        refs.paletteSelect.disabled = state.category === 'custom';
         refs.snapCheckbox.checked = state.snapToGrid;
         refs.objectSnapCheckbox.checked = state.objectSnapEnabled;
         refs.snapOffsetXInput.value = String(state.snapOffsetX);
@@ -5787,6 +8569,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.disablePreviewCollisionCheckbox.disabled = state.mode !== 'preview';
         refs.spritePicker.open = state.spritePickerOpen;
         refs.spritePickerFilter.value = state.spritePickerFilter;
+        refs.spritePickerCategoryFilter.value = state.spritePickerCategoryFilter;
+        refs.spritePickerCategoryFilter.disabled = state.spritePickerFilter.trim().length > 0;
 
         for (const [category, checkbox] of Object.entries(refs.layerCheckboxes) as Array<[DesignerCategory, HTMLInputElement]>) {
             checkbox.checked = state.layerVisibility[category];
@@ -5797,6 +8581,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         renderSpritePickerGrid();
         updateSelectionSummary();
         refreshInspector();
+        restorePendingInspectorFocus();
         refreshPaletteDesigner();
         refreshStatus();
         persistDesignerUiState();
@@ -5853,12 +8638,18 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
     function updateSelectionFromInspectorState() {
         if (!state.selection) return;
-        state.rotation = normalizeRotation(state.selection.entity.rotation);
+        state.rotation = state.selection.category === 'custom'
+            ? state.rotation
+            : normalizeRotation(state.selection.entity.rotation);
         state.translation = state.selection.category === 'world'
             ? normalizeSpriteTranslation(state.selection.entity.translation)
             : 'center';
-        state.palette = clamp(state.selection.entity.palette ?? 0, 0, paletteCount - 1);
-        state.typeByCategory[state.selection.category] = state.selection.entity.type;
+        state.palette = state.selection.category === 'custom'
+            ? state.palette
+            : clamp(state.selection.entity.palette ?? 0, 0, paletteCount - 1);
+        state.typeByCategory[state.selection.category] = state.selection.category === 'custom'
+            ? state.selection.entity.customSpriteId
+            : state.selection.entity.type;
         refreshPanel();
     }
 
@@ -5871,18 +8662,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
     function convertSelection() {
         if (!state.selection) return;
-        if (state.selection.category === 'world') {
-            runMutation('Converted world item to collectable.', () => {
-                convertSpecificSelection(state.selection!);
-            });
-            return;
-        }
-
-        if (state.selection.category === 'collectables') {
-            runMutation('Converted collectable to world item.', () => {
-                convertSpecificSelection(state.selection!);
-            });
-        }
+        const targetCategory = getConvertTargetCategory(state.selection);
+        if (!targetCategory) return;
+        runMutation(getConvertActionMessage(targetCategory), () => {
+            convertSelectionToCategory(state.selection!, targetCategory);
+        });
     }
 
     function screenToWorld(x: number, y: number) {
@@ -5962,6 +8746,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             y: clamp(focus.y, 0, MAP_HEIGHT)
         };
         moveCameraToWorldCenter(state.overviewHoverWorld.x, state.overviewHoverWorld.y);
+        persistDesignerUiState();
     }
 
     function setAstronautStartToViewCenter() {
@@ -6126,6 +8911,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             state.panStartCanvas = null;
             state.panStartCamera = null;
             state.lastPointerCanvas = null;
+            persistDesignerUiState();
             setStatus('Moved camera by right-dragging.', 'neutral');
             return;
         }
@@ -6166,7 +8952,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             const before = state.dragStartSnapshot;
             state.dragStartSnapshot = null;
             const after = getSnapshot();
-            if (snapshotsEqual(before, after)) {
+            if (designerSnapshotsEqual(before, after)) {
                 host.afterWorldDataMutated();
                 updateDirtyState();
                 refreshPanel();
@@ -6213,6 +8999,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         if (!state.overviewDragging) return;
         state.overviewDragging = false;
         if (!state.overviewHoverWorld) return;
+        persistDesignerUiState();
         setStatus('Moved camera from the overview navigator.', 'neutral');
     }
 
@@ -6348,6 +9135,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
     }
 
+    function handleWindowBeforeUnload() {
+        persistDesignerUiState();
+    }
+
     function setDesignerActive(nextActive: boolean) {
         if (state.active === nextActive) return;
         state.active = nextActive;
@@ -6364,22 +9155,30 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refreshPanel();
     }
 
-    function drawOverview() {
-        const ctx = refs.overviewCanvas.getContext('2d');
+    function redrawOverviewBase() {
+        if (
+            overviewBaseCanvas.width !== refs.overviewCanvas.width ||
+            overviewBaseCanvas.height !== refs.overviewCanvas.height
+        ) {
+            overviewBaseCanvas.width = refs.overviewCanvas.width;
+            overviewBaseCanvas.height = refs.overviewCanvas.height;
+        }
+        const ctx = overviewBaseCanvas.getContext('2d');
         if (!ctx) return;
 
-        ctx.clearRect(0, 0, refs.overviewCanvas.width, refs.overviewCanvas.height);
+        ctx.clearRect(0, 0, overviewBaseCanvas.width, overviewBaseCanvas.height);
         ctx.fillStyle = '#020617';
-        ctx.fillRect(0, 0, refs.overviewCanvas.width, refs.overviewCanvas.height);
+        ctx.fillRect(0, 0, overviewBaseCanvas.width, overviewBaseCanvas.height);
 
-        const scaleX = refs.overviewCanvas.width / MAP_WIDTH;
-        const scaleY = refs.overviewCanvas.height / MAP_HEIGHT;
+        const scaleX = overviewBaseCanvas.width / MAP_WIDTH;
+        const scaleY = overviewBaseCanvas.height / MAP_HEIGHT;
         const colors: Record<DesignerCategory, string> = {
             world: '#38bdf8',
             buttons: '#f59e0b',
             doors: '#ef4444',
             creatures: '#22c55e',
-            collectables: '#a855f7'
+            collectables: '#a855f7',
+            custom: '#facc15'
         };
 
         for (const [category, visible] of Object.entries(state.layerVisibility) as Array<[DesignerCategory, boolean]>) {
@@ -6410,6 +9209,25 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             10,
             10
         );
+        overviewBaseDirty = false;
+    }
+
+    function drawOverview() {
+        const ctx = refs.overviewCanvas.getContext('2d');
+        if (!ctx) return;
+
+        if (
+            overviewBaseDirty ||
+            overviewBaseCanvas.width !== refs.overviewCanvas.width ||
+            overviewBaseCanvas.height !== refs.overviewCanvas.height
+        ) {
+            redrawOverviewBase();
+        }
+
+        ctx.clearRect(0, 0, refs.overviewCanvas.width, refs.overviewCanvas.height);
+        ctx.drawImage(overviewBaseCanvas, 0, 0);
+        const scaleX = refs.overviewCanvas.width / MAP_WIDTH;
+        const scaleY = refs.overviewCanvas.height / MAP_HEIGHT;
 
         for (const selection of getSelectedItems()) {
             const rect = getEntityRect(selection.entity, selection.category);
@@ -6538,6 +9356,19 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     refs.typeSelect.addEventListener('change', () => {
         const selection = getSingleEditableSelection();
         if (selection) {
+            if (selection.category === 'custom') {
+                const definition = getCustomSpriteDefinitionById(refs.typeSelect.value);
+                if (!definition) {
+                    return;
+                }
+                runMutation('Updated custom sprite type.', () => {
+                    selection.entity.customSpriteId = definition.id;
+                    selection.entity.type = definition.name;
+                    state.typeByCategory.custom = definition.id;
+                });
+                updateSelectionFromInspectorState();
+                return;
+            }
             runMutation('Updated sprite type.', () => {
                 selection.entity.type = refs.typeSelect.value;
                 state.typeByCategory[selection.category] = refs.typeSelect.value;
@@ -6552,6 +9383,14 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     });
     refs.spritePickerFilter.addEventListener('input', () => {
         state.spritePickerFilter = refs.spritePickerFilter.value;
+        if (state.spritePickerFilter.trim().length > 0) {
+            refs.spritePickerCategoryFilter.value = 'all';
+        }
+        renderSpritePickerGrid();
+        persistDesignerUiState();
+    });
+    refs.spritePickerCategoryFilter.addEventListener('change', () => {
+        state.spritePickerCategoryFilter = refs.spritePickerCategoryFilter.value as SpritePickerCategoryFilter;
         renderSpritePickerGrid();
         persistDesignerUiState();
     });
@@ -6664,6 +9503,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     for (const [category, checkbox] of Object.entries(refs.layerCheckboxes) as Array<[DesignerCategory, HTMLInputElement]>) {
         checkbox.addEventListener('change', () => {
             state.layerVisibility[category] = checkbox.checked;
+            invalidateOverviewBase();
         });
     }
     refs.savePreviewButton.addEventListener('click', openSavePreview);
@@ -6754,6 +9594,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('mousedown', handleWindowMouseDown);
     window.addEventListener('resize', resizeExpandedViewport);
+    window.addEventListener('beforeunload', handleWindowBeforeUnload);
 
     refreshSelectOptions();
     if (restoredViewportExpanded) {
@@ -6780,6 +9621,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         getLayerVisibility() {
             return state.layerVisibility;
         },
+        getDebugSelection() {
+            return state.selection;
+        },
         shouldShowCollisionOverlay() {
             return state.active && state.showCollisionOverlay;
         },
@@ -6800,6 +9644,21 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             const spriteOutlinesVisible = host.getShowSpriteOutlines();
             if (refs.showSpriteOutlineCheckbox.checked !== spriteOutlinesVisible) {
                 refs.showSpriteOutlineCheckbox.checked = spriteOutlinesVisible;
+            }
+
+            if (state.layerVisibility.custom) {
+                for (const instance of state.customSpriteInstances) {
+                    const definition = getCustomSpriteDefinitionForInstance(instance);
+                    if (!definition) {
+                        continue;
+                    }
+                    drawCustomSpriteDefinitionAt(
+                        ctx,
+                        definition,
+                        instance.x - state.camera.x,
+                        instance.y - state.camera.y
+                    );
+                }
             }
 
             const selections = getSelectedItems();
@@ -6877,14 +9736,21 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 const placement = resolvePlacementPosition(world.x, world.y, state.pickerDrag.category);
                 const ghostCtx = dragGhostCanvas.getContext('2d');
                 if (ghostCtx) {
-                    host.drawSpritePreview(
-                        ghostCtx,
-                        state.pickerDrag.type,
-                        state.pickerDrag.palette,
-                        state.pickerDrag.rotation,
-                        true,
-                        dragGhostTargetSize
-                    );
+                    if (state.pickerDrag.category === 'custom') {
+                        renderCustomSpritePreviewCanvas(
+                            dragGhostCanvas,
+                            getCustomSpriteDefinitionById(state.pickerDrag.type)
+                        );
+                    } else {
+                        host.drawSpritePreview(
+                            ghostCtx,
+                            state.pickerDrag.type,
+                            state.pickerDrag.palette,
+                            state.pickerDrag.rotation,
+                            true,
+                            dragGhostTargetSize
+                        );
+                    }
                 }
                 ctx.save();
                 ctx.globalAlpha = 0.75;
@@ -6924,6 +9790,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         },
         destroy() {
             setViewportExpanded(false);
+            customSpriteDefinitionResolver = null;
             closeContextMenu();
             refs.overviewCanvas.removeEventListener('mousedown', handleOverviewMouseDown);
             refs.overviewCanvas.removeEventListener('mousemove', handleOverviewMouseMove);
@@ -6937,6 +9804,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             window.removeEventListener('keyup', handleKeyUp);
             window.removeEventListener('mousedown', handleWindowMouseDown);
             window.removeEventListener('resize', resizeExpandedViewport);
+            window.removeEventListener('beforeunload', handleWindowBeforeUnload);
             root.remove();
             modal.remove();
             paletteFlyout.remove();

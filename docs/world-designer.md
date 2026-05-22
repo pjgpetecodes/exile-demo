@@ -9,6 +9,7 @@ The world designer is an in-app editor for building and maintaining the playable
 - doors
 - creatures
 - collectables
+- custom sprites
 - astronaut start position
 
 It saves back into the JSON files in `astronaut-game\src\assets`.
@@ -29,6 +30,8 @@ It saves back into the JSON files in `astronaut-game\src\assets`.
 The designer starts hidden by default.
 
 The designer now remembers its UI state in browser storage, including the active tool, mode, category, sprite choice, palette, camera, viewport expansion, and palette-flyout selection.
+
+Custom sprite definitions and placed custom-sprite instances are also kept in browser storage. They are a designer-authoring aid and are not written to the JSON asset files until you convert them into normal runtime entities such as buttons.
 
 ## What the designer saves
 
@@ -84,8 +87,33 @@ When a single item is selected, the inspector shows editable properties such as:
    - Doors
    - Creatures
    - Collectables
+   - Custom sprites
 5. Choose a sprite type
 6. Click in the world to place it
+
+The **Buttons** category is now a button-part authoring aid: placing from it drops normal sprite parts into the world instead of immediately creating a runtime button entity.
+
+To author a live button visually:
+
+1. place `button` and `button_box` as separate **World items**
+2. arrange them until they look right
+3. multi-select them
+4. right-click and choose **Group as custom sprite**
+5. select the resulting custom sprite and choose **Convert to button**
+
+That conversion keeps the live `button` cap animated and derives its initial offsets / press direction from the grouped layout.
+
+After conversion, use the button inspector to tune:
+
+- **Button cap palette**
+- **Closed cap offset X/Y (from box)**
+- **Open cap offset X/Y (from box)**
+
+Those offsets are authored in button-local space relative to the box, and the runtime still applies the button's rotation or flip to them.
+
+The button inspector also includes a **defaults for new buttons and button conversions** section. Those defaults only affect buttons created after you change them; existing buttons keep their own saved cap palette, box palette, and cap offsets.
+
+If you want to turn an existing world item or collectable into a **Door** or **Button**, select it, switch the target **Category**, and click **Convert**. The right-click context menu also exposes explicit convert actions.
 
 You can also use:
 
@@ -157,12 +185,15 @@ The designer now includes:
 - a live sprite preview
 - a sprite grid picker in a collapsed accordion
 - a text filter for narrowing sprite names in the grid
+- a category filter for narrowing the grid to world items, buttons, doors, creatures, or collectables
 
 You can:
 
 - choose a sprite by name from the dropdown
 - open the **Choose from sprite grid** accordion
 - type in the filter box to narrow the grid
+- use the category filter to narrow the grid by designer category
+- when you type in the search box, the picker temporarily searches across the full sprite set again
 - click a sprite in the grid to select it
 - drag a sprite from the grid onto the world to place it
 
@@ -170,7 +201,7 @@ You can:
 
 ### Main view
 
-- **right-click a placed object** = open a context-aware menu with grouped **Edit**, **Palette**, **Properties**, **Collectable**, **Convert**, and **Defaults** submenus depending on the item type, including actions such as collision toggles, astronaut masking, collectable flags, conversion between world items and collectables, door/button default-state toggles, and layer-order actions such as **Send to back** and **Bring to front**
+- **right-click a placed object** = open a context-aware menu with grouped **Edit**, **Palette**, **Properties**, **Collectable**, **Convert**, and **Defaults** submenus depending on the item type, including actions such as collision toggles, astronaut masking, collectable flags, conversion between world items and collectables, **Group as custom sprite**, **Ungroup custom sprite**, button conversion from custom sprites, door/button default-state toggles, and layer-order actions such as **Send to back** and **Bring to front**
 - **right-click empty space** = open a context menu to paste the copied selection there, set the astronaut start there, or move the live astronaut there
 - **right mouse drag on empty space** = pan camera
 - **Center on astronaut** = recenters the editor on the live astronaut
@@ -270,21 +301,149 @@ The current importer is intentionally conservative:
 - it is meant for **draft cleanup**, not authoritative one-click conversion
 - low-confidence matches should be reviewed before save
 
+### Two separate import paths
+
+The PNG importer now has two distinct paths:
+
+1. **Single PNG** = import one PNG or one cropped section directly
+2. **Chunk folder** = import an exported chunk set and rebuild a larger map section from it
+
+Inside the modal, **Import** and **Chunk export** are now separate tabs so you can switch between those workflows without stacking everything vertically at once.
+
+Use **Single PNG** when:
+
+- you want to test a small area quickly
+- you only need one cropped section from the full map
+- you do not want to export chunks first
+
+Use **Chunk folder** when:
+
+- you want to rebuild a large area or the whole map
+- you want safer staged testing with chunk row/column ranges
+- you want to process the map in manageable sections instead of one huge pass
+
+### Split a large PNG into import chunks
+
+If a full-map PNG is too large to review comfortably in one pass, the import modal can now split the currently selected PNG crop into smaller chunk PNGs.
+
+1. Choose **Single PNG**
+2. Load a PNG and set a **tile-aligned** crop
+3. Switch to the **Chunk export** tab
+4. In **Split PNG into import chunks**, pick a chunk preset or enter a custom tile size
+5. `4 x 4` is now available if you want very small test chunks
+6. Click **Export chunks…**
+7. Choose a destination folder in the browser
+
+The exporter writes:
+
+- one PNG per chunk
+- stable machine-readable chunk filenames
+- `png-import-chunks.manifest.json`
+
+While export is running, the modal now shows a progress bar, progress text, and a **Cancel chunk export** action.
+
+That exported folder is then ready for **Chunk folder** mode.
+
+### Rebuild a larger map from a chunk folder
+
+Choose **Chunk folder** in the same modal when you want the importer to walk an exported folder and reconstruct a larger combined draft.
+
+1. Choose **Chunk folder**
+2. Click **Choose folder…** and select a folder that contains the exported chunk PNGs and manifest
+3. Optionally limit the run with:
+   - chunk column / row ranges
+   - **Max chunks** to process, which now counts only non-black chunk PNGs
+4. Leave **Keep the world span matched to the selected chunk range** enabled unless you have a specific reason not to
+5. Set **World left/top** to the origin for the full folder import area
+6. Make sure you are on the **Import** tab
+7. Either:
+   - click **Preview blocks** if you want to review and adjust the reconstructed draft first, or
+   - click **Try folder import now** if you want the importer to go straight through without manual preview vetting
+8. If you used **Preview blocks**, review and fix the reconstructed draft before clicking **Import draft**
+
+Chunk-folder mode now keeps the **full folder import width and height** even when you limit the chunk run. Limited test imports still place their chunks in the same positions they would occupy in the full map, relative to the **World left/top** origin you choose.
+
+Long-running import work now also shows a progress bar and progress text, and both the single-file import preview path and the folder-import path can be cancelled from the modal while they are running. That includes both **Preview blocks** and **Try folder import now**.
+
+Large chunk-folder imports are processed in internal batches, so they can exceed the single-PNG `4096`-tile pass limit.
+
+### Full-map workflow
+
+If your goal is to take one large source PNG and turn it into your in-game map, use this workflow:
+
+1. Open **Import PNG draft**
+2. Click **Single PNG**
+3. Load the full-map PNG
+4. Use **Snap crop to 32px tiles** so the source region is aligned cleanly
+5. Open the **Chunk export** tab
+6. In **Split PNG into import chunks**, keep the default **16 x 16** chunk size unless you need something smaller
+7. Click **Export chunks…** and choose a folder
+8. Click **Chunk folder**
+9. Click **Choose folder…** and pick that exported folder
+10. Make sure you are on the **Import** tab
+11. Start with a small test range, for example just a few chunk rows/columns or a low **Max chunks** value
+12. Set **World left/top** to where the exported crop should begin in the game world
+13. Either click **Preview blocks** for a reviewed pass, or **Try folder import now** for a straight-through attempt
+14. If you previewed, review the preview, fix obvious bad matches, and click **Import draft**
+15. Repeat with larger ranges until you are happy, then import the full chunk range
+16. Use **Preview before save** and then save once the rebuilt map looks correct
+
+Recommended approach:
+
+- first test a **small subset**
+- confirm your world origin is correct
+- then scale up to the full exported chunk range
+- if chunk export feels heavy, prefer the default `16 x 16` size and leave **Skip fully empty / black chunk PNGs** enabled
+- use `4 x 4` only when you want very fine-grained testing or debugging, because it creates many more files
+
+This is the safest way to rebuild the whole map without waiting a long time only to discover that the origin, chunk range, or matching needs adjustment.
+
+### Small-area workflow
+
+If you only want to import one part of the overall map on its own:
+
+1. Open **Import PNG draft**
+2. Click **Single PNG**
+3. Load the full PNG or a smaller PNG
+4. Set the **PNG crop in the source image** to the area you want
+5. Use **Snap crop to 32px tiles** if needed
+6. Make sure you are on the **Import** tab
+7. Set the target **World left/top/width/height**
+8. Choose whether to:
+   - replace only the target area, or
+   - clear all existing world items and collectibles before importing
+9. Click **Preview blocks**
+10. Review and adjust the preview
+11. Click **Import draft**
+
+This path does **not** require chunk export first.
+
+### Recommended chunk sizes
+
+- **Default:** `16 x 16` tiles
+- **Very small / debugging:** `4 x 4` tiles
+- **Small / safest:** `8 x 8` tiles
+- **Larger but still practical:** `24 x 16` or `16 x 24`
+
+The hard importer limit is still higher than that, but smaller chunk sizes are much easier to preview, retry, and clean up.
+
 ### Step-by-step workflow
 
 1. Click **Import PNG draft**
-2. Either:
+2. Choose **Single PNG** or **Chunk folder**
+3. For **Single PNG**, either:
    - enter a browser-served PNG path such as `./src/assets/MAP-Exile-BC.png`, or
    - click **Browse…** and pick a local PNG file
-3. If you browse to a local PNG, the importer fills the **PNG crop in the source image** fields from the file automatically, starting with the full image, and it also suggests a **Place matched blocks in the world** size that better matches the game’s rendered scale
-4. Adjust the **PNG crop** in **image pixels** only if you want part of the PNG rather than the whole file. Use **Snap crop to 32px tiles** if the crop needs aligning to tile boundaries.
-5. Fill in the **world placement** fields in world coordinates. The importer keeps the block count from the **source PNG tile grid** and places those blocks across the chosen world area, instead of assuming the target width/height themselves define the tile count.
-6. Click **Preview blocks** to generate the matched tile draft. The importer will also auto-align the source sampling grid when the sprite content suggests the crop is globally offset inside the 32px cells.
-7. Watch the built-in progress bar while preview generation is running. It reports the current stage and estimated time left, and the controls are locked until the pass finishes.
-8. Use the larger preview area to inspect the draft, and use **zoom in / zoom out / fit / 100%** controls if the section is too big or too small to review comfortably.
-9. Click tiles in the preview to inspect or edit their **type**, **palette**, **rotation**, and **translation** before the draft touches the live world. The importer now seeds a best-fit translation automatically from the sampled sprite placement, so edge-aligned pieces often come in already shifted to the correct side.
-10. Decide whether to keep **Replace existing world items inside the target world rectangle** enabled
-11. Click **Import draft**
+4. If you browse to a local PNG, the importer fills the **PNG crop in the source image** fields from the file automatically, starting with the full image, and it also suggests a **Place matched blocks in the world** size that better matches the game’s rendered scale
+5. Adjust the **PNG crop** in **image pixels** only if you want part of the PNG rather than the whole file. Use **Snap crop to 32px tiles** if the crop needs aligning to tile boundaries.
+6. For **Chunk folder**, choose the exported folder and optionally narrow the run with chunk row / column ranges or **Max chunks**
+7. Fill in the **world placement** fields in world coordinates. In **Single PNG** mode, the importer keeps the block count from the **source PNG tile grid** and maps it across the world rectangle you choose. In **Chunk folder** mode, **World left/top** is the origin for the exported crop and the importer keeps the selected chunk range aligned relative to that origin.
+8. Click **Preview blocks** to generate the matched tile draft. In **Single PNG** mode, the importer can auto-align the source sampling grid when the sprite content suggests the crop is globally offset inside the 32px cells. **Chunk folder** mode stays locked to the exported chunk grid.
+9. Watch the built-in progress bar while preview generation is running. It reports the current stage and estimated time left, and the controls are locked until the pass finishes.
+10. Use the larger preview area to inspect the draft, and use **zoom in / zoom out / fit / 100%** controls if the section is too big or too small to review comfortably.
+11. Click tiles in the preview to inspect or edit their **type**, **palette**, **rotation**, and **translation** before the draft touches the live world. The importer now seeds a best-fit translation automatically from the sampled sprite placement, so edge-aligned pieces often come in already shifted to the correct side.
+12. Decide whether to keep **Replace existing world items inside the target world rectangle** enabled
+13. Click **Import draft**
 
 After import:
 
@@ -307,6 +466,8 @@ That means:
 - the importer is effectively remapping the source tile grid into the chosen world-space area
 
 If you browse to a PNG file, you usually do **not** need to type the source width or source height manually for a full-image import, because the importer reads those from the selected file and also suggests a target world size that matches the game’s rendered scale more closely.
+
+In **Chunk folder** mode, the target span is derived from the selected chunk range, and the importer uses the chunk metadata to keep that range in the right relative place inside the overall map.
 
 ### Replace vs append behavior
 
@@ -337,13 +498,16 @@ This is why no AI endpoint is required for the current version.
 Recommended workflow:
 
 1. start with a **small region**
-2. click **Preview blocks**
-3. fix obvious bad matches directly in the preview
-4. use the tile **Translation** control when a matched world sprite needs to sit against one side of its 32x32 cell
-5. import the reviewed draft
-6. check the result visually in the designer
-7. use **Preview before save** to inspect the resulting JSON
-8. save only after cleanup
+2. if needed, **export chunks** first and then test the folder importer on a limited range
+3. click **Preview blocks**
+4. fix obvious bad matches directly in the preview
+5. use the tile **Translation** control when a matched world sprite needs to sit against one side of its 32x32 cell
+6. import the reviewed draft
+7. check the result visually in the designer
+8. use **Preview before save** to inspect the resulting JSON
+9. save only after cleanup
+
+Large folder imports can extend the usable runtime world bounds automatically when the reconstructed draft reaches beyond the previous map size.
 
 ### What to expect
 
@@ -382,9 +546,11 @@ Buttons and doors are linked by numeric IDs.
 
 1. Place or select a **door**
 2. In the inspector, set **Door ID**
-3. Place or select a **button**
-4. In the button inspector, set **Linked door IDs (comma separated)**
-5. Save
+3. Place `button` and `button_box` as separate **World items**
+4. Group them as a **Custom sprite**
+5. Convert that custom sprite to a **button**
+6. In the button inspector, set **Linked door IDs (comma separated)**
+7. Save
 
 ### Example
 
@@ -433,6 +599,27 @@ After multi-selecting:
 - use duplicate / delete on the whole group
 - use **Ctrl+C** and **Ctrl+V** to copy and paste the whole selection
 - auto-pan can occur when dragging toward the edge of the screen
+
+## Custom sprites and grouping
+
+Custom sprites let you turn a placed arrangement of normal sprites into one reusable designer item.
+
+1. Place the source pieces in the world, usually as **World items**
+2. Multi-select the pieces
+3. Right-click and choose **Group as custom sprite**
+4. The designer replaces the loose pieces with one placed **Custom sprite**
+5. Switch the category to **Custom sprites** to place more copies from the picker
+
+You can right-click a custom sprite and choose **Ungroup custom sprite** at any time to restore the original pieces.
+
+Custom sprites can also be:
+
+- renamed from the inspector **Name** field
+- deleted as a saved type from the inspector or the right-click menu
+
+Deleting a custom sprite type removes all placed instances that use that saved custom sprite.
+
+This is especially useful for buttons, where the `button` cap and `button_box` base can be authored visually first and only converted into a runtime button after the layout looks correct.
 
 ## Keyboard shortcuts
 
