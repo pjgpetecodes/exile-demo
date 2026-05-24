@@ -6,6 +6,7 @@ import {
     CreatureSoundSettings,
     PaletteCycleSettings
 } from './types/index.js';
+import { CREATURE_PROJECTILE_SETTINGS } from './settings.js';
 import { normalizeSpriteTranslation, SpriteTranslation } from './utilities.js';
 
 export const DEFAULT_CREATURE_SOUND_SETTINGS: Required<CreatureSoundSettings> = {
@@ -58,6 +59,20 @@ function cloneSoundSettings(sound?: CreatureSoundSettings): Required<CreatureSou
     };
 }
 
+function sanitizeCreatureState(state: unknown, rotation: unknown): Record<string, unknown> {
+    const authoredRotation = Number((state as { authoredRotation?: unknown } | undefined)?.authoredRotation);
+    if (Number.isFinite(authoredRotation)) {
+        return { authoredRotation: Math.round(authoredRotation) };
+    }
+
+    const normalizedRotation = Number(rotation);
+    if (Number.isFinite(normalizedRotation)) {
+        return { authoredRotation: Math.round(normalizedRotation) };
+    }
+
+    return {};
+}
+
 function normalizeNumber(value: unknown, fallback: number, minimum?: number) {
     const normalized = Number(value);
     if (!Number.isFinite(normalized)) {
@@ -74,7 +89,37 @@ function normalizeMovementMode(value: unknown): CreatureMovementMode {
 }
 
 function normalizeFireMode(value: unknown): CreatureFireMode {
-    return value === 'bullets' || value === 'grenades' || value === 'energy_pods' ? value : DEFAULT_CREATURE_FIRE_MODE;
+    return value === 'bullets' || value === 'grenades' || value === 'plasma_grenades' || value === 'energy_pods'
+        ? value
+        : DEFAULT_CREATURE_FIRE_MODE;
+}
+
+function getProjectileKindForFireMode(fireMode: CreatureFireMode) {
+    if (fireMode === 'grenades') {
+        return 'grenade' as const;
+    }
+    if (fireMode === 'plasma_grenades') {
+        return 'plasma_grenade' as const;
+    }
+    if (fireMode === 'energy_pods') {
+        return 'energy_pod' as const;
+    }
+    if (fireMode === 'bullets') {
+        return 'bullet' as const;
+    }
+    return null;
+}
+
+function getDefaultProjectileWeight(fireMode: CreatureFireMode) {
+    const projectileKind = getProjectileKindForFireMode(fireMode);
+    return projectileKind
+        ? CREATURE_PROJECTILE_SETTINGS[projectileKind].defaultWeight
+        : CREATURE_PROJECTILE_SETTINGS.bullet.defaultWeight;
+}
+
+function getDefaultProjectileBounciness(fireMode: CreatureFireMode) {
+    const projectileKind = getProjectileKindForFireMode(fireMode);
+    return projectileKind ? CREATURE_PROJECTILE_SETTINGS[projectileKind].defaultBounciness : 0;
 }
 
 export function createCreatureSaveData(data: Partial<CreatureSaveData> & Pick<CreatureSaveData, 'x' | 'y' | 'type'>): CreatureSaveData {
@@ -91,7 +136,13 @@ export function createCreatureSaveData(data: Partial<CreatureSaveData> & Pick<Cr
     const defaultTrackRange = archetype === 'turret' ? 224 : archetype === 'bee' ? 96 : 160;
     const defaultPatrolHorizontal = archetype === 'bird' ? 128 : 96;
     const defaultPatrolVertical = archetype === 'bird' ? 48 : 32;
+    const defaultFireCooldownVarianceMs = archetype === 'turret' ? 180 : 0;
+    const defaultTargetRefreshMs = archetype === 'turret' ? 320 : 0;
+    const defaultAimLeadFactor = archetype === 'turret' ? 0.35 : 0;
+    const defaultAimJitterPx = archetype === 'turret' ? 8 : 0;
+    const defaultRequiresLineOfSight = archetype === 'turret';
     const sound = cloneSoundSettings(data.sound);
+    const fireMode = normalizeFireMode(data.fireMode);
     return {
         x: normalizeNumber(data.x, 0),
         y: normalizeNumber(data.y, 0),
@@ -115,10 +166,17 @@ export function createCreatureSaveData(data: Partial<CreatureSaveData> & Pick<Cr
         patrolMaxY: normalizeNumber(data.patrolMaxY, data.y + defaultPatrolVertical),
         hoverAmplitude: normalizeNumber(data.hoverAmplitude, archetype === 'bee' ? 8 : 0, 0),
         trackRange: normalizeNumber(data.trackRange, defaultTrackRange, 0),
-        fireMode: normalizeFireMode(data.fireMode),
+        fireMode,
         homingBullets: data.homingBullets === true,
         fireCooldownMs: normalizeNumber(data.fireCooldownMs, 1200, 0),
+        fireCooldownVarianceMs: normalizeNumber(data.fireCooldownVarianceMs, defaultFireCooldownVarianceMs, 0),
+        targetRefreshMs: normalizeNumber(data.targetRefreshMs, defaultTargetRefreshMs, 0),
+        aimLeadFactor: normalizeNumber(data.aimLeadFactor, defaultAimLeadFactor, 0),
+        aimJitterPx: normalizeNumber(data.aimJitterPx, defaultAimJitterPx, 0),
+        requiresLineOfSight: data.requiresLineOfSight ?? defaultRequiresLineOfSight,
         projectileSpeed: normalizeNumber(data.projectileSpeed, 3, 0),
+        projectileWeight: normalizeNumber(data.projectileWeight, getDefaultProjectileWeight(fireMode), 0),
+        projectileBounciness: normalizeNumber(data.projectileBounciness, getDefaultProjectileBounciness(fireMode), 0),
         canEatWasps: data.canEatWasps === true,
         canJump: data.canJump === true,
         jumpStrength: normalizeNumber(data.jumpStrength, 6, 0),
@@ -133,7 +191,7 @@ export function createCreatureSaveData(data: Partial<CreatureSaveData> & Pick<Cr
         storable: data.storable === true,
         pushAstronaut: data.pushAstronaut !== false,
         sound,
-        state: data.state ? { ...data.state } : {},
+        state: sanitizeCreatureState(data.state, data.rotation),
         ...(data.paletteCycle ? { paletteCycle: clonePaletteCycle(data.paletteCycle) } : {})
     };
 }
@@ -169,7 +227,14 @@ export class Creature {
     fireMode: CreatureFireMode;
     homingBullets: boolean;
     fireCooldownMs: number;
+    fireCooldownVarianceMs: number;
+    targetRefreshMs: number;
+    aimLeadFactor: number;
+    aimJitterPx: number;
+    requiresLineOfSight: boolean;
     projectileSpeed: number;
+    projectileWeight: number;
+    projectileBounciness: number;
     canEatWasps: boolean;
     canJump: boolean;
     jumpStrength: number;
@@ -217,7 +282,14 @@ export class Creature {
         this.fireMode = normalized.fireMode ?? DEFAULT_CREATURE_FIRE_MODE;
         this.homingBullets = normalized.homingBullets ?? false;
         this.fireCooldownMs = normalized.fireCooldownMs ?? 1200;
+        this.fireCooldownVarianceMs = normalized.fireCooldownVarianceMs ?? 0;
+        this.targetRefreshMs = normalized.targetRefreshMs ?? 0;
+        this.aimLeadFactor = normalized.aimLeadFactor ?? 0;
+        this.aimJitterPx = normalized.aimJitterPx ?? 0;
+        this.requiresLineOfSight = normalized.requiresLineOfSight ?? false;
         this.projectileSpeed = normalized.projectileSpeed ?? 3;
+        this.projectileWeight = normalized.projectileWeight ?? getDefaultProjectileWeight(this.fireMode);
+        this.projectileBounciness = normalized.projectileBounciness ?? getDefaultProjectileBounciness(this.fireMode);
         this.canEatWasps = normalized.canEatWasps ?? false;
         this.canJump = normalized.canJump ?? false;
         this.jumpStrength = normalized.jumpStrength ?? 6;

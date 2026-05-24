@@ -4,7 +4,7 @@ import { MapBlock, shouldMaskAstronaut } from './map.js';
 import { Button } from './button.js';
 import { Door } from './door.js';
 import { Creature, toCreatureSaveData } from './creature.js';
-import { Collectable } from './collectable.js';
+import { Collectable, getDefaultGrenadeExplosionPower, isGrenadeCollectableType } from './collectable.js';
 import {
     CreatureSaveData,
     PaletteCycleSettings,
@@ -76,6 +76,8 @@ export type CollectableSaveData = {
     velocity?: Position;
     astronautCollisionIgnoreFrames?: number;
     paletteCycle?: PaletteCycleSettings;
+    armed?: boolean;
+    explosionPower?: number;
 };
 
 export type RawWorldData = {
@@ -649,6 +651,7 @@ const OBJECT_SNAP_ALIGNMENT_THRESHOLD = 24;
 const BUTTON_DEFAULT_PRESS_OFFSET = 3;
 const BUTTON_DEFAULT_BOX_OFFSET_X = 12;
 const BUTTON_DEFAULT_BOX_OFFSET_Y = 0;
+const visibleSpriteRectCache = new Map<string, { left: number; top: number; width: number; height: number } | null>();
 const CATEGORY_LABELS: Record<DesignerCategory, string> = {
     world: 'World items',
     buttons: 'Buttons',
@@ -658,6 +661,12 @@ const CATEGORY_LABELS: Record<DesignerCategory, string> = {
     custom: 'Custom sprites'
 };
 let customSpriteDefinitionResolver: ((instance: CustomSpriteInstance) => CustomSpriteDefinition | null) | null = null;
+let visibleSpriteRectResolver: ((
+    type: string,
+    palette: number,
+    rotation: number,
+    translation?: SpriteTranslation
+) => { left: number; top: number; width: number; height: number } | null) | null = null;
 
 const SAVE_FILE_LABELS: Record<keyof RawWorldData, string> = {
     worldMap: 'world_map.json',
@@ -764,6 +773,14 @@ function toCreatureData(creature: any): CreatureSaveData {
 }
 
 function toCollectableData(collectable: any): CollectableSaveData {
+    const grenadeDefaults = isGrenadeCollectableType(collectable.type)
+        ? {
+            armed: collectable.armed === true,
+            explosionPower: typeof collectable.explosionPower === 'number'
+                ? collectable.explosionPower
+                : getDefaultGrenadeExplosionPower(collectable.type)
+        }
+        : {};
     return {
         x: collectable.x,
         y: collectable.y,
@@ -782,7 +799,8 @@ function toCollectableData(collectable: any): CollectableSaveData {
         isGrounded: collectable.isGrounded ?? false,
         velocity: deepClone(collectable.velocity ?? { x: 0, y: 0 }),
         astronautCollisionIgnoreFrames: collectable.astronautCollisionIgnoreFrames ?? 0,
-        ...(collectable.paletteCycle ? { paletteCycle: deepClone(collectable.paletteCycle) } : {})
+        ...(collectable.paletteCycle ? { paletteCycle: deepClone(collectable.paletteCycle) } : {}),
+        ...grenadeDefaults
     };
 }
 
@@ -792,7 +810,9 @@ function serializeWorldData(data: RawWorldData): RawWorldData {
         buttons: data.buttons.map((button) => toButtonData(button)),
         doors: data.doors.map((door) => toDoorData(door)),
         creatures: data.creatures.map((creature) => toCreatureData(creature)),
-        collectables: data.collectables.map((collectable) => toCollectableData(collectable)),
+        collectables: data.collectables
+            .filter((collectable) => !('creatureProjectile' in collectable) || !collectable.creatureProjectile)
+            .map((collectable) => toCollectableData(collectable)),
         astronautStart: {
             x: Math.round(data.astronautStart.x),
             y: Math.round(data.astronautStart.y)
@@ -854,6 +874,25 @@ function getRectAtPosition(x: number, y: number, category: DesignerCategory): Re
         width,
         height
     };
+}
+
+function getVisibleSpriteRect(
+    type: string,
+    palette: number,
+    rotation: number,
+    translation: SpriteTranslation = 'center'
+) {
+    if (!visibleSpriteRectResolver) {
+        return null;
+    }
+    const cacheKey = `${type}|${palette}|${rotation}|${translation}`;
+    if (visibleSpriteRectCache.has(cacheKey)) {
+        return visibleSpriteRectCache.get(cacheKey) ?? null;
+    }
+
+    const rect = visibleSpriteRectResolver(type, palette, rotation, translation);
+    visibleSpriteRectCache.set(cacheKey, rect);
+    return rect;
 }
 
 function invertButtonOffset(offsetX: number, offsetY: number, rotation: number) {
@@ -932,6 +971,28 @@ function getEntityRect(entity: any, category: DesignerCategory) {
             width: right - left,
             height: bottom - top
         };
+    }
+    if (category === 'collectables' && typeof entity.type === 'string') {
+        const visibleRect = getVisibleSpriteRect(
+            entity.type,
+            typeof entity.palette === 'number' ? entity.palette : 0,
+            normalizeRotation('defaultRotation' in entity ? entity.defaultRotation ?? entity.rotation : entity.rotation),
+            'center'
+        );
+        if (visibleRect) {
+            const left = entity.x + visibleRect.left;
+            const top = entity.y + visibleRect.top;
+            const right = left + visibleRect.width;
+            const bottom = top + visibleRect.height;
+            return {
+                left,
+                top,
+                right,
+                bottom,
+                width: right - left,
+                height: bottom - top
+            };
+        }
     }
     return getRectAtPosition(entity.x, entity.y, category);
 }
@@ -2434,6 +2495,37 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     };
     customSpriteDefinitionResolver = (instance) =>
         state.customSpriteDefinitions.find((definition) => definition.id === instance.customSpriteId) ?? null;
+    visibleSpriteRectResolver = (type, palette, rotation, translation = 'center') => {
+        const spriteCanvas = document.createElement('canvas');
+        spriteCanvas.width = TILE_SIZE;
+        spriteCanvas.height = TILE_SIZE;
+        const spriteCtx = spriteCanvas.getContext('2d');
+        if (!spriteCtx) {
+            return null;
+        }
+        const rendered = host.drawSpriteSample(
+            spriteCtx,
+            type,
+            palette,
+            rotation,
+            true,
+            TILE_SIZE,
+            translation
+        );
+        if (!rendered) {
+            return null;
+        }
+        const visibleBounds = getSpriteVisibleBounds(spriteCanvas);
+        if (!visibleBounds) {
+            return null;
+        }
+        return {
+            left: visibleBounds.minX,
+            top: visibleBounds.minY,
+            width: visibleBounds.width,
+            height: visibleBounds.height
+        };
+    };
 
     const root = document.createElement('div');
     root.className = 'world-designer-panel world-designer-hidden';
@@ -6106,7 +6198,15 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         if (category === 'creatures') {
             return new Creature(data as CreatureSaveData);
         }
-        return new Collectable(data as CollectableSaveData);
+        const collectableData = {
+            ...(data as CollectableSaveData),
+            collected: false,
+            held: false,
+            stored: false,
+            velocity: { x: 0, y: 0 },
+            astronautCollisionIgnoreFrames: 0
+        };
+        return new Collectable(collectableData);
     }
 
     function createPastedSelections(entries: ClipboardEntry[], offsetX: number, offsetY: number) {
@@ -6246,6 +6346,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const candidates: Array<{ category: DesignerCategory; entity: any }> = [];
 
         for (const collectable of [...data.collectables].reverse()) {
+            if ('creatureProjectile' in collectable && collectable.creatureProjectile) {
+                continue;
+            }
             candidates.push({ category: 'collectables', entity: collectable });
         }
         for (const creature of [...data.creatures].reverse()) {
@@ -8761,6 +8864,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 { value: 'none', label: 'None' },
                 { value: 'bullets', label: 'Bullets' },
                 { value: 'grenades', label: 'Grenades' },
+                { value: 'plasma_grenades', label: 'Plasma grenades' },
                 { value: 'energy_pods', label: 'Energy pods' }
             ];
             const soundOptions = [
@@ -8880,11 +8984,46 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     entity.fireCooldownMs = Math.max(0, value);
                 });
             });
+            addNumberInspector(container, 'Fire cooldown variance (ms)', entity.fireCooldownVarianceMs ?? 0, (value) => {
+                runMutation('Updated cooldown variance.', () => {
+                    entity.fireCooldownVarianceMs = Math.max(0, value);
+                });
+            });
+            addNumberInspector(container, 'Target refresh (ms)', entity.targetRefreshMs ?? 0, (value) => {
+                runMutation('Updated target refresh.', () => {
+                    entity.targetRefreshMs = Math.max(0, value);
+                });
+            });
+            addNumberInspector(container, 'Aim lead factor', entity.aimLeadFactor ?? 0, (value) => {
+                runMutation('Updated aim lead factor.', () => {
+                    entity.aimLeadFactor = Math.max(0, value);
+                });
+            }, 0.05);
+            addNumberInspector(container, 'Aim jitter (px)', entity.aimJitterPx ?? 0, (value) => {
+                runMutation('Updated aim jitter.', () => {
+                    entity.aimJitterPx = Math.max(0, value);
+                });
+            }, 0.5);
+            addCheckboxInspector(container, 'Requires line of sight', entity.requiresLineOfSight ?? false, (checked) => {
+                runMutation('Updated line-of-sight gating.', () => {
+                    entity.requiresLineOfSight = checked;
+                });
+            });
             addNumberInspector(container, 'Projectile speed', entity.projectileSpeed ?? 3, (value) => {
                 runMutation('Updated projectile speed.', () => {
                     entity.projectileSpeed = Math.max(0, value);
                 });
             }, 0.1);
+            addNumberInspector(container, 'Projectile weight', entity.projectileWeight ?? 0.1, (value) => {
+                runMutation('Updated projectile weight.', () => {
+                    entity.projectileWeight = Math.max(0, value);
+                });
+            }, 0.05);
+            addNumberInspector(container, 'Projectile bounciness', entity.projectileBounciness ?? 0, (value) => {
+                runMutation('Updated projectile bounciness.', () => {
+                    entity.projectileBounciness = Math.max(0, value);
+                });
+            }, 0.05);
             addCheckboxInspector(container, 'Can eat wasps', entity.canEatWasps ?? false, (checked) => {
                 runMutation('Updated predator flag.', () => {
                     entity.canEatWasps = checked;
@@ -9081,6 +9220,28 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     entity.affectsAstronaut = checked;
                 });
             });
+            if (isGrenadeCollectableType(entity.type)) {
+                addCheckboxInspector(container, 'Armed', entity.armed ?? false, (checked) => {
+                    runMutation('Updated grenade armed state.', () => {
+                        if (checked) {
+                            entity.arm();
+                        } else {
+                            entity.disarm();
+                        }
+                    });
+                });
+                addNumberInspector(
+                    container,
+                    'Explosion power',
+                    entity.explosionPower ?? getDefaultGrenadeExplosionPower(entity.type) ?? 0,
+                    (value) => {
+                        runMutation('Updated grenade explosion power.', () => {
+                            entity.explosionPower = Math.max(0.5, value);
+                        });
+                    },
+                    0.1
+                );
+            }
         }
     }
 
@@ -10214,16 +10375,14 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             }
 
             const selections = getSelectedItems();
-            if (selections.length > 0) {
+            if (state.mode !== 'preview' && selections.length > 0) {
                 for (const selection of selections) {
                     const rect = getEntityRect(selection.entity, selection.category);
                     const isPrimary = state.selection ? areSameSelection(selection, state.selection) : false;
                     ctx.save();
                     ctx.strokeStyle = isPrimary ? '#f8fafc' : '#60a5fa';
                     ctx.lineWidth = isPrimary ? 2 : 1.5;
-                    ctx.setLineDash(isPrimary
-                        ? (state.mode === 'preview' ? [8, 4] : [])
-                        : [6, 4]);
+                    ctx.setLineDash(isPrimary ? [] : [6, 4]);
                     ctx.strokeRect(
                         rect.left - state.camera.x,
                         rect.top - state.camera.y,
@@ -10256,16 +10415,17 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 ctx.restore();
             }
 
-            if (state.showCollisionOverlay) {
+            if (state.showCollisionOverlay && state.mode !== 'preview') {
                 ctx.save();
-                ctx.strokeStyle = state.mode === 'preview'
-                    ? (state.disableCollisionInPreview ? '#94a3b8' : '#22c55e')
-                    : '#38bdf8';
+                ctx.strokeStyle = '#38bdf8';
                 ctx.lineWidth = 1.5;
-                ctx.setLineDash(state.mode === 'preview' && state.disableCollisionInPreview ? [4, 4] : []);
+                ctx.setLineDash([]);
                 for (const [category, visible] of Object.entries(state.layerVisibility) as Array<[DesignerCategory, boolean]>) {
                     if (!visible) continue;
                     for (const entity of getCategoryArray(category)) {
+                        if (category === 'collectables' && 'creatureProjectile' in entity && entity.creatureProjectile) {
+                            continue;
+                        }
                         if ('collision' in entity && entity.collision === false) continue;
                         const rect = getEntityRect(entity, category);
                         ctx.strokeRect(
@@ -10343,6 +10503,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         destroy() {
             setViewportExpanded(false);
             customSpriteDefinitionResolver = null;
+            visibleSpriteRectResolver = null;
+            visibleSpriteRectCache.clear();
             closeContextMenu();
             refs.overviewCanvas.removeEventListener('mousedown', handleOverviewMouseDown);
             refs.overviewCanvas.removeEventListener('mousemove', handleOverviewMouseMove);

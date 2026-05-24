@@ -1,0 +1,128 @@
+{
+  "generatedAt": "2026-05-23T22:04:11.765Z",
+  "sourceFile": "EXILESR_1900_1900.bin",
+  "samplePlaybackRate": 7812,
+  "tableOfContents": [
+    {
+      "id": 0,
+      "tableIndex": "0x000E",
+      "runtimeAddress": "0x810E"
+    },
+    {
+      "id": 1,
+      "tableIndex": "0x043A",
+      "runtimeAddress": "0x853A"
+    },
+    {
+      "id": 2,
+      "tableIndex": "0x0582",
+      "runtimeAddress": "0x8682"
+    },
+    {
+      "id": 3,
+      "tableIndex": "0x06B5",
+      "runtimeAddress": "0x87B5"
+    },
+    {
+      "id": 4,
+      "tableIndex": "0x0749",
+      "runtimeAddress": "0x8849"
+    },
+    {
+      "id": 5,
+      "tableIndex": "0x08C8",
+      "runtimeAddress": "0x89C8"
+    },
+    {
+      "id": 6,
+      "tableIndex": "0x0C46",
+      "runtimeAddress": "0x8D46"
+    }
+  ],
+  "sampledExports": [
+    {
+      "id": 0,
+      "fileName": "welcome_to_the_land_of_the_exile.wav",
+      "label": "Welcome to the land of the exile",
+      "note": "Sample ID 0, played at original_source.asm:12076-12081.",
+      "tableIndex": "0x000E",
+      "runtimeAddress": "0x810E",
+      "encodedBytes": 1068,
+      "decodedSamplesAt7812Hz": 15094,
+      "renderedSeconds": 1.932,
+      "file": "sampled/welcome_to_the_land_of_the_exile.wav"
+    },
+    {
+      "id": 1,
+      "fileName": "pain_1.wav",
+      "label": "Pain 1",
+      "note": "Sample ID 1, one of the random pain sounds from original_source.asm:6124-6129.",
+      "tableIndex": "0x043A",
+      "runtimeAddress": "0x853A",
+      "encodedBytes": 328,
+      "decodedSamplesAt7812Hz": 2902,
+      "renderedSeconds": 0.371,
+      "file": "sampled/pain_1.wav"
+    },
+    {
+      "id": 2,
+      "fileName": "pain_2.wav",
+      "label": "Pain 2",
+      "note": "Sample ID 2, one of the random pain sounds from original_source.asm:6124-6129.",
+      "tableIndex": "0x0582",
+      "runtimeAddress": "0x8682",
+      "encodedBytes": 307,
+      "decodedSamplesAt7812Hz": 2946,
+      "renderedSeconds": 0.377,
+      "file": "sampled/pain_2.wav"
+    },
+    {
+      "id": 3,
+      "fileName": "pain_3.wav",
+      "label": "Pain 3",
+      "note": "Sample ID 3, one of the random pain sounds from original_source.asm:6124-6129.",
+      "tableIndex": "0x06B5",
+      "runtimeAddress": "0x87B5",
+      "encodedBytes": 148,
+      "decodedSamplesAt7812Hz": 2007,
+      "renderedSeconds": 0.257,
+      "file": "sampled/pain_3.wav"
+    },
+    {
+      "id": 4,
+      "fileName": "pain_4.wav",
+      "label": "Pain 4",
+      "note": "Sample ID 4, one of the random pain sounds from original_source.asm:6124-6129.",
+      "tableIndex": "0x0749",
+      "runtimeAddress": "0x8849",
+      "encodedBytes": 383,
+      "decodedSamplesAt7812Hz": 3985,
+      "renderedSeconds": 0.51,
+      "file": "sampled/pain_4.wav"
+    },
+    {
+      "id": 5,
+      "fileName": "destroy.wav",
+      "label": "Destroy",
+      "note": "Sample ID 5 (DESTROY), played at original_source.asm:11820-11822.",
+      "tableIndex": "0x08C8",
+      "runtimeAddress": "0x89C8",
+      "encodedBytes": 894,
+      "decodedSamplesAt7812Hz": 6879,
+      "renderedSeconds": 0.881,
+      "file": "sampled/destroy.wav"
+    },
+    {
+      "id": 6,
+      "fileName": "alien_die.wav",
+      "label": "Alien die",
+      "note": "Sample ID 6 (ALIEN DIE), played at original_source.asm:11774-11776.",
+      "tableIndex": "0x0C46",
+      "runtimeAddress": "0x8D46",
+      "encodedBytes": 864,
+      "decodedSamplesAt7812Hz": 8191,
+      "renderedSeconds": 1.049,
+      "file": "sampled/alien_die.wav"
+    }
+  ]
+}

@@ -19,7 +19,9 @@
       "x": 0,
       "y": 0
     },
-    "astronautCollisionIgnoreFrames": 0
+    "astronautCollisionIgnoreFrames": 0,
+    "armed": false,
+    "explosionPower": 4
   },
   {
     "x": 8521,
@@ -41,7 +43,9 @@
       "x": 0,
       "y": 0
     },
-    "astronautCollisionIgnoreFrames": 0
+    "astronautCollisionIgnoreFrames": 0,
+    "armed": false,
+    "explosionPower": 4
   },
   {
     "x": 8566,
@@ -63,6 +67,8 @@
       "x": 0,
       "y": 0
     },
-    "astronautCollisionIgnoreFrames": 0
+    "astronautCollisionIgnoreFrames": 0,
+    "armed": false,
+    "explosionPower": 4
   }
 ]

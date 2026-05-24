@@ -10,8 +10,44 @@ export interface PaletteCycleSettings {
 }
 
 export type CreatureMovementMode = 'ground' | 'fly' | 'hover' | 'turret';
-export type CreatureFireMode = 'none' | 'bullets' | 'grenades' | 'energy_pods';
+export type CreatureFireMode = 'none' | 'bullets' | 'grenades' | 'plasma_grenades' | 'energy_pods';
+export type CreatureProjectileKind = 'bullet' | 'grenade' | 'plasma_grenade' | 'energy_pod';
 export type CreatureArchetype = 'custom' | 'monkey' | 'bird' | 'bee' | 'turret';
+
+export interface ProjectileImpactAnimationSettings {
+    frames: string[];
+    frameDurationFrames: number;
+    paletteSource?: 'projectile' | 'default';
+}
+
+export interface CreatureProjectileSettings {
+    spriteType: string;
+    lifetimeFrames: number;
+    gravityScale: number;
+    speedMultiplier: number;
+    launchVerticalBias: number;
+    defaultWeight: number;
+    defaultBounciness: number;
+    damageMultiplier: number;
+    directHitDamageMultiplier: number;
+    angleMatchesVelocity?: boolean;
+    supportsHoming?: boolean;
+    flightAnimation?: ProjectileImpactAnimationSettings;
+    impactAnimation?: ProjectileImpactAnimationSettings;
+    splashRadius?: number;
+    splashDamageMultiplier?: number;
+    minimumSplashDamage?: number;
+    spawnsCollectableOnImpact?: boolean;
+    spawnsCollectableOnExpire?: boolean;
+}
+
+export interface CreatureProjectileRuntimeData {
+    kind: CreatureProjectileKind;
+    homing: boolean;
+    remainingFrames: number;
+    damage: number;
+    sourceEntityId?: number;
+}
 
 export interface CreatureSoundSettings {
     enabled?: boolean;
@@ -48,7 +84,14 @@ export interface CreatureSaveData {
     fireMode?: CreatureFireMode;
     homingBullets?: boolean;
     fireCooldownMs?: number;
+    fireCooldownVarianceMs?: number;
+    targetRefreshMs?: number;
+    aimLeadFactor?: number;
+    aimJitterPx?: number;
+    requiresLineOfSight?: boolean;
     projectileSpeed?: number;
+    projectileWeight?: number;
+    projectileBounciness?: number;
     canEatWasps?: boolean;
     canJump?: boolean;
     jumpStrength?: number;

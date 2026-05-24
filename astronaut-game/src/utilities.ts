@@ -1,10 +1,12 @@
 import { Button } from './button.js';
+import { Collectable, isGrenadeCollectableType } from './collectable.js';
 import { Door } from './door.js';
 import { getMapBlocksNearWorldPoint } from './map.js';
-import { resolveAnimatedPaletteIndex } from './palette-cycle.js';
+import { buildDefaultPaletteCycle, resolveAnimatedPaletteIndex } from './palette-cycle.js';
 
 const spriteRectMapCache = new WeakMap<object, Record<string, any>>();
 const transformedSpriteCanvasCache = new WeakMap<object, Map<string, HTMLCanvasElement>>();
+const angledSpriteCanvasCache = new WeakMap<object, Map<string, { canvas: HTMLCanvasElement; offsetX: number; offsetY: number }>>();
 const transformedSpriteBoundsCache = new WeakMap<object, SpriteVisibleBounds | null>();
 const sourceSpriteBoundsCache = new WeakMap<object, Map<string, SpriteVisibleBounds | null>>();
 
@@ -181,11 +183,119 @@ export function getTransformedSpriteCanvas(
     return canvas;
 }
 
-function getRenderedEntitySpriteCanvas(
+function getAngledSpriteCanvas(
     sheet: CanvasImageSource,
     rect: { x: number; y: number; w: number; h: number },
-    entity: { cropLeftHalf?: boolean; cropRightHalf?: boolean; rotation?: number; flipAroundVisibleCenter?: boolean }
+    angleDegrees: number
+) {
+    if (!sheet || typeof sheet !== 'object' || !Number.isFinite(angleDegrees)) {
+        return null;
+    }
+
+    const cacheOwner = sheet as object;
+    let cache = angledSpriteCanvasCache.get(cacheOwner);
+    if (!cache) {
+        cache = new Map<string, { canvas: HTMLCanvasElement; offsetX: number; offsetY: number }>();
+        angledSpriteCanvasCache.set(cacheOwner, cache);
+    }
+
+    const normalizedAngle = Math.round(angleDegrees);
+    const cacheKey = `${rect.x},${rect.y},${rect.w},${rect.h},${normalizedAngle}`;
+    const cached = cache.get(cacheKey);
+    if (cached) {
+        return cached;
+    }
+
+    const radians = (normalizedAngle * Math.PI) / 180;
+    const cos = Math.cos(radians);
+    const sin = Math.sin(radians);
+    const canvasWidth = Math.max(1, Math.ceil(Math.abs(rect.w * cos) + Math.abs(rect.h * sin)));
+    const canvasHeight = Math.max(1, Math.ceil(Math.abs(rect.w * sin) + Math.abs(rect.h * cos)));
+    const canvas = document.createElement('canvas');
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+        return null;
+    }
+
+    ctx.imageSmoothingEnabled = false;
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate(radians);
+    ctx.drawImage(
+        sheet,
+        rect.x,
+        rect.y,
+        rect.w,
+        rect.h,
+        -rect.w / 2,
+        -rect.h / 2,
+        rect.w,
+        rect.h
+    );
+
+    const visibleBounds = getSpriteVisibleBounds(canvas);
+    if (!visibleBounds) {
+        const result = {
+            canvas,
+            offsetX: (rect.w - canvas.width) / 2,
+            offsetY: (rect.h - canvas.height) / 2
+        };
+        cache.set(cacheKey, result);
+        return result;
+    }
+
+    const trimmedCanvas = document.createElement('canvas');
+    trimmedCanvas.width = visibleBounds.width;
+    trimmedCanvas.height = visibleBounds.height;
+    const trimmedCtx = trimmedCanvas.getContext('2d');
+    if (!trimmedCtx) {
+        return null;
+    }
+    trimmedCtx.imageSmoothingEnabled = false;
+    trimmedCtx.drawImage(
+        canvas,
+        visibleBounds.minX,
+        visibleBounds.minY,
+        visibleBounds.width,
+        visibleBounds.height,
+        0,
+        0,
+        visibleBounds.width,
+        visibleBounds.height
+    );
+
+    const result = {
+        canvas: trimmedCanvas,
+        offsetX: (rect.w - canvas.width) / 2 + visibleBounds.minX,
+        offsetY: (rect.h - canvas.height) / 2 + visibleBounds.minY
+    };
+    cache.set(cacheKey, result);
+    return result;
+}
+
+export function getRenderedEntitySpriteCanvas(
+    sheet: CanvasImageSource,
+    rect: { x: number; y: number; w: number; h: number },
+    entity: {
+        cropLeftHalf?: boolean;
+        cropRightHalf?: boolean;
+        rotation?: number;
+        flipAroundVisibleCenter?: boolean;
+        angleDegrees?: number;
+        creatureProjectile?: { kind?: string };
+    }
 ): { canvas: HTMLCanvasElement; offsetX: number; offsetY: number } | null {
+    if (
+        !entity.cropLeftHalf &&
+        !entity.cropRightHalf &&
+        Number.isFinite(entity.angleDegrees) &&
+        entity.creatureProjectile?.kind !== 'bullet'
+    ) {
+        return getAngledSpriteCanvas(sheet, rect, Number(entity.angleDegrees));
+    }
+
     const transformedSprite = getTransformedSpriteCanvas(
         sheet,
         rect,
@@ -936,6 +1046,9 @@ export function drawEntities(
         const renderParts = entity instanceof Button ? entity.getRenderParts() : [entity];
 
         for (const renderPart of renderParts) {
+            const renderEntity = entity instanceof Collectable && entity.creatureProjectile?.kind === 'bullet'
+                ? { ...renderPart, angleDegrees: undefined }
+                : renderPart;
             const rect = rectMap[renderPart.type];
             if (!rect) continue;
 
@@ -958,7 +1071,11 @@ export function drawEntities(
             }
             const animatedPaletteCycle = entity instanceof Button && renderPart.type !== entity.type
                 ? undefined
-                : entity.paletteCycle;
+                : entity instanceof Collectable && isGrenadeCollectableType(entity.type)
+                    ? (entity.armed
+                        ? (entity.paletteCycle ?? buildDefaultPaletteCycle(entity.palette ?? paletteIdx, spriteSheets.length))
+                        : undefined)
+                    : entity.paletteCycle;
             paletteIdx = resolveAnimatedPaletteIndex(
                 renderPart.type,
                 animatedPaletteCycle,
@@ -967,20 +1084,20 @@ export function drawEntities(
                 now
             );
             const sheet = spriteSheets[paletteIdx] || spriteSheets[0];
-            const renderedSprite = getRenderedEntitySpriteCanvas(sheet, rect, renderPart);
+            const renderedSprite = getRenderedEntitySpriteCanvas(sheet, rect, renderEntity);
             if (!renderedSprite) continue;
             const translationOffset = entity instanceof Button
                 ? { x: 0, y: 0 }
                 : getSpriteTranslationOffset(
                     renderedSprite.canvas,
-                    normalizeSpriteTranslation(renderPart.translation),
+                    normalizeSpriteTranslation(renderEntity.translation),
                     SPRITE_SCALE
                 );
             const authoredRotation = typeof entity.state?.authoredRotation === 'number'
                 ? Math.round(Number(entity.state.authoredRotation))
-                : (typeof renderPart.rotation === 'number' ? Math.round(renderPart.rotation) : 1);
+                : (typeof renderEntity.rotation === 'number' ? Math.round(renderEntity.rotation) : 1);
             const visibleCenterFlipOffset = entity.flipAroundVisibleCenter === true
-                ? getVisibleCenterRotationOffset(sheet, rect, authoredRotation, renderPart.rotation)
+                ? getVisibleCenterRotationOffset(sheet, rect, authoredRotation, renderEntity.rotation)
                 : { x: 0, y: 0 };
             const drawX = renderPart.x
                 + renderedSprite.offsetX * SPRITE_SCALE

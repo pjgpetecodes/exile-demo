@@ -1,0 +1,1402 @@
+{
+  "generatedAt": "2026-05-23T22:04:11.654Z",
+  "sampleRate": 44100,
+  "tickRate": 50,
+  "outputMode": {
+    "raw": {
+      "distanceUnits": 0,
+      "description": "No distance attenuation."
+    },
+    "preview": {
+      "distanceUnits": 8,
+      "description": "Mid-distance attenuation using the BBC distance value scaled by 16."
+    }
+  },
+  "lookupTableLength": 208,
+  "callsites": [
+    {
+      "index": 0,
+      "asmLine": 3522,
+      "dataLine": 3523,
+      "kind": "play_sound",
+      "label": "play_middle_beep",
+      "comments": [
+        "sound data"
+      ],
+      "title": "beep",
+      "runtimeModified": false,
+      "descriptor": [
+        23,
+        227,
+        47,
+        114
+      ],
+      "descriptorHex": "17-E3-2F-72",
+      "stem": "03522-beep__17-E3-2F-72",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $17,$E3,$2F,$72; sound data",
+      "sourceType": "raw",
+      "fileName": "03522-beep__17-E3-2F-72__raw.wav",
+      "rawFile": "raw/03522-beep__17-E3-2F-72__raw.wav",
+      "previewFile": "preview/03522-beep__17-E3-2F-72__preview.wav",
+      "rawSeconds": 0.36,
+      "previewSeconds": 0.26
+    },
+    {
+      "index": 1,
+      "asmLine": 3526,
+      "dataLine": 3527,
+      "kind": "play_sound",
+      "label": "play_high_beep",
+      "comments": [
+        "sound data"
+      ],
+      "title": "beep",
+      "runtimeModified": false,
+      "descriptor": [
+        23,
+        130,
+        19,
+        242
+      ],
+      "descriptorHex": "17-82-13-F2",
+      "stem": "03526-beep__17-82-13-F2",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $17,$82,$13,$F2; sound data",
+      "sourceType": "raw",
+      "fileName": "03526-beep__17-82-13-F2__raw.wav",
+      "rawFile": "raw/03526-beep__17-82-13-F2__raw.wav",
+      "previewFile": "preview/03526-beep__17-82-13-F2__preview.wav",
+      "rawSeconds": 0.2,
+      "previewSeconds": 0.16
+    },
+    {
+      "index": 2,
+      "asmLine": 3530,
+      "dataLine": 3531,
+      "kind": "play_sound",
+      "label": "play_low_beep",
+      "comments": [
+        "sound data"
+      ],
+      "title": "beep",
+      "runtimeModified": false,
+      "descriptor": [
+        93,
+        4,
+        255,
+        5
+      ],
+      "descriptorHex": "5D-04-FF-05",
+      "stem": "03530-beep__5D-04-FF-05",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $5D,$04,$FF,$05; sound data",
+      "sourceType": "raw",
+      "fileName": "03530-beep__5D-04-FF-05__raw.wav",
+      "rawFile": "raw/03530-beep__5D-04-FF-05__raw.wav",
+      "previewFile": "preview/03530-beep__5D-04-FF-05__preview.wav",
+      "rawSeconds": 0.42,
+      "previewSeconds": 0.22
+    },
+    {
+      "index": 3,
+      "asmLine": 3534,
+      "dataLine": 3535,
+      "kind": "play_sound",
+      "label": "play_squeal",
+      "comments": [],
+      "title": "play-squeal",
+      "runtimeModified": false,
+      "descriptor": [
+        51,
+        3,
+        45,
+        132
+      ],
+      "descriptorHex": "33-03-2D-84",
+      "stem": "03534-play-squeal__33-03-2D-84",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $33,$03,$2D,$84",
+      "sourceType": "raw",
+      "fileName": "03534-play-squeal__33-03-2D-84__raw.wav",
+      "rawFile": "raw/03534-play-squeal__33-03-2D-84__raw.wav",
+      "previewFile": "preview/03534-play-squeal__33-03-2D-84__preview.wav",
+      "rawSeconds": 0.76,
+      "previewSeconds": 0.16
+    },
+    {
+      "index": 4,
+      "asmLine": 4766,
+      "dataLine": 4767,
+      "kind": "play_sound",
+      "label": "L1C20",
+      "comments": [
+        "teleporting noise",
+        "sound data"
+      ],
+      "title": "teleport",
+      "runtimeModified": false,
+      "descriptor": [
+        51,
+        243,
+        99,
+        243
+      ],
+      "descriptorHex": "33-F3-63-F3",
+      "stem": "04766-teleport__33-F3-63-F3",
+      "jsrLine": "JSR play_sound                                  ; teleporting noise",
+      "dataLineText": "equb $33,$F3,$63,$F3; sound data",
+      "sourceType": "raw",
+      "fileName": "04766-teleport__33-F3-63-F3__raw.wav",
+      "rawFile": "raw/04766-teleport__33-F3-63-F3__raw.wav",
+      "previewFile": "preview/04766-teleport__33-F3-63-F3__preview.wav",
+      "rawSeconds": 0.76,
+      "previewSeconds": 0.16
+    },
+    {
+      "index": 5,
+      "asmLine": 6131,
+      "dataLine": 6132,
+      "kind": "play_sound",
+      "label": "scream",
+      "comments": [
+        "sound data"
+      ],
+      "title": "scream",
+      "runtimeModified": false,
+      "descriptor": [
+        51,
+        3,
+        45,
+        36
+      ],
+      "descriptorHex": "33-03-2D-24",
+      "stem": "06131-scream__33-03-2D-24",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $33,$03,$2D,$24; sound data",
+      "sourceType": "raw",
+      "fileName": "06131-scream__33-03-2D-24__raw.wav",
+      "rawFile": "raw/06131-scream__33-03-2D-24__raw.wav",
+      "previewFile": "preview/06131-scream__33-03-2D-24__preview.wav",
+      "rawSeconds": 0.76,
+      "previewSeconds": 0.16
+    },
+    {
+      "index": 6,
+      "asmLine": 6133,
+      "dataLine": 6134,
+      "kind": "play_sound",
+      "label": "scream",
+      "comments": [
+        "scream!",
+        "sound data"
+      ],
+      "title": "scream",
+      "runtimeModified": false,
+      "descriptor": [
+        51,
+        3,
+        43,
+        37
+      ],
+      "descriptorHex": "33-03-2B-25",
+      "stem": "06133-scream__33-03-2B-25",
+      "jsrLine": "JSR play_sound                                  ; scream!",
+      "dataLineText": "equb $33,$03,$2B,$25; sound data",
+      "sourceType": "raw",
+      "fileName": "06133-scream__33-03-2B-25__raw.wav",
+      "rawFile": "raw/06133-scream__33-03-2B-25__raw.wav",
+      "previewFile": "preview/06133-scream__33-03-2B-25__preview.wav",
+      "rawSeconds": 0.76,
+      "previewSeconds": 0.16
+    },
+    {
+      "index": 7,
+      "asmLine": 6374,
+      "dataLine": 6375,
+      "kind": "play_sound2",
+      "label": "L2619",
+      "comments": [
+        "make a noise if it's close enough",
+        "sound data"
+      ],
+      "title": "sound-70-c2-6e-a3",
+      "runtimeModified": false,
+      "descriptor": [
+        112,
+        194,
+        110,
+        163
+      ],
+      "descriptorHex": "70-C2-6E-A3",
+      "stem": "06374-sound-70-c2-6e-a3__70-C2-6E-A3",
+      "jsrLine": "JSR play_sound2                                 ; make a noise if it's close enough",
+      "dataLineText": "equb $70,$C2,$6E,$A3; sound data",
+      "sourceType": "raw",
+      "fileName": "06374-sound-70-c2-6e-a3__70-C2-6E-A3__raw.wav",
+      "rawFile": "raw/06374-sound-70-c2-6e-a3__70-C2-6E-A3__raw.wav",
+      "previewFile": "preview/06374-sound-70-c2-6e-a3__70-C2-6E-A3__preview.wav",
+      "rawSeconds": 2.16,
+      "previewSeconds": 2.16
+    },
+    {
+      "index": 8,
+      "asmLine": 6880,
+      "dataLine": 6881,
+      "kind": "play_sound",
+      "label": "L2A11",
+      "comments": [
+        "sound data"
+      ],
+      "title": "sound-23-e3-82-12",
+      "runtimeModified": false,
+      "descriptor": [
+        35,
+        227,
+        130,
+        18
+      ],
+      "descriptorHex": "23-E3-82-12",
+      "stem": "06880-sound-23-e3-82-12__23-E3-82-12",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $23,$E3,$82,$12; sound data",
+      "sourceType": "raw",
+      "fileName": "06880-sound-23-e3-82-12__23-E3-82-12__raw.wav",
+      "rawFile": "raw/06880-sound-23-e3-82-12__23-E3-82-12__raw.wav",
+      "previewFile": "preview/06880-sound-23-e3-82-12__23-E3-82-12__preview.wav",
+      "rawSeconds": 0.18,
+      "previewSeconds": 0.16
+    },
+    {
+      "index": 9,
+      "asmLine": 7206,
+      "dataLine": 7207,
+      "kind": "play_sound",
+      "label": "scroll_viewpoint",
+      "comments": [
+        "sound data"
+      ],
+      "title": "scroll-viewpoint",
+      "runtimeModified": false,
+      "descriptor": [
+        61,
+        4,
+        17,
+        212
+      ],
+      "descriptorHex": "3D-04-11-D4",
+      "stem": "07206-scroll-viewpoint__3D-04-11-D4",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $3D,$04,$11,$D4; sound data",
+      "sourceType": "raw",
+      "fileName": "07206-scroll-viewpoint__3D-04-11-D4__raw.wav",
+      "rawFile": "raw/07206-scroll-viewpoint__3D-04-11-D4__raw.wav",
+      "previewFile": "preview/07206-scroll-viewpoint__3D-04-11-D4__preview.wav",
+      "rawSeconds": 0.26,
+      "previewSeconds": 0.26
+    },
+    {
+      "index": 10,
+      "asmLine": 7269,
+      "dataLine": 7270,
+      "kind": "play_sound",
+      "label": "whistle_sound",
+      "comments": [
+        "sound a note",
+        "sound data"
+      ],
+      "title": "whistle-sound",
+      "runtimeModified": false,
+      "descriptor": [
+        176,
+        36,
+        182,
+        226
+      ],
+      "descriptorHex": "B0-24-B6-E2",
+      "stem": "07269-whistle-sound__B0-24-B6-E2",
+      "jsrLine": "JSR play_sound                                  ; sound a note",
+      "dataLineText": "equb $B0,$24,$B6,$E2; sound data",
+      "sourceType": "raw",
+      "fileName": "07269-whistle-sound__B0-24-B6-E2__raw.wav",
+      "rawFile": "raw/07269-whistle-sound__B0-24-B6-E2__raw.wav",
+      "previewFile": "preview/07269-whistle-sound__B0-24-B6-E2__preview.wav",
+      "rawSeconds": 0.36,
+      "previewSeconds": 0.36
+    },
+    {
+      "index": 11,
+      "asmLine": 7281,
+      "dataLine": 7282,
+      "kind": "play_sound",
+      "label": "play_whistle_sound",
+      "comments": [
+        "sound a note",
+        "sound data"
+      ],
+      "title": "play-whistle-sound",
+      "runtimeModified": false,
+      "descriptor": [
+        176,
+        36,
+        182,
+        179
+      ],
+      "descriptorHex": "B0-24-B6-B3",
+      "stem": "07281-play-whistle-sound__B0-24-B6-B3",
+      "jsrLine": "JSR play_sound                                  ; sound a note",
+      "dataLineText": "equb $B0,$24,$B6,$B3; sound data",
+      "sourceType": "raw",
+      "fileName": "07281-play-whistle-sound__B0-24-B6-B3__raw.wav",
+      "rawFile": "raw/07281-play-whistle-sound__B0-24-B6-B3__raw.wav",
+      "previewFile": "preview/07281-play-whistle-sound__B0-24-B6-B3__preview.wav",
+      "rawSeconds": 0.42,
+      "previewSeconds": 0.4
+    },
+    {
+      "index": 12,
+      "asmLine": 7387,
+      "dataLine": 7388,
+      "kind": "play_sound",
+      "label": "fire_icer",
+      "comments": [
+        "sound for icer",
+        "sound data [TOM 3d was 2d]"
+      ],
+      "title": "icer",
+      "runtimeModified": false,
+      "descriptor": [
+        61,
+        4,
+        61,
+        211
+      ],
+      "descriptorHex": "3D-04-3D-D3",
+      "stem": "07387-icer__3D-04-3D-D3",
+      "jsrLine": "JSR play_sound                                      ; sound for icer",
+      "dataLineText": "equb $3D,$04,$3D,$D3; sound data [TOM 3d was 2d]",
+      "sourceType": "raw",
+      "fileName": "07387-icer__3D-04-3D-D3__raw.wav",
+      "rawFile": "raw/07387-icer__3D-04-3D-D3__raw.wav",
+      "previewFile": "preview/07387-icer__3D-04-3D-D3__preview.wav",
+      "rawSeconds": 0.52,
+      "previewSeconds": 0.3
+    },
+    {
+      "index": 13,
+      "asmLine": 7391,
+      "dataLine": 7392,
+      "kind": "play_sound",
+      "label": "fire_pistol",
+      "comments": [
+        "sound for pistol",
+        "sound data"
+      ],
+      "title": "pistol",
+      "runtimeModified": false,
+      "descriptor": [
+        61,
+        4,
+        61,
+        4
+      ],
+      "descriptorHex": "3D-04-3D-04",
+      "stem": "07391-pistol__3D-04-3D-04",
+      "jsrLine": "JSR play_sound                                      ; sound for pistol",
+      "dataLineText": "equb $3D,$04,$3D,$04; sound data",
+      "sourceType": "raw",
+      "fileName": "07391-pistol__3D-04-3D-04__raw.wav",
+      "rawFile": "raw/07391-pistol__3D-04-3D-04__raw.wav",
+      "previewFile": "preview/07391-pistol__3D-04-3D-04__preview.wav",
+      "rawSeconds": 0.68,
+      "previewSeconds": 0.3
+    },
+    {
+      "index": 14,
+      "asmLine": 7999,
+      "dataLine": 8000,
+      "kind": "play_sound",
+      "label": "L31CE",
+      "comments": [
+        "sound data [TOM c4 was c6]"
+      ],
+      "title": "sound-94-64-ba-c4",
+      "runtimeModified": false,
+      "descriptor": [
+        148,
+        100,
+        186,
+        196
+      ],
+      "descriptorHex": "94-64-BA-C4",
+      "stem": "07999-sound-94-64-ba-c4__94-64-BA-C4",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $94,$64,$BA,$C4; sound data [TOM c4 was c6]",
+      "sourceType": "raw",
+      "fileName": "07999-sound-94-64-ba-c4__94-64-BA-C4__raw.wav",
+      "rawFile": "raw/07999-sound-94-64-ba-c4__94-64-BA-C4__raw.wav",
+      "previewFile": "preview/07999-sound-94-64-ba-c4__94-64-BA-C4__preview.wav",
+      "rawSeconds": 0.7,
+      "previewSeconds": 0.7
+    },
+    {
+      "index": 15,
+      "asmLine": 8523,
+      "dataLine": 8524,
+      "kind": "play_sound",
+      "label": "actually_retrieve_object",
+      "comments": [
+        "sound data [TOM c2 was c3]"
+      ],
+      "title": "actually-retrieve-object",
+      "runtimeModified": false,
+      "descriptor": [
+        23,
+        130,
+        19,
+        194
+      ],
+      "descriptorHex": "17-82-13-C2",
+      "stem": "08523-actually-retrieve-object__17-82-13-C2",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $17,$82,$13,$C2; sound data [TOM c2 was c3]",
+      "sourceType": "raw",
+      "fileName": "08523-actually-retrieve-object__17-82-13-C2__raw.wav",
+      "rawFile": "raw/08523-actually-retrieve-object__17-82-13-C2__raw.wav",
+      "previewFile": "preview/08523-actually-retrieve-object__17-82-13-C2__preview.wav",
+      "rawSeconds": 0.2,
+      "previewSeconds": 0.16
+    },
+    {
+      "index": 16,
+      "asmLine": 10478,
+      "dataLine": 10479,
+      "kind": "play_sound",
+      "label": "L3FF9",
+      "comments": [
+        "sound data"
+      ],
+      "title": "sound-33-f3-1d-03",
+      "runtimeModified": false,
+      "descriptor": [
+        51,
+        243,
+        29,
+        3
+      ],
+      "descriptorHex": "33-F3-1D-03",
+      "stem": "10478-sound-33-f3-1d-03__33-F3-1D-03",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $33,$F3,$1D,$03; sound data",
+      "sourceType": "raw",
+      "fileName": "10478-sound-33-f3-1d-03__33-F3-1D-03__raw.wav",
+      "rawFile": "raw/10478-sound-33-f3-1d-03__33-F3-1D-03__raw.wav",
+      "previewFile": "preview/10478-sound-33-f3-1d-03__33-F3-1D-03__preview.wav",
+      "rawSeconds": 0.76,
+      "previewSeconds": 0.16
+    },
+    {
+      "index": 17,
+      "asmLine": 10592,
+      "dataLine": 10593,
+      "kind": "play_sound",
+      "label": "handle_explosion_type_40",
+      "comments": [
+        "something that squeals and explodes",
+        "sound data"
+      ],
+      "title": "explosion",
+      "runtimeModified": false,
+      "descriptor": [
+        87,
+        7,
+        67,
+        246
+      ],
+      "descriptorHex": "57-07-43-F6",
+      "stem": "10592-explosion__57-07-43-F6",
+      "jsrLine": "JSR play_sound                                  ; something that squeals and explodes",
+      "dataLineText": "equb $57,$07,$43,$F6; sound data",
+      "sourceType": "raw",
+      "fileName": "10592-explosion__57-07-43-F6__raw.wav",
+      "rawFile": "raw/10592-explosion__57-07-43-F6__raw.wav",
+      "previewFile": "preview/10592-explosion__57-07-43-F6__preview.wav",
+      "rawSeconds": 0.68,
+      "previewSeconds": 0.5
+    },
+    {
+      "index": 18,
+      "asmLine": 10609,
+      "dataLine": 10610,
+      "kind": "play_sound2",
+      "label": "explode_object",
+      "comments": [
+        "sound data"
+      ],
+      "title": "explode-object",
+      "runtimeModified": false,
+      "descriptor": [
+        23,
+        3,
+        17,
+        4
+      ],
+      "descriptorHex": "17-03-11-04",
+      "stem": "10609-explode-object__17-03-11-04",
+      "jsrLine": "JSR play_sound2",
+      "dataLineText": "equb $17,$03,$11,$04; sound data",
+      "sourceType": "raw",
+      "fileName": "10609-explode-object__17-03-11-04__raw.wav",
+      "rawFile": "raw/10609-explode-object__17-03-11-04__raw.wav",
+      "previewFile": "preview/10609-explode-object__17-03-11-04__preview.wav",
+      "rawSeconds": 0.26,
+      "previewSeconds": 0.26
+    },
+    {
+      "index": 19,
+      "asmLine": 10839,
+      "dataLine": 10840,
+      "kind": "play_sound",
+      "label": "L423E",
+      "comments": [
+        "sound data"
+      ],
+      "title": "sound-b0-24-b6-e2",
+      "runtimeModified": false,
+      "descriptor": [
+        176,
+        36,
+        182,
+        226
+      ],
+      "descriptorHex": "B0-24-B6-E2",
+      "stem": "10839-sound-b0-24-b6-e2__B0-24-B6-E2",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $B0,$24,$B6,$E2; sound data",
+      "sourceType": "raw",
+      "fileName": "10839-sound-b0-24-b6-e2__B0-24-B6-E2__raw.wav",
+      "rawFile": "raw/10839-sound-b0-24-b6-e2__B0-24-B6-E2__raw.wav",
+      "previewFile": "preview/10839-sound-b0-24-b6-e2__B0-24-B6-E2__preview.wav",
+      "rawSeconds": 0.36,
+      "previewSeconds": 0.36
+    },
+    {
+      "index": 20,
+      "asmLine": 10915,
+      "dataLine": 10916,
+      "kind": "play_sound",
+      "label": "L42BE",
+      "comments": [
+        "sound data"
+      ],
+      "title": "sound-b0-24-b6-e2",
+      "runtimeModified": false,
+      "descriptor": [
+        176,
+        36,
+        182,
+        226
+      ],
+      "descriptorHex": "B0-24-B6-E2",
+      "stem": "10915-sound-b0-24-b6-e2__B0-24-B6-E2",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $B0,$24,$B6,$E2; sound data",
+      "sourceType": "raw",
+      "fileName": "10915-sound-b0-24-b6-e2__B0-24-B6-E2__raw.wav",
+      "rawFile": "raw/10915-sound-b0-24-b6-e2__B0-24-B6-E2__raw.wav",
+      "previewFile": "preview/10915-sound-b0-24-b6-e2__B0-24-B6-E2__preview.wav",
+      "rawSeconds": 0.36,
+      "previewSeconds": 0.36
+    },
+    {
+      "index": 21,
+      "asmLine": 10925,
+      "dataLine": 10926,
+      "kind": "play_sound",
+      "label": "L42C9",
+      "comments": [
+        "sound data"
+      ],
+      "title": "sound-c7-81-c1-f3",
+      "runtimeModified": false,
+      "descriptor": [
+        199,
+        129,
+        193,
+        243
+      ],
+      "descriptorHex": "C7-81-C1-F3",
+      "stem": "10925-sound-c7-81-c1-f3__C7-81-C1-F3",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $C7,$81,$C1,$F3; sound data",
+      "sourceType": "raw",
+      "fileName": "10925-sound-c7-81-c1-f3__C7-81-C1-F3__raw.wav",
+      "rawFile": "raw/10925-sound-c7-81-c1-f3__C7-81-C1-F3__raw.wav",
+      "previewFile": "preview/10925-sound-c7-81-c1-f3__C7-81-C1-F3__preview.wav",
+      "rawSeconds": 0.16,
+      "previewSeconds": 0.16
+    },
+    {
+      "index": 22,
+      "asmLine": 10968,
+      "dataLine": 10969,
+      "kind": "play_sound",
+      "label": "grenade_still_ticking",
+      "comments": [
+        "sound the grenade claxon",
+        "sound data"
+      ],
+      "title": "grenade",
+      "runtimeModified": false,
+      "descriptor": [
+        87,
+        7,
+        203,
+        130
+      ],
+      "descriptorHex": "57-07-CB-82",
+      "stem": "10968-grenade__57-07-CB-82",
+      "jsrLine": "JSR play_sound                                      ; sound the grenade claxon",
+      "dataLineText": "equb $57,$07,$CB,$82; sound data",
+      "sourceType": "raw",
+      "fileName": "10968-grenade__57-07-CB-82__raw.wav",
+      "rawFile": "raw/10968-grenade__57-07-CB-82__raw.wav",
+      "previewFile": "preview/10968-grenade__57-07-CB-82__preview.wav",
+      "rawSeconds": 0.68,
+      "previewSeconds": 0.5
+    },
+    {
+      "index": 23,
+      "asmLine": 11012,
+      "dataLine": 11013,
+      "kind": "play_sound",
+      "label": "handle_remote_control",
+      "comments": [
+        "sound data"
+      ],
+      "title": "handle-remote-control",
+      "runtimeModified": false,
+      "descriptor": [
+        87,
+        7,
+        193,
+        211
+      ],
+      "descriptorHex": "57-07-C1-D3",
+      "stem": "11012-handle-remote-control__57-07-C1-D3",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $57,$07,$C1,$D3; sound data",
+      "sourceType": "raw",
+      "fileName": "11012-handle-remote-control__57-07-C1-D3__raw.wav",
+      "rawFile": "raw/11012-handle-remote-control__57-07-C1-D3__raw.wav",
+      "previewFile": "preview/11012-handle-remote-control__57-07-C1-D3__preview.wav",
+      "rawSeconds": 0.68,
+      "previewSeconds": 0.5
+    },
+    {
+      "index": 24,
+      "asmLine": 11025,
+      "dataLine": 11026,
+      "kind": "play_sound",
+      "label": "handle_energy_capsule",
+      "comments": [
+        "make a noise when flashing",
+        "sound data [TOM 05 was 50]"
+      ],
+      "title": "handle-energy-capsule",
+      "runtimeModified": false,
+      "descriptor": [
+        5,
+        242,
+        255,
+        197
+      ],
+      "descriptorHex": "05-F2-FF-C5",
+      "stem": "11025-handle-energy-capsule__05-F2-FF-C5",
+      "jsrLine": "JSR play_sound                                  ; make a noise when flashing",
+      "dataLineText": "equb $05,$F2,$FF,$C5; sound data [TOM 05 was 50]",
+      "sourceType": "raw",
+      "fileName": "11025-handle-energy-capsule__05-F2-FF-C5__raw.wav",
+      "rawFile": "raw/11025-handle-energy-capsule__05-F2-FF-C5__raw.wav",
+      "previewFile": "preview/11025-handle-energy-capsule__05-F2-FF-C5__preview.wav",
+      "rawSeconds": 0.22,
+      "previewSeconds": 0.18
+    },
+    {
+      "index": 25,
+      "asmLine": 11038,
+      "dataLine": 11039,
+      "kind": "play_sound",
+      "label": "handle_destinator",
+      "comments": [
+        "sound data"
+      ],
+      "title": "handle-destinator",
+      "runtimeModified": false,
+      "descriptor": [
+        145,
+        2,
+        133,
+        71
+      ],
+      "descriptorHex": "91-02-85-47",
+      "stem": "11038-handle-destinator__91-02-85-47",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $91,$02,$85,$47; sound data",
+      "sourceType": "raw",
+      "fileName": "11038-handle-destinator__91-02-85-47__raw.wav",
+      "rawFile": "raw/11038-handle-destinator__91-02-85-47__raw.wav",
+      "previewFile": "preview/11038-handle-destinator__91-02-85-47__preview.wav",
+      "rawSeconds": 1.18,
+      "previewSeconds": 0.3
+    },
+    {
+      "index": 26,
+      "asmLine": 11047,
+      "dataLine": 11048,
+      "kind": "play_sound",
+      "label": "L4389",
+      "comments": [
+        "sound data"
+      ],
+      "title": "sound-33-03-85-12",
+      "runtimeModified": false,
+      "descriptor": [
+        51,
+        3,
+        133,
+        18
+      ],
+      "descriptorHex": "33-03-85-12",
+      "stem": "11047-sound-33-03-85-12__33-03-85-12",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $33,$03,$85,$12; sound data",
+      "sourceType": "raw",
+      "fileName": "11047-sound-33-03-85-12__33-03-85-12__raw.wav",
+      "rawFile": "raw/11047-sound-33-03-85-12__33-03-85-12__raw.wav",
+      "previewFile": "preview/11047-sound-33-03-85-12__33-03-85-12__preview.wav",
+      "rawSeconds": 0.48,
+      "previewSeconds": 0.16
+    },
+    {
+      "index": 27,
+      "asmLine": 11126,
+      "dataLine": 11127,
+      "kind": "play_sound",
+      "label": "handle_hover_ball_invisible",
+      "comments": [
+        "sound data"
+      ],
+      "title": "handle-hover-ball-invisible",
+      "runtimeModified": false,
+      "descriptor": [
+        51,
+        3,
+        133,
+        2
+      ],
+      "descriptorHex": "33-03-85-02",
+      "stem": "11126-handle-hover-ball-invisible__33-03-85-02",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $33,$03,$85,$02; sound data",
+      "sourceType": "raw",
+      "fileName": "11126-handle-hover-ball-invisible__33-03-85-02__raw.wav",
+      "rawFile": "raw/11126-handle-hover-ball-invisible__33-03-85-02__raw.wav",
+      "previewFile": "preview/11126-handle-hover-ball-invisible__33-03-85-02__preview.wav",
+      "rawSeconds": 0.48,
+      "previewSeconds": 0.16
+    },
+    {
+      "index": 28,
+      "asmLine": 11136,
+      "dataLine": 11137,
+      "kind": "play_sound",
+      "label": "play_teleport_noise",
+      "comments": [
+        "sound data"
+      ],
+      "title": "teleport",
+      "runtimeModified": false,
+      "descriptor": [
+        41,
+        194,
+        55,
+        243
+      ],
+      "descriptorHex": "29-C2-37-F3",
+      "stem": "11136-teleport__29-C2-37-F3",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $29,$C2,$37,$F3; sound data",
+      "sourceType": "raw",
+      "fileName": "11136-teleport__29-C2-37-F3__raw.wav",
+      "rawFile": "raw/11136-teleport__29-C2-37-F3__raw.wav",
+      "previewFile": "preview/11136-teleport__29-C2-37-F3__preview.wav",
+      "rawSeconds": 1.4,
+      "previewSeconds": 1.4
+    },
+    {
+      "index": 29,
+      "asmLine": 11152,
+      "dataLine": 11153,
+      "kind": "play_sound2",
+      "label": "L4425",
+      "comments": [
+        "sound data"
+      ],
+      "title": "sound-17-03-1b-02",
+      "runtimeModified": false,
+      "descriptor": [
+        23,
+        3,
+        27,
+        2
+      ],
+      "descriptorHex": "17-03-1B-02",
+      "stem": "11152-sound-17-03-1b-02__17-03-1B-02",
+      "jsrLine": "JSR play_sound2",
+      "dataLineText": "equb $17,$03,$1B,$02; sound data",
+      "sourceType": "raw",
+      "fileName": "11152-sound-17-03-1b-02__17-03-1B-02__raw.wav",
+      "rawFile": "raw/11152-sound-17-03-1b-02__17-03-1B-02__raw.wav",
+      "previewFile": "preview/11152-sound-17-03-1b-02__17-03-1B-02__preview.wav",
+      "rawSeconds": 0.18,
+      "previewSeconds": 0.18
+    },
+    {
+      "index": 30,
+      "asmLine": 11436,
+      "dataLine": 11437,
+      "kind": "play_sound",
+      "label": "L4609",
+      "comments": [
+        "sound data"
+      ],
+      "title": "sound-9c-05-a6-a5",
+      "runtimeModified": false,
+      "descriptor": [
+        156,
+        5,
+        166,
+        165
+      ],
+      "descriptorHex": "9C-05-A6-A5",
+      "stem": "11436-sound-9c-05-a6-a5__9C-05-A6-A5",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $9C,$05,$A6,$A5; sound data",
+      "sourceType": "raw",
+      "fileName": "11436-sound-9c-05-a6-a5__9C-05-A6-A5__raw.wav",
+      "rawFile": "raw/11436-sound-9c-05-a6-a5__9C-05-A6-A5__raw.wav",
+      "previewFile": "preview/11436-sound-9c-05-a6-a5__9C-05-A6-A5__preview.wav",
+      "rawSeconds": 0.92,
+      "previewSeconds": 0.88
+    },
+    {
+      "index": 31,
+      "asmLine": 11480,
+      "dataLine": 11481,
+      "kind": "play_sound",
+      "label": "handle_bird",
+      "comments": [
+        "sound data"
+      ],
+      "title": "handle-bird",
+      "runtimeModified": false,
+      "descriptor": [
+        87,
+        7,
+        67,
+        246
+      ],
+      "descriptorHex": "57-07-43-F6",
+      "stem": "11480-handle-bird__57-07-43-F6",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $57,$07,$43,$F6; sound data",
+      "sourceType": "raw",
+      "fileName": "11480-handle-bird__57-07-43-F6__raw.wav",
+      "rawFile": "raw/11480-handle-bird__57-07-43-F6__raw.wav",
+      "previewFile": "preview/11480-handle-bird__57-07-43-F6__preview.wav",
+      "rawSeconds": 0.68,
+      "previewSeconds": 0.5
+    },
+    {
+      "index": 32,
+      "asmLine": 11708,
+      "dataLine": 11709,
+      "kind": "play_sound2",
+      "label": "handle_red_drop",
+      "comments": [
+        "sound data"
+      ],
+      "title": "handle-red-drop",
+      "runtimeModified": false,
+      "descriptor": [
+        23,
+        3,
+        27,
+        2
+      ],
+      "descriptorHex": "17-03-1B-02",
+      "stem": "11708-handle-red-drop__17-03-1B-02",
+      "jsrLine": "JSR play_sound2",
+      "dataLineText": "equb $17,$03,$1B,$02; sound data",
+      "sourceType": "raw",
+      "fileName": "11708-handle-red-drop__17-03-1B-02__raw.wav",
+      "rawFile": "raw/11708-handle-red-drop__17-03-1B-02__raw.wav",
+      "previewFile": "preview/11708-handle-red-drop__17-03-1B-02__preview.wav",
+      "rawSeconds": 0.18,
+      "previewSeconds": 0.18
+    },
+    {
+      "index": 33,
+      "asmLine": 11778,
+      "dataLine": 11779,
+      "kind": "play_sound",
+      "label": "handle_hovering_robot",
+      "comments": [
+        "make a noise",
+        "sound data"
+      ],
+      "title": "handle-hovering-robot",
+      "runtimeModified": false,
+      "descriptor": [
+        51,
+        243,
+        99,
+        227
+      ],
+      "descriptorHex": "33-F3-63-E3",
+      "stem": "11778-handle-hovering-robot__33-F3-63-E3",
+      "jsrLine": "JSR play_sound                                  ; make a noise",
+      "dataLineText": "equb $33,$F3,$63,$E3; sound data",
+      "sourceType": "raw",
+      "fileName": "11778-handle-hovering-robot__33-F3-63-E3__raw.wav",
+      "rawFile": "raw/11778-handle-hovering-robot__33-F3-63-E3__raw.wav",
+      "previewFile": "preview/11778-handle-hovering-robot__33-F3-63-E3__preview.wav",
+      "rawSeconds": 0.76,
+      "previewSeconds": 0.16
+    },
+    {
+      "index": 34,
+      "asmLine": 11824,
+      "dataLine": 11825,
+      "kind": "play_sound",
+      "label": "L484D",
+      "comments": [
+        "sound data"
+      ],
+      "title": "sound-17-03-68-a3",
+      "runtimeModified": false,
+      "descriptor": [
+        23,
+        3,
+        104,
+        163
+      ],
+      "descriptorHex": "17-03-68-A3",
+      "stem": "11824-sound-17-03-68-a3__17-03-68-A3",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $17,$03,$68,$A3; sound data",
+      "sourceType": "raw",
+      "fileName": "11824-sound-17-03-68-a3__17-03-68-A3__raw.wav",
+      "rawFile": "raw/11824-sound-17-03-68-a3__17-03-68-A3__raw.wav",
+      "previewFile": "preview/11824-sound-17-03-68-a3__17-03-68-A3__preview.wav",
+      "rawSeconds": 0.48,
+      "previewSeconds": 0.3
+    },
+    {
+      "index": 35,
+      "asmLine": 11943,
+      "dataLine": 11944,
+      "kind": "play_sound",
+      "label": "no_enemies_for_chatter",
+      "comments": [
+        "sing chatter's song",
+        "sound data"
+      ],
+      "title": "chatter",
+      "runtimeModified": true,
+      "descriptor": [
+        51,
+        243,
+        205,
+        130
+      ],
+      "descriptorHex": "33-F3-CD-82",
+      "stem": "11943-chatter__33-F3-CD-82",
+      "jsrLine": "JSR play_sound                                  ; sing chatter's song",
+      "dataLineText": "equb $33,$F3,$CD,$82; sound data",
+      "sourceType": "raw",
+      "fileName": "11943-chatter__33-F3-CD-82__raw.wav",
+      "rawFile": "raw/11943-chatter__33-F3-CD-82__raw.wav",
+      "previewFile": "preview/11943-chatter__33-F3-CD-82__preview.wav",
+      "rawSeconds": 0.16,
+      "previewSeconds": 0.16
+    },
+    {
+      "index": 36,
+      "asmLine": 11995,
+      "dataLine": 11996,
+      "kind": "play_sound",
+      "label": "L49A3",
+      "comments": [
+        "sound data"
+      ],
+      "title": "sound-3d-04-11-d4",
+      "runtimeModified": false,
+      "descriptor": [
+        61,
+        4,
+        17,
+        212
+      ],
+      "descriptorHex": "3D-04-11-D4",
+      "stem": "11995-sound-3d-04-11-d4__3D-04-11-D4",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $3D,$04,$11,$D4; sound data",
+      "sourceType": "raw",
+      "fileName": "11995-sound-3d-04-11-d4__3D-04-11-D4__raw.wav",
+      "rawFile": "raw/11995-sound-3d-04-11-d4__3D-04-11-D4__raw.wav",
+      "previewFile": "preview/11995-sound-3d-04-11-d4__3D-04-11-D4__preview.wav",
+      "rawSeconds": 0.26,
+      "previewSeconds": 0.26
+    },
+    {
+      "index": 37,
+      "asmLine": 12058,
+      "dataLine": 12059,
+      "kind": "play_sound",
+      "label": "L49F3",
+      "comments": [
+        "sound data"
+      ],
+      "title": "sound-c7-c3-c1-03",
+      "runtimeModified": false,
+      "descriptor": [
+        199,
+        195,
+        193,
+        3
+      ],
+      "descriptorHex": "C7-C3-C1-03",
+      "stem": "12058-sound-c7-c3-c1-03__C7-C3-C1-03",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $C7,$C3,$C1,$03; sound data",
+      "sourceType": "raw",
+      "fileName": "12058-sound-c7-c3-c1-03__C7-C3-C1-03__raw.wav",
+      "rawFile": "raw/12058-sound-c7-c3-c1-03__C7-C3-C1-03__raw.wav",
+      "previewFile": "preview/12058-sound-c7-c3-c1-03__C7-C3-C1-03__preview.wav",
+      "rawSeconds": 0.88,
+      "previewSeconds": 0.56
+    },
+    {
+      "index": 38,
+      "asmLine": 12116,
+      "dataLine": 12117,
+      "kind": "play_sound",
+      "label": "not_holding_anything",
+      "comments": [
+        "sound data"
+      ],
+      "title": "not-holding-anything",
+      "runtimeModified": false,
+      "descriptor": [
+        23,
+        227,
+        47,
+        130
+      ],
+      "descriptorHex": "17-E3-2F-82",
+      "stem": "12116-not-holding-anything__17-E3-2F-82",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $17,$E3,$2F,$82; sound data",
+      "sourceType": "raw",
+      "fileName": "12116-not-holding-anything__17-E3-2F-82__raw.wav",
+      "rawFile": "raw/12116-not-holding-anything__17-E3-2F-82__raw.wav",
+      "previewFile": "preview/12116-not-holding-anything__17-E3-2F-82__preview.wav",
+      "rawSeconds": 0.36,
+      "previewSeconds": 0.26
+    },
+    {
+      "index": 39,
+      "asmLine": 12129,
+      "dataLine": 12130,
+      "kind": "play_sound2",
+      "label": "L4A70",
+      "comments": [
+        "play sound for discharge device",
+        "sound data"
+      ],
+      "title": "sound-17-03-11-04",
+      "runtimeModified": false,
+      "descriptor": [
+        23,
+        3,
+        17,
+        4
+      ],
+      "descriptorHex": "17-03-11-04",
+      "stem": "12129-sound-17-03-11-04__17-03-11-04",
+      "jsrLine": "JSR play_sound2                                     ; play sound for discharge device",
+      "dataLineText": "equb $17,$03,$11,$04; sound data",
+      "sourceType": "raw",
+      "fileName": "12129-sound-17-03-11-04__17-03-11-04__raw.wav",
+      "rawFile": "raw/12129-sound-17-03-11-04__17-03-11-04__raw.wav",
+      "previewFile": "preview/12129-sound-17-03-11-04__17-03-11-04__preview.wav",
+      "rawSeconds": 0.26,
+      "previewSeconds": 0.26
+    },
+    {
+      "index": 40,
+      "asmLine": 12306,
+      "dataLine": 12307,
+      "kind": "play_sound",
+      "label": "handle_collectable",
+      "comments": [
+        "sound data"
+      ],
+      "title": "collect",
+      "runtimeModified": false,
+      "descriptor": [
+        114,
+        165,
+        123,
+        133
+      ],
+      "descriptorHex": "72-A5-7B-85",
+      "stem": "12306-collect__72-A5-7B-85",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $72,$A5,$7B,$85; sound data",
+      "sourceType": "raw",
+      "fileName": "12306-collect__72-A5-7B-85__raw.wav",
+      "rawFile": "raw/12306-collect__72-A5-7B-85__raw.wav",
+      "previewFile": "preview/12306-collect__72-A5-7B-85__preview.wav",
+      "rawSeconds": 1.24,
+      "previewSeconds": 1.22
+    },
+    {
+      "index": 41,
+      "asmLine": 12352,
+      "dataLine": 12353,
+      "kind": "play_sound",
+      "label": "handle_nest",
+      "comments": [
+        "sound data"
+      ],
+      "title": "handle-nest",
+      "runtimeModified": false,
+      "descriptor": [
+        51,
+        243,
+        79,
+        53
+      ],
+      "descriptorHex": "33-F3-4F-35",
+      "stem": "12352-handle-nest__33-F3-4F-35",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $33,$F3,$4F,$35; sound data",
+      "sourceType": "raw",
+      "fileName": "12352-handle-nest__33-F3-4F-35__raw.wav",
+      "rawFile": "raw/12352-handle-nest__33-F3-4F-35__raw.wav",
+      "previewFile": "preview/12352-handle-nest__33-F3-4F-35__preview.wav",
+      "rawSeconds": 0.58,
+      "previewSeconds": 0.16
+    },
+    {
+      "index": 42,
+      "asmLine": 12425,
+      "dataLine": 12426,
+      "kind": "play_sound2",
+      "label": "L4C34",
+      "comments": [
+        "sound data"
+      ],
+      "title": "sound-70-c2-6e-a3",
+      "runtimeModified": false,
+      "descriptor": [
+        112,
+        194,
+        110,
+        163
+      ],
+      "descriptorHex": "70-C2-6E-A3",
+      "stem": "12425-sound-70-c2-6e-a3__70-C2-6E-A3",
+      "jsrLine": "JSR play_sound2",
+      "dataLineText": "equb $70,$C2,$6E,$A3; sound data",
+      "sourceType": "raw",
+      "fileName": "12425-sound-70-c2-6e-a3__70-C2-6E-A3__raw.wav",
+      "rawFile": "raw/12425-sound-70-c2-6e-a3__70-C2-6E-A3__raw.wav",
+      "previewFile": "preview/12425-sound-70-c2-6e-a3__70-C2-6E-A3__preview.wav",
+      "rawSeconds": 2.16,
+      "previewSeconds": 2.16
+    },
+    {
+      "index": 43,
+      "asmLine": 12551,
+      "dataLine": 12552,
+      "kind": "play_sound",
+      "label": "L4D22",
+      "comments": [
+        "sound data"
+      ],
+      "title": "sound-c7-c3-c1-13",
+      "runtimeModified": false,
+      "descriptor": [
+        199,
+        195,
+        193,
+        19
+      ],
+      "descriptorHex": "C7-C3-C1-13",
+      "stem": "12551-sound-c7-c3-c1-13__C7-C3-C1-13",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $C7,$C3,$C1,$13; sound data",
+      "sourceType": "raw",
+      "fileName": "12551-sound-c7-c3-c1-13__C7-C3-C1-13__raw.wav",
+      "rawFile": "raw/12551-sound-c7-c3-c1-13__C7-C3-C1-13__raw.wav",
+      "previewFile": "preview/12551-sound-c7-c3-c1-13__C7-C3-C1-13__preview.wav",
+      "rawSeconds": 0.88,
+      "previewSeconds": 0.56
+    },
+    {
+      "index": 44,
+      "asmLine": 12555,
+      "dataLine": 12556,
+      "kind": "play_sound",
+      "label": "L4D33",
+      "comments": [
+        "sound data"
+      ],
+      "title": "sound-c7-c3-c1-03",
+      "runtimeModified": false,
+      "descriptor": [
+        199,
+        195,
+        193,
+        3
+      ],
+      "descriptorHex": "C7-C3-C1-03",
+      "stem": "12555-sound-c7-c3-c1-03__C7-C3-C1-03",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $C7,$C3,$C1,$03; sound data",
+      "sourceType": "raw",
+      "fileName": "12555-sound-c7-c3-c1-03__C7-C3-C1-03__raw.wav",
+      "rawFile": "raw/12555-sound-c7-c3-c1-03__C7-C3-C1-03__raw.wav",
+      "previewFile": "preview/12555-sound-c7-c3-c1-03__C7-C3-C1-03__preview.wav",
+      "rawSeconds": 0.88,
+      "previewSeconds": 0.56
+    },
+    {
+      "index": 45,
+      "asmLine": 12706,
+      "dataLine": 12707,
+      "kind": "play_sound",
+      "label": "L4E29",
+      "comments": [
+        "sound data [TOM 97 was 95]"
+      ],
+      "title": "sound-57-07-57-97",
+      "runtimeModified": false,
+      "descriptor": [
+        87,
+        7,
+        87,
+        151
+      ],
+      "descriptorHex": "57-07-57-97",
+      "stem": "12706-sound-57-07-57-97__57-07-57-97",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $57,$07,$57,$97; sound data [TOM 97 was 95]",
+      "sourceType": "raw",
+      "fileName": "12706-sound-57-07-57-97__57-07-57-97__raw.wav",
+      "rawFile": "raw/12706-sound-57-07-57-97__57-07-57-97__raw.wav",
+      "previewFile": "preview/12706-sound-57-07-57-97__57-07-57-97__preview.wav",
+      "rawSeconds": 0.68,
+      "previewSeconds": 0.5
+    },
+    {
+      "index": 46,
+      "asmLine": 12766,
+      "dataLine": 12767,
+      "kind": "play_sound",
+      "label": "L4E94",
+      "comments": [
+        "make a noise",
+        "sound data"
+      ],
+      "title": "sound-33-f3-09-b4",
+      "runtimeModified": false,
+      "descriptor": [
+        51,
+        243,
+        9,
+        180
+      ],
+      "descriptorHex": "33-F3-09-B4",
+      "stem": "12766-sound-33-f3-09-b4__33-F3-09-B4",
+      "jsrLine": "JSR play_sound                                  ; make a noise",
+      "dataLineText": "equb $33,$F3,$09,$B4; sound data",
+      "sourceType": "raw",
+      "fileName": "12766-sound-33-f3-09-b4__33-F3-09-B4__raw.wav",
+      "rawFile": "raw/12766-sound-33-f3-09-b4__33-F3-09-B4__raw.wav",
+      "previewFile": "preview/12766-sound-33-f3-09-b4__33-F3-09-B4__preview.wav",
+      "rawSeconds": 0.76,
+      "previewSeconds": 0.16
+    },
+    {
+      "index": 47,
+      "asmLine": 12768,
+      "dataLine": 12769,
+      "kind": "play_sound",
+      "label": "L4E94",
+      "comments": [
+        "sound data"
+      ],
+      "title": "sound-33-f3-07-b5",
+      "runtimeModified": false,
+      "descriptor": [
+        51,
+        243,
+        7,
+        181
+      ],
+      "descriptorHex": "33-F3-07-B5",
+      "stem": "12768-sound-33-f3-07-b5__33-F3-07-B5",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $33,$F3,$07,$B5; sound data",
+      "sourceType": "raw",
+      "fileName": "12768-sound-33-f3-07-b5__33-F3-07-B5__raw.wav",
+      "rawFile": "raw/12768-sound-33-f3-07-b5__33-F3-07-B5__raw.wav",
+      "previewFile": "preview/12768-sound-33-f3-07-b5__33-F3-07-B5__preview.wav",
+      "rawSeconds": 0.76,
+      "previewSeconds": 0.16
+    },
+    {
+      "index": 48,
+      "asmLine": 12878,
+      "dataLine": 12879,
+      "kind": "play_sound",
+      "label": "L4F57",
+      "comments": [
+        "sound data"
+      ],
+      "title": "sound-33-f3-4f-35",
+      "runtimeModified": false,
+      "descriptor": [
+        51,
+        243,
+        79,
+        53
+      ],
+      "descriptorHex": "33-F3-4F-35",
+      "stem": "12878-sound-33-f3-4f-35__33-F3-4F-35",
+      "jsrLine": "JSR play_sound",
+      "dataLineText": "equb $33,$F3,$4F,$35; sound data",
+      "sourceType": "raw",
+      "fileName": "12878-sound-33-f3-4f-35__33-F3-4F-35__raw.wav",
+      "rawFile": "raw/12878-sound-33-f3-4f-35__33-F3-4F-35__raw.wav",
+      "previewFile": "preview/12878-sound-33-f3-4f-35__33-F3-4F-35__preview.wav",
+      "rawSeconds": 0.58,
+      "previewSeconds": 0.16
+    }
+  ]
+}

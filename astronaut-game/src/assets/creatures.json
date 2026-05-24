@@ -1,7 +1,7 @@
 [
   {
-    "x": 608,
-    "y": 1919,
+    "x": 538,
+    "y": 1929,
     "type": "bird2",
     "palette": 2,
     "rotation": 1,
@@ -25,7 +25,14 @@
     "fireMode": "none",
     "homingBullets": false,
     "fireCooldownMs": 1200,
+    "fireCooldownVarianceMs": 0,
+    "targetRefreshMs": 0,
+    "aimLeadFactor": 0,
+    "aimJitterPx": 0,
+    "requiresLineOfSight": false,
     "projectileSpeed": 3,
+    "projectileWeight": 0.08,
+    "projectileBounciness": 0,
     "canEatWasps": false,
     "canJump": false,
     "jumpStrength": 6,
@@ -48,8 +55,9 @@
       "volume": 1
     },
     "state": {
-      "hoverPhase": 128.4000000000035,
-      "patrolDirection": 1
+      "hoverPhase": 402.7800000000139,
+      "patrolDirection": 1,
+      "authoredRotation": 1
     }
   },
   {
@@ -74,11 +82,18 @@
     "patrolMinY": 1658,
     "patrolMaxY": 1722,
     "hoverAmplitude": 0,
-    "trackRange": 224,
+    "trackRange": 500,
     "fireMode": "bullets",
     "homingBullets": false,
-    "fireCooldownMs": 1200,
-    "projectileSpeed": 3,
+    "fireCooldownMs": 600,
+    "fireCooldownVarianceMs": 180,
+    "targetRefreshMs": 320,
+    "aimLeadFactor": 0.35,
+    "aimJitterPx": 8,
+    "requiresLineOfSight": true,
+    "projectileSpeed": 6,
+    "projectileWeight": 0.08,
+    "projectileBounciness": 0,
     "canEatWasps": false,
     "canJump": false,
     "jumpStrength": 6,
@@ -101,8 +116,7 @@
       "volume": 1
     },
     "state": {
-      "patrolDirection": 1,
-      "nextFireAt": 14671
+      "authoredRotation": 3
     }
   }
 ]

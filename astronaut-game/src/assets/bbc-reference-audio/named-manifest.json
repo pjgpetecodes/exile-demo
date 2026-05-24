@@ -1,0 +1,207 @@
+{
+  "generatedAt": "2026-05-23T22:04:11.693Z",
+  "sourceFiles": [
+    "../../../../original_source.asm",
+    "../../../../original_source2.asm"
+  ],
+  "namedExports": [
+    {
+      "fileName": "remember.wav",
+      "descriptorHex": "17-E3-2F-72",
+      "preferredTitle": "remember",
+      "note": "Middle beep used when remembering a teleport position in original_source2.asm:7651.",
+      "sourceAsmLine": 3522,
+      "sourceKind": "play_sound",
+      "sourceDescriptorHex": "17-E3-2F-72",
+      "sourceRawFile": "raw/03522-beep__17-E3-2F-72__raw.wav",
+      "namedFile": "named/remember.wav"
+    },
+    {
+      "fileName": "teleport.wav",
+      "descriptorHex": "29-C2-37-F3",
+      "preferredTitle": "teleport",
+      "note": "Object teleporting sound from original_source2.asm:11818-11820.",
+      "sourceAsmLine": 11136,
+      "sourceKind": "play_sound",
+      "sourceDescriptorHex": "29-C2-37-F3",
+      "sourceRawFile": "raw/11136-teleport__29-C2-37-F3__raw.wav",
+      "namedFile": "named/teleport.wav"
+    },
+    {
+      "fileName": "teleport_transition.wav",
+      "descriptorHex": "33-F3-63-F3",
+      "preferredTitle": "teleport-transition",
+      "note": "Object changing position in teleport from original_source2.asm:5178-5179.",
+      "sourceAsmLine": 4766,
+      "sourceKind": "play_sound",
+      "sourceDescriptorHex": "33-F3-63-F3",
+      "sourceRawFile": "raw/04766-teleport__33-F3-63-F3__raw.wav",
+      "namedFile": "named/teleport_transition.wav"
+    },
+    {
+      "fileName": "get.wav",
+      "descriptorHex": "72-A5-7B-85",
+      "preferredTitle": "get",
+      "note": "Collectable pickup sound from original_source2.asm:13073-13075.",
+      "sourceAsmLine": 12306,
+      "sourceKind": "play_sound",
+      "sourceDescriptorHex": "72-A5-7B-85",
+      "sourceRawFile": "raw/12306-collect__72-A5-7B-85__raw.wav",
+      "namedFile": "named/get.wav"
+    },
+    {
+      "fileName": "ouch_1.wav",
+      "descriptorHex": "33-03-2D-24",
+      "preferredTitle": "ouch-1",
+      "note": "First scream sound from original_source2.asm:6530-6532.",
+      "sourceAsmLine": 6131,
+      "sourceKind": "play_sound",
+      "sourceDescriptorHex": "33-03-2D-24",
+      "sourceRawFile": "raw/06131-scream__33-03-2D-24__raw.wav",
+      "namedFile": "named/ouch_1.wav"
+    },
+    {
+      "fileName": "ouch_2.wav",
+      "descriptorHex": "33-03-2B-25",
+      "preferredTitle": "ouch-2",
+      "note": "Second scream sound from original_source2.asm:6533-6534.",
+      "sourceAsmLine": 6133,
+      "sourceKind": "play_sound",
+      "sourceDescriptorHex": "33-03-2B-25",
+      "sourceRawFile": "raw/06133-scream__33-03-2B-25__raw.wav",
+      "namedFile": "named/ouch_2.wav"
+    },
+    {
+      "fileName": "whistle_1.wav",
+      "descriptorHex": "B0-24-B6-B3",
+      "preferredTitle": "whistle-1",
+      "note": "Whistle one sound from original_source2.asm:7715-7717.",
+      "sourceAsmLine": 7281,
+      "sourceKind": "play_sound",
+      "sourceDescriptorHex": "B0-24-B6-B3",
+      "sourceRawFile": "raw/07281-play-whistle-sound__B0-24-B6-B3__raw.wav",
+      "namedFile": "named/whistle_1.wav"
+    },
+    {
+      "fileName": "whistle_2.wav",
+      "descriptorHex": "B0-24-B6-E2",
+      "preferredTitle": "whistle-2",
+      "note": "Whistle two sound from original_source2.asm:7703-7705.",
+      "sourceAsmLine": 7269,
+      "sourceKind": "play_sound",
+      "sourceDescriptorHex": "B0-24-B6-E2",
+      "sourceRawFile": "raw/07269-whistle-sound__B0-24-B6-E2__raw.wav",
+      "namedFile": "named/whistle_2.wav"
+    },
+    {
+      "fileName": "grenade.wav",
+      "descriptorHex": "57-07-CB-82",
+      "preferredTitle": "grenade",
+      "note": "Active grenade sound from original_source2.asm:11644-11649.",
+      "sourceAsmLine": 10968,
+      "sourceKind": "play_sound",
+      "sourceDescriptorHex": "57-07-CB-82",
+      "sourceRawFile": "raw/10968-grenade__57-07-CB-82__raw.wav",
+      "namedFile": "named/grenade.wav"
+    },
+    {
+      "fileName": "plasma.wav",
+      "descriptorHex": "5D-04-FF-05",
+      "preferredTitle": "plasma",
+      "note": "Low beep used for firing the plasma gun in original_source2.asm:7820-7821.",
+      "sourceAsmLine": 3530,
+      "sourceKind": "play_sound",
+      "sourceDescriptorHex": "5D-04-FF-05",
+      "sourceRawFile": "raw/03530-beep__5D-04-FF-05__raw.wav",
+      "namedFile": "named/plasma.wav"
+    },
+    {
+      "fileName": "icer.wav",
+      "descriptorHex": "3D-04-3D-D3",
+      "preferredTitle": "icer",
+      "note": "Icer firing sound from original_source2.asm:7822-7824.",
+      "sourceAsmLine": 7387,
+      "sourceKind": "play_sound",
+      "sourceDescriptorHex": "3D-04-3D-D3",
+      "sourceRawFile": "raw/07387-icer__3D-04-3D-D3__raw.wav",
+      "namedFile": "named/icer.wav"
+    },
+    {
+      "fileName": "pistol.wav",
+      "descriptorHex": "3D-04-3D-04",
+      "preferredTitle": "pistol",
+      "note": "Pistol firing sound from original_source2.asm:7826-7828.",
+      "sourceAsmLine": 7391,
+      "sourceKind": "play_sound",
+      "sourceDescriptorHex": "3D-04-3D-04",
+      "sourceRawFile": "raw/07391-pistol__3D-04-3D-04__raw.wav",
+      "namedFile": "named/pistol.wav"
+    },
+    {
+      "fileName": "middle_beep.wav",
+      "descriptorHex": "17-E3-2F-72",
+      "preferredTitle": "middle-beep",
+      "note": "General middle beep helper from original_source2.asm:3953-3956.",
+      "sourceAsmLine": 3522,
+      "sourceKind": "play_sound",
+      "sourceDescriptorHex": "17-E3-2F-72",
+      "sourceRawFile": "raw/03522-beep__17-E3-2F-72__raw.wav",
+      "namedFile": "named/middle_beep.wav"
+    },
+    {
+      "fileName": "high_beep.wav",
+      "descriptorHex": "17-82-13-F2",
+      "preferredTitle": "high-beep",
+      "note": "General high beep helper from original_source2.asm:3958-3961.",
+      "sourceAsmLine": 3526,
+      "sourceKind": "play_sound",
+      "sourceDescriptorHex": "17-82-13-F2",
+      "sourceRawFile": "raw/03526-beep__17-82-13-F2__raw.wav",
+      "namedFile": "named/high_beep.wav"
+    },
+    {
+      "fileName": "low_beep.wav",
+      "descriptorHex": "5D-04-FF-05",
+      "preferredTitle": "low-beep",
+      "note": "General low beep helper from original_source2.asm:3963-3966.",
+      "sourceAsmLine": 3530,
+      "sourceKind": "play_sound",
+      "sourceDescriptorHex": "5D-04-FF-05",
+      "sourceRawFile": "raw/03530-beep__5D-04-FF-05__raw.wav",
+      "namedFile": "named/low_beep.wav"
+    },
+    {
+      "fileName": "squeal.wav",
+      "descriptorHex": "33-03-2D-84",
+      "preferredTitle": "squeal",
+      "note": "General squeal helper from original_source2.asm:3968-3970.",
+      "sourceAsmLine": 3534,
+      "sourceKind": "play_sound",
+      "sourceDescriptorHex": "33-03-2D-84",
+      "sourceRawFile": "raw/03534-play-squeal__33-03-2D-84__raw.wav",
+      "namedFile": "named/squeal.wav"
+    },
+    {
+      "fileName": "mushroom.wav",
+      "descriptorHex": "33-F3-1D-03",
+      "preferredTitle": "mushroom",
+      "note": "Mushroom collision sound from original_source2.asm:11096-11105.",
+      "sourceAsmLine": 10478,
+      "sourceKind": "play_sound",
+      "sourceDescriptorHex": "33-F3-1D-03",
+      "sourceRawFile": "raw/10478-sound-33-f3-1d-03__33-F3-1D-03__raw.wav",
+      "namedFile": "named/mushroom.wav"
+    },
+    {
+      "fileName": "switch_pressed.wav",
+      "descriptorHex": "3D-04-11-D4",
+      "preferredTitle": "switch-pressed",
+      "note": "Switch pressed sound from original_source2.asm:12750-12751.",
+      "sourceAsmLine": 7206,
+      "sourceKind": "play_sound",
+      "sourceDescriptorHex": "3D-04-11-D4",
+      "sourceRawFile": "raw/07206-scroll-viewpoint__3D-04-11-D4__raw.wav",
+      "namedFile": "named/switch_pressed.wav"
+    }
+  ]
+}
