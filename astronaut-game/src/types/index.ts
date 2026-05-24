@@ -115,7 +115,10 @@ export interface Astronaut {
     isFlying: boolean;
     isLanded: boolean;
     velocity: Position;
+    energy: number;
+    maxEnergy: number;
     controlDazeUntilMs?: number;
+    nextEnergyRegenAtMs?: number;
 }
 
 export interface GameState {

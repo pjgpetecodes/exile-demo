@@ -61,6 +61,27 @@ The repository includes VS Code launch/task settings.
 - Loose objects now use a shared weight-and-speed-driven physics model for falling, bouncing, throwing, pushing, and astronaut impacts.
 - The astronaut start position is stored separately in `astronaut_start.json`.
 
+## Astronaut injury, energy, and rescue teleport
+
+- The astronaut uses a hidden regenerating **energy pool** rather than a one-hit death system.
+- Hits from **bullet impact blasts**, **projectile explosions**, **grenade explosions**, and **authored creature touch damage** drain energy.
+- Creature touch damage is driven by the creature's authored `damageOnContact` value. It is **not** a generic "all hostile creatures ram for damage" rule.
+- While injured, the astronaut **flashes white**, and the flashing rate increases as energy gets lower.
+- Bullet and explosion hits also **buffet** the astronaut around and can briefly **daze** his control response.
+- Energy now regenerates slowly in a BBC-inspired way: **1 point every 320 ms** until full.
+- Astronaut damage intake is currently tuned a bit harsher than the plain 64-point pool would suggest, to better approximate the original BBC game's exposed / low-protection lethality until a full protection-suit system exists in the modern game.
+- If energy reaches **zero**, the astronaut:
+  1. drops the currently held collectable,
+  2. triggers the teleport effect,
+  3. teleports to the **most recently remembered** teleport location,
+  4. falls back to the default astronaut start position if no remembered location exists.
+- Emergency rescue teleport now matches the BBC pattern more closely: the astronaut is rescued at **1 energy**, then gains **+1 more when teleport completes**. It does **not** reset the active recovery countdown, so healing continues from the original hit timing.
+- Teleport memories are still a **stack**:
+  - **R** pushes the current location into memory
+  - **T** pops the most recent remembered location
+  - zero-energy rescue teleport uses the same pop-to-last-save behavior
+- This is intentionally BBC-inspired rather than a literal port: the modern game keeps the readable flash/teleport presentation and current save-memory workflow while following the original pattern of **damage -> slow regeneration -> forced rescue teleport on depletion**.
+
 ## Important asset files
 
 World data is split across JSON files in `astronaut-game\src\assets`:

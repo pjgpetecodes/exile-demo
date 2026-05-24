@@ -335,6 +335,7 @@ function shouldRunInteractiveFrameRate() {
         hasActiveCreatureWork() ||
         hasMovingCollectables() ||
         !astronaut.isLanded ||
+        astronaut.energy < astronaut.maxEnergy ||
         Math.abs(astronaut.velocity.x) > ACTIVE_MOTION_EPSILON ||
         Math.abs(astronaut.velocity.y) > ACTIVE_MOTION_EPSILON ||
         Math.abs(walkSpeed) > ACTIVE_MOTION_EPSILON
@@ -415,6 +416,175 @@ function syncDefaultTeleportLocation(position: Position) {
 function updateAstronautStartPosition(position: Position, applyToAstronaut: boolean = false) {
     setAstronautStartPosition(position, applyToAstronaut);
     syncDefaultTeleportLocation(position);
+}
+
+function popLatestTeleportLocation() {
+    if (teleportLocations.length > 0) {
+        const location = teleportLocations.pop()!;
+        if (teleportSlot > teleportLocations.length) {
+            teleportSlot = teleportLocations.length;
+        }
+        return location;
+    }
+    return { ...defaultTeleportLocation };
+}
+
+function startTeleportToLocation(location: TeleportLocation) {
+    if (teleporting) {
+        return false;
+    }
+
+    teleporting = true;
+    teleportPhase = 'out';
+    teleportAnimFrame = 0;
+    teleportTarget = location;
+    teleportSpriteCol = currentAstronautRenderState.spriteCol;
+    teleportFlipSprite = currentAstronautRenderState.flipSprite;
+    teleportFlipVertical = currentAstronautRenderState.flipVertical;
+    try { teleportSound.currentTime = 0; teleportSound.play(); } catch {}
+    requestImmediateFrame();
+    return true;
+}
+
+function getAstronautInjuryRatio() {
+    if (astronaut.maxEnergy <= 0) {
+        return 0;
+    }
+    return Math.max(0, 1 - astronaut.energy / astronaut.maxEnergy);
+}
+
+function isAstronautDamageFlashVisible(now: number) {
+    const injuryRatio = getAstronautInjuryRatio();
+    if (injuryRatio <= 0) {
+        return false;
+    }
+
+    const flashIntervalMs = MOVEMENT_SETTINGS.astronautDamageFlashMaxIntervalMs - injuryRatio * (
+        MOVEMENT_SETTINGS.astronautDamageFlashMaxIntervalMs - MOVEMENT_SETTINGS.astronautDamageFlashMinIntervalMs
+    );
+    return Math.floor(now / flashIntervalMs) % 2 === 0;
+}
+
+function drawAstronautDamageFlashOverlay(
+    context: CanvasRenderingContext2D,
+    drawW: number,
+    drawH: number,
+    now: number
+) {
+    if (!isAstronautDamageFlashVisible(now)) {
+        return;
+    }
+
+    context.save();
+    context.globalCompositeOperation = 'source-atop';
+    context.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    context.fillRect(-drawW / 2, -drawH / 2, drawW, drawH);
+    context.restore();
+}
+
+function drawAstronautSprite(
+    context: CanvasRenderingContext2D,
+    spriteRect: { x: number; y: number; w: number; h: number },
+    drawW: number,
+    drawH: number,
+    now: number
+) {
+    const spriteSource = astronautSpriteSource || spriteSheet;
+    if (!spriteSource) {
+        return;
+    }
+
+    if (!isAstronautDamageFlashVisible(now)) {
+        context.drawImage(
+            spriteSource,
+            spriteRect.x, spriteRect.y, spriteRect.w, spriteRect.h,
+            -drawW / 2,
+            -drawH / 2,
+            drawW, drawH
+        );
+        return;
+    }
+
+    const flashCanvas = document.createElement('canvas');
+    flashCanvas.width = Math.max(1, Math.round(drawW));
+    flashCanvas.height = Math.max(1, Math.round(drawH));
+    const flashContext = flashCanvas.getContext('2d');
+    if (!flashContext) {
+        context.drawImage(
+            spriteSource,
+            spriteRect.x, spriteRect.y, spriteRect.w, spriteRect.h,
+            -drawW / 2,
+            -drawH / 2,
+            drawW, drawH
+        );
+        return;
+    }
+
+    flashContext.imageSmoothingEnabled = false;
+    flashContext.drawImage(
+        spriteSource,
+        spriteRect.x, spriteRect.y, spriteRect.w, spriteRect.h,
+        0,
+        0,
+        flashCanvas.width,
+        flashCanvas.height
+    );
+    flashContext.globalCompositeOperation = 'source-atop';
+    flashContext.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    flashContext.fillRect(0, 0, flashCanvas.width, flashCanvas.height);
+    context.drawImage(
+        flashCanvas,
+        -drawW / 2,
+        -drawH / 2,
+        drawW,
+        drawH
+    );
+}
+
+function updateAstronautEnergyRecovery(now: number) {
+    if (teleporting || astronaut.energy >= astronaut.maxEnergy) {
+        return;
+    }
+
+    const nextRegenAt = astronaut.nextEnergyRegenAtMs ?? (now + MOVEMENT_SETTINGS.astronautEnergyRegenIntervalMs);
+    if (now < nextRegenAt) {
+        astronaut.nextEnergyRegenAtMs = nextRegenAt;
+        return;
+    }
+
+    const intervalMs = MOVEMENT_SETTINGS.astronautEnergyRegenIntervalMs;
+    const regenSteps = Math.floor((now - nextRegenAt) / intervalMs) + 1;
+    astronaut.energy = Math.min(
+        astronaut.maxEnergy,
+        astronaut.energy + regenSteps * MOVEMENT_SETTINGS.astronautEnergyRegenAmount
+    );
+    astronaut.nextEnergyRegenAtMs = nextRegenAt + regenSteps * intervalMs;
+}
+
+function triggerAstronautEmergencyTeleport() {
+    if (teleporting) {
+        return;
+    }
+
+    releaseHeldCollectable();
+    astronaut.energy = Math.min(
+        astronaut.maxEnergy,
+        Math.max(1, MOVEMENT_SETTINGS.astronautEmergencyTeleportEnergy)
+    );
+    startTeleportToLocation(popLatestTeleportLocation());
+}
+
+function applyAstronautDamage(amount: number, now: number = performance.now()) {
+    if (amount <= 0 || teleporting) {
+        return;
+    }
+
+    const scaledDamage = amount * MOVEMENT_SETTINGS.astronautDamageIntakeMultiplier;
+    astronaut.energy = Math.max(0, astronaut.energy - scaledDamage);
+    astronaut.nextEnergyRegenAtMs = now + MOVEMENT_SETTINGS.astronautEnergyRegenIntervalMs;
+    if (astronaut.energy <= 0) {
+        triggerAstronautEmergencyTeleport();
+    }
 }
 
 function rememberLastFlyPose(col: number, flip: boolean) {
@@ -1323,6 +1493,7 @@ function drawAstronautInWorld(
     const spriteRect = getSpriteRectFromMap(SPRITE_ROW, spriteCol);
     const drawW = 32 * SPRITE_SCALE;
     const drawH = 32 * SPRITE_SCALE;
+    const renderNow = performance.now();
 
     context.save();
     context.translate(
@@ -1331,13 +1502,7 @@ function drawAstronautInWorld(
     );
     if (flipSprite) context.scale(-1, 1);
     if (flipVertical) context.scale(1, -1);
-    context.drawImage(
-        astronautSpriteSource || spriteSheet,
-        spriteRect.x, spriteRect.y, spriteRect.w, spriteRect.h,
-        -drawW / 2,
-        -drawH / 2,
-        drawW, drawH
-    );
+    drawAstronautSprite(context, spriteRect, drawW, drawH, renderNow);
     context.restore();
 }
 
@@ -1382,26 +1547,10 @@ async function gameLoop() {
         try { rememberSound.currentTime = 0; rememberSound.play(); } catch {}
     }
     if (!isDesignerOpen() && keys['t'] && !prevKeys['t']) {
-        let loc: TeleportLocation | null = null;
-        if (teleportLocations.length > 0) {
-            // Use the most recent (last) location
-            loc = teleportLocations.pop()!;
-            if (teleportSlot > teleportLocations.length) teleportSlot = teleportLocations.length;
-        } else {
-            loc = { ...defaultTeleportLocation };
-        }
-        if (loc && !teleporting) {
-            teleporting = true;
-            teleportPhase = 'out';
-            teleportAnimFrame = 0;
-            teleportTarget = loc;
-            teleportSpriteCol = spriteCol;
-            teleportFlipSprite = flipSprite;
-            teleportFlipVertical = flipVertical;
-            // Play teleport sound
-            try { teleportSound.currentTime = 0; teleportSound.play(); } catch {}
-        }
+        startTeleportToLocation(popLatestTeleportLocation());
     }
+
+    updateAstronautEnergyRecovery(frameNow);
 
     // --- Draw twinkling stars ---
         updateAndDrawStars(
@@ -2163,6 +2312,10 @@ async function gameLoop() {
             teleportPhase = 'in';
             teleportAnimFrame = 0;
         } else if (teleportPhase === 'in' && teleportAnimFrame >= TELEPORT_ANIM_FRAMES) {
+            astronaut.energy = Math.min(
+                astronaut.maxEnergy,
+                astronaut.energy + 1
+            );
             teleporting = false;
             teleportPhase = 'none';
             teleportTarget = null;
@@ -2180,17 +2333,12 @@ async function gameLoop() {
         const SPRITE_H = spriteRect.h;
         const drawW = 32 * SPRITE_SCALE;
         const drawH = 32 * SPRITE_SCALE;
+        const renderNow = performance.now();
         ctx!.save();
         ctx!.translate(canvas.width / 2, canvas.height / 2);
         if (flipSprite) ctx!.scale(-1, 1);
         if (flipVertical) ctx!.scale(1, -1);
-        ctx!.drawImage(
-            astronautSpriteSource || spriteSheet,
-            spriteRect.x, spriteRect.y, SPRITE_W, SPRITE_H,
-            -drawW / 2,
-            -drawH / 2,
-            drawW, drawH
-        );
+        drawAstronautSprite(ctx!, spriteRect, drawW, drawH, renderNow);
 
         // --- Draw tight bounding box for astronaut (with transforms) ---
         if (showTightBoundingBoxes) {
@@ -3281,8 +3429,17 @@ function applyAstronautImpact(sourceX: number, sourceY: number, force: number) {
     const dx = astronautCenterX - sourceX;
     const dy = astronautCenterY - sourceY;
     const distance = Math.max(1, Math.hypot(dx, dy));
-    astronaut.velocity.x += (dx / distance) * force;
-    astronaut.velocity.y += (dy / distance) * Math.max(0.8, force * 0.65);
+    const wasLanded = astronaut.isLanded;
+    const horizontalImpulse = (dx / distance) * Math.max(1, force * 1.1);
+    let verticalDirection = dy / distance;
+    if (wasLanded && verticalDirection > -0.35) {
+        verticalDirection = -0.35;
+    }
+
+    astronaut.isLanded = false;
+    astronaut.isFlying = true;
+    astronaut.velocity.x += horizontalImpulse;
+    astronaut.velocity.y += verticalDirection * Math.max(1.1, force * 0.95);
     playAstronautImpactSound();
 }
 
@@ -3299,6 +3456,10 @@ function applyAstronautBulletImpactBlast(centerX: number, centerY: number, damag
     }
 
     const proximity = 1 - astronautDistance / blastRadius;
+    applyAstronautDamage(
+        Math.max(6, damage * (5 + proximity * 7)),
+        performance.now()
+    );
     applyAstronautBulletDaze(
         performance.now(),
         BULLET_DAZE_DURATION_MS + damage * 90 + proximity * 140
@@ -3306,7 +3467,7 @@ function applyAstronautBulletImpactBlast(centerX: number, centerY: number, damag
     applyAstronautImpact(
         centerX,
         centerY,
-        Math.max(0.9, damage * 0.45 + proximity * 1.5)
+        Math.max(1.6, damage * 0.75 + proximity * 2.6)
     );
 }
 
@@ -3314,6 +3475,12 @@ function applyAstronautProjectileImpact(projectile: CreatureProjectileCollectabl
     if (projectile.creatureProjectile.kind === 'bullet') {
         return;
     }
+
+    const astronautDamage = Math.max(
+        5,
+        projectile.creatureProjectile.damage * 8
+    );
+    applyAstronautDamage(astronautDamage);
 
     const speed = Math.hypot(projectile.velocity.x, projectile.velocity.y);
     if (speed < 0.001) {
@@ -3436,6 +3603,12 @@ function explodeProjectile(projectile: CreatureProjectileCollectable, entityX = 
     };
     const astronautDistance = Math.hypot(astronautCenter.x - center.x, astronautCenter.y - center.y);
     if (astronautDistance <= radius) {
+        applyAstronautDamage(
+            Math.max(
+                8,
+                projectile.creatureProjectile.damage * 10 * (1 - astronautDistance / radius)
+            )
+        );
         applyAstronautImpact(
             center.x,
             center.y,
@@ -3475,6 +3648,9 @@ function explodeCollectableGrenade(collectable: Collectable) {
     };
     const astronautDistance = Math.hypot(astronautCenter.x - center.x, astronautCenter.y - center.y);
     if (astronautDistance <= radius) {
+        applyAstronautDamage(
+            Math.max(10, power * 4 * (1 - astronautDistance / radius))
+        );
         applyAstronautImpact(
             center.x,
             center.y,
@@ -4301,12 +4477,19 @@ function resolveAstronautCreatureCollisions() {
             }
         }
 
-        if (creature.hostile && creature.damageOnContact > 0) {
+        if (creature.damageOnContact > 0) {
             const runtimeState = creature.state ?? {};
             const nextSoundAt = typeof runtimeState.nextContactSoundAt === 'number'
                 ? Number(runtimeState.nextContactSoundAt)
                 : 0;
+            const nextDamageAt = typeof runtimeState.nextContactDamageAt === 'number'
+                ? Number(runtimeState.nextContactDamageAt)
+                : 0;
             const now = performance.now();
+            if (now >= nextDamageAt) {
+                applyAstronautDamage(Math.max(4, creature.damageOnContact * 6), now);
+                runtimeState.nextContactDamageAt = now + 450;
+            }
             if (now >= nextSoundAt) {
                 const ouchSound = ouchSounds[Math.floor(Math.random() * ouchSounds.length)];
                 try {

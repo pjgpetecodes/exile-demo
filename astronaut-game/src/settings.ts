@@ -61,7 +61,14 @@ export const MOVEMENT_SETTINGS = {
     throwGuideDotSpeed: 14,
     throwGuideDotEmitIntervalFrames: 2,
     throwGuideDotsPerBurst: 2,
-    throwGuideDotSize: 2.2
+    throwGuideDotSize: 2.2,
+    astronautMaxEnergy: 64,
+    astronautDamageIntakeMultiplier: 2.5,
+    astronautEmergencyTeleportEnergy: 1,
+    astronautEnergyRegenAmount: 1,
+    astronautEnergyRegenIntervalMs: 320,
+    astronautDamageFlashMinIntervalMs: 55,
+    astronautDamageFlashMaxIntervalMs: 210
 } as const;
 
 export const VIEWPORT_SETTINGS = {

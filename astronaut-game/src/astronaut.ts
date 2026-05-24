@@ -14,6 +14,9 @@ export let astronaut: Astronaut = {
     velocity: { x: 0, y: 0 },
     isFlying: false,
     isLanded: true,
+    energy: MOVEMENT_SETTINGS.astronautMaxEnergy,
+    maxEnergy: MOVEMENT_SETTINGS.astronautMaxEnergy,
+    nextEnergyRegenAtMs: 0,
     controlDazeUntilMs: 0
 };
 
@@ -42,6 +45,8 @@ export function resetAstronaut() {
     astronaut.velocity = { x: 0, y: 0 };
     astronaut.isFlying = false;
     astronaut.isLanded = true;
+    astronaut.energy = astronaut.maxEnergy;
+    astronaut.nextEnergyRegenAtMs = 0;
     astronaut.controlDazeUntilMs = 0;
     walkSpeed = 0;
     facingLeft = false;
@@ -56,6 +61,8 @@ export function resetAstronautToPosition(position: Position) {
     astronaut.velocity = { x: 0, y: 0 };
     astronaut.isFlying = false;
     astronaut.isLanded = true;
+    astronaut.energy = astronaut.maxEnergy;
+    astronaut.nextEnergyRegenAtMs = 0;
     astronaut.controlDazeUntilMs = 0;
     walkSpeed = 0;
     facingLeft = false;
