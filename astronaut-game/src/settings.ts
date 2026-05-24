@@ -88,7 +88,7 @@ export const CREATURE_PROJECTILE_SETTINGS: Record<CreatureProjectileKind, Creatu
             paletteSource: 'projectile'
         },
         impactAnimation: {
-            frames: ['explosion_half'],
+            frames: ['explosion_half', 'explosion', 'explosion_half'],
             frameDurationFrames: 2,
             paletteSource: 'projectile'
         }

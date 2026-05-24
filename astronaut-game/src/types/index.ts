@@ -115,6 +115,7 @@ export interface Astronaut {
     isFlying: boolean;
     isLanded: boolean;
     velocity: Position;
+    controlDazeUntilMs?: number;
 }
 
 export interface GameState {

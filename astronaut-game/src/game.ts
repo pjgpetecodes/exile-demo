@@ -520,11 +520,26 @@ type ProjectileImpactEffect = {
     frames: string[];
     frameDurationFrames: number;
 };
+type BulletImpactParticle = {
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    color: string;
+    size: number;
+    life: number;
+    maxLife: number;
+};
 let throwGuideDots: ThrowGuideDot[] = [];
 let throwGuideDotEmitTimer = 0;
 let projectileImpactEffects: ProjectileImpactEffect[] = [];
+let bulletImpactParticles: BulletImpactParticle[] = [];
 let worldDesigner: WorldDesigner | null = null;
 const STARFIELD_HEIGHT = Math.min(MAP_HEIGHT, 2000);
+const BULLET_IMPACT_PARTICLE_COLORS = ['#ffffff', '#ffff00', '#ff00ff', '#00ffff', '#0000ff', '#ff0000'];
+const BULLET_DAZE_DURATION_MS = 380;
+const BULLET_DAZE_WALK_SCALE = 0.45;
+const BULLET_DAZE_FLIGHT_SCALE = 0.35;
 let currentAstronautRenderState = {
     spriteCol: SPRITE_COL_STAND,
     flipSprite: false,
@@ -1511,6 +1526,9 @@ async function gameLoop() {
         if (layerVisibility.creatures && projectileImpactEffects.length > 0) {
             drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, projectileImpactEffects, frameNow);
         }
+        if (bulletImpactParticles.length > 0) {
+            updateAndDrawBulletImpactParticles(layerVisibility.creatures ? ctx! : null, camera);
+        }
         if (heldCollectable) {
             drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, [heldCollectable], frameNow);
         }
@@ -1523,9 +1541,10 @@ async function gameLoop() {
     const movementStartX = gameState.astronaut.position.x;
     const movementStartY = gameState.astronaut.position.y;
     const movementModifiers = getHeldMovementModifiers();
+    const astronautControlModifiers = getAstronautControlModifiers(frameNow);
     handleAstronautMovement(keys, true, {
-        walkSpeedScale: movementModifiers.walkSpeedScale,
-        flightControlScale: movementModifiers.flightControlScale
+        walkSpeedScale: movementModifiers.walkSpeedScale * astronautControlModifiers.walkSpeedScale,
+        flightControlScale: movementModifiers.flightControlScale * astronautControlModifiers.flightControlScale
     });
     const movementTargetX = astronaut.position.x;
     const movementTargetY = astronaut.position.y;
@@ -2290,6 +2309,9 @@ async function gameLoop() {
         if (layerVisibility.creatures && projectileImpactEffects.length > 0) {
             drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, projectileImpactEffects, frameNow);
         }
+        if (bulletImpactParticles.length > 0) {
+            updateAndDrawBulletImpactParticles(layerVisibility.creatures ? ctx! : null, camera);
+        }
 
         if (!getSoundEnabled()) {
             ctx!.save();
@@ -2490,6 +2512,33 @@ function getHeldMovementModifiers() {
         gravityScale: 1 + effectiveWeight * MOVEMENT_SETTINGS.heldWeightGravityBonusPerUnit,
         terminalVelocityScale: 1 + effectiveWeight * MOVEMENT_SETTINGS.heldWeightTerminalVelocityBonusPerUnit
     };
+}
+
+function getAstronautDazeProgress(now: number) {
+    const dazeUntil = astronaut.controlDazeUntilMs ?? 0;
+    if (dazeUntil <= now) {
+        return 0;
+    }
+    return Math.min(1, (dazeUntil - now) / BULLET_DAZE_DURATION_MS);
+}
+
+function getAstronautControlModifiers(now: number) {
+    const dazeProgress = getAstronautDazeProgress(now);
+    if (dazeProgress <= 0) {
+        return {
+            walkSpeedScale: 1,
+            flightControlScale: 1
+        };
+    }
+
+    return {
+        walkSpeedScale: BULLET_DAZE_WALK_SCALE + (1 - BULLET_DAZE_WALK_SCALE) * (1 - dazeProgress),
+        flightControlScale: BULLET_DAZE_FLIGHT_SCALE + (1 - BULLET_DAZE_FLIGHT_SCALE) * (1 - dazeProgress)
+    };
+}
+
+function applyAstronautBulletDaze(now: number, durationMs: number = BULLET_DAZE_DURATION_MS) {
+    astronaut.controlDazeUntilMs = Math.max(astronaut.controlDazeUntilMs ?? 0, now + durationMs);
 }
 
 function getFacingSign() {
@@ -3068,6 +3117,11 @@ function spawnProjectileImpactEffect(
     };
     updateProjectileImpactEffectFrame(effect);
     projectileImpactEffects.push(effect);
+
+    if (projectile.creatureProjectile.kind === 'bullet') {
+        spawnBulletImpactParticles(effect.centerX, effect.centerY);
+        applyAstronautBulletImpactBlast(effect.centerX, effect.centerY, projectile.creatureProjectile.damage);
+    }
 }
 
 function updateProjectileImpactEffects() {
@@ -3085,6 +3139,64 @@ function updateProjectileImpactEffects() {
         nextEffects.push(effect);
     }
     projectileImpactEffects = nextEffects;
+}
+
+function spawnBulletImpactParticles(centerX: number, centerY: number) {
+    const particleCount = 28 + Math.floor(Math.random() * 9);
+    for (let index = 0; index < particleCount; index++) {
+        const angle = Math.random() * Math.PI * 2;
+        const launchRadius = 2 + Math.random() * 6;
+        const speed = 1.4 + Math.random() * 4.6;
+        const life = 18 + Math.floor(Math.random() * 10);
+        bulletImpactParticles.push({
+            x: centerX + Math.cos(angle) * launchRadius,
+            y: centerY + Math.sin(angle) * launchRadius,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed - Math.random() * 1.2,
+            color: BULLET_IMPACT_PARTICLE_COLORS[Math.floor(Math.random() * BULLET_IMPACT_PARTICLE_COLORS.length)],
+            size: Math.random() < 0.4 ? 4 : 3,
+            life,
+            maxLife: life
+        });
+    }
+}
+
+function updateAndDrawBulletImpactParticles(context: CanvasRenderingContext2D | null, camera: Position) {
+    const nextParticles: BulletImpactParticle[] = [];
+
+    for (const particle of bulletImpactParticles) {
+        particle.x += particle.vx;
+        particle.y += particle.vy;
+        particle.vy += 0.08;
+        particle.vx *= 0.97;
+        particle.life--;
+
+        if (particle.life <= 0) {
+            continue;
+        }
+
+        const screenX = Math.round(particle.x - camera.x);
+        const screenY = Math.round(particle.y - camera.y);
+        if (
+            screenX + particle.size < 0 ||
+            screenX > canvas.width ||
+            screenY + particle.size < 0 ||
+            screenY > canvas.height
+        ) {
+            continue;
+        }
+
+        nextParticles.push(particle);
+        if (context) {
+            context.save();
+            context.globalAlpha = Math.max(0.45, particle.life / particle.maxLife);
+            context.fillStyle = particle.color;
+            context.fillRect(screenX, screenY, particle.size, particle.size);
+            context.restore();
+        }
+    }
+
+    bulletImpactParticles = nextParticles;
 }
 
 function getProjectileAngleDegrees(velocity: Position) {
@@ -3174,7 +3286,35 @@ function applyAstronautImpact(sourceX: number, sourceY: number, force: number) {
     playAstronautImpactSound();
 }
 
+function applyAstronautBulletImpactBlast(centerX: number, centerY: number, damage: number) {
+    const blastRadius = 34;
+    const astronautRect = getAstronautRect();
+    const astronautCenter = {
+        x: (astronautRect.left + astronautRect.right) / 2,
+        y: (astronautRect.top + astronautRect.bottom) / 2
+    };
+    const astronautDistance = Math.hypot(astronautCenter.x - centerX, astronautCenter.y - centerY);
+    if (astronautDistance > blastRadius) {
+        return;
+    }
+
+    const proximity = 1 - astronautDistance / blastRadius;
+    applyAstronautBulletDaze(
+        performance.now(),
+        BULLET_DAZE_DURATION_MS + damage * 90 + proximity * 140
+    );
+    applyAstronautImpact(
+        centerX,
+        centerY,
+        Math.max(0.9, damage * 0.45 + proximity * 1.5)
+    );
+}
+
 function applyAstronautProjectileImpact(projectile: CreatureProjectileCollectable) {
+    if (projectile.creatureProjectile.kind === 'bullet') {
+        return;
+    }
+
     const speed = Math.hypot(projectile.velocity.x, projectile.velocity.y);
     if (speed < 0.001) {
         applyAstronautImpact(projectile.x, projectile.y, Math.max(0.9, projectile.creatureProjectile.damage));

@@ -14,6 +14,7 @@ export let astronaut: Astronaut = {
     velocity: { x: 0, y: 0 },
     isFlying: false,
     isLanded: true,
+    controlDazeUntilMs: 0
 };
 
 export function flipAstronaut() {
@@ -41,6 +42,7 @@ export function resetAstronaut() {
     astronaut.velocity = { x: 0, y: 0 };
     astronaut.isFlying = false;
     astronaut.isLanded = true;
+    astronaut.controlDazeUntilMs = 0;
     walkSpeed = 0;
     facingLeft = false;
     currentCollisionProfile = 'stand';
@@ -54,6 +56,7 @@ export function resetAstronautToPosition(position: Position) {
     astronaut.velocity = { x: 0, y: 0 };
     astronaut.isFlying = false;
     astronaut.isLanded = true;
+    astronaut.controlDazeUntilMs = 0;
     walkSpeed = 0;
     facingLeft = false;
     currentCollisionProfile = 'stand';
