@@ -160,6 +160,25 @@ Selected items can be:
 
 For **collectables**, the inspector also lets you control **Weight**, **Can be picked up**, **Storable**, and **Affects astronaut**.
 
+For **grenades** and **plasma grenades**, the inspector also exposes:
+
+- **Armed**
+- **Explosion power**
+
+Grenades placed in the world can still start inert, but once the astronaut has picked one up, it now **auto-arms when dropped or thrown**, matching the BBC-style "released grenade becomes live" behavior more closely.
+
+For **world items** and **doors**, the inspector now exposes destructible settings:
+
+- **Destructible**
+- **Damage required**
+- **Damage source**
+
+Doors default to destructible. Ordinary world items default to non-destructible unless you opt in.
+
+For **boulder** collectables, the inspector also exposes **Radioactive**. Regular boulders are the default. Turning **Radioactive** on seeds the BBC-style authored defaults for that hazard variant, including lighter weight and timed palette cycling.
+
+The special `wall_left_quarter` doorway can be authored as a BBC-style tough stone door by setting its damage source to **Coronium explosion only**. In the current runtime, that source is produced when an explosion is centered between two nearby `boulder` collectables that have **Radioactive** enabled.
+
 For **creatures**, the inspector now exposes typed controls instead of relying on raw JSON as the primary workflow. The current first-pass creature controls cover:
 
 - **Archetype**
@@ -638,6 +657,9 @@ A single button can link to more than one door:
 
 - the button stores an array of linked door IDs
 - the designer validates links before save
+- door inspectors also expose destructible settings so you can tune how much explosion damage a door can take
+- `wall_left_quarter` can be used as a special heavy door sprite with a stricter destruction-source requirement than ordinary doors
+- a `Coronium explosion only` door currently expects an explosion centered between two nearby `boulder` collectables with **Radioactive** enabled
 - if a button points to a door ID that does not exist, the save preview should show an error
 
 ## Palette cycling / strobing

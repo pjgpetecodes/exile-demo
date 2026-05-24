@@ -1,5 +1,29 @@
 [
   {
+    "x": 10833.6,
+    "y": 1728.5,
+    "type": "grenade",
+    "palette": 14,
+    "rotation": 1,
+    "collected": false,
+    "name": "grenade",
+    "weight": 0.2,
+    "pickupEnabled": true,
+    "storable": true,
+    "affectsAstronaut": false,
+    "collision": true,
+    "held": false,
+    "stored": true,
+    "isGrounded": false,
+    "velocity": {
+      "x": 0,
+      "y": 0
+    },
+    "astronautCollisionIgnoreFrames": 0,
+    "armed": false,
+    "explosionPower": 4
+  },
+  {
     "x": 9005,
     "y": 1379,
     "type": "grenade",
@@ -24,7 +48,7 @@
     "explosionPower": 4
   },
   {
-    "x": 8521,
+    "x": 8562,
     "y": 1644,
     "type": "grenade",
     "palette": 14,
@@ -48,7 +72,7 @@
     "explosionPower": 4
   },
   {
-    "x": 8566,
+    "x": 8526,
     "y": 1644,
     "type": "grenade",
     "palette": 14,

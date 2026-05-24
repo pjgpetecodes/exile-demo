@@ -1,5 +1,6 @@
 import { assignEntityId } from './game.js';
 import { SPRITE_SCALE as DEFAULT_SPRITE_SCALE } from './constants.js';
+import type { DestructionSourceRequirement } from './destructibles.js';
 import { resolveAnimatedPaletteIndex } from './palette-cycle.js';
 import { PaletteCycleSettings } from './types/index.js';
 import { getSpriteTranslationOffset, getTransformedSpriteCanvas, normalizeSpriteTranslation, SpriteTranslation } from './utilities.js';
@@ -14,6 +15,9 @@ export type MapBlock = {
     paletteCycle?: PaletteCycleSettings;
     rotation?: 1 | 2 | 3 | 4 | 5 | 6 | 7;
     translation?: SpriteTranslation;
+    destructible?: boolean;
+    destructionHealth?: number;
+    destructionSource?: DestructionSourceRequirement;
 };
 
 export let mapBlocks: MapBlock[] = [];

@@ -12,7 +12,10 @@
     "open": false,
     "palette_locked": null,
     "palette_unlocked": 12,
-    "collision": true
+    "collision": true,
+    "destructible": true,
+    "destructionHealth": 24,
+    "destructionSource": "any_explosion"
   },
   {
     "x": 8800,
@@ -27,6 +30,9 @@
     "open": false,
     "palette_locked": null,
     "palette_unlocked": 12,
-    "collision": true
+    "collision": true,
+    "destructible": true,
+    "destructionHealth": 24,
+    "destructionSource": "any_explosion"
   }
 ]

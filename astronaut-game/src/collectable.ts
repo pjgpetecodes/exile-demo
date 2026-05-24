@@ -51,11 +51,13 @@ export class Collectable {
     ambientSoundKey?: string;
     ambientSoundIntervalMs?: number;
     nextAmbientSoundAt?: number;
+    radioactive: boolean;
     creaturePayload?: CreatureSaveData;
     creatureProjectile?: CreatureProjectileRuntimeData;
     armed: boolean;
     armedAtMs?: number;
     explosionPower?: number;
+    explosionRadius?: number;
 
     constructor(data: any) {
         this.x = data.x;
@@ -83,6 +85,7 @@ export class Collectable {
         this.ambientSoundKey = typeof data.ambientSoundKey === 'string' ? data.ambientSoundKey : undefined;
         this.ambientSoundIntervalMs = typeof data.ambientSoundIntervalMs === 'number' ? data.ambientSoundIntervalMs : undefined;
         this.nextAmbientSoundAt = typeof data.nextAmbientSoundAt === 'number' ? data.nextAmbientSoundAt : undefined;
+        this.radioactive = data.radioactive === true;
         this.creaturePayload = data.creaturePayload;
         this.creatureProjectile = data.creatureProjectile;
         this.armed = data.armed === true;
@@ -92,6 +95,9 @@ export class Collectable {
         this.explosionPower = typeof data.explosionPower === 'number'
             ? data.explosionPower
             : getDefaultGrenadeExplosionPower(this.type);
+        this.explosionRadius = typeof data.explosionRadius === 'number'
+            ? Math.max(1, data.explosionRadius)
+            : undefined;
     }
 
     collect() {

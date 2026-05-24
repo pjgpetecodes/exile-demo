@@ -82,7 +82,17 @@ The repository includes VS Code launch/task settings.
   - zero-energy rescue teleport uses the same pop-to-last-save behavior
 - This is intentionally BBC-inspired rather than a literal port: the modern game keeps the readable flash/teleport presentation and current save-memory workflow while following the original pattern of **damage -> slow regeneration -> forced rescue teleport on depletion**.
 
-## Important asset files
+  ## Grenades and destructible objects
+
+  - Grenades now **auto-arm when released** after being carried, so dropping or throwing one turns it into a live explosive.
+  - Doors are destructible by default. Other world objects can be made destructible in the designer.
+  - Destructible objects use authored **damage required** and **damage source** settings rather than a fixed hardcoded rule.
+  - Supported source filters currently include ordinary explosions, grenade-only explosions, plasma-grenade-only explosions, and a special **coronium explosion** source.
+  - The special heavy `wall_left_quarter` doorway can be configured as a coronium-only door.
+  - In the current runtime, a **coronium explosion** is produced when an explosion is centered between two nearby `boulder` collectables that have their **Radioactive** toggle enabled.
+  - Destruction reuses the existing explosion visual path so blown doors and objects get a visible explosion effect when they break.
+
+  ## Important asset files
 
 World data is split across JSON files in `astronaut-game\src\assets`:
 

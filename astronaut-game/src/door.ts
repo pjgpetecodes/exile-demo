@@ -1,4 +1,10 @@
+import {
+    getDefaultDestructibleEnabled,
+    getDefaultDestructibleHealth,
+    getDefaultDestructionSource
+} from './destructibles.js';
 import { PaletteCycleSettings } from './types/index.js';
+import type { DestructionSourceRequirement } from './destructibles.js';
 
 export class Door {
     x: number;
@@ -18,6 +24,9 @@ export class Door {
     palette_unlocked: number | null;
     collision: boolean;
     paletteCycle?: PaletteCycleSettings;
+    destructible: boolean;
+    destructionHealth: number;
+    destructionSource: DestructionSourceRequirement;
 
     constructor(data: any) {
         this.x = data.x;
@@ -37,6 +46,15 @@ export class Door {
         this.palette_unlocked = data.palette_unlocked !== undefined ? data.palette_unlocked : null;
         this.collision = data.collision !== undefined ? data.collision : true;
         this.paletteCycle = data.paletteCycle;
+        this.destructionHealth = typeof data.destructionHealth === 'number'
+            ? Math.max(0.1, data.destructionHealth)
+            : getDefaultDestructibleHealth('doors', this.type);
+        this.destructionSource = typeof data.destructionSource === 'string'
+            ? data.destructionSource
+            : getDefaultDestructionSource('doors', this.type);
+        this.destructible = typeof data.destructible === 'boolean'
+            ? data.destructible
+            : getDefaultDestructibleEnabled('doors', this.type);
     }
 
     unlock() {

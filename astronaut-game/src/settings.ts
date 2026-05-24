@@ -1,5 +1,13 @@
 import { CreatureProjectileKind, CreatureProjectileSettings } from './types/index.js';
 
+export type BulletImpactAudioKey = 'bulletExplosion' | 'bulletExplosion2';
+export type BulletImpactAudioSettings = {
+    primary: BulletImpactAudioKey;
+    alternate: BulletImpactAudioKey;
+    alternateChance: number;
+    volume: number;
+};
+
 export const MOVEMENT_SETTINGS = {
     gravity: 0.035,
     groundedTakeoffImpulse: -0.8,
@@ -68,7 +76,9 @@ export const MOVEMENT_SETTINGS = {
     astronautEnergyRegenAmount: 1,
     astronautEnergyRegenIntervalMs: 320,
     astronautDamageFlashMinIntervalMs: 55,
-    astronautDamageFlashMaxIntervalMs: 210
+    astronautDamageFlashMaxIntervalMs: 210,
+    astronautExplosionSpinChance: 0.08,
+    astronautExplosionSpinMinForce: 1.2
 } as const;
 
 export const VIEWPORT_SETTINGS = {
@@ -76,11 +86,18 @@ export const VIEWPORT_SETTINGS = {
     defaultHeight: 675
 } as const;
 
+export const BULLET_IMPACT_AUDIO_SETTINGS: BulletImpactAudioSettings = {
+    primary: 'bulletExplosion',
+    alternate: 'bulletExplosion2',
+    alternateChance: 1 / 20,
+    volume: 0.8
+};
+
 export const CREATURE_PROJECTILE_SETTINGS: Record<CreatureProjectileKind, CreatureProjectileSettings> = {
     bullet: {
         spriteType: 'bullet1',
         lifetimeFrames: MOVEMENT_SETTINGS.creatureProjectileLifetimeFrames,
-        gravityScale: 0,
+        gravityScale: 0.2,
         speedMultiplier: 1,
         launchVerticalBias: 0,
         defaultWeight: 0.08,

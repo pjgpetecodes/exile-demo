@@ -26,6 +26,7 @@ import {
 import {
     clearMapSpriteCache,
     mapBlocks,
+    type MapBlock,
     mapLoaded,
     loadMapBlocks,
     drawMap,
@@ -39,6 +40,12 @@ import {
 import { initStars, updateAndDrawStars } from './stars.js';
 import { emitJetpackDots, updateAndDrawJetpackDots, resetJetpackDotEmitTimer, hasActiveJetpackDots } from './jetpack.js';
 import { Button } from './button.js';
+import {
+    getDefaultDestructibleEnabled,
+    getDefaultDestructibleHealth,
+    getDefaultDestructionSource,
+    type DestructionSourceRequirement
+} from './destructibles.js';
 import { Door } from './door.js';
 import { Creature, toCreatureSaveData } from './creature.js';
 import { Collectable, getDefaultGrenadeExplosionPower, isGrenadeCollectableType } from './collectable.js';
@@ -47,12 +54,18 @@ calculateAstronautSpriteBoundingBoxes, getSolidBlockAtWorld, getAnyBlockAtWorld,
 drawEntities, getSpriteTranslationOffset, getSpriteVisibleBounds, getTransformedSpriteCanvas,
 getVisibleCenterRotationOffset, getRenderedEntitySpriteCanvas, normalizeSpriteTranslation, SpriteTranslation
 } from './utilities.js';
-import { CREATURE_PROJECTILE_SETTINGS, MOVEMENT_SETTINGS, VIEWPORT_SETTINGS } from './settings.js';
+import {
+    BULLET_IMPACT_AUDIO_SETTINGS,
+    type BulletImpactAudioSettings,
+    CREATURE_PROJECTILE_SETTINGS,
+    MOVEMENT_SETTINGS,
+    VIEWPORT_SETTINGS
+} from './settings.js';
 import {
     SPRITE_ROW, SPRITE_COL_STAND, SPRITE_COL_FLY_RIGHT, SPRITE_COL_FLY_DIAGONAL,
     SPRITE_COL_FLY_FLOAT, SPRITE_COL_FLY_DOWN, SPRITE_COL_WALK_START, SPRITE_COL_WALK_RIGHT1,
     SPRITE_COL_WALK_RIGHT2, SPRITE_COL_WALK_END, TELEPORT_ANIM_FRAMES, MAP_WIDTH, MAP_HEIGHT,
-    SPRITE_SCALE, rememberSound, teleportSound, buttonOnSound, doorOpenSound, doorCloseSound, getSound, saveSound, ouchSounds, creatureManifestSounds,
+    SPRITE_SCALE, rememberSound, teleportSound, buttonOnSound, doorOpenSound, doorCloseSound, getSound, saveSound, bulletExplosionSound, bulletExplosion2Sound, grenadeArmedSound, ouchSounds, creatureManifestSounds,
     setMapBounds,
     getSoundEnabled, setSoundEnabled, toggleSoundEnabled
 } from './constants.js';
@@ -700,10 +713,22 @@ type BulletImpactParticle = {
     life: number;
     maxLife: number;
 };
+type DestructibleRuntimeEntity = {
+    x: number;
+    y: number;
+    type: string;
+    palette?: string | number;
+    destructible?: boolean;
+    destructionHealth?: number;
+    destructionSource?: DestructionSourceRequirement;
+};
 let throwGuideDots: ThrowGuideDot[] = [];
 let throwGuideDotEmitTimer = 0;
 let projectileImpactEffects: ProjectileImpactEffect[] = [];
 let bulletImpactParticles: BulletImpactParticle[] = [];
+let destructibleDamageByEntity = new WeakMap<object, number>();
+let bulletImpactAudioSettings: BulletImpactAudioSettings = { ...BULLET_IMPACT_AUDIO_SETTINGS };
+let grenadeArmedLoopActive = false;
 let worldDesigner: WorldDesigner | null = null;
 const STARFIELD_HEIGHT = Math.min(MAP_HEIGHT, 2000);
 const BULLET_IMPACT_PARTICLE_COLORS = ['#ffffff', '#ffff00', '#ff00ff', '#00ffff', '#0000ff', '#ff0000'];
@@ -1447,6 +1472,10 @@ async function init() {
                     getShowCreatureOverlays: () => showCreatureOverlays,
                     setShowCreatureOverlays: (value: boolean) => {
                         showCreatureOverlays = value;
+                    },
+                    getBulletImpactAudioSettings: () => ({ ...bulletImpactAudioSettings }),
+                    setBulletImpactAudioSettings: (value: BulletImpactAudioSettings) => {
+                        bulletImpactAudioSettings = normalizeBulletImpactAudioSettings(value);
                     },
                     drawSpriteOutlineOverlay: drawWorldBoundingBoxOverlay,
                     getSpriteTypes,
@@ -2874,6 +2903,16 @@ function getRenderedSpriteWorldCenter(
         return null;
     }
 
+    const visibleBounds = getSpriteVisibleBounds(rendered.canvas);
+    if (visibleBounds) {
+        const width = visibleBounds.maxX - visibleBounds.minX + 1;
+        const height = visibleBounds.maxY - visibleBounds.minY + 1;
+        return {
+            x: rendered.drawX + (visibleBounds.minX + width / 2) * SPRITE_SCALE,
+            y: rendered.drawY + (visibleBounds.minY + height / 2) * SPRITE_SCALE
+        };
+    }
+
     return {
         x: rendered.drawX + (rendered.canvas.width * SPRITE_SCALE) / 2,
         y: rendered.drawY + (rendered.canvas.height * SPRITE_SCALE) / 2
@@ -3035,6 +3074,32 @@ function clampToRange(value: number, minimum: number, maximum: number) {
     return Math.max(minimum, Math.min(maximum, value));
 }
 
+function normalizeBulletImpactAudioSettings(
+    settings: BulletImpactAudioSettings | Partial<BulletImpactAudioSettings> | null | undefined
+): BulletImpactAudioSettings {
+    const normalizeKey = (value: unknown): BulletImpactAudioSettings['primary'] =>
+        value === 'bulletExplosion2' ? 'bulletExplosion2' : 'bulletExplosion';
+
+    return {
+        primary: normalizeKey(settings?.primary),
+        alternate: normalizeKey(settings?.alternate),
+        alternateChance: clampToRange(
+            typeof settings?.alternateChance === 'number'
+                ? settings.alternateChance
+                : BULLET_IMPACT_AUDIO_SETTINGS.alternateChance,
+            0,
+            1
+        ),
+        volume: clampToRange(
+            typeof settings?.volume === 'number'
+                ? settings.volume
+                : BULLET_IMPACT_AUDIO_SETTINGS.volume,
+            0,
+            1
+        )
+    };
+}
+
 function getCreatureProjectileLaunchSpeed(creature: Creature) {
     const kind = getProjectileKindForFireMode(creature.fireMode);
     const projectileSettings = kind ? getProjectileSettings(kind) : null;
@@ -3104,16 +3169,197 @@ function isGrenadeCollectable(collectable: Collectable | null | undefined): coll
     return !!collectable && isGrenadeCollectableType(collectable.type);
 }
 
-function getGrenadeExplosionRadius(type: string) {
-    return type === 'plasma_grenade'
+function getGrenadeExplosionRadius(type: string, explosionRadius?: number) {
+    const fallbackRadius = type === 'plasma_grenade'
         ? MOVEMENT_SETTINGS.plasmaGrenadeExplosionRadius
         : MOVEMENT_SETTINGS.grenadeExplosionRadius;
+    return typeof explosionRadius === 'number'
+        ? Math.max(1, explosionRadius)
+        : fallbackRadius;
 }
 
 function getGrenadeExplosionPower(type: string, explosionPower?: number) {
     const fallbackPower = getDefaultGrenadeExplosionPower(type) ?? MOVEMENT_SETTINGS.grenadeExplosionPower;
     const resolvedPower = typeof explosionPower === 'number' ? explosionPower : fallbackPower;
     return clampToRange(resolvedPower, 0.5, MOVEMENT_SETTINGS.grenadeMaxExplosionPower);
+}
+
+function getExplosionDamageSource(type: 'grenade' | 'plasma_grenade' | 'coronium') {
+    if (type === 'plasma_grenade') {
+        return 'plasma_grenade_explosion' as const;
+    }
+    if (type === 'coronium') {
+        return 'coronium_explosion' as const;
+    }
+    return 'grenade_explosion' as const;
+}
+
+function isRadioactiveBoulderCollectable(collectable: Collectable) {
+    return collectable.type === 'boulder' && collectable.radioactive === true;
+}
+
+function isCoroniumExplosionAtCenter(center: Position) {
+    const radioactiveBoulderCenters = collectableEntities
+        .filter((collectable) =>
+            isRadioactiveBoulderCollectable(collectable) &&
+            !collectable.collected &&
+            !collectable.stored
+        )
+        .map((collectable) => getEntityCenter(
+            collectable.x,
+            collectable.y,
+            getEntityCollisionBounds(collectable)
+        ));
+
+    for (let index = 0; index < radioactiveBoulderCenters.length; index++) {
+        for (let otherIndex = index + 1; otherIndex < radioactiveBoulderCenters.length; otherIndex++) {
+            const a = radioactiveBoulderCenters[index];
+            const b = radioactiveBoulderCenters[otherIndex];
+            const midpoint = {
+                x: (a.x + b.x) / 2,
+                y: (a.y + b.y) / 2
+            };
+            const pairDistance = Math.hypot(a.x - b.x, a.y - b.y);
+            if (
+                pairDistance <= 120 &&
+                Math.hypot(midpoint.x - center.x, midpoint.y - center.y) <= 28
+            ) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+function getEffectiveDestructibleSettings(entity: DestructibleRuntimeEntity, category: 'world' | 'doors') {
+    return {
+        destructible: typeof entity.destructible === 'boolean'
+            ? entity.destructible
+            : getDefaultDestructibleEnabled(category, entity.type),
+        health: typeof entity.destructionHealth === 'number'
+            ? Math.max(0.1, entity.destructionHealth)
+            : getDefaultDestructibleHealth(category, entity.type),
+        source: typeof entity.destructionSource === 'string'
+            ? entity.destructionSource
+            : getDefaultDestructionSource(category, entity.type)
+    };
+}
+
+function matchesDestructionSourceRequirement(
+    requiredSource: DestructionSourceRequirement,
+    source: DestructionSourceRequirement
+) {
+    if (requiredSource === 'any_explosion') {
+        return true;
+    }
+    return requiredSource === source;
+}
+
+function removeDoorEntity(door: Door) {
+    const index = doorEntities.indexOf(door);
+    if (index >= 0) {
+        doorEntities.splice(index, 1);
+    }
+}
+
+function removeMapBlockEntity(block: MapBlock) {
+    const index = mapBlocks.indexOf(block);
+    if (index >= 0) {
+        mapBlocks.splice(index, 1);
+    }
+}
+
+function getDestructibleCollisionBounds(entity: DestructibleRuntimeEntity) {
+    return getEntityCollisionBounds({
+        ...entity,
+        palette: typeof entity.palette === 'number' ? entity.palette : 0
+    });
+}
+
+function spawnDestructibleExplosionEffect(
+    entity: DestructibleRuntimeEntity,
+    source: DestructionSourceRequirement,
+    centerX: number,
+    centerY: number
+) {
+    const palette = typeof entity.palette === 'number' ? entity.palette : 0;
+    const explosionType = source === 'plasma_grenade_explosion' || source === 'coronium_explosion'
+        ? 'plasma_grenade'
+        : 'grenade';
+    spawnGrenadeExplosionEffect(explosionType, palette, centerX, centerY);
+}
+
+function damageDestructibleEntity(
+    entity: DestructibleRuntimeEntity,
+    category: 'world' | 'doors',
+    damage: number,
+    source: DestructionSourceRequirement
+) {
+    const settings = getEffectiveDestructibleSettings(entity, category);
+    if (
+        !settings.destructible ||
+        damage <= 0 ||
+        !matchesDestructionSourceRequirement(settings.source, source)
+    ) {
+        return false;
+    }
+
+    const accumulatedDamage = (destructibleDamageByEntity.get(entity as object) ?? 0) + damage;
+    if (accumulatedDamage < settings.health) {
+        destructibleDamageByEntity.set(entity as object, accumulatedDamage);
+        return false;
+    }
+
+    const bounds = getDestructibleCollisionBounds(entity);
+    const center = getEntityCenter(entity.x, entity.y, bounds);
+    spawnDestructibleExplosionEffect(entity, source, center.x, center.y);
+    destructibleDamageByEntity.delete(entity as object);
+    if (category === 'doors') {
+        removeDoorEntity(entity as Door);
+    } else {
+        removeMapBlockEntity(entity as MapBlock);
+    }
+    return true;
+}
+
+function applyExplosionDamageToDestructibles(
+    center: Position,
+    radius: number,
+    maxDamage: number,
+    source: DestructionSourceRequirement
+) {
+    let destroyedAny = false;
+
+    for (const door of [...doorEntities]) {
+        const bounds = getEntityCollisionBounds(door);
+        const entityCenter = getEntityCenter(door.x, door.y, bounds);
+        const distance = Math.hypot(entityCenter.x - center.x, entityCenter.y - center.y);
+        if (distance > radius) {
+            continue;
+        }
+        const scaledDamage = maxDamage * (1 - distance / radius);
+        if (damageDestructibleEntity(door, 'doors', scaledDamage, source)) {
+            destroyedAny = true;
+        }
+    }
+
+    for (const block of [...mapBlocks]) {
+        const bounds = getDestructibleCollisionBounds(block);
+        const entityCenter = getEntityCenter(block.x, block.y, bounds);
+        const distance = Math.hypot(entityCenter.x - center.x, entityCenter.y - center.y);
+        if (distance > radius) {
+            continue;
+        }
+        const scaledDamage = maxDamage * (1 - distance / radius);
+        if (damageDestructibleEntity(block, 'world', scaledDamage, source)) {
+            destroyedAny = true;
+        }
+    }
+
+    if (destroyedAny) {
+        afterWorldDataMutated();
+    }
 }
 
 function syncGrenadeFuseState(collectable: Collectable, now: number = performance.now()) {
@@ -3267,6 +3513,7 @@ function spawnProjectileImpactEffect(
     projectileImpactEffects.push(effect);
 
     if (projectile.creatureProjectile.kind === 'bullet') {
+        playBulletImpactSound();
         spawnBulletImpactParticles(effect.centerX, effect.centerY);
         applyAstronautBulletImpactBlast(effect.centerX, effect.centerY, projectile.creatureProjectile.damage);
     }
@@ -3399,6 +3646,52 @@ function playAstronautImpactSound() {
     playRuntimeSound(ouchSounds[Math.floor(Math.random() * ouchSounds.length)], 0.8);
 }
 
+function updateGrenadeArmedLoopSound() {
+    const shouldPlay = getSoundEnabled() && collectableEntities.some(
+        (collectable) => isGrenadeCollectable(collectable) && collectable.armed
+    );
+    if (shouldPlay) {
+        grenadeArmedSound.loop = true;
+        grenadeArmedSound.volume = 0.5;
+        if (!grenadeArmedLoopActive) {
+            try {
+                grenadeArmedSound.currentTime = 0;
+                grenadeArmedSound.play();
+            } catch {}
+            grenadeArmedLoopActive = true;
+        }
+        return;
+    }
+
+    if (grenadeArmedLoopActive) {
+        try {
+            grenadeArmedSound.pause();
+            grenadeArmedSound.currentTime = 0;
+        } catch {}
+        grenadeArmedLoopActive = false;
+    }
+}
+
+function playBulletImpactSound() {
+    const audioByKey = {
+        bulletExplosion: bulletExplosionSound,
+        bulletExplosion2: bulletExplosion2Sound
+    } as const;
+    const alternateChance = clampToRange(bulletImpactAudioSettings.alternateChance, 0, 1);
+    const useAlternate = Math.random() < alternateChance;
+    const selectedKey = useAlternate
+        ? bulletImpactAudioSettings.alternate
+        : bulletImpactAudioSettings.primary;
+    const fallbackKey = useAlternate
+        ? bulletImpactAudioSettings.primary
+        : bulletImpactAudioSettings.alternate;
+    const selectedAudio = audioByKey[selectedKey] ?? audioByKey[fallbackKey];
+    if (!selectedAudio) {
+        return;
+    }
+    playRuntimeSound(selectedAudio, bulletImpactAudioSettings.volume);
+}
+
 function cleanupCollectableReferences(collectable: Collectable) {
     if (heldCollectable === collectable) {
         heldCollectable = null;
@@ -3422,7 +3715,7 @@ function removeCollectableEntity(collectable: Collectable) {
     }
 }
 
-function applyAstronautImpact(sourceX: number, sourceY: number, force: number) {
+function applyAstronautImpact(sourceX: number, sourceY: number, force: number, canSpinFromExplosion = false) {
     const astronautRect = getAstronautRect();
     const astronautCenterX = (astronautRect.left + astronautRect.right) / 2;
     const astronautCenterY = (astronautRect.top + astronautRect.bottom) / 2;
@@ -3440,6 +3733,19 @@ function applyAstronautImpact(sourceX: number, sourceY: number, force: number) {
     astronaut.isFlying = true;
     astronaut.velocity.x += horizontalImpulse;
     astronaut.velocity.y += verticalDirection * Math.max(1.1, force * 0.95);
+    if (
+        canSpinFromExplosion &&
+        force >= MOVEMENT_SETTINGS.astronautExplosionSpinMinForce &&
+        Math.random() < MOVEMENT_SETTINGS.astronautExplosionSpinChance
+    ) {
+        const blastDirection = Math.sign(dx);
+        if (blastDirection !== 0) {
+            const shouldFaceLeft = blastDirection < 0;
+            if (facingLeft !== shouldFaceLeft) {
+                flipAstronaut();
+            }
+        }
+    }
     playAstronautImpactSound();
 }
 
@@ -3467,7 +3773,8 @@ function applyAstronautBulletImpactBlast(centerX: number, centerY: number, damag
     applyAstronautImpact(
         centerX,
         centerY,
-        Math.max(1.6, damage * 0.75 + proximity * 2.6)
+        Math.max(1.6, damage * 0.75 + proximity * 2.6),
+        true
     );
 }
 
@@ -3579,6 +3886,20 @@ function explodeProjectile(projectile: CreatureProjectileCollectable, entityX = 
     const bounds = getEntityCollisionBounds(projectile);
     const center = getEntityCenter(entityX, entityY, bounds);
     spawnProjectileImpactEffect(projectile, entityX, entityY);
+    const destructionSource = isCoroniumExplosionAtCenter(center)
+        ? getExplosionDamageSource('coronium')
+        : projectile.creatureProjectile.kind === 'plasma_grenade'
+            ? getExplosionDamageSource('plasma_grenade')
+            : getExplosionDamageSource('grenade');
+    applyExplosionDamageToDestructibles(
+        center,
+        radius,
+        Math.max(
+            6,
+            projectile.creatureProjectile.damage * 12 * (settings.splashDamageMultiplier ?? 1)
+        ),
+        destructionSource
+    );
     for (const creature of [...creatureEntities]) {
         if (creature.entityId === projectile.creatureProjectile.sourceEntityId) {
             continue;
@@ -3612,7 +3933,8 @@ function explodeProjectile(projectile: CreatureProjectileCollectable, entityX = 
         applyAstronautImpact(
             center.x,
             center.y,
-            Math.max(0.8, projectile.creatureProjectile.damage * (settings.splashDamageMultiplier ?? 1) * (1 - astronautDistance / radius))
+            Math.max(0.8, projectile.creatureProjectile.damage * (settings.splashDamageMultiplier ?? 1) * (1 - astronautDistance / radius)),
+            true
         );
     }
 }
@@ -3626,9 +3948,19 @@ function explodeCollectableGrenade(collectable: Collectable) {
         ? { x: astronaut.position.x, y: astronaut.position.y }
         : getEntityCenter(collectable.x, collectable.y, getEntityCollisionBounds(collectable));
     const grenadeType = collectable.type === 'plasma_grenade' ? 'plasma_grenade' : 'grenade';
-    const radius = getGrenadeExplosionRadius(grenadeType);
+    const radius = getGrenadeExplosionRadius(grenadeType, collectable.explosionRadius);
     const power = getGrenadeExplosionPower(grenadeType, collectable.explosionPower);
+    const destructionSource = isCoroniumExplosionAtCenter(center)
+        ? getExplosionDamageSource('coronium')
+        : getExplosionDamageSource(grenadeType);
     spawnGrenadeExplosionEffect(grenadeType, collectable.palette ?? 0, center.x, center.y);
+    playRuntimeSound(bulletExplosion2Sound, 0.9);
+    applyExplosionDamageToDestructibles(
+        center,
+        radius,
+        power * 6,
+        destructionSource
+    );
 
     for (const creature of [...creatureEntities]) {
         const creatureBounds = getEntityCollisionBounds(creature);
@@ -3654,7 +3986,8 @@ function explodeCollectableGrenade(collectable: Collectable) {
         applyAstronautImpact(
             center.x,
             center.y,
-            Math.max(1, power * (1 - astronautDistance / radius))
+            Math.max(1, power * (1 - astronautDistance / radius)),
+            true
         );
     }
 
@@ -3749,7 +4082,10 @@ function spawnCreatureProjectile(
             rotation: directionX < 0 ? turretFacingRotations.left : turretFacingRotations.right
         }
         : creature;
-    let muzzleAnchor = getEntitySideAnchorPoint(
+    let muzzleAnchor = getEntityFrontAnchorPoint(
+        muzzleSourceEntity,
+        { x: directionX, y: directionY }
+    ) ?? getEntitySideAnchorPoint(
         muzzleSourceEntity,
         directionX < 0 ? 'left' : 'right'
     );
@@ -3762,7 +4098,13 @@ function spawnCreatureProjectile(
         const refinedProjectileRotation = directionX < 0 ? 5 : 1;
         if (refinedProjectileRotation !== projectileRotation && isTurretLikeCreature(creature)) {
             projectileRotation = refinedProjectileRotation;
-            muzzleAnchor = getEntitySideAnchorPoint(
+            muzzleAnchor = getEntityFrontAnchorPoint(
+                {
+                    ...creature,
+                    rotation: directionX < 0 ? turretFacingRotations.left : turretFacingRotations.right
+                },
+                { x: directionX, y: directionY }
+            ) ?? getEntitySideAnchorPoint(
                 {
                     ...creature,
                     rotation: directionX < 0 ? turretFacingRotations.left : turretFacingRotations.right
@@ -4761,6 +5103,9 @@ function releaseHeldCollectable(velocity: Position = { x: 0, y: 0 }) {
         releaseVelocity,
         isThrown ? 0 : MOVEMENT_SETTINGS.droppedCollectableAstronautIgnoreFrames
     );
+    if (isGrenadeCollectable(heldCollectable)) {
+        setGrenadeCollectableArmedState(heldCollectable, true);
+    }
     heldCollectable = null;
 }
 
@@ -5198,6 +5543,7 @@ function updateCollectablePhysics() {
         }
         updateSingleCollectablePhysics(collectable);
     }
+    updateGrenadeArmedLoopSound();
 }
 
 function updateAndDrawThrowGuide(context: CanvasRenderingContext2D, camera: Position) {

@@ -1,5 +1,12 @@
 import { MAP_HEIGHT, MAP_WIDTH, SPRITE_SCALE } from './constants.js';
 import { CREATURE_SOUND_MANIFEST } from './assets/creature-sound-manifest.js';
+import {
+    DESTRUCTION_SOURCE_OPTIONS,
+    getDefaultDestructibleEnabled,
+    getDefaultDestructibleHealth,
+    getDefaultDestructionSource,
+    type DestructionSourceRequirement
+} from './destructibles.js';
 import { MapBlock, shouldMaskAstronaut } from './map.js';
 import { Button } from './button.js';
 import { Door } from './door.js';
@@ -11,6 +18,7 @@ import {
     Position
 } from './types/index.js';
 import { buildDefaultPaletteCycle, getEffectivePaletteCycle } from './palette-cycle.js';
+import { MOVEMENT_SETTINGS, type BulletImpactAudioSettings } from './settings.js';
 import { getSpriteVisibleBounds, normalizeSpriteTranslation, SPRITE_TRANSLATION_OPTIONS, SpriteTranslation } from './utilities.js';
 
 export type DesignerCategory = 'world' | 'buttons' | 'doors' | 'creatures' | 'collectables' | 'custom';
@@ -55,6 +63,9 @@ export type DoorSaveData = {
     palette_unlocked?: number | null;
     collision?: boolean;
     paletteCycle?: PaletteCycleSettings;
+    destructible?: boolean;
+    destructionHealth?: number;
+    destructionSource?: DestructionSourceRequirement;
 };
 
 export type CollectableSaveData = {
@@ -76,8 +87,10 @@ export type CollectableSaveData = {
     velocity?: Position;
     astronautCollisionIgnoreFrames?: number;
     paletteCycle?: PaletteCycleSettings;
+    radioactive?: boolean;
     armed?: boolean;
     explosionPower?: number;
+    explosionRadius?: number;
 };
 
 export type RawWorldData = {
@@ -150,6 +163,8 @@ export interface WorldDesignerHost {
     setShowSpriteOutlines(value: boolean): void;
     getShowCreatureOverlays(): boolean;
     setShowCreatureOverlays(value: boolean): void;
+    getBulletImpactAudioSettings(): BulletImpactAudioSettings;
+    setBulletImpactAudioSettings(settings: BulletImpactAudioSettings): void;
     drawSpriteOutlineOverlay(ctx: CanvasRenderingContext2D, camera: Position, layerVisibility: LayerVisibility): void;
     getSpriteTypes(): string[];
     getSpriteCatalog(): SpriteCatalogEntry[];
@@ -467,6 +482,7 @@ type PersistedDesignerUiState = {
     magnifierEnabled: boolean;
     viewportExpanded: boolean;
     soundEnabled: boolean;
+    bulletImpactAudioSettings?: BulletImpactAudioSettings;
     paletteDesignerOpen: boolean;
     selectedPaletteIndex: number;
     palettePreviewType: string;
@@ -598,6 +614,10 @@ type ControlRefs = {
     moveAstronautButton: HTMLButtonElement;
     expandViewportCheckbox: HTMLInputElement;
     soundEnabledCheckbox: HTMLInputElement;
+    bulletImpactPrimarySelect: HTMLSelectElement;
+    bulletImpactAlternateSelect: HTMLSelectElement;
+    bulletImpactAlternateChanceInput: HTMLInputElement;
+    bulletImpactVolumeInput: HTMLInputElement;
     addAtCenterButton: HTMLButtonElement;
     setAstronautStartButton: HTMLButtonElement;
     showCollisionCheckbox: HTMLInputElement;
@@ -703,6 +723,9 @@ function categorySupportsTranslation(category: DesignerCategory) {
 }
 
 function toMapBlockData(block: MapBlock): MapBlock {
+    const hasDestructibleMetadata = typeof block.destructible === 'boolean'
+        || typeof block.destructionHealth === 'number'
+        || typeof block.destructionSource === 'string';
     return {
         x: block.x,
         y: block.y,
@@ -712,6 +735,19 @@ function toMapBlockData(block: MapBlock): MapBlock {
         palette: typeof block.palette === 'number' ? block.palette : 0,
         rotation: normalizeRotation(block.rotation) as MapBlock['rotation'],
         translation: normalizeSpriteTranslation(block.translation),
+        ...(hasDestructibleMetadata
+            ? {
+                destructible: typeof block.destructible === 'boolean'
+                    ? block.destructible
+                    : getDefaultDestructibleEnabled('world', block.type),
+                destructionHealth: typeof block.destructionHealth === 'number'
+                    ? Math.max(0.1, block.destructionHealth)
+                    : getDefaultDestructibleHealth('world', block.type),
+                destructionSource: typeof block.destructionSource === 'string'
+                    ? block.destructionSource
+                    : getDefaultDestructionSource('world', block.type)
+            }
+            : {}),
         ...(block.paletteCycle ? { paletteCycle: deepClone(block.paletteCycle) } : {})
     };
 }
@@ -761,6 +797,15 @@ function toDoorData(door: any): DoorSaveData {
         palette_locked: typeof door.palette_locked === 'number' ? door.palette_locked : null,
         palette_unlocked: typeof door.palette_unlocked === 'number' ? door.palette_unlocked : null,
         collision: door.collision !== false,
+        destructible: typeof door.destructible === 'boolean'
+            ? door.destructible
+            : getDefaultDestructibleEnabled('doors', door.type),
+        destructionHealth: typeof door.destructionHealth === 'number'
+            ? Math.max(0.1, door.destructionHealth)
+            : getDefaultDestructibleHealth('doors', door.type),
+        destructionSource: typeof door.destructionSource === 'string'
+            ? door.destructionSource
+            : getDefaultDestructionSource('doors', door.type),
         ...(door.paletteCycle ? { paletteCycle: deepClone(door.paletteCycle) } : {})
     };
 }
@@ -778,7 +823,10 @@ function toCollectableData(collectable: any): CollectableSaveData {
             armed: collectable.armed === true,
             explosionPower: typeof collectable.explosionPower === 'number'
                 ? collectable.explosionPower
-                : getDefaultGrenadeExplosionPower(collectable.type)
+                : getDefaultGrenadeExplosionPower(collectable.type),
+            ...(typeof collectable.explosionRadius === 'number'
+                ? { explosionRadius: Math.max(1, collectable.explosionRadius) }
+                : {})
         }
         : {};
     return {
@@ -799,6 +847,7 @@ function toCollectableData(collectable: any): CollectableSaveData {
         isGrounded: collectable.isGrounded ?? false,
         velocity: deepClone(collectable.velocity ?? { x: 0, y: 0 }),
         astronautCollisionIgnoreFrames: collectable.astronautCollisionIgnoreFrames ?? 0,
+        ...(collectable.radioactive ? { radioactive: true } : {}),
         ...(collectable.paletteCycle ? { paletteCycle: deepClone(collectable.paletteCycle) } : {}),
         ...grenadeDefaults
     };
@@ -2419,6 +2468,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     if (typeof persistedState?.showCreatureOverlays === 'boolean') {
         host.setShowCreatureOverlays(persistedState.showCreatureOverlays);
     }
+    if (persistedState?.bulletImpactAudioSettings) {
+        host.setBulletImpactAudioSettings(persistedState.bulletImpactAudioSettings);
+    }
     const state: DesignerState = {
         active: persistedState?.active ?? false,
         mode: persistedState?.mode === 'preview' ? 'preview' : 'edit',
@@ -2628,6 +2680,26 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             <summary>Preview toggles</summary>
             <div class="world-designer-accordion-body">
             <label class="world-designer-checkbox"><input type="checkbox" data-role="sound-enabled" /> Sound enabled</label>
+            <div class="world-designer-grid" style="margin-top:8px;">
+                <label class="world-designer-field">Bullet impact primary audio
+                    <select data-role="bullet-impact-primary">
+                        <option value="bulletExplosion">BulletExplosion.wav</option>
+                        <option value="bulletExplosion2">BulletExplosion2.wav</option>
+                    </select>
+                </label>
+                <label class="world-designer-field">Bullet impact alternate audio
+                    <select data-role="bullet-impact-alternate">
+                        <option value="bulletExplosion">BulletExplosion.wav</option>
+                        <option value="bulletExplosion2">BulletExplosion2.wav</option>
+                    </select>
+                </label>
+                <label class="world-designer-field">Alternate chance (0..1)
+                    <input type="number" min="0" max="1" step="0.01" data-role="bullet-impact-alternate-chance" />
+                </label>
+                <label class="world-designer-field">Bullet impact volume (0..1)
+                    <input type="number" min="0" max="1" step="0.05" data-role="bullet-impact-volume" />
+                </label>
+            </div>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="expand-viewport" /> Expand viewport to window</label>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="show-collision" /> Show collision outlines</label>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="show-creature-overlays" /> Show creature overlays</label>
@@ -2762,6 +2834,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         moveAstronautButton: root.querySelector('[data-role="move-astronaut"]') as HTMLButtonElement,
         expandViewportCheckbox: root.querySelector('[data-role="expand-viewport"]') as HTMLInputElement,
         soundEnabledCheckbox: root.querySelector('[data-role="sound-enabled"]') as HTMLInputElement,
+        bulletImpactPrimarySelect: root.querySelector('[data-role="bullet-impact-primary"]') as HTMLSelectElement,
+        bulletImpactAlternateSelect: root.querySelector('[data-role="bullet-impact-alternate"]') as HTMLSelectElement,
+        bulletImpactAlternateChanceInput: root.querySelector('[data-role="bullet-impact-alternate-chance"]') as HTMLInputElement,
+        bulletImpactVolumeInput: root.querySelector('[data-role="bullet-impact-volume"]') as HTMLInputElement,
         addAtCenterButton: root.querySelector('[data-role="add-center"]') as HTMLButtonElement,
         setAstronautStartButton: root.querySelector('[data-role="set-start"]') as HTMLButtonElement,
         showCollisionCheckbox: root.querySelector('[data-role="show-collision"]') as HTMLInputElement,
@@ -2934,6 +3010,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 magnifierEnabled: state.magnifierEnabled,
                 viewportExpanded: state.viewportExpanded,
                 soundEnabled: host.getSoundEnabled(),
+                bulletImpactAudioSettings: host.getBulletImpactAudioSettings(),
                 paletteDesignerOpen: state.paletteDesignerOpen,
                 selectedPaletteIndex: state.selectedPaletteIndex,
                 palettePreviewType: state.palettePreviewType,
@@ -5783,6 +5860,20 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         });
     }
 
+    function getDefaultCollectableWeight(type: string, radioactive = false) {
+        if (type === 'boulder' && radioactive) {
+            return 0.17;
+        }
+        return 0.2;
+    }
+
+    function getDefaultCollectablePaletteCycle(type: string, palette: number, paletteCount: number, radioactive = false) {
+        if (type === 'boulder' && radioactive) {
+            return buildDefaultPaletteCycle(palette, paletteCount);
+        }
+        return undefined;
+    }
+
     function createCustomSpriteInstance(definition: CustomSpriteDefinition, x: number, y: number): CustomSpriteInstance {
         return {
             x: Math.round(x),
@@ -5992,6 +6083,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             collision: config.collision !== false,
             palette_locked: null,
             palette_unlocked: null,
+            destructible: getDefaultDestructibleEnabled('doors', type),
+            destructionHealth: getDefaultDestructibleHealth('doors', type),
+            destructionSource: getDefaultDestructionSource('doors', type),
             paletteCycle: config.paletteCycle ? deepClone(config.paletteCycle) : undefined
         });
     }
@@ -6066,20 +6160,23 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
         if (targetCategory === 'collectables') {
             const block = selection.entity as MapBlock;
+            const blockPalette = typeof block.palette === 'number' ? block.palette : 0;
             const collectable = new Collectable({
                 x: block.x,
                 y: block.y,
                 type: block.type,
-                palette: block.palette ?? 0,
+                palette: blockPalette,
                 rotation: normalizeRotation(block.rotation),
                 name: block.type,
-                weight: 0.2,
+                weight: getDefaultCollectableWeight(block.type),
                 pickupEnabled: true,
                 storable: true,
                 affectsAstronaut: true,
                 collision: block.collision !== false,
                 collected: false,
-                paletteCycle: block.paletteCycle ? deepClone(block.paletteCycle) : undefined
+                paletteCycle: block.paletteCycle
+                    ? deepClone(block.paletteCycle)
+                    : getDefaultCollectablePaletteCycle(block.type, blockPalette, paletteCount)
             });
             getCategoryArray('collectables').push(collectable);
             setSelections([{ category: 'collectables', entity: collectable }]);
@@ -6305,14 +6402,15 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             palette: state.palette,
             rotation: state.rotation,
             name: type,
-            weight: 0.2,
+            weight: getDefaultCollectableWeight(type),
             pickupEnabled: true,
             storable: true,
             affectsAstronaut: true,
             collision: true,
             collected: false,
             held: false,
-            stored: false
+            stored: false,
+            paletteCycle: getDefaultCollectablePaletteCycle(type, state.palette, paletteCount)
         });
         getCategoryArray('collectables').push(entity);
         setSelections([{ category: 'collectables', entity }]);
@@ -8727,6 +8825,42 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             });
         }
 
+        if (category === 'world' || category === 'doors') {
+            const destructibleCategory = category;
+            const resolvedDestructible = typeof entity.destructible === 'boolean'
+                ? entity.destructible
+                : getDefaultDestructibleEnabled(destructibleCategory, entity.type);
+            const resolvedHealth = typeof entity.destructionHealth === 'number'
+                ? Math.max(0.1, entity.destructionHealth)
+                : getDefaultDestructibleHealth(destructibleCategory, entity.type);
+            const resolvedSource = typeof entity.destructionSource === 'string'
+                ? entity.destructionSource
+                : getDefaultDestructionSource(destructibleCategory, entity.type);
+
+            addCheckboxInspector(container, 'Destructible', resolvedDestructible, (checked) => {
+                runMutation('Updated destructible flag.', () => {
+                    entity.destructible = checked;
+                    if (checked) {
+                        entity.destructionHealth = entity.destructionHealth ?? getDefaultDestructibleHealth(destructibleCategory, entity.type);
+                        entity.destructionSource = entity.destructionSource ?? getDefaultDestructionSource(destructibleCategory, entity.type);
+                    }
+                });
+            });
+
+            if (resolvedDestructible) {
+                addNumberInspector(container, 'Damage required', resolvedHealth, (value) => {
+                    runMutation('Updated destruction health.', () => {
+                        entity.destructionHealth = Math.max(0.1, value);
+                    });
+                }, 0.1);
+                addOptionSelectInspector(container, 'Damage source', resolvedSource, DESTRUCTION_SOURCE_OPTIONS, (value) => {
+                    runMutation('Updated destruction source.', () => {
+                        entity.destructionSource = value as DestructionSourceRequirement;
+                    });
+                });
+            }
+        }
+
         if (category === 'buttons') {
             addCheckboxInspector(container, 'Active by default', entity.defaultActive ?? entity.active ?? false, (checked) => {
                 runMutation('Updated button default state.', () => {
@@ -9187,6 +9321,41 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     entity.name = value;
                 });
             });
+            if (entity.type === 'boulder') {
+                addCheckboxInspector(container, 'Radioactive', entity.radioactive === true, (checked) => {
+                    runMutation('Updated boulder radioactivity.', () => {
+                        const regularWeight = getDefaultCollectableWeight(entity.type, false);
+                        const radioactiveWeight = getDefaultCollectableWeight(entity.type, true);
+                        const radioactivePaletteCycle = getDefaultCollectablePaletteCycle(
+                            entity.type,
+                            entity.palette ?? 0,
+                            paletteCount,
+                            true
+                        );
+                        entity.radioactive = checked;
+                        if (checked) {
+                            if (Math.abs((entity.weight ?? regularWeight) - regularWeight) < 0.0001) {
+                                entity.weight = radioactiveWeight;
+                            }
+                            if (!entity.paletteCycle && radioactivePaletteCycle) {
+                                entity.paletteCycle = radioactivePaletteCycle;
+                            }
+                            return;
+                        }
+
+                        if (Math.abs((entity.weight ?? radioactiveWeight) - radioactiveWeight) < 0.0001) {
+                            entity.weight = regularWeight;
+                        }
+                        if (
+                            radioactivePaletteCycle &&
+                            entity.paletteCycle &&
+                            stableStringify(entity.paletteCycle) === stableStringify(radioactivePaletteCycle)
+                        ) {
+                            entity.paletteCycle = undefined;
+                        }
+                    });
+                });
+            }
             addNumberInspector(container, 'Weight', entity.weight ?? 0, (value) => {
                 runMutation('Updated item weight.', () => {
                     entity.weight = Number.isFinite(value) ? value : 0;
@@ -9241,6 +9410,19 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     },
                     0.1
                 );
+                addNumberInspector(
+                    container,
+                    'Explosion radius',
+                    entity.explosionRadius ?? (entity.type === 'plasma_grenade'
+                        ? MOVEMENT_SETTINGS.plasmaGrenadeExplosionRadius
+                        : MOVEMENT_SETTINGS.grenadeExplosionRadius),
+                    (value) => {
+                        runMutation('Updated grenade explosion radius.', () => {
+                            entity.explosionRadius = Math.max(1, value);
+                        });
+                    },
+                    1
+                );
             }
         }
     }
@@ -9251,6 +9433,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.activeToggle.textContent = state.active ? 'Hide panel' : 'Show panel';
         refs.expandViewportCheckbox.checked = state.viewportExpanded;
         refs.soundEnabledCheckbox.checked = host.getSoundEnabled();
+        const bulletImpactAudioSettings = host.getBulletImpactAudioSettings();
+        refs.bulletImpactPrimarySelect.value = bulletImpactAudioSettings.primary;
+        refs.bulletImpactAlternateSelect.value = bulletImpactAudioSettings.alternate;
+        refs.bulletImpactAlternateChanceInput.value = bulletImpactAudioSettings.alternateChance.toFixed(2);
+        refs.bulletImpactVolumeInput.value = bulletImpactAudioSettings.volume.toFixed(2);
         refs.modeSelect.value = state.mode;
         refs.toolSelect.value = state.tool;
         refs.categorySelect.value = state.category;
@@ -10203,6 +10390,34 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     refs.showSpriteOutlineCheckbox.addEventListener('change', () => {
         host.setShowSpriteOutlines(refs.showSpriteOutlineCheckbox.checked);
     });
+    const applyBulletImpactAudioSettingsFromControls = () => {
+        const current = host.getBulletImpactAudioSettings();
+        const alternateChance = clamp(Number(refs.bulletImpactAlternateChanceInput.value) || 0, 0, 1);
+        const volume = clamp(Number(refs.bulletImpactVolumeInput.value) || 0, 0, 1);
+        host.setBulletImpactAudioSettings({
+            primary: refs.bulletImpactPrimarySelect.value === 'bulletExplosion2' ? 'bulletExplosion2' : 'bulletExplosion',
+            alternate: refs.bulletImpactAlternateSelect.value === 'bulletExplosion2' ? 'bulletExplosion2' : 'bulletExplosion',
+            alternateChance,
+            volume
+        });
+        const updated = host.getBulletImpactAudioSettings();
+        refs.bulletImpactPrimarySelect.value = updated.primary;
+        refs.bulletImpactAlternateSelect.value = updated.alternate;
+        refs.bulletImpactAlternateChanceInput.value = updated.alternateChance.toFixed(2);
+        refs.bulletImpactVolumeInput.value = updated.volume.toFixed(2);
+        if (
+            current.primary !== updated.primary ||
+            current.alternate !== updated.alternate ||
+            current.alternateChance !== updated.alternateChance ||
+            current.volume !== updated.volume
+        ) {
+            persistDesignerUiState();
+        }
+    };
+    refs.bulletImpactPrimarySelect.addEventListener('change', applyBulletImpactAudioSettingsFromControls);
+    refs.bulletImpactAlternateSelect.addEventListener('change', applyBulletImpactAudioSettingsFromControls);
+    refs.bulletImpactAlternateChanceInput.addEventListener('change', applyBulletImpactAudioSettingsFromControls);
+    refs.bulletImpactVolumeInput.addEventListener('change', applyBulletImpactAudioSettingsFromControls);
     refs.magnifierCheckbox.addEventListener('change', () => {
         state.magnifierEnabled = refs.magnifierCheckbox.checked;
         if (!state.magnifierEnabled) {
