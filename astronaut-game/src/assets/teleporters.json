@@ -1,1 +1,17 @@
-[]
+[
+  {
+    "id": "teleporter_1",
+    "baseX": 8872,
+    "baseY": 1337,
+    "padX": 8872,
+    "padY": 1337,
+    "enabled": true,
+    "requiresKey": false,
+    "destinationA": {
+      "x": 400,
+      "y": 7780
+    },
+    "destinationB": null,
+    "activeDestinationIndex": 0
+  }
+]

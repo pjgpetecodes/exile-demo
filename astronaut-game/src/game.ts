@@ -868,6 +868,68 @@ function normalizeTeleporter(data: any): TeleporterRuntime {
     };
 }
 
+function toRoundedPosition(value: any, fallback: Position) {
+    const x = Math.round(Number(value?.x));
+    const y = Math.round(Number(value?.y));
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        return { x: Math.round(fallback.x), y: Math.round(fallback.y) };
+    }
+    return { x, y };
+}
+
+function buildTeleportersFromMapMetadata() {
+    const grouped = new Map<string, { base?: MapBlock; pad?: MapBlock }>();
+    for (const block of mapBlocks) {
+        if ((block.type !== 'teleporter' && block.type !== 'teleporter_pad') || !block.teleporterId) {
+            continue;
+        }
+        const id = String(block.teleporterId).trim();
+        if (!id) {
+            continue;
+        }
+        const entry = grouped.get(id) ?? {};
+        if (block.type === 'teleporter') {
+            entry.base = block;
+        } else {
+            entry.pad = block;
+        }
+        grouped.set(id, entry);
+    }
+    const fallbackDestination = getAstronautStartPosition();
+    const reconstructed: TeleporterRuntime[] = [];
+    for (const [id, parts] of grouped.entries()) {
+        if (!parts.base || !parts.pad) {
+            continue;
+        }
+        const base = parts.base;
+        const pad = parts.pad;
+        const destinationA = toRoundedPosition(
+            base.teleporterDestinationA ?? pad.teleporterDestinationA,
+            fallbackDestination
+        );
+        const destinationBSource = base.teleporterDestinationB ?? pad.teleporterDestinationB;
+        const destinationB = destinationBSource
+            ? toRoundedPosition(destinationBSource, destinationA)
+            : null;
+        const activeDestinationIndex = (base.teleporterActiveDestinationIndex ?? pad.teleporterActiveDestinationIndex) === 1 && destinationB
+            ? 1
+            : 0;
+        reconstructed.push(normalizeTeleporter({
+            id,
+            baseX: base.x,
+            baseY: base.y,
+            padX: pad.x,
+            padY: pad.y,
+            enabled: (base.teleporterEnabled ?? pad.teleporterEnabled) !== false,
+            requiresKey: (base.teleporterRequiresKey ?? pad.teleporterRequiresKey) === true,
+            destinationA,
+            destinationB,
+            activeDestinationIndex
+        }));
+    }
+    return reconstructed;
+}
+
 function findNearestMapBlockByType(
     type: 'teleporter' | 'teleporter_pad',
     targetX: number,
@@ -976,7 +1038,9 @@ function reconcileTeleporterRuntimePositions(teleporters: TeleporterRuntime[]) {
 
 async function loadTeleporters() {
     const arr = await fetchFreshJson<any[]>('./src/assets/teleporters.json');
-    teleporterEntities = arr.map(normalizeTeleporter);
+    teleporterEntities = arr.length > 0
+        ? arr.map(normalizeTeleporter)
+        : buildTeleportersFromMapMetadata();
     reconcileTeleporterRuntimePositions(teleporterEntities);
 }
 
@@ -1271,7 +1335,9 @@ function replaceRawWorldData(data: RawWorldData) {
     buttonEntities = data.buttons.map((button) => assignEntityId(new Button(button)));
     creatureEntities = data.creatures.map((creature) => assignEntityId(new Creature(creature)));
     collectableEntities = data.collectables.map((collectable) => assignEntityId(new Collectable(collectable)));
-    teleporterEntities = (data.teleporters ?? []).map(normalizeTeleporter);
+    teleporterEntities = (data.teleporters ?? []).length > 0
+        ? (data.teleporters ?? []).map(normalizeTeleporter)
+        : buildTeleportersFromMapMetadata();
     reconcileTeleporterRuntimePositions(teleporterEntities);
     updateAstronautStartPosition(data.astronautStart, true);
     afterWorldDataMutated();
@@ -1840,12 +1906,10 @@ async function gameLoop() {
     let mapBlocksMaskAstronaut = !layerVisibility.world
         ? []
         : getMapBlocksMaskAstronaut();
-    const activeTeleporterPadKeys = getActiveTeleporterPadKeySet({
-        ignoreKeyRequirement: designerActive
-    });
-    if (activeTeleporterPadKeys.size > 0) {
+    const teleporterPadKeys = getTeleporterPadKeySet();
+    if (teleporterPadKeys.size > 0) {
         const shouldKeepBlock = (block: MapBlock) => (
-            block.type !== 'teleporter_pad' || !activeTeleporterPadKeys.has(`${block.x},${block.y}`)
+            block.type !== 'teleporter_pad' || !teleporterPadKeys.has(`${block.x},${block.y}`)
         );
         mapBlocksBehindAstronaut = mapBlocksBehindAstronaut.filter(shouldKeepBlock);
         mapBlocksMaskAstronaut = mapBlocksMaskAstronaut.filter(shouldKeepBlock);
@@ -1908,7 +1972,7 @@ async function gameLoop() {
         // To hide, we need to patch drawMap to accept a blocks array, or temporarily monkey-patch global. For now, just draw overlays using mapBlocksToDraw.
         drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksBehindAstronaut, frameNow);
         if (layerVisibility.world) {
-            drawTeleporterActivePads(ctx!, camera, frameNow, {
+            drawTeleporterPads(ctx!, camera, frameNow, {
                 ignoreKeyRequirement: designerActive
             });
         }
@@ -1946,7 +2010,7 @@ async function gameLoop() {
             drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
         }
         if (layerVisibility.world) {
-            drawTeleporterActivePads(ctx!, camera, frameNow, {
+            drawTeleporterPads(ctx!, camera, frameNow, {
                 ignoreKeyRequirement: designerActive
             });
         }
@@ -3117,7 +3181,7 @@ function getTeleporterPadBlock(teleporter: TeleporterRuntime) {
 
 function getTeleporterPadSweepPosition(
     teleporter: TeleporterRuntime,
-    now: number,
+    progress: number,
     padRender: Pick<TeleporterRenderPad, 'palette' | 'rotation' | 'translation' | 'paletteCycle'>,
     baseBlock: MapBlock | null
 ) {
@@ -3200,8 +3264,6 @@ function getTeleporterPadSweepPosition(
     const padAnchorOffsetX = padProbeAnchor.x - teleporter.baseX;
     const padAnchorOffsetY = padProbeAnchor.y - teleporter.baseY;
 
-    const durationMs = 520;
-    const progress = ((now % durationMs) / durationMs);
     const sweepStart = (() => {
         if (sweepAxis === 'left') {
             return { x: tileRight, y: tileCenterY };
@@ -3237,10 +3299,21 @@ function getTeleporterPadSweepPosition(
     };
 }
 
-function getTeleporterRenderPads(now: number, options?: { ignoreKeyRequirement?: boolean }): TeleporterRenderPad[] {
+function getTeleporterRenderPads(
+    now: number,
+    options?: { ignoreKeyRequirement?: boolean; activeOnly?: boolean; inactiveOnly?: boolean; fixedProgress?: number }
+): TeleporterRenderPad[] {
     const renderPads: TeleporterRenderPad[] = [];
+    const durationMs = 520;
+    const sweepProgress = typeof options?.fixedProgress === 'number'
+        ? Math.max(0, Math.min(1, options.fixedProgress))
+        : ((now % durationMs) / durationMs);
     for (const teleporter of teleporterEntities) {
-        if (!isTeleporterActive(teleporter, options)) {
+        const active = isTeleporterActive(teleporter, options);
+        if (options?.activeOnly && !active) {
+            continue;
+        }
+        if (options?.inactiveOnly && active) {
             continue;
         }
         const padBlock = getTeleporterPadBlock(teleporter);
@@ -3253,7 +3326,13 @@ function getTeleporterRenderPads(now: number, options?: { ignoreKeyRequirement?:
             : (typeof baseBlock?.rotation === 'number' ? baseBlock.rotation : 1);
         const translation = normalizeSpriteTranslation(padBlock?.translation ?? baseBlock?.translation);
         const paletteCycle = padBlock?.paletteCycle;
-        const sweepPosition = getTeleporterPadSweepPosition(teleporter, now, {
+        const sweepPosition = getTeleporterPadSweepPosition(teleporter, sweepProgress, {
+            palette,
+            rotation,
+            translation,
+            paletteCycle
+        }, baseBlock);
+        const fixedPosition = getTeleporterPadSweepPosition(teleporter, sweepProgress, {
             palette,
             rotation,
             translation,
@@ -3261,8 +3340,8 @@ function getTeleporterRenderPads(now: number, options?: { ignoreKeyRequirement?:
         }, baseBlock);
         renderPads.push({
             teleporter,
-            x: sweepPosition.x,
-            y: sweepPosition.y,
+            x: options?.inactiveOnly ? fixedPosition.x : sweepPosition.x,
+            y: options?.inactiveOnly ? fixedPosition.y : sweepPosition.y,
             palette,
             rotation,
             translation,
@@ -3272,30 +3351,33 @@ function getTeleporterRenderPads(now: number, options?: { ignoreKeyRequirement?:
     return renderPads;
 }
 
-function getActiveTeleporterPadKeySet(options?: { ignoreKeyRequirement?: boolean }) {
+function getTeleporterPadKeySet() {
     const keys = new Set<string>();
     for (const teleporter of teleporterEntities) {
-        if (!isTeleporterActive(teleporter, options)) {
-            continue;
-        }
         keys.add(`${teleporter.padX},${teleporter.padY}`);
     }
     return keys;
 }
 
-function drawTeleporterActivePads(
+function drawTeleporterPads(
     context: CanvasRenderingContext2D,
     camera: Position,
     now: number,
     options?: { ignoreKeyRequirement?: boolean }
 ) {
-    const activePads = getTeleporterRenderPads(now, options);
-    if (activePads.length === 0) {
+    const activePads = getTeleporterRenderPads(now, { ...options, activeOnly: true });
+    const inactivePads = getTeleporterRenderPads(now, {
+        ...options,
+        inactiveOnly: true,
+        fixedProgress: 1
+    });
+    if (activePads.length === 0 && inactivePads.length === 0) {
         return;
     }
+    const padsToDraw = [...inactivePads, ...activePads];
     context.save();
     context.globalAlpha = 0.82;
-    drawEntities(context, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, activePads.map((pad) => ({
+    drawEntities(context, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, padsToDraw.map((pad) => ({
         x: pad.x,
         y: pad.y,
         type: 'teleporter_pad',
@@ -3316,7 +3398,7 @@ function updateTeleporterPadTeleporting(now: number) {
     if (!astronautRendered) {
         return;
     }
-    for (const activePad of getTeleporterRenderPads(now)) {
+    for (const activePad of getTeleporterRenderPads(now, { activeOnly: true })) {
         const padRendered = getRenderedEntityWorldSprite({
             x: activePad.x,
             y: activePad.y,

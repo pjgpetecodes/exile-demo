@@ -765,6 +765,31 @@ function toMapBlockData(block: MapBlock): MapBlock {
         ...(typeof block.teleporterId === 'string' && block.teleporterId.trim().length > 0
             ? { teleporterId: block.teleporterId.trim() }
             : {}),
+        ...(typeof block.teleporterEnabled === 'boolean'
+            ? { teleporterEnabled: block.teleporterEnabled }
+            : {}),
+        ...(typeof block.teleporterRequiresKey === 'boolean'
+            ? { teleporterRequiresKey: block.teleporterRequiresKey }
+            : {}),
+        ...(block.teleporterDestinationA
+            ? {
+                teleporterDestinationA: {
+                    x: Math.round(Number(block.teleporterDestinationA.x) || 0),
+                    y: Math.round(Number(block.teleporterDestinationA.y) || 0)
+                }
+            }
+            : {}),
+        ...(block.teleporterDestinationB
+            ? {
+                teleporterDestinationB: {
+                    x: Math.round(Number(block.teleporterDestinationB.x) || 0),
+                    y: Math.round(Number(block.teleporterDestinationB.y) || 0)
+                }
+            }
+            : {}),
+        ...(typeof block.teleporterActiveDestinationIndex === 'number'
+            ? { teleporterActiveDestinationIndex: block.teleporterActiveDestinationIndex === 1 ? 1 : 0 }
+            : {}),
         ...(hasDestructibleMetadata
             ? {
                 destructible: typeof block.destructible === 'boolean'
@@ -3104,8 +3129,117 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         return best;
     }
 
+    function syncTeleporterMetadataToWorldBlocks(data: RawWorldData) {
+        for (const teleporter of data.teleporters ?? []) {
+            const base = data.worldMap.find((block) =>
+                block.type === 'teleporter' &&
+                (block.teleporterId === teleporter.id || (block.x === teleporter.baseX && block.y === teleporter.baseY))
+            ) ?? null;
+            const pad = data.worldMap.find((block) =>
+                block.type === 'teleporter_pad' &&
+                (block.teleporterId === teleporter.id || (block.x === teleporter.padX && block.y === teleporter.padY))
+            ) ?? null;
+            for (const part of [base, pad]) {
+                if (!part) {
+                    continue;
+                }
+                part.teleporterId = teleporter.id;
+                part.teleporterEnabled = teleporter.enabled !== false;
+                part.teleporterRequiresKey = teleporter.requiresKey === true;
+                part.teleporterDestinationA = {
+                    x: Math.round(teleporter.destinationA.x),
+                    y: Math.round(teleporter.destinationA.y)
+                };
+                part.teleporterDestinationB = teleporter.destinationB
+                    ? {
+                        x: Math.round(teleporter.destinationB.x),
+                        y: Math.round(teleporter.destinationB.y)
+                    }
+                    : null;
+                part.teleporterActiveDestinationIndex = teleporter.activeDestinationIndex === 1 ? 1 : 0;
+            }
+        }
+    }
+
     function reconcileTeleporterPairsForSave(data: RawWorldData) {
         const teleporters = data.teleporters ?? [];
+        const taggedTeleporterParts = new Map<string, { base?: MapBlock; pad?: MapBlock }>();
+        for (const block of data.worldMap) {
+            if ((block.type !== 'teleporter' && block.type !== 'teleporter_pad') || !block.teleporterId) {
+                continue;
+            }
+            const id = String(block.teleporterId).trim();
+            if (!id) {
+                continue;
+            }
+            const existing = taggedTeleporterParts.get(id) ?? {};
+            if (block.type === 'teleporter') {
+                existing.base = block;
+            } else {
+                existing.pad = block;
+            }
+            taggedTeleporterParts.set(id, existing);
+        }
+        if (taggedTeleporterParts.size > 0) {
+            const byId = new Map<string, TeleporterSaveData>();
+            for (const teleporter of teleporters) {
+                byId.set(teleporter.id, teleporter);
+            }
+            const startX = Math.round(data.astronautStart.x);
+            const startY = Math.round(data.astronautStart.y);
+            const toPositionOrNull = (value: unknown) => {
+                if (!value || typeof value !== 'object') {
+                    return null;
+                }
+                const x = Math.round(Number((value as { x?: number }).x));
+                const y = Math.round(Number((value as { y?: number }).y));
+                if (!Number.isFinite(x) || !Number.isFinite(y)) {
+                    return null;
+                }
+                return { x, y };
+            };
+            for (const [id, parts] of taggedTeleporterParts.entries()) {
+                if (!parts.base || !parts.pad) {
+                    continue;
+                }
+                const existing = byId.get(id)
+                    ?? teleporters.find((teleporter) =>
+                        teleporter.baseX === parts.base!.x &&
+                        teleporter.baseY === parts.base!.y &&
+                        teleporter.padX === parts.pad!.x &&
+                        teleporter.padY === parts.pad!.y
+                    );
+                if (existing) {
+                    existing.baseX = parts.base.x;
+                    existing.baseY = parts.base.y;
+                    existing.padX = parts.pad.x;
+                    existing.padY = parts.pad.y;
+                    parts.base.teleporterId = existing.id;
+                    parts.pad.teleporterId = existing.id;
+                } else {
+                    const destinationA = toPositionOrNull(parts.base.teleporterDestinationA)
+                        ?? toPositionOrNull(parts.pad.teleporterDestinationA)
+                        ?? { x: startX, y: startY };
+                    const destinationB = toPositionOrNull(parts.base.teleporterDestinationB)
+                        ?? toPositionOrNull(parts.pad.teleporterDestinationB);
+                    data.teleporters.push({
+                        id,
+                        baseX: parts.base.x,
+                        baseY: parts.base.y,
+                        padX: parts.pad.x,
+                        padY: parts.pad.y,
+                        enabled: (parts.base.teleporterEnabled ?? parts.pad.teleporterEnabled) !== false,
+                        requiresKey: (parts.base.teleporterRequiresKey ?? parts.pad.teleporterRequiresKey) === true,
+                        destinationA,
+                        destinationB,
+                        activeDestinationIndex:
+                            ((parts.base.teleporterActiveDestinationIndex ?? parts.pad.teleporterActiveDestinationIndex) === 1 && destinationB)
+                                ? 1
+                                : 0
+                    });
+                }
+            }
+        }
         if (teleporters.length === 0) {
             return;
         }
@@ -3178,6 +3312,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 }
             }
         });
+        syncTeleporterMetadataToWorldBlocks(data);
     }
 
     function getWorldSnapshot() {
@@ -6610,7 +6745,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             return 3;
         }
         if (normalizedPadRotation === 6) {
-            return 1;
+            return 6;
         }
         return normalizedPadRotation;
     }
@@ -6631,6 +6766,32 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             block.x === x &&
             block.y === y
         ) ?? null;
+    }
+
+    function renameTeleporterId(teleporter: TeleporterSaveData, requestedId: string) {
+        const nextId = requestedId.trim();
+        if (!nextId || nextId === teleporter.id) {
+            return;
+        }
+        if (getTeleporters().some((entry) => entry !== teleporter && entry.id === nextId)) {
+            return;
+        }
+        const previousId = teleporter.id;
+        teleporter.id = nextId;
+        const base = getTeleporterPartBlock(teleporter, 'teleporter');
+        const pad = getTeleporterPartBlock(teleporter, 'teleporter_pad');
+        if (base) {
+            base.teleporterId = nextId;
+        }
+        if (pad) {
+            pad.teleporterId = nextId;
+        }
+        for (const button of host.getRawWorldData().buttons) {
+            if (!Array.isArray(button.linkedTeleporters) || button.linkedTeleporters.length === 0) {
+                continue;
+            }
+            button.linkedTeleporters = button.linkedTeleporters.map((id) => id === previousId ? nextId : id);
+        }
     }
 
     function applyEntityRotationWithTeleporterSync(entity: any, rotation: number) {
@@ -6735,7 +6896,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const teleporterId = getNextTeleporterId();
         base.teleporterId = teleporterId;
         pad.teleporterId = teleporterId;
-        getTeleporters().push({
+        const teleporter: TeleporterSaveData = {
             id: teleporterId,
             baseX: base.x,
             baseY: base.y,
@@ -6749,7 +6910,18 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             },
             destinationB: null,
             activeDestinationIndex: 0
-        });
+        };
+        getTeleporters().push(teleporter);
+        base.teleporterEnabled = true;
+        pad.teleporterEnabled = true;
+        base.teleporterRequiresKey = false;
+        pad.teleporterRequiresKey = false;
+        base.teleporterDestinationA = { ...teleporter.destinationA };
+        pad.teleporterDestinationA = { ...teleporter.destinationA };
+        base.teleporterDestinationB = null;
+        pad.teleporterDestinationB = null;
+        base.teleporterActiveDestinationIndex = 0;
+        pad.teleporterActiveDestinationIndex = 0;
     }
 
     function createTeleporterCompositeAt(x: number, y: number) {
@@ -9649,7 +9821,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 } else {
                     addTextInspector(container, 'Teleporter ID', linkedTeleporter.id, (value) => {
                         runMutation('Updated teleporter ID.', () => {
-                            linkedTeleporter.id = value.trim() || linkedTeleporter.id;
+                            renameTeleporterId(linkedTeleporter, value);
                         });
                     });
                     addCheckboxInspector(container, 'Teleporter enabled', linkedTeleporter.enabled !== false, (checked) => {
