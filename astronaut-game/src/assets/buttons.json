@@ -12,6 +12,8 @@
       0,
       1
     ],
+    "linkedTeleporters": [],
+    "teleporterMode": "toggle",
     "collision": true,
     "pressOffset": 5,
     "boxOffsetX": 10,

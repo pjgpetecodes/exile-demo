@@ -11,6 +11,7 @@ const ASSET_FILES = {
     doors: path.join(ROOT, 'src', 'assets', 'doors.json'),
     creatures: path.join(ROOT, 'src', 'assets', 'creatures.json'),
     collectables: path.join(ROOT, 'src', 'assets', 'collectables.json'),
+    teleporters: path.join(ROOT, 'src', 'assets', 'teleporters.json'),
     astronautStart: path.join(ROOT, 'src', 'assets', 'astronaut_start.json')
 };
 const PALETTES_FILE = path.join(ROOT, 'src', 'assets', 'palettes.json');
@@ -33,7 +34,7 @@ function validatePayload(payload) {
         throw new Error('Request body must be a JSON object.');
     }
 
-    for (const key of ['worldMap', 'buttons', 'doors', 'creatures', 'collectables']) {
+    for (const key of ['worldMap', 'buttons', 'doors', 'creatures', 'collectables', 'teleporters']) {
         if (!Array.isArray(payload[key])) {
             throw new Error(`Payload field "${key}" must be an array.`);
         }

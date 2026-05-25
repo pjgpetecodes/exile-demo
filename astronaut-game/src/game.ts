@@ -5,7 +5,10 @@ import {
     CreatureProjectileKind,
     CreatureProjectileRuntimeData,
     GameState,
-    Position
+    PaletteCycleSettings,
+    Position,
+    TeleporterDestinationMode,
+    TeleporterSaveData
 } from './types/index.js';
 import {
     astronaut, resetAstronaut, resetAstronautToPosition, flipAstronaut, handleAstronautMovement, applyLandingMomentum, getAstronautCollisionOffsets, setAstronautCollisionProfile,
@@ -47,7 +50,7 @@ import {
     type DestructionSourceRequirement
 } from './destructibles.js';
 import { Door } from './door.js';
-import { Creature, toCreatureSaveData } from './creature.js';
+import { Creature, getCreatureAuthoredType, toCreatureSaveData } from './creature.js';
 import { Collectable, getDefaultGrenadeExplosionPower, isGrenadeCollectableType } from './collectable.js';
 import { makeBlackTransparent, remapSpritePalette, calculateSpriteCollisionBoundingBoxes, 
 calculateAstronautSpriteBoundingBoxes, getSolidBlockAtWorld, getAnyBlockAtWorld, 
@@ -107,6 +110,13 @@ const COLLECTABLE_PHYSICS_SETTINGS = {
     headBounceMinImpactSpeed: MOVEMENT_SETTINGS.headBounceMinImpactSpeed,
     headBounceMaxLaunchSpeed: MOVEMENT_SETTINGS.collectableHeadBounceMaxLaunchSpeed
 } as const;
+const BIRD_ANIMATION_FRAMES = ['bird1', 'bird2', 'bird3', 'bird4'] as const;
+const BIRD_ANIMATION_FRAME_DURATION_MS = 90;
+const BIRD_TRACK_RELEASE_RANGE_MULTIPLIER = 1.75;
+const BIRD_TRACK_RELEASE_RANGE_PADDING = 96;
+const BIRD_AVOIDANCE_VERTICAL_THRESHOLD = 12;
+const HELD_COLLECTABLE_HAND_INSET = 4 * SPRITE_SCALE;
+const HELD_COLLECTABLE_HAND_OVERLAP = -12;
 
 function getCreatureProjectilePhysicsSettings(collectable: Pick<Collectable, 'bounciness' | 'creatureProjectile'>) {
     const projectileKind = collectable.creatureProjectile?.kind;
@@ -674,6 +684,8 @@ let buttonEntities: Button[] = [];
 let doorEntities: Door[] = [];
 let creatureEntities: Creature[] = [];
 let collectableEntities: Collectable[] = [];
+let teleporterEntities: TeleporterRuntime[] = [];
+let teleporterTouchCooldownUntilMs = 0;
 let heldCollectable: Collectable | null = null;
 let storedCollectables: Collectable[] = [];
 let inventoryCycleIndex = -1;
@@ -703,6 +715,35 @@ type ProjectileImpactEffect = {
     frames: string[];
     frameDurationFrames: number;
 };
+type DoorDestructionEffect = {
+    x: number;
+    y: number;
+    type: string;
+    palette: number;
+    rotation: number;
+    translation?: string | null;
+    state?: Record<string, unknown>;
+    flipAroundVisibleCenter?: boolean;
+    angleDegrees: number;
+    vx: number;
+    vy: number;
+    spinVelocity: number;
+    life: number;
+    maxLife: number;
+};
+type TeleporterRuntime = Required<Omit<TeleporterSaveData, 'destinationB'>> & {
+    destinationB: Position | null;
+    activeDestinationIndex: 0 | 1;
+};
+type TeleporterRenderPad = {
+    teleporter: TeleporterRuntime;
+    x: number;
+    y: number;
+    palette: number;
+    rotation: number;
+    translation: SpriteTranslation;
+    paletteCycle?: PaletteCycleSettings;
+};
 type BulletImpactParticle = {
     x: number;
     y: number;
@@ -725,6 +766,7 @@ type DestructibleRuntimeEntity = {
 let throwGuideDots: ThrowGuideDot[] = [];
 let throwGuideDotEmitTimer = 0;
 let projectileImpactEffects: ProjectileImpactEffect[] = [];
+let doorDestructionEffects: DoorDestructionEffect[] = [];
 let bulletImpactParticles: BulletImpactParticle[] = [];
 let destructibleDamageByEntity = new WeakMap<object, number>();
 let bulletImpactAudioSettings: BulletImpactAudioSettings = { ...BULLET_IMPACT_AUDIO_SETTINGS };
@@ -798,6 +840,146 @@ export function assignEntityId(obj: any) {
     return obj;
 }
 
+function normalizeTeleporter(data: any): TeleporterRuntime {
+    const destinationA = {
+        x: Math.round(Number(data?.destinationA?.x) || 0),
+        y: Math.round(Number(data?.destinationA?.y) || 0)
+    };
+    const destinationB = data?.destinationB
+        ? {
+            x: Math.round(Number(data.destinationB.x) || 0),
+            y: Math.round(Number(data.destinationB.y) || 0)
+        }
+        : null;
+    const activeDestinationIndex = data?.activeDestinationIndex === 1 && destinationB ? 1 : 0;
+    return {
+        id: typeof data?.id === 'string' && data.id.trim().length > 0
+            ? data.id.trim()
+            : `teleporter_${Math.round(Number(data?.padX) || 0)}_${Math.round(Number(data?.padY) || 0)}`,
+        baseX: Math.round(Number(data?.baseX) || 0),
+        baseY: Math.round(Number(data?.baseY) || 0),
+        padX: Math.round(Number(data?.padX) || 0),
+        padY: Math.round(Number(data?.padY) || 0),
+        enabled: data?.enabled !== false,
+        requiresKey: data?.requiresKey === true,
+        destinationA,
+        destinationB,
+        activeDestinationIndex
+    };
+}
+
+function findNearestMapBlockByType(
+    type: 'teleporter' | 'teleporter_pad',
+    targetX: number,
+    targetY: number,
+    maxDistance: number
+) {
+    const maxDistanceSquared = maxDistance * maxDistance;
+    let best: MapBlock | null = null;
+    let bestDistanceSquared = Number.POSITIVE_INFINITY;
+    for (const block of mapBlocks) {
+        if (block.type !== type) {
+            continue;
+        }
+        const dx = targetX - block.x;
+        const dy = targetY - block.y;
+        const distanceSquared = dx * dx + dy * dy;
+        if (distanceSquared <= maxDistanceSquared && distanceSquared < bestDistanceSquared) {
+            best = block;
+            bestDistanceSquared = distanceSquared;
+        }
+    }
+    return best;
+}
+
+function findMapBlockByTeleporterId(
+    type: 'teleporter' | 'teleporter_pad',
+    teleporterId: string,
+    targetX: number,
+    targetY: number
+) {
+    const candidates = mapBlocks.filter((block) =>
+        block.type === type &&
+        block.teleporterId === teleporterId
+    );
+    if (candidates.length === 0) {
+        return null;
+    }
+    let best = candidates[0];
+    let bestDistanceSquared = Number.POSITIVE_INFINITY;
+    for (const candidate of candidates) {
+        const dx = targetX - candidate.x;
+        const dy = targetY - candidate.y;
+        const distanceSquared = dx * dx + dy * dy;
+        if (distanceSquared < bestDistanceSquared) {
+            best = candidate;
+            bestDistanceSquared = distanceSquared;
+        }
+    }
+    return best;
+}
+
+function reconcileTeleporterRuntimePositions(teleporters: TeleporterRuntime[]) {
+    const correctionDistancePx = 32 * 1.5;
+    for (const teleporter of teleporters) {
+        const baseById = findMapBlockByTeleporterId('teleporter', teleporter.id, teleporter.baseX, teleporter.baseY);
+        const padById = findMapBlockByTeleporterId('teleporter_pad', teleporter.id, teleporter.padX, teleporter.padY);
+        if (baseById) {
+            teleporter.baseX = baseById.x;
+            teleporter.baseY = baseById.y;
+            baseById.teleporterId = teleporter.id;
+        }
+        if (padById) {
+            teleporter.padX = padById.x;
+            teleporter.padY = padById.y;
+            padById.teleporterId = teleporter.id;
+        }
+        const hasBaseAtPosition = mapBlocks.some((block) =>
+            block.type === 'teleporter' &&
+            block.x === teleporter.baseX &&
+            block.y === teleporter.baseY
+        );
+        if (!hasBaseAtPosition) {
+            const correctedBase = findNearestMapBlockByType(
+                'teleporter',
+                teleporter.baseX,
+                teleporter.baseY,
+                correctionDistancePx
+            );
+            if (correctedBase) {
+                teleporter.baseX = correctedBase.x;
+                teleporter.baseY = correctedBase.y;
+                correctedBase.teleporterId = teleporter.id;
+            }
+        }
+
+        const hasPadAtPosition = mapBlocks.some((block) =>
+            block.type === 'teleporter_pad' &&
+            block.x === teleporter.padX &&
+            block.y === teleporter.padY
+        );
+        if (!hasPadAtPosition) {
+            const correctedPad = findNearestMapBlockByType(
+                'teleporter_pad',
+                teleporter.padX,
+                teleporter.padY,
+                correctionDistancePx
+            );
+            if (correctedPad) {
+                teleporter.padX = correctedPad.x;
+                teleporter.padY = correctedPad.y;
+                correctedPad.teleporterId = teleporter.id;
+            }
+        }
+    }
+}
+
+async function loadTeleporters() {
+    const arr = await fetchFreshJson<any[]>('./src/assets/teleporters.json');
+    teleporterEntities = arr.map(normalizeTeleporter);
+    reconcileTeleporterRuntimePositions(teleporterEntities);
+}
+
 async function loadButtons() {
     const arr = await fetchFreshJson<any[]>('./src/assets/buttons.json');
     buttonEntities = arr.map((data: any) => assignEntityId(new Button(data)));
@@ -817,6 +999,37 @@ function syncButtonStatesToDoors() {
         button.active = button.linkedDoors.some((doorID) =>
             doorEntities.some((door) => door.doorID === doorID && door.locked)
         );
+    }
+}
+
+function applyButtonTeleporterMode(teleporter: TeleporterRuntime, mode: TeleporterDestinationMode) {
+    if (mode === 'destination_a') {
+        teleporter.activeDestinationIndex = 0;
+        return;
+    }
+    if (mode === 'destination_b') {
+        if (teleporter.destinationB) {
+            teleporter.activeDestinationIndex = 1;
+        }
+        return;
+    }
+    if (teleporter.destinationB) {
+        teleporter.activeDestinationIndex = teleporter.activeDestinationIndex === 0 ? 1 : 0;
+    } else {
+        teleporter.activeDestinationIndex = 0;
+    }
+}
+
+function applyButtonTeleporterLinks(button: Button) {
+    if (!Array.isArray(button.linkedTeleporters) || button.linkedTeleporters.length === 0) {
+        return;
+    }
+    const mode: TeleporterDestinationMode = button.teleporterMode ?? 'toggle';
+    for (const teleporterId of button.linkedTeleporters) {
+        const teleporter = teleporterEntities.find((entry) => entry.id === teleporterId);
+        if (teleporter) {
+            applyButtonTeleporterMode(teleporter, mode);
+        }
     }
 }
 async function loadDoors() {
@@ -1047,6 +1260,7 @@ function getRawWorldData(): RawWorldData {
         doors: doorEntities as RawWorldData['doors'],
         creatures: creatureEntities as RawWorldData['creatures'],
         collectables: collectableEntities as RawWorldData['collectables'],
+        teleporters: teleporterEntities as RawWorldData['teleporters'],
         astronautStart: getAstronautStartPosition()
     };
 }
@@ -1057,6 +1271,8 @@ function replaceRawWorldData(data: RawWorldData) {
     buttonEntities = data.buttons.map((button) => assignEntityId(new Button(button)));
     creatureEntities = data.creatures.map((creature) => assignEntityId(new Creature(creature)));
     collectableEntities = data.collectables.map((collectable) => assignEntityId(new Collectable(collectable)));
+    teleporterEntities = (data.teleporters ?? []).map(normalizeTeleporter);
+    reconcileTeleporterRuntimePositions(teleporterEntities);
     updateAstronautStartPosition(data.astronautStart, true);
     afterWorldDataMutated();
 }
@@ -1255,6 +1471,17 @@ async function saveWorldData(data: RawWorldData) {
     if (!res.ok) {
         throw new Error(await getDesignerSaveError(res, 'Failed to save world data.'));
     }
+    try {
+        const payload = await res.clone().json() as { files?: string[] };
+        const files = Array.isArray(payload.files) ? payload.files : [];
+        if (!files.includes('teleporters.json')) {
+            throw new Error('The local designer save server is out of date and did not save teleporters.json. Restart the save server on port 3001 and try again.');
+        }
+    } catch (error) {
+        if (error instanceof Error && error.message.includes('teleporters.json')) {
+            throw error;
+        }
+    }
 }
 
 async function postDesignerSaveRequest(url: string, body: unknown) {
@@ -1318,6 +1545,7 @@ async function postSpriteSheetNormalization(dryRun: boolean): Promise<SpriteShee
             'Sprite-sheet normalization is unavailable because the local save server is out of date. Restart the dev/save server on port 3001 and try again.'
         ));
     }
+
     const payload = await res.json() as { report: SpriteSheetNormalizationReport };
     return payload.report;
 }
@@ -1339,6 +1567,7 @@ async function init() {
     await loadButtons();
     await loadCreatures();
     await loadCollectables();
+    await loadTeleporters();
     await loadAstronautStartPosition();
     initStars(MAP_WIDTH, STARFIELD_HEIGHT);
     const img = new Image();
@@ -1601,15 +1830,26 @@ async function gameLoop() {
             creatures: true,
             collectables: true
         };
+    const designerActive = worldDesigner?.isActive() === true;
     const mapBlocksToDraw = !layerVisibility.world
         ? []
         : getRenderableMapBlocks(hideBlackBackgroundBlocks);
-    const mapBlocksBehindAstronaut = !layerVisibility.world
+    let mapBlocksBehindAstronaut = !layerVisibility.world
         ? []
         : getMapBlocksBehindAstronaut(hideBlackBackgroundBlocks);
-    const mapBlocksMaskAstronaut = !layerVisibility.world
+    let mapBlocksMaskAstronaut = !layerVisibility.world
         ? []
         : getMapBlocksMaskAstronaut();
+    const activeTeleporterPadKeys = getActiveTeleporterPadKeySet({
+        ignoreKeyRequirement: designerActive
+    });
+    if (activeTeleporterPadKeys.size > 0) {
+        const shouldKeepBlock = (block: MapBlock) => (
+            block.type !== 'teleporter_pad' || !activeTeleporterPadKeys.has(`${block.x},${block.y}`)
+        );
+        mapBlocksBehindAstronaut = mapBlocksBehindAstronaut.filter(shouldKeepBlock);
+        mapBlocksMaskAstronaut = mapBlocksMaskAstronaut.filter(shouldKeepBlock);
+    }
     const blackBackgroundBlocksToHighlight = showBlackBackgroundBlocks && !hideBlackBackgroundBlocks
         ? getBlackBackgroundBlocks()
         : [];
@@ -1667,6 +1907,11 @@ async function gameLoop() {
         // Draw map blocks (drawMap uses global mapBlocks, so black_background blocks will be hidden only if not present in mapBlocks)
         // To hide, we need to patch drawMap to accept a blocks array, or temporarily monkey-patch global. For now, just draw overlays using mapBlocksToDraw.
         drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksBehindAstronaut, frameNow);
+        if (layerVisibility.world) {
+            drawTeleporterActivePads(ctx!, camera, frameNow, {
+                ignoreKeyRequirement: designerActive
+            });
+        }
         if (layerVisibility.buttons) {
             drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, buttonEntities, frameNow);
         }
@@ -1690,12 +1935,20 @@ async function gameLoop() {
                 frameNow
             );
         }
+        if (layerVisibility.doors && doorDestructionEffects.length > 0) {
+            drawDoorDestructionEffects(ctx!, camera);
+        }
     }
 
     if (worldDesigner?.isActive()) {
         drawAstronautInWorld(ctx!, camera, spriteCol, flipSprite, flipVertical);
         if (mapBlocksMaskAstronaut.length > 0) {
             drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
+        }
+        if (layerVisibility.world) {
+            drawTeleporterActivePads(ctx!, camera, frameNow, {
+                ignoreKeyRequirement: designerActive
+            });
         }
         const creatureProjectileDrawables = getCreatureProjectileCollectables();
         if (layerVisibility.creatures && creatureProjectileDrawables.length > 0) {
@@ -1709,6 +1962,9 @@ async function gameLoop() {
         }
         if (heldCollectable) {
             drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, [heldCollectable], frameNow);
+        }
+        if (layerVisibility.doors && doorDestructionEffects.length > 0) {
+            drawDoorDestructionEffects(ctx!, camera);
         }
         worldDesigner.render(ctx!);
         prevKeys = { ...keys };
@@ -1819,6 +2075,7 @@ async function gameLoop() {
                     door.locked = !door.locked;
                 }
             }
+            applyButtonTeleporterLinks(collidedButton);
             syncButtonStatesToDoors();
             buttonPressTimestamps.set(collidedButton, now);
             try { buttonOnSound.currentTime = 0; buttonOnSound.play(); } catch {}
@@ -1843,10 +2100,12 @@ async function gameLoop() {
     updateCreatures(frameNow);
     updateCreatureSounds(frameNow);
     updateProjectileImpactEffects();
+    updateDoorDestructionEffects();
     resolveAstronautCreatureCollisions();
     updateThrowAngle();
     handleCollectableInteractions();
     updateHeldCollectablePosition();
+    updateTeleporterPadTeleporting(frameNow);
     resolveAstronautCollectableCollisions(
         gameState.astronaut.position.x - movementStartX,
         gameState.astronaut.position.y - movementStartY
@@ -2775,6 +3034,7 @@ function getRenderedEntityWorldSprite(entity: {
     rotation?: number;
     translation?: string | null;
     palette?: number;
+    paletteCycle?: PaletteCycleSettings;
     state?: Record<string, unknown>;
     flipAroundVisibleCenter?: boolean;
     angleDegrees?: number;
@@ -2815,6 +3075,265 @@ function getRenderedEntityWorldSprite(entity: {
             + translationOffset.y
             + visibleCenterFlipOffset.y * SPRITE_SCALE
     };
+}
+
+function canUseKeyLockedTeleporter(_teleporter: TeleporterRuntime) {
+    // Hook for future RCD+key progression checks.
+    return false;
+}
+
+function isTeleporterActive(teleporter: TeleporterRuntime, options?: { ignoreKeyRequirement?: boolean }) {
+    if (teleporter.enabled === false) {
+        return false;
+    }
+    if (!options?.ignoreKeyRequirement && teleporter.requiresKey && !canUseKeyLockedTeleporter(teleporter)) {
+        return false;
+    }
+    return true;
+}
+
+function getTeleporterActiveDestination(teleporter: TeleporterRuntime) {
+    if (teleporter.activeDestinationIndex === 1 && teleporter.destinationB) {
+        return teleporter.destinationB;
+    }
+    return teleporter.destinationA;
+}
+
+function getTeleporterBaseBlock(teleporter: TeleporterRuntime) {
+    return mapBlocks.find((block) =>
+        block.type === 'teleporter' &&
+        block.x === teleporter.baseX &&
+        block.y === teleporter.baseY
+    ) ?? null;
+}
+
+function getTeleporterPadBlock(teleporter: TeleporterRuntime) {
+    return mapBlocks.find((block) =>
+        block.type === 'teleporter_pad' &&
+        block.x === teleporter.padX &&
+        block.y === teleporter.padY
+    ) ?? null;
+}
+
+function getTeleporterPadSweepPosition(
+    teleporter: TeleporterRuntime,
+    now: number,
+    padRender: Pick<TeleporterRenderPad, 'palette' | 'rotation' | 'translation' | 'paletteCycle'>,
+    baseBlock: MapBlock | null
+) {
+    const basePalette = typeof baseBlock?.palette === 'number' ? baseBlock.palette : padRender.palette;
+    const baseRotation = typeof baseBlock?.rotation === 'number' ? baseBlock.rotation : 1;
+    const baseTranslation = normalizeSpriteTranslation(baseBlock?.translation);
+    const baseRendered = getRenderedEntityWorldSprite({
+        x: teleporter.baseX,
+        y: teleporter.baseY,
+        type: 'teleporter',
+        palette: basePalette,
+        rotation: baseRotation,
+        translation: baseTranslation,
+        paletteCycle: baseBlock?.paletteCycle
+    });
+    const padProbe = getRenderedEntityWorldSprite({
+        x: teleporter.baseX,
+        y: teleporter.baseY,
+        type: 'teleporter_pad',
+        palette: padRender.palette,
+        rotation: padRender.rotation,
+        translation: padRender.translation,
+        paletteCycle: padRender.paletteCycle
+    });
+
+    const baseBounds = baseRendered ? getSpriteVisibleBounds(baseRendered.canvas) : null;
+    const padBounds = padProbe ? getSpriteVisibleBounds(padProbe.canvas) : null;
+    const fallbackSpan = 32 * SPRITE_SCALE;
+    const tileLeft = teleporter.baseX;
+    const tileTop = teleporter.baseY;
+    const tileRight = tileLeft + fallbackSpan;
+    const tileBottom = tileTop + fallbackSpan;
+    const tileCenterX = tileLeft + fallbackSpan / 2;
+    const tileCenterY = tileTop + fallbackSpan / 2;
+    const baseVisibleLeft = baseRendered && baseBounds
+        ? baseRendered.drawX + baseBounds.minX * SPRITE_SCALE
+        : tileLeft;
+    const baseVisibleRight = baseRendered && baseBounds
+        ? baseRendered.drawX + (baseBounds.maxX + 1) * SPRITE_SCALE
+        : tileRight;
+    const baseVisibleTop = baseRendered && baseBounds
+        ? baseRendered.drawY + baseBounds.minY * SPRITE_SCALE
+        : tileTop;
+    const baseVisibleBottom = baseRendered && baseBounds
+        ? baseRendered.drawY + (baseBounds.maxY + 1) * SPRITE_SCALE
+        : tileBottom;
+
+    const normalizedRotation = Math.round(padRender.rotation);
+    const sweepAxis = normalizedRotation === 2
+        ? 'left'
+        : normalizedRotation === 3
+            ? 'up'
+            : normalizedRotation === 4
+                ? 'right'
+                : normalizedRotation === 6 || normalizedRotation === 7
+                    ? 'up'
+                    : 'down';
+
+    const padProbeAnchor = (() => {
+        if (!padProbe || !padBounds) {
+            return { x: teleporter.baseX, y: teleporter.baseY };
+        }
+        const left = padProbe.drawX + padBounds.minX * SPRITE_SCALE;
+        const right = padProbe.drawX + (padBounds.maxX + 1) * SPRITE_SCALE;
+        const top = padProbe.drawY + padBounds.minY * SPRITE_SCALE;
+        const bottom = padProbe.drawY + (padBounds.maxY + 1) * SPRITE_SCALE;
+        const centerX = (left + right) / 2;
+        const centerY = (top + bottom) / 2;
+        if (sweepAxis === 'left') {
+            return { x: right, y: centerY };
+        }
+        if (sweepAxis === 'right') {
+            return { x: left, y: centerY };
+        }
+        if (sweepAxis === 'up') {
+            return { x: centerX, y: bottom };
+        }
+        return { x: centerX, y: top };
+    })();
+    const padAnchorOffsetX = padProbeAnchor.x - teleporter.baseX;
+    const padAnchorOffsetY = padProbeAnchor.y - teleporter.baseY;
+
+    const durationMs = 520;
+    const progress = ((now % durationMs) / durationMs);
+    const sweepStart = (() => {
+        if (sweepAxis === 'left') {
+            return { x: tileRight, y: tileCenterY };
+        }
+        if (sweepAxis === 'right') {
+            return { x: tileLeft, y: tileCenterY };
+        }
+        if (sweepAxis === 'up') {
+            return { x: tileCenterX, y: tileBottom };
+        }
+        return { x: tileCenterX, y: tileTop };
+    })();
+    const sweepEnd = (() => {
+        if (sweepAxis === 'left') {
+            return { x: Math.min(sweepStart.x, baseVisibleRight), y: sweepStart.y };
+        }
+        if (sweepAxis === 'right') {
+            return { x: Math.max(sweepStart.x, baseVisibleLeft), y: sweepStart.y };
+        }
+        if (sweepAxis === 'up') {
+            return { x: sweepStart.x, y: Math.min(sweepStart.y, baseVisibleBottom) };
+        }
+        return { x: sweepStart.x, y: Math.max(sweepStart.y, baseVisibleTop) };
+    })();
+    const desiredAnchor = {
+        x: sweepStart.x + (sweepEnd.x - sweepStart.x) * progress,
+        y: sweepStart.y + (sweepEnd.y - sweepStart.y) * progress
+    };
+
+    return {
+        x: desiredAnchor.x - padAnchorOffsetX,
+        y: desiredAnchor.y - padAnchorOffsetY
+    };
+}
+
+function getTeleporterRenderPads(now: number, options?: { ignoreKeyRequirement?: boolean }): TeleporterRenderPad[] {
+    const renderPads: TeleporterRenderPad[] = [];
+    for (const teleporter of teleporterEntities) {
+        if (!isTeleporterActive(teleporter, options)) {
+            continue;
+        }
+        const padBlock = getTeleporterPadBlock(teleporter);
+        const baseBlock = getTeleporterBaseBlock(teleporter);
+        const palette = typeof padBlock?.palette === 'number'
+            ? padBlock.palette
+            : (typeof baseBlock?.palette === 'number' ? baseBlock.palette : 0);
+        const rotation = typeof padBlock?.rotation === 'number'
+            ? padBlock.rotation
+            : (typeof baseBlock?.rotation === 'number' ? baseBlock.rotation : 1);
+        const translation = normalizeSpriteTranslation(padBlock?.translation ?? baseBlock?.translation);
+        const paletteCycle = padBlock?.paletteCycle;
+        const sweepPosition = getTeleporterPadSweepPosition(teleporter, now, {
+            palette,
+            rotation,
+            translation,
+            paletteCycle
+        }, baseBlock);
+        renderPads.push({
+            teleporter,
+            x: sweepPosition.x,
+            y: sweepPosition.y,
+            palette,
+            rotation,
+            translation,
+            paletteCycle
+        });
+    }
+    return renderPads;
+}
+
+function getActiveTeleporterPadKeySet(options?: { ignoreKeyRequirement?: boolean }) {
+    const keys = new Set<string>();
+    for (const teleporter of teleporterEntities) {
+        if (!isTeleporterActive(teleporter, options)) {
+            continue;
+        }
+        keys.add(`${teleporter.padX},${teleporter.padY}`);
+    }
+    return keys;
+}
+
+function drawTeleporterActivePads(
+    context: CanvasRenderingContext2D,
+    camera: Position,
+    now: number,
+    options?: { ignoreKeyRequirement?: boolean }
+) {
+    const activePads = getTeleporterRenderPads(now, options);
+    if (activePads.length === 0) {
+        return;
+    }
+    context.save();
+    context.globalAlpha = 0.82;
+    drawEntities(context, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, activePads.map((pad) => ({
+        x: pad.x,
+        y: pad.y,
+        type: 'teleporter_pad',
+        palette: pad.palette,
+        rotation: pad.rotation,
+        translation: pad.translation,
+        paletteCycle: pad.paletteCycle,
+        collision: false
+    })), now);
+    context.restore();
+}
+
+function updateTeleporterPadTeleporting(now: number) {
+    if (isDesignerOpen() || teleporting || now < teleporterTouchCooldownUntilMs) {
+        return;
+    }
+    const astronautRendered = getAstronautRenderedWorldSprite();
+    if (!astronautRendered) {
+        return;
+    }
+    for (const activePad of getTeleporterRenderPads(now)) {
+        const padRendered = getRenderedEntityWorldSprite({
+            x: activePad.x,
+            y: activePad.y,
+            type: 'teleporter_pad',
+            palette: activePad.palette,
+            rotation: activePad.rotation,
+            translation: activePad.translation,
+            paletteCycle: activePad.paletteCycle
+        });
+        if (!doRenderedSpritesOverlap(astronautRendered, padRendered)) {
+            continue;
+        }
+        if (startTeleportToLocation(getTeleporterActiveDestination(activePad.teleporter))) {
+            teleporterTouchCooldownUntilMs = now + 700;
+        }
+        break;
+    }
 }
 
 function getRenderedSpriteOpaqueSamples(canvas: HTMLCanvasElement) {
@@ -2859,6 +3378,43 @@ function isRenderedSpriteOpaqueAtWorld(
         return false;
     }
     return ctx.getImageData(localX, localY, 1, 1).data[3] > 0;
+}
+
+function doRenderedSpritesOverlap(
+    first: { canvas: HTMLCanvasElement; drawX: number; drawY: number } | null,
+    second: { canvas: HTMLCanvasElement; drawX: number; drawY: number } | null
+) {
+    if (!first || !second) {
+        return false;
+    }
+
+    const overlapLeft = Math.max(first.drawX, second.drawX);
+    const overlapTop = Math.max(first.drawY, second.drawY);
+    const overlapRight = Math.min(
+        first.drawX + first.canvas.width * SPRITE_SCALE,
+        second.drawX + second.canvas.width * SPRITE_SCALE
+    );
+    const overlapBottom = Math.min(
+        first.drawY + first.canvas.height * SPRITE_SCALE,
+        second.drawY + second.canvas.height * SPRITE_SCALE
+    );
+
+    if (overlapRight <= overlapLeft || overlapBottom <= overlapTop) {
+        return false;
+    }
+
+    for (let worldY = Math.floor(overlapTop); worldY < Math.ceil(overlapBottom); worldY++) {
+        for (let worldX = Math.floor(overlapLeft); worldX < Math.ceil(overlapRight); worldX++) {
+            if (
+                isRenderedSpriteOpaqueAtWorld(first, worldX, worldY) &&
+                isRenderedSpriteOpaqueAtWorld(second, worldX, worldY)
+            ) {
+                return true;
+            }
+        }
+    }
+
+    return false;
 }
 
 function getAstronautRenderedWorldSprite() {
@@ -3070,6 +3626,29 @@ function isTurretLikeCreature(creature: Creature) {
     return creature.archetype === 'turret' || creature.movementMode === 'turret';
 }
 
+function isBirdCreature(creature: Creature, authoredType = getCreatureAuthoredType(creature.type, creature.state)) {
+    return creature.archetype === 'bird' || /^bird/i.test(authoredType);
+}
+
+function getBirdSpriteFrameOffset(type: string) {
+    const match = /^bird(\d+)$/i.exec(type);
+    if (!match) {
+        return 0;
+    }
+    return (Math.max(1, Number(match[1])) - 1) % BIRD_ANIMATION_FRAMES.length;
+}
+
+function getAnimatedBirdSpriteType(authoredType: string, frameNow: number, entityId?: number) {
+    const frameOffset = getBirdSpriteFrameOffset(authoredType);
+    const entityOffset = typeof entityId === 'number'
+        ? Math.abs(entityId) % BIRD_ANIMATION_FRAMES.length
+        : 0;
+    const frameIndex = (
+        Math.floor(frameNow / BIRD_ANIMATION_FRAME_DURATION_MS) + frameOffset + entityOffset
+    ) % BIRD_ANIMATION_FRAMES.length;
+    return BIRD_ANIMATION_FRAMES[frameIndex];
+}
+
 function clampToRange(value: number, minimum: number, maximum: number) {
     return Math.max(minimum, Math.min(maximum, value));
 }
@@ -3279,22 +3858,63 @@ function getDestructibleCollisionBounds(entity: DestructibleRuntimeEntity) {
 
 function spawnDestructibleExplosionEffect(
     entity: DestructibleRuntimeEntity,
+    category: 'world' | 'doors',
     source: DestructionSourceRequirement,
     centerX: number,
-    centerY: number
+    centerY: number,
+    blastCenter?: Position
 ) {
     const palette = typeof entity.palette === 'number' ? entity.palette : 0;
     const explosionType = source === 'plasma_grenade_explosion' || source === 'coronium_explosion'
         ? 'plasma_grenade'
         : 'grenade';
     spawnGrenadeExplosionEffect(explosionType, palette, centerX, centerY);
+    if (category === 'doors') {
+        const sourceCenter = blastCenter ?? { x: centerX, y: centerY };
+        const horizontalDirection = centerX >= sourceCenter.x ? 1 : -1;
+        const verticalDirection = centerY - sourceCenter.y;
+        const distance = Math.hypot(centerX - sourceCenter.x, verticalDirection);
+        const normalizedDirection = distance > 0.001
+            ? {
+                x: (centerX - sourceCenter.x) / distance,
+                y: verticalDirection / distance
+            }
+            : {
+                x: horizontalDirection,
+                y: -0.35
+            };
+        const liftBias = Math.min(-0.25, normalizedDirection.y - 0.35);
+        doorDestructionEffects.push({
+            x: entity.x,
+            y: entity.y,
+            type: entity.type,
+            palette,
+            rotation: typeof (entity as { rotation?: unknown }).rotation === 'number'
+                ? Math.round(Number((entity as { rotation?: unknown }).rotation))
+                : 1,
+            translation: typeof (entity as { translation?: unknown }).translation === 'string'
+                ? String((entity as { translation?: unknown }).translation)
+                : undefined,
+            state: typeof (entity as { state?: unknown }).state === 'object' && (entity as { state?: unknown }).state
+                ? { ...((entity as { state?: Record<string, unknown> }).state ?? {}) }
+                : undefined,
+            flipAroundVisibleCenter: (entity as { flipAroundVisibleCenter?: unknown }).flipAroundVisibleCenter === true,
+            angleDegrees: 0,
+            vx: normalizedDirection.x * 8.5,
+            vy: liftBias * 6.4,
+            spinVelocity: horizontalDirection * 28,
+            life: 24,
+            maxLife: 24
+        });
+    }
 }
 
 function damageDestructibleEntity(
     entity: DestructibleRuntimeEntity,
     category: 'world' | 'doors',
     damage: number,
-    source: DestructionSourceRequirement
+    source: DestructionSourceRequirement,
+    blastCenter?: Position
 ) {
     const settings = getEffectiveDestructibleSettings(entity, category);
     if (
@@ -3313,7 +3933,7 @@ function damageDestructibleEntity(
 
     const bounds = getDestructibleCollisionBounds(entity);
     const center = getEntityCenter(entity.x, entity.y, bounds);
-    spawnDestructibleExplosionEffect(entity, source, center.x, center.y);
+    spawnDestructibleExplosionEffect(entity, category, source, center.x, center.y, blastCenter);
     destructibleDamageByEntity.delete(entity as object);
     if (category === 'doors') {
         removeDoorEntity(entity as Door);
@@ -3330,6 +3950,7 @@ function applyExplosionDamageToDestructibles(
     source: DestructionSourceRequirement
 ) {
     let destroyedAny = false;
+    let destroyedDoor = false;
 
     for (const door of [...doorEntities]) {
         const bounds = getEntityCollisionBounds(door);
@@ -3339,8 +3960,9 @@ function applyExplosionDamageToDestructibles(
             continue;
         }
         const scaledDamage = maxDamage * (1 - distance / radius);
-        if (damageDestructibleEntity(door, 'doors', scaledDamage, source)) {
+        if (damageDestructibleEntity(door, 'doors', scaledDamage, source, center)) {
             destroyedAny = true;
+            destroyedDoor = true;
         }
     }
 
@@ -3352,7 +3974,7 @@ function applyExplosionDamageToDestructibles(
             continue;
         }
         const scaledDamage = maxDamage * (1 - distance / radius);
-        if (damageDestructibleEntity(block, 'world', scaledDamage, source)) {
+        if (damageDestructibleEntity(block, 'world', scaledDamage, source, center)) {
             destroyedAny = true;
         }
     }
@@ -3360,6 +3982,11 @@ function applyExplosionDamageToDestructibles(
     if (destroyedAny) {
         afterWorldDataMutated();
     }
+
+    return {
+        destroyedAny,
+        destroyedDoor
+    };
 }
 
 function syncGrenadeFuseState(collectable: Collectable, now: number = performance.now()) {
@@ -3536,6 +4163,68 @@ function updateProjectileImpactEffects() {
     projectileImpactEffects = nextEffects;
 }
 
+function updateDoorDestructionEffects() {
+    const nextEffects: DoorDestructionEffect[] = [];
+    for (const effect of doorDestructionEffects) {
+        effect.x += effect.vx;
+        effect.y += effect.vy;
+        effect.vy += 0.22;
+        effect.vx *= 0.97;
+        effect.angleDegrees += effect.spinVelocity;
+        effect.spinVelocity *= 0.92;
+        effect.life--;
+        if (effect.life <= 0) {
+            continue;
+        }
+        nextEffects.push(effect);
+    }
+    doorDestructionEffects = nextEffects;
+}
+
+function drawDoorDestructionEffects(context: CanvasRenderingContext2D, camera: Position) {
+    for (const effect of doorDestructionEffects) {
+        const rendered = getRenderedEntityWorldSprite(effect);
+        if (!rendered) {
+            continue;
+        }
+        const age = effect.maxLife - effect.life;
+        const fadeAlpha = clampToRange(effect.life / effect.maxLife, 0, 1);
+        const alpha = Math.max(0.2, fadeAlpha);
+        if (alpha <= 0.02) {
+            continue;
+        }
+        const drawX = rendered.drawX - camera.x;
+        const drawY = rendered.drawY - camera.y;
+        const drawWidth = rendered.canvas.width * SPRITE_SCALE;
+        const drawHeight = rendered.canvas.height * SPRITE_SCALE;
+        const flashProgress = age < 6 ? 1 - age / 6 : 0;
+        context.save();
+        context.globalAlpha = alpha;
+        context.drawImage(
+            rendered.canvas,
+            drawX,
+            drawY,
+            drawWidth,
+            drawHeight
+        );
+        if (flashProgress > 0) {
+            const flashScale = 1 + flashProgress * 0.24;
+            const flashWidth = drawWidth * flashScale;
+            const flashHeight = drawHeight * flashScale;
+            context.globalCompositeOperation = 'lighter';
+            context.globalAlpha = 0.55 * flashProgress;
+            context.drawImage(
+                rendered.canvas,
+                drawX - (flashWidth - drawWidth) / 2,
+                drawY - (flashHeight - drawHeight) / 2,
+                flashWidth,
+                flashHeight
+            );
+        }
+        context.restore();
+    }
+}
+
 function spawnBulletImpactParticles(centerX: number, centerY: number) {
     const particleCount = 28 + Math.floor(Math.random() * 9);
     for (let index = 0; index < particleCount; index++) {
@@ -3673,23 +4362,14 @@ function updateGrenadeArmedLoopSound() {
 }
 
 function playBulletImpactSound() {
-    const audioByKey = {
-        bulletExplosion: bulletExplosionSound,
-        bulletExplosion2: bulletExplosion2Sound
-    } as const;
-    const alternateChance = clampToRange(bulletImpactAudioSettings.alternateChance, 0, 1);
-    const useAlternate = Math.random() < alternateChance;
-    const selectedKey = useAlternate
-        ? bulletImpactAudioSettings.alternate
-        : bulletImpactAudioSettings.primary;
-    const fallbackKey = useAlternate
-        ? bulletImpactAudioSettings.primary
-        : bulletImpactAudioSettings.alternate;
-    const selectedAudio = audioByKey[selectedKey] ?? audioByKey[fallbackKey];
-    if (!selectedAudio) {
-        return;
-    }
-    playRuntimeSound(selectedAudio, bulletImpactAudioSettings.volume);
+    playRuntimeSound(bulletExplosionSound, bulletImpactAudioSettings.volume);
+}
+
+function playExplosionDamageSound(destroyedDoor: boolean, volume: number) {
+    playRuntimeSound(
+        destroyedDoor ? bulletExplosion2Sound : bulletExplosionSound,
+        volume
+    );
 }
 
 function cleanupCollectableReferences(collectable: Collectable) {
@@ -3891,7 +4571,8 @@ function explodeProjectile(projectile: CreatureProjectileCollectable, entityX = 
         : projectile.creatureProjectile.kind === 'plasma_grenade'
             ? getExplosionDamageSource('plasma_grenade')
             : getExplosionDamageSource('grenade');
-    applyExplosionDamageToDestructibles(
+    const doorCountBeforeExplosion = doorEntities.length;
+    const destructibleDamageResult = applyExplosionDamageToDestructibles(
         center,
         radius,
         Math.max(
@@ -3899,6 +4580,10 @@ function explodeProjectile(projectile: CreatureProjectileCollectable, entityX = 
             projectile.creatureProjectile.damage * 12 * (settings.splashDamageMultiplier ?? 1)
         ),
         destructionSource
+    );
+    playExplosionDamageSound(
+        destructibleDamageResult.destroyedDoor || doorEntities.length < doorCountBeforeExplosion,
+        bulletImpactAudioSettings.volume
     );
     for (const creature of [...creatureEntities]) {
         if (creature.entityId === projectile.creatureProjectile.sourceEntityId) {
@@ -3954,12 +4639,16 @@ function explodeCollectableGrenade(collectable: Collectable) {
         ? getExplosionDamageSource('coronium')
         : getExplosionDamageSource(grenadeType);
     spawnGrenadeExplosionEffect(grenadeType, collectable.palette ?? 0, center.x, center.y);
-    playRuntimeSound(bulletExplosion2Sound, 0.9);
-    applyExplosionDamageToDestructibles(
+    const doorCountBeforeExplosion = doorEntities.length;
+    const destructibleDamageResult = applyExplosionDamageToDestructibles(
         center,
         radius,
         power * 6,
         destructionSource
+    );
+    playExplosionDamageSound(
+        destructibleDamageResult.destroyedDoor || doorEntities.length < doorCountBeforeExplosion,
+        0.9
     );
 
     for (const creature of [...creatureEntities]) {
@@ -4555,6 +5244,9 @@ function updateCreatures(frameNow: number) {
         creature.previousY = creature.y;
 
         const runtimeState = creature.state ?? {};
+        const authoredType = getCreatureAuthoredType(creature.type, runtimeState);
+        runtimeState.authoredType = authoredType;
+        const bird = isBirdCreature(creature, authoredType);
         const authoredRotation = typeof runtimeState.authoredRotation === 'number'
             ? Math.round(Number(runtimeState.authoredRotation))
             : (runtimeState.authoredRotation = creature.rotation);
@@ -4565,7 +5257,15 @@ function updateCreatures(frameNow: number) {
         const dy = astronautCenter.y - creatureCenter.y;
         const distanceToAstronaut = Math.hypot(dx, dy);
         const trackRange = Math.max(creature.trackRange ?? 0, creature.followRange ?? 0);
-        const shouldTrackAstronaut = distanceToAstronaut <= trackRange;
+        const wasTrackingAstronaut = runtimeState.followingAstronaut === true;
+        const shouldTrackAstronaut = distanceToAstronaut <= trackRange || (
+            bird &&
+            wasTrackingAstronaut &&
+            distanceToAstronaut <= Math.max(
+                trackRange * BIRD_TRACK_RELEASE_RANGE_MULTIPLIER,
+                trackRange + BIRD_TRACK_RELEASE_RANGE_PADDING
+            )
+        );
         const isTurret = isTurretLikeCreature(creature);
         const hasSightToAstronaut = !creature.requiresLineOfSight || hasCreatureLineOfSight(turretAimCenter, astronautCenter);
         const homeDistance = Math.hypot(creature.x - creature.homeX, creature.y - creature.homeY);
@@ -4671,17 +5371,25 @@ function updateCreatures(frameNow: number) {
             }
         } else if (creature.movementMode === 'fly' || creature.movementMode === 'hover') {
             if (creature.followsAstronaut && shouldTrackAstronaut) {
-                nextX = clampToRange(
-                    creature.x + (Math.sign(dx) || 0) * speed,
-                    creature.patrolMinX,
-                    creature.patrolMaxX
-                );
-                if (creature.movementMode === 'fly') {
-                    nextY = clampToRange(
-                        creature.y + (Math.sign(dy) || 0) * Math.max(0.5, speed * 0.75),
-                        creature.patrolMinY,
-                        creature.patrolMaxY
+                if (bird) {
+                    const normalizedDistance = distanceToAstronaut > 0.001 ? distanceToAstronaut : 1;
+                    nextX = creature.x + (dx / normalizedDistance) * Math.max(1, speed);
+                    if (creature.movementMode === 'fly') {
+                        nextY = creature.y + (dy / normalizedDistance) * Math.max(0.9, speed);
+                    }
+                } else {
+                    nextX = clampToRange(
+                        creature.x + (Math.sign(dx) || 0) * speed,
+                        creature.patrolMinX,
+                        creature.patrolMaxX
                     );
+                    if (creature.movementMode === 'fly') {
+                        nextY = clampToRange(
+                            creature.y + (Math.sign(dy) || 0) * Math.max(0.5, speed * 0.75),
+                            creature.patrolMinY,
+                            creature.patrolMaxY
+                        );
+                    }
                 }
             } else {
                 if (creature.x <= creature.patrolMinX) {
@@ -4720,6 +5428,7 @@ function updateCreatures(frameNow: number) {
         }
 
         runtimeState.patrolDirection = horizontalDirection;
+        runtimeState.followingAstronaut = creature.followsAstronaut && shouldTrackAstronaut;
         if (creature.fireMode !== 'none' && hasFiringTarget) {
             const nextFireAt = typeof runtimeState.nextFireAt === 'number'
                 ? Number(runtimeState.nextFireAt)
@@ -4729,9 +5438,44 @@ function updateCreatures(frameNow: number) {
                 runtimeState.nextFireAt = getNextCreatureFireAt(frameNow, creature);
             }
         }
+
+        if (bird && creature.movementMode === 'fly') {
+            const chasingAstronaut = runtimeState.followingAstronaut === true;
+            if (chasingAstronaut && Math.abs(dy) < BIRD_AVOIDANCE_VERTICAL_THRESHOLD) {
+                const avoidanceDirection = typeof runtimeState.birdAvoidanceDirection === 'number'
+                    ? Math.sign(Number(runtimeState.birdAvoidanceDirection)) || 1
+                    : (Math.sign(dx) || 1);
+                runtimeState.birdAvoidanceDirection = avoidanceDirection;
+                nextY += avoidanceDirection * Math.max(1, speed * 0.8);
+            } else if (!chasingAstronaut) {
+                delete runtimeState.birdAvoidanceDirection;
+            }
+
+            const movementResult = moveCreatureWithEnvironmentCollisions(creature, nextX, nextY);
+            nextX = movementResult.x;
+            nextY = movementResult.y;
+
+            if (chasingAstronaut) {
+                if (movementResult.movedY !== 0) {
+                    runtimeState.birdAvoidanceDirection = Math.sign(movementResult.movedY) || runtimeState.birdAvoidanceDirection;
+                }
+                if (movementResult.blockedX && movementResult.blockedY) {
+                    const currentAvoidance = typeof runtimeState.birdAvoidanceDirection === 'number'
+                        ? Math.sign(Number(runtimeState.birdAvoidanceDirection)) || 1
+                        : 1;
+                    runtimeState.birdAvoidanceDirection = -currentAvoidance;
+                }
+            }
+        }
+
         creature.state = runtimeState;
-        creature.x = Math.round(nextX);
-        creature.y = Math.round(nextY);
+        if (!bird || creature.movementMode !== 'fly') {
+            creature.x = Math.round(nextX);
+            creature.y = Math.round(nextY);
+        }
+        if (bird) {
+            creature.type = getAnimatedBirdSpriteType(authoredType, frameNow, creature.entityId);
+        }
 
         const shouldUseTurretAutoAim = shouldAutoAim && (
             creature.fixed ||
@@ -4755,6 +5499,12 @@ function updateCreatures(frameNow: number) {
             creature.rotation = nextAimFacing < 0
                 ? facingRotations.left
                 : facingRotations.right;
+        } else if (
+            bird &&
+            (authoredRotation === 1 || authoredRotation === 5) &&
+            creature.x !== creature.previousX
+        ) {
+            creature.rotation = creature.x < creature.previousX ? 5 : 1;
         } else {
             creature.rotation = authoredRotation;
         }
@@ -4925,14 +5675,28 @@ function getHeldCollectableTargetPosition(): Position {
         };
     }
 
-    const astronautRect = getAstronautRect();
     const collectableBounds = getEntityCollisionBounds(heldCollectable);
     const collectableHalfHeight = (collectableBounds.bottom - collectableBounds.top + 1) / 2;
     const desiredCenterY = astronaut.position.y + MOVEMENT_SETTINGS.heldCollectableVerticalOffset;
+    const renderedAstronaut = getAstronautRenderedWorldSprite();
+    const visibleBounds = renderedAstronaut ? getSpriteVisibleBounds(renderedAstronaut.canvas) : null;
 
-    const x = facingLeft
-        ? astronautRect.left - 2 - collectableBounds.right
-        : astronautRect.right + 2 - collectableBounds.left;
+    let x: number;
+    if (renderedAstronaut && visibleBounds) {
+        const visibleLeft = renderedAstronaut.drawX + visibleBounds.minX * SPRITE_SCALE;
+        const visibleRight = renderedAstronaut.drawX + (visibleBounds.maxX + 1) * SPRITE_SCALE;
+        const handX = facingLeft
+            ? visibleLeft + HELD_COLLECTABLE_HAND_INSET
+            : visibleRight - HELD_COLLECTABLE_HAND_INSET;
+        x = facingLeft
+            ? handX + HELD_COLLECTABLE_HAND_OVERLAP - collectableBounds.right
+            : handX - HELD_COLLECTABLE_HAND_OVERLAP - collectableBounds.left;
+    } else {
+        const astronautRect = getAstronautRect();
+        x = facingLeft
+            ? astronautRect.left + HELD_COLLECTABLE_HAND_INSET - collectableBounds.right
+            : astronautRect.right - HELD_COLLECTABLE_HAND_INSET - collectableBounds.left;
+    }
 
     return {
         x,
@@ -4974,7 +5738,7 @@ function getReleasedCollectablePosition(thrown: boolean) {
 function getDroppedCollectableReleaseVelocity(): Position {
     return {
         x: astronaut.velocity.x * MOVEMENT_SETTINGS.droppedCollectableMomentumTransfer,
-        y: astronaut.velocity.y * MOVEMENT_SETTINGS.droppedCollectableMomentumTransfer
+        y: Math.max(0, astronaut.velocity.y * MOVEMENT_SETTINGS.droppedCollectableMomentumTransfer)
     };
 }
 
@@ -5209,6 +5973,99 @@ function collidesAtSide(
     ));
 }
 
+type AxisMovementResult = {
+    x: number;
+    y: number;
+    movedX: number;
+    movedY: number;
+    blockedX: boolean;
+    blockedY: boolean;
+};
+
+function simulateCreatureAxisMovement(
+    creature: Creature,
+    collisionBounds: CollisionBounds,
+    targetX: number,
+    targetY: number,
+    axisOrder: Array<'x' | 'y'>
+): AxisMovementResult {
+    let x = creature.x;
+    let y = creature.y;
+    let movedX = 0;
+    let movedY = 0;
+    let blockedX = false;
+    let blockedY = false;
+
+    for (const axis of axisOrder) {
+        const target = axis === 'x' ? targetX : targetY;
+        const current = axis === 'x' ? x : y;
+        const amount = target - current;
+        const direction = Math.sign(amount);
+        if (direction === 0) {
+            continue;
+        }
+
+        const side = axis === 'x'
+            ? (direction > 0 ? 'right' : 'left')
+            : (direction > 0 ? 'bottom' : 'top');
+        let moved = 0;
+
+        for (let step = 0; step < Math.abs(amount); step++) {
+            const nextX = axis === 'x' ? x + direction : x;
+            const nextY = axis === 'y' ? y + direction : y;
+            if (collidesAtSide(nextX, nextY, collisionBounds, side)) {
+                if (axis === 'x') {
+                    blockedX = true;
+                } else {
+                    blockedY = true;
+                }
+                break;
+            }
+
+            if (axis === 'x') {
+                x = nextX;
+            } else {
+                y = nextY;
+            }
+            moved += direction;
+        }
+
+        if (axis === 'x') {
+            movedX = moved;
+            if (moved !== amount) {
+                blockedX = true;
+            }
+        } else {
+            movedY = moved;
+            if (moved !== amount) {
+                blockedY = true;
+            }
+        }
+    }
+
+    return { x, y, movedX, movedY, blockedX, blockedY };
+}
+
+function moveCreatureWithEnvironmentCollisions(creature: Creature, targetX: number, targetY: number): AxisMovementResult {
+    const collisionBounds = getEntityCollisionBounds(creature);
+    const clampedTargetX = Math.round(clampToRange(targetX, 0, MAP_WIDTH));
+    const clampedTargetY = Math.round(clampToRange(targetY, 0, MAP_HEIGHT));
+    const horizontalFirst = simulateCreatureAxisMovement(creature, collisionBounds, clampedTargetX, clampedTargetY, ['x', 'y']);
+    const verticalFirst = simulateCreatureAxisMovement(creature, collisionBounds, clampedTargetX, clampedTargetY, ['y', 'x']);
+    const horizontalError = Math.abs(clampedTargetX - horizontalFirst.x) + Math.abs(clampedTargetY - horizontalFirst.y);
+    const verticalError = Math.abs(clampedTargetX - verticalFirst.x) + Math.abs(clampedTargetY - verticalFirst.y);
+    const bestResult = verticalError < horizontalError
+        ? verticalFirst
+        : verticalError > horizontalError
+            ? horizontalFirst
+            : (Math.abs(verticalFirst.movedX) + Math.abs(verticalFirst.movedY)) > (Math.abs(horizontalFirst.movedX) + Math.abs(horizontalFirst.movedY))
+                ? verticalFirst
+                : horizontalFirst;
+    creature.x = bestResult.x;
+    creature.y = bestResult.y;
+    return bestResult;
+}
+
 function getFloorSnapAmount(entityX: number, entityY: number, collisionBounds: CollisionBounds) {
     for (let distance = 1; distance <= MOVEMENT_SETTINGS.collectableGroundSnapDistance; distance++) {
         const samples = getCollectableEdgeSamples(entityX, entityY + distance, collisionBounds, 'bottom');
@@ -5292,6 +6149,7 @@ function moveCollectableVertically(collectable: Collectable, amount: number) {
 }
 
 function resolveAstronautCollectableCollisions(horizontalMovement: number, verticalMovement: number) {
+    const astronautRendered = getAstronautRenderedWorldSprite();
     for (const collectable of collectableEntities) {
         if (!isLooseCollectable(collectable)) continue;
         if (isCreatureProjectileCollectable(collectable)) continue;
@@ -5304,6 +6162,10 @@ function resolveAstronautCollectableCollisions(horizontalMovement: number, verti
         const overlapY = Math.min(astronautRect.bottom, collectableRect.bottom) - Math.max(astronautRect.top, collectableRect.top) + 1;
 
         if (overlapX <= 0 || overlapY <= 0) {
+            continue;
+        }
+
+        if (!doRenderedSpritesOverlap(astronautRendered, getRenderedEntityWorldSprite(collectable))) {
             continue;
         }
 

@@ -15,6 +15,7 @@ export type MapBlock = {
     paletteCycle?: PaletteCycleSettings;
     rotation?: 1 | 2 | 3 | 4 | 5 | 6 | 7;
     translation?: SpriteTranslation;
+    teleporterId?: string;
     destructible?: boolean;
     destructionHealth?: number;
     destructionSource?: DestructionSourceRequirement;

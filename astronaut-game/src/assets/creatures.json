@@ -1,7 +1,7 @@
 [
   {
-    "x": 631,
-    "y": 1852,
+    "x": 550,
+    "y": 1927,
     "type": "bird2",
     "palette": 2,
     "rotation": 1,
@@ -55,7 +55,8 @@
       "volume": 1
     },
     "state": {
-      "authoredRotation": 1
+      "authoredRotation": 1,
+      "authoredType": "bird2"
     }
   },
   {
@@ -114,12 +115,13 @@
       "volume": 1
     },
     "state": {
-      "authoredRotation": 3
+      "authoredRotation": 3,
+      "authoredType": "turret"
     }
   },
   {
-    "x": 10320,
-    "y": 1677,
+    "x": 10182,
+    "y": 1752,
     "type": "bird2",
     "palette": 0,
     "rotation": 1,
@@ -173,7 +175,8 @@
       "volume": 1
     },
     "state": {
-      "authoredRotation": 1
+      "authoredRotation": 1,
+      "authoredType": "bird2"
     }
   },
   {
@@ -232,7 +235,8 @@
       "volume": 1
     },
     "state": {
-      "authoredRotation": 3
+      "authoredRotation": 3,
+      "authoredType": "turret"
     }
   }
 ]

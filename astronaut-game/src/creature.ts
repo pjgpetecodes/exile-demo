@@ -21,6 +21,13 @@ export const DEFAULT_CREATURE_SOUND_SETTINGS: Required<CreatureSoundSettings> = 
 export const DEFAULT_CREATURE_MOVEMENT_MODE: CreatureMovementMode = 'ground';
 export const DEFAULT_CREATURE_FIRE_MODE: CreatureFireMode = 'none';
 
+export function getCreatureAuthoredType(type: string, state?: Record<string, unknown>): string {
+    const authoredType = typeof state?.authoredType === 'string'
+        ? state.authoredType.trim()
+        : '';
+    return authoredType.length > 0 ? authoredType : type;
+}
+
 export function inferCreatureArchetype(type: string): CreatureArchetype {
     if (/^monkey/i.test(type)) {
         return 'monkey';
@@ -59,18 +66,25 @@ function cloneSoundSettings(sound?: CreatureSoundSettings): Required<CreatureSou
     };
 }
 
-function sanitizeCreatureState(state: unknown, rotation: unknown): Record<string, unknown> {
+function sanitizeCreatureState(state: unknown, rotation: unknown, type: string): Record<string, unknown> {
+    const authoredType = getCreatureAuthoredType(type, state as Record<string, unknown> | undefined);
     const authoredRotation = Number((state as { authoredRotation?: unknown } | undefined)?.authoredRotation);
     if (Number.isFinite(authoredRotation)) {
-        return { authoredRotation: Math.round(authoredRotation) };
+        return {
+            authoredRotation: Math.round(authoredRotation),
+            authoredType
+        };
     }
 
     const normalizedRotation = Number(rotation);
     if (Number.isFinite(normalizedRotation)) {
-        return { authoredRotation: Math.round(normalizedRotation) };
+        return {
+            authoredRotation: Math.round(normalizedRotation),
+            authoredType
+        };
     }
 
-    return {};
+    return { authoredType };
 }
 
 function normalizeNumber(value: unknown, fallback: number, minimum?: number) {
@@ -123,7 +137,8 @@ function getDefaultProjectileBounciness(fireMode: CreatureFireMode) {
 }
 
 export function createCreatureSaveData(data: Partial<CreatureSaveData> & Pick<CreatureSaveData, 'x' | 'y' | 'type'>): CreatureSaveData {
-    const archetype = data.archetype ?? inferCreatureArchetype(data.type);
+    const authoredType = getCreatureAuthoredType(data.type, data.state as Record<string, unknown> | undefined);
+    const archetype = data.archetype ?? inferCreatureArchetype(authoredType);
     const defaultMovementMode = archetype === 'bird'
         ? 'fly'
         : archetype === 'bee'
@@ -146,7 +161,7 @@ export function createCreatureSaveData(data: Partial<CreatureSaveData> & Pick<Cr
     return {
         x: normalizeNumber(data.x, 0),
         y: normalizeNumber(data.y, 0),
-        type: data.type,
+        type: authoredType,
         palette: normalizeNumber(data.palette, 0),
         rotation: normalizeNumber(data.rotation, 1),
         translation: normalizeSpriteTranslation(data.translation),
@@ -191,7 +206,7 @@ export function createCreatureSaveData(data: Partial<CreatureSaveData> & Pick<Cr
         storable: data.storable === true,
         pushAstronaut: data.pushAstronaut !== false,
         sound,
-        state: sanitizeCreatureState(data.state, data.rotation),
+        state: sanitizeCreatureState(data.state, data.rotation, authoredType),
         ...(data.paletteCycle ? { paletteCycle: clonePaletteCycle(data.paletteCycle) } : {})
     };
 }

@@ -15,7 +15,9 @@ import { Collectable, getDefaultGrenadeExplosionPower, isGrenadeCollectableType 
 import {
     CreatureSaveData,
     PaletteCycleSettings,
-    Position
+    Position,
+    TeleporterDestinationMode,
+    TeleporterSaveData
 } from './types/index.js';
 import { buildDefaultPaletteCycle, getEffectivePaletteCycle } from './palette-cycle.js';
 import { MOVEMENT_SETTINGS, type BulletImpactAudioSettings } from './settings.js';
@@ -37,6 +39,8 @@ export type ButtonSaveData = {
     rotation?: number;
     active?: boolean;
     linkedDoors?: number[];
+    linkedTeleporters?: string[];
+    teleporterMode?: TeleporterDestinationMode;
     collision?: boolean;
     pressOffset?: number;
     boxOffsetX?: number;
@@ -99,6 +103,7 @@ export type RawWorldData = {
     doors: DoorSaveData[];
     creatures: CreatureSaveData[];
     collectables: CollectableSaveData[];
+    teleporters: TeleporterSaveData[];
     astronautStart: Position;
 };
 
@@ -247,6 +252,11 @@ type DesignerSnapshot = {
     worldData: RawWorldData;
     customSpriteDefinitions: CustomSpriteDefinition[];
     customSpriteInstances: CustomSpriteInstance[];
+};
+
+type LiveResumeSnapshot = {
+    snapshot: DesignerSnapshot;
+    astronautPosition: Position;
 };
 
 type SavePreviewFile = {
@@ -507,6 +517,11 @@ type ContextMenuState = {
     primarySelection: Selection | null;
 };
 
+type TeleporterDestinationPickState = {
+    teleporterId: string;
+    slot: 'a' | 'b';
+};
+
 type DesignerState = {
     active: boolean;
     mode: DesignerMode;
@@ -567,9 +582,12 @@ type DesignerState = {
     customSpriteInstances: CustomSpriteInstance[];
     sectionOpenState: Partial<Record<DesignerSectionId, boolean>>;
     contextMenu: ContextMenuState;
+    teleporterDestinationPick: TeleporterDestinationPickState | null;
     suppressContextMenuOnce: boolean;
     undoStack: DesignerSnapshot[];
     redoStack: DesignerSnapshot[];
+    editModeSnapshot: DesignerSnapshot;
+    liveResumeSnapshot: LiveResumeSnapshot | null;
     lastSavedSnapshot: RawWorldData;
 };
 
@@ -671,6 +689,8 @@ const OBJECT_SNAP_ALIGNMENT_THRESHOLD = 24;
 const BUTTON_DEFAULT_PRESS_OFFSET = 3;
 const BUTTON_DEFAULT_BOX_OFFSET_X = 12;
 const BUTTON_DEFAULT_BOX_OFFSET_Y = 0;
+const TELEPORTER_COMPOSITE_TYPE = '__teleporter_composite__';
+const BUTTON_COMPOSITE_TYPE = '__button_composite__';
 const visibleSpriteRectCache = new Map<string, { left: number; top: number; width: number; height: number } | null>();
 const CATEGORY_LABELS: Record<DesignerCategory, string> = {
     world: 'World items',
@@ -694,9 +714,16 @@ const SAVE_FILE_LABELS: Record<keyof RawWorldData, string> = {
     doors: 'doors.json',
     creatures: 'creatures.json',
     collectables: 'collectables.json',
+    teleporters: 'teleporters.json',
     astronautStart: 'astronaut_start.json'
 };
 const PALETTE_FILE_LABEL = 'palettes.json';
+
+type PlacementTypeOption = {
+    value: string;
+    label: string;
+    previewType?: string;
+};
 
 function clamp(value: number, min: number, max: number) {
     return Math.min(Math.max(value, min), max);
@@ -735,6 +762,9 @@ function toMapBlockData(block: MapBlock): MapBlock {
         palette: typeof block.palette === 'number' ? block.palette : 0,
         rotation: normalizeRotation(block.rotation) as MapBlock['rotation'],
         translation: normalizeSpriteTranslation(block.translation),
+        ...(typeof block.teleporterId === 'string' && block.teleporterId.trim().length > 0
+            ? { teleporterId: block.teleporterId.trim() }
+            : {}),
         ...(hasDestructibleMetadata
             ? {
                 destructible: typeof block.destructible === 'boolean'
@@ -770,6 +800,12 @@ function toButtonData(button: any): ButtonSaveData {
         rotation: normalizeRotation(button.rotation),
         active: button.defaultActive ?? button.active ?? false,
         linkedDoors: Array.isArray(button.linkedDoors) ? [...button.linkedDoors] : [],
+        linkedTeleporters: Array.isArray(button.linkedTeleporters)
+            ? button.linkedTeleporters.filter((id: unknown) => typeof id === 'string' && id.trim().length > 0)
+            : [],
+        teleporterMode: button.teleporterMode === 'destination_a' || button.teleporterMode === 'destination_b'
+            ? button.teleporterMode
+            : 'toggle',
         collision: button.collision !== false,
         pressOffset: capOpenOffsetX - capClosedOffsetX,
         boxOffsetX: normalizedBoxOffsetX,
@@ -779,6 +815,32 @@ function toButtonData(button: any): ButtonSaveData {
         capOpenOffsetX,
         capOpenOffsetY,
         ...(button.paletteCycle ? { paletteCycle: deepClone(button.paletteCycle) } : {})
+    };
+}
+
+function toTeleporterData(teleporter: any): TeleporterSaveData {
+    const activeDestinationIndex = teleporter.activeDestinationIndex === 1 ? 1 : 0;
+    return {
+        id: typeof teleporter.id === 'string' && teleporter.id.trim().length > 0
+            ? teleporter.id.trim()
+            : `teleporter_${Math.round(Number(teleporter.padX) || 0)}_${Math.round(Number(teleporter.padY) || 0)}`,
+        baseX: Math.round(Number(teleporter.baseX) || 0),
+        baseY: Math.round(Number(teleporter.baseY) || 0),
+        padX: Math.round(Number(teleporter.padX) || 0),
+        padY: Math.round(Number(teleporter.padY) || 0),
+        enabled: teleporter.enabled !== false,
+        requiresKey: teleporter.requiresKey === true,
+        destinationA: {
+            x: Math.round(Number(teleporter.destinationA?.x) || 0),
+            y: Math.round(Number(teleporter.destinationA?.y) || 0)
+        },
+        destinationB: teleporter.destinationB
+            ? {
+                x: Math.round(Number(teleporter.destinationB.x) || 0),
+                y: Math.round(Number(teleporter.destinationB.y) || 0)
+            }
+            : null,
+        activeDestinationIndex
     };
 }
 
@@ -862,6 +924,7 @@ function serializeWorldData(data: RawWorldData): RawWorldData {
         collectables: data.collectables
             .filter((collectable) => !('creatureProjectile' in collectable) || !collectable.creatureProjectile)
             .map((collectable) => toCollectableData(collectable)),
+        teleporters: (data.teleporters ?? []).map((teleporter) => toTeleporterData(teleporter)),
         astronautStart: {
             x: Math.round(data.astronautStart.x),
             y: Math.round(data.astronautStart.y)
@@ -1128,6 +1191,15 @@ function parseDoorIds(value: string) {
         .split(',')
         .map((entry) => Number(entry.trim()))
         .filter((entry) => Number.isFinite(entry));
+}
+
+function parseStringIds(value: string) {
+    return [...new Set(
+        value
+            .split(',')
+            .map((entry) => entry.trim())
+            .filter((entry) => entry.length > 0)
+    )];
 }
 
 function yieldToUi() {
@@ -2539,10 +2611,21 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             world: null,
             primarySelection: null
         },
+        teleporterDestinationPick: null,
         pendingRightPan: false,
         suppressContextMenuOnce: false,
         undoStack: [],
         redoStack: [],
+        editModeSnapshot: {
+            worldData: initialSnapshot,
+            customSpriteDefinitions: deepClone(restoredCustomSpriteDefinitions),
+            customSpriteInstances: deepClone(
+                restoredCustomSpriteInstances.filter((instance) =>
+                    restoredCustomSpriteDefinitions.some((definition) => definition.id === instance.customSpriteId)
+                )
+            )
+        },
+        liveResumeSnapshot: null,
         lastSavedSnapshot: initialSnapshot
     };
     customSpriteDefinitionResolver = (instance) =>
@@ -2968,8 +3051,139 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     attachDraggableSurface(root, panelDragHandle);
     attachDraggableSurface(paletteFlyout, paletteFlyoutDragHandle);
 
+    function findNearestWorldBlockByType(
+        worldMap: MapBlock[],
+        type: 'teleporter' | 'teleporter_pad',
+        targetX: number,
+        targetY: number,
+        maxDistance: number
+    ) {
+        let bestPart: MapBlock | null = null;
+        let bestDistanceSquared = Number.POSITIVE_INFINITY;
+        const maxDistanceSquared = maxDistance * maxDistance;
+        for (const part of worldMap) {
+            if (part.type !== type) {
+                continue;
+            }
+            const dx = targetX - part.x;
+            const dy = targetY - part.y;
+            const distanceSquared = dx * dx + dy * dy;
+            if (distanceSquared <= maxDistanceSquared && distanceSquared < bestDistanceSquared) {
+                bestPart = part;
+                bestDistanceSquared = distanceSquared;
+            }
+        }
+        return bestPart;
+    }
+
+    function findWorldTeleporterPartById(
+        worldMap: MapBlock[],
+        type: 'teleporter' | 'teleporter_pad',
+        teleporterId: string,
+        targetX: number,
+        targetY: number
+    ) {
+        const candidates = worldMap.filter((block) =>
+            block.type === type &&
+            block.teleporterId === teleporterId
+        );
+        if (candidates.length === 0) {
+            return null;
+        }
+        let best = candidates[0];
+        let bestDistanceSquared = Number.POSITIVE_INFINITY;
+        for (const candidate of candidates) {
+            const dx = targetX - candidate.x;
+            const dy = targetY - candidate.y;
+            const distanceSquared = dx * dx + dy * dy;
+            if (distanceSquared < bestDistanceSquared) {
+                best = candidate;
+                bestDistanceSquared = distanceSquared;
+            }
+        }
+        return best;
+    }
+
+    function reconcileTeleporterPairsForSave(data: RawWorldData) {
+        const teleporters = data.teleporters ?? [];
+        if (teleporters.length === 0) {
+            return;
+        }
+        const correctionDistancePx = TILE_SIZE * 1.5;
+        teleporters.forEach((teleporter) => {
+            teleporter.baseX = Math.round(teleporter.baseX);
+            teleporter.baseY = Math.round(teleporter.baseY);
+            teleporter.padX = Math.round(teleporter.padX);
+            teleporter.padY = Math.round(teleporter.padY);
+            const baseById = findWorldTeleporterPartById(
+                data.worldMap,
+                'teleporter',
+                teleporter.id,
+                teleporter.baseX,
+                teleporter.baseY
+            );
+            const padById = findWorldTeleporterPartById(
+                data.worldMap,
+                'teleporter_pad',
+                teleporter.id,
+                teleporter.padX,
+                teleporter.padY
+            );
+            if (baseById) {
+                teleporter.baseX = baseById.x;
+                teleporter.baseY = baseById.y;
+                baseById.teleporterId = teleporter.id;
+            }
+            if (padById) {
+                teleporter.padX = padById.x;
+                teleporter.padY = padById.y;
+                padById.teleporterId = teleporter.id;
+            }
+            const hasBaseAtPosition = data.worldMap.some((block) =>
+                block.type === 'teleporter' &&
+                block.x === teleporter.baseX &&
+                block.y === teleporter.baseY
+            );
+            if (!hasBaseAtPosition) {
+                const correctedBase = findNearestWorldBlockByType(
+                    data.worldMap,
+                    'teleporter',
+                    teleporter.baseX,
+                    teleporter.baseY,
+                    correctionDistancePx
+                );
+                if (correctedBase) {
+                    teleporter.baseX = correctedBase.x;
+                    teleporter.baseY = correctedBase.y;
+                    correctedBase.teleporterId = teleporter.id;
+                }
+            }
+            const hasPadAtPosition = data.worldMap.some((block) =>
+                block.type === 'teleporter_pad' &&
+                block.x === teleporter.padX &&
+                block.y === teleporter.padY
+            );
+            if (!hasPadAtPosition) {
+                const correctedPad = findNearestWorldBlockByType(
+                    data.worldMap,
+                    'teleporter_pad',
+                    teleporter.padX,
+                    teleporter.padY,
+                    correctionDistancePx
+                );
+                if (correctedPad) {
+                    teleporter.padX = correctedPad.x;
+                    teleporter.padY = correctedPad.y;
+                    correctedPad.teleporterId = teleporter.id;
+                }
+            }
+        });
+    }
+
     function getWorldSnapshot() {
-        return serializeWorldData(host.getRawWorldData());
+        const rawWorldData = host.getRawWorldData();
+        reconcileTeleporterPairsForSave(rawWorldData);
+        return serializeWorldData(rawWorldData);
     }
 
     function getSnapshot(): DesignerSnapshot {
@@ -2978,6 +3192,50 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             customSpriteDefinitions: deepClone(state.customSpriteDefinitions),
             customSpriteInstances: deepClone(state.customSpriteInstances)
         };
+    }
+
+    function syncEditModeSnapshot() {
+        state.editModeSnapshot = getSnapshot();
+    }
+
+    function captureLiveResumeSnapshot() {
+        state.liveResumeSnapshot = {
+            snapshot: getSnapshot(),
+            astronautPosition: host.getFocusWorldPosition()
+        };
+    }
+
+    function restoreEditModeSnapshot() {
+        const liveAstronautPosition = host.getFocusWorldPosition();
+        if (designerSnapshotsEqual(getSnapshot(), state.editModeSnapshot)) {
+            return false;
+        }
+
+        host.replaceRawWorldData(state.editModeSnapshot.worldData);
+        state.customSpriteDefinitions = deepClone(state.editModeSnapshot.customSpriteDefinitions);
+        state.customSpriteInstances = deepClone(state.editModeSnapshot.customSpriteInstances);
+        if (!getCustomSpriteDefinitionById(state.typeByCategory.custom)) {
+            state.typeByCategory.custom = state.customSpriteDefinitions[0]?.id ?? '';
+        }
+        state.selection = null;
+        state.selectedItems = [];
+        host.resetAstronautToPosition(liveAstronautPosition);
+        invalidateOverviewBase();
+        updateDirtyState();
+        return true;
+    }
+
+    function restoreLiveResumeSnapshot() {
+        if (!state.liveResumeSnapshot) {
+            return false;
+        }
+
+        host.replaceRawWorldData(state.liveResumeSnapshot.snapshot.worldData);
+        state.selection = null;
+        state.selectedItems = [];
+        host.resetAstronautToPosition(state.liveResumeSnapshot.astronautPosition);
+        state.liveResumeSnapshot = null;
+        return true;
     }
 
     function persistDesignerUiState() {
@@ -3071,6 +3329,55 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         return state.typeByCategory[state.category];
     }
 
+    function isTeleporterCompositeType(type: string) {
+        return type === TELEPORTER_COMPOSITE_TYPE;
+    }
+
+    function isButtonCompositeType(type: string) {
+        return type === BUTTON_COMPOSITE_TYPE;
+    }
+
+    function getPlacementTypeOptions(category: DesignerCategory, includeComposite = true): PlacementTypeOption[] {
+        if (category === 'custom') {
+            return [];
+        }
+        const baseOptions = spriteTypes.map((type) => ({ value: type, label: type }));
+        if (!includeComposite) {
+            return baseOptions;
+        }
+        if (category === 'world') {
+            return [
+                {
+                    value: TELEPORTER_COMPOSITE_TYPE,
+                    label: 'teleporter (composite)',
+                    previewType: 'teleporter'
+                },
+                ...baseOptions
+            ];
+        }
+        if (category === 'buttons') {
+            return [
+                {
+                    value: BUTTON_COMPOSITE_TYPE,
+                    label: 'button (composite)',
+                    previewType: 'button'
+                },
+                ...baseOptions
+            ];
+        }
+        return baseOptions;
+    }
+
+    function getPlacementPreviewType(type: string) {
+        if (isTeleporterCompositeType(type)) {
+            return 'teleporter';
+        }
+        if (isButtonCompositeType(type)) {
+            return 'button';
+        }
+        return type;
+    }
+
     function getCustomSpriteDefinitionById(id: string | null | undefined) {
         if (!id) {
             return null;
@@ -3094,6 +3401,19 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function setCurrentType(type: string) {
+        if (state.category !== 'custom') {
+            const options = getPlacementTypeOptions(state.category, true);
+            if (!options.some((option) => option.value === type)) {
+                type = options[0]?.value ?? spriteTypes[0] ?? type;
+            }
+        }
+        if (
+            state.category === 'world' &&
+            isTeleporterCompositeType(type) &&
+            !getSingleEditableSelection()
+        ) {
+            state.rotation = 1;
+        }
         state.typeByCategory[state.category] = type;
         refs.typeSelect.value = type;
         renderCurrentSpritePreview();
@@ -3101,15 +3421,17 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function refreshSelectOptions() {
+        const editingSelection = getSingleEditableSelection();
+        const placementTypeOptions = getPlacementTypeOptions(state.category, !editingSelection);
         const selectableTypes = state.category === 'custom'
             ? state.customSpriteDefinitions.map((definition) => definition.id)
-            : spriteTypes;
+            : placementTypeOptions.map((option) => option.value);
         refs.typeSelect.innerHTML = state.category === 'custom'
             ? state.customSpriteDefinitions
                 .map((definition) => `<option value="${definition.id}">${definition.name}</option>`)
                 .join('')
-            : spriteTypes
-                .map((type) => `<option value="${type}">${type}</option>`)
+            : placementTypeOptions
+                .map((option) => `<option value="${option.value}">${option.label}</option>`)
                 .join('');
         refs.palettePreviewTypeSelect.innerHTML = spriteTypes
             .map((type) => `<option value="${type}">${type}</option>`)
@@ -3135,6 +3457,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         ].map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
         if (state.category === 'custom' && !selectableTypes.includes(state.typeByCategory.custom)) {
             state.typeByCategory.custom = selectableTypes[0] ?? '';
+        }
+        if (state.category !== 'custom' && !selectableTypes.includes(state.typeByCategory[state.category])) {
+            state.typeByCategory[state.category] = selectableTypes[0] ?? '';
         }
     }
 
@@ -3331,6 +3656,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 state.selectedItems = [];
                 state.lastSavedSnapshot = serializeWorldData(worldDataToSave);
                 updateDirtyState();
+                syncEditModeSnapshot();
             }
             syncPaletteCount();
             state.selectedPaletteIndex = clamp(state.selectedPaletteIndex, 0, paletteCount - 1);
@@ -3677,21 +4003,40 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const selectedButton = state.selection?.category === 'buttons' && getSelectedItems().length === 1
             ? state.selection.entity as Button
             : null;
+        const selectedType = getCurrentType();
+        const compositeButtonPreview = !selectedButton && state.category === 'buttons' && isButtonCompositeType(selectedType)
+            ? createButtonEntity({
+                x: 0,
+                y: 0,
+                rotation: state.rotation,
+                collision: true,
+                active: false,
+                linkedDoors: []
+            })
+            : null;
         const customDefinition = state.category === 'custom'
             ? getCustomSpriteDefinitionById(getCurrentType())
             : null;
+        const previewType = getPlacementPreviewType(selectedType);
         const type = state.category === 'buttons'
-            ? getCurrentType()
+            ? selectedType
             : state.category === 'custom'
                 ? (customDefinition?.name ?? 'Custom sprite')
-            : getCurrentType();
-        const previewTranslation = categorySupportsTranslation(state.category) ? state.translation : 'center';
+                : previewType;
+        const previewTranslation = (
+            state.category === 'world' &&
+            isTeleporterCompositeType(selectedType)
+        )
+            ? 'center'
+            : (categorySupportsTranslation(state.category) ? state.translation : 'center');
         const rendered = selectedButton
             ? renderButtonCompositePreviewCanvas(refs.spritePreviewCanvas, selectedButton)
+            : compositeButtonPreview
+                ? renderButtonCompositePreviewCanvas(refs.spritePreviewCanvas, compositeButtonPreview)
             : state.category === 'buttons'
                 ? renderSpritePreviewCanvas(
                 refs.spritePreviewCanvas,
-                type,
+                previewType,
                 state.palette,
                 state.rotation,
                 'center'
@@ -3710,8 +4055,12 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 ? `${type} — palette ${state.palette}, rotation ${state.rotation}, translation ${formatSpriteTranslation(state.translation)}`
                 : selectedButton
                 ? `${selectedButton.type} + ${selectedButton.boxType} — ${selectedButton.active ? 'open' : 'closed'} preview`
+                : compositeButtonPreview
+                    ? 'button (composite) — one drop places a full live button (cap + box)'
                 : state.category === 'buttons'
-                ? `${type} — place button/button_box as world sprites, then group and convert to make a live button`
+                ? `${type} — place button/button_box sprites manually, then group and convert to make a live button`
+                : state.category === 'world' && isTeleporterCompositeType(selectedType)
+                    ? 'teleporter (composite) — one drop places base + pad + linked teleporter mechanism'
                 : state.category === 'custom'
                     ? customDefinition
                         ? `${customDefinition.name} — ${customDefinition.members.length} part${customDefinition.members.length === 1 ? '' : 's'}`
@@ -4566,6 +4915,40 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const currentType = getCurrentType();
         const filter = state.spritePickerFilter.trim().toLowerCase();
         const activeCategoryFilter = filter.length > 0 ? 'all' : state.spritePickerCategoryFilter;
+        type PickerEntry = {
+            key: string;
+            name: string;
+            label: string;
+            category: DesignerCategory;
+            previewType?: string;
+        };
+        const compositePickerEntries: PickerEntry[] = [];
+        if (
+            state.category === 'world' ||
+            activeCategoryFilter === 'all' ||
+            activeCategoryFilter === 'world'
+        ) {
+            compositePickerEntries.push({
+                key: `sprite:${TELEPORTER_COMPOSITE_TYPE}`,
+                name: TELEPORTER_COMPOSITE_TYPE,
+                label: 'teleporter (composite)',
+                category: 'world',
+                previewType: 'teleporter'
+            });
+        }
+        if (
+            state.category === 'buttons' ||
+            activeCategoryFilter === 'all' ||
+            activeCategoryFilter === 'buttons'
+        ) {
+            compositePickerEntries.push({
+                key: `sprite:${BUTTON_COMPOSITE_TYPE}`,
+                name: BUTTON_COMPOSITE_TYPE,
+                label: 'button (composite)',
+                category: 'buttons',
+                previewType: 'button'
+            });
+        }
         const spriteCategorySets = (() => {
             const data = host.getRawWorldData();
             const buttons = new Set<string>(['button', 'button_box']);
@@ -4584,19 +4967,22 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             ));
             return { world, buttons, doors, creatures, collectables } satisfies Record<RuntimeDesignerCategory, Set<string>>;
         })();
-        const pickerEntries = state.category === 'custom' || activeCategoryFilter === 'custom'
+        const pickerEntries: PickerEntry[] = state.category === 'custom' || activeCategoryFilter === 'custom'
             ? state.customSpriteDefinitions.map((definition) => ({
                 key: `custom:${definition.id}`,
                 name: definition.id,
                 label: definition.name,
                 category: 'custom' as const
             }))
-            : spriteCatalog.map((entry) => ({
-                key: `sprite:${entry.name}`,
-                name: entry.name,
-                label: entry.name,
-                category: state.category
-            }));
+            : [
+                ...compositePickerEntries,
+                ...spriteCatalog.map((entry) => ({
+                    key: `sprite:${entry.name}`,
+                    name: entry.name,
+                    label: entry.name,
+                    category: state.category as DesignerCategory
+                }))
+            ];
         const activeKeys = new Set(pickerEntries.map((entry) => entry.key));
 
         for (const entry of pickerEntries) {
@@ -4628,15 +5014,21 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     if (event.button !== 0) return;
                     event.preventDefault();
                     state.category = entry.category;
+                    setCurrentType(entry.name);
+                    const dragTranslation = (
+                        entry.category === 'world' &&
+                        isTeleporterCompositeType(entry.name)
+                    )
+                        ? 'center'
+                        : state.translation;
                     state.pickerDrag = {
                         category: entry.category,
                         type: entry.name,
                         palette: state.palette,
                         rotation: state.rotation,
-                        translation: state.translation
+                        translation: dragTranslation
                     };
                     state.pickerDragCanvas = null;
-                    setCurrentType(entry.name);
                     button!.classList.add('dragging');
                     setStatus(`Dragging ${entry.label} onto the world to place it.`, 'neutral');
                 });
@@ -4649,6 +5041,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             const matchesCategory = state.category === 'custom' ||
                 activeCategoryFilter === 'all' ||
                 activeCategoryFilter === 'custom' ||
+                (entry.name === TELEPORTER_COMPOSITE_TYPE && activeCategoryFilter === 'world') ||
+                (entry.name === BUTTON_COMPOSITE_TYPE && activeCategoryFilter === 'buttons') ||
                 spriteCategorySets[activeCategoryFilter].has(entry.name);
             button.hidden = !matchesFilter;
             button.style.display = matchesFilter && matchesCategory ? '' : 'none';
@@ -4666,10 +5060,12 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 } else {
                     renderSpritePreviewCanvas(
                         canvas,
-                        entry.name,
+                        entry.previewType ?? entry.name,
                         state.palette,
                         1,
-                        state.category === 'world' ? state.translation : 'center'
+                        entry.category === 'world' && !isTeleporterCompositeType(entry.name)
+                            ? state.translation
+                            : 'center'
                     );
                 }
             }
@@ -5104,6 +5500,35 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         return existing.filter((item) => !areSameSelection(item, target));
     }
 
+    function getLinkedTeleporterSelection(selection: Selection): Selection | null {
+        if (selection.category !== 'world') {
+            return null;
+        }
+        const block = selection.entity as MapBlock;
+        if (block.type !== 'teleporter' && block.type !== 'teleporter_pad') {
+            return null;
+        }
+        const teleporter = findTeleporterForWorldBlock(block);
+        if (!teleporter) {
+            return null;
+        }
+        const counterpart = block.type === 'teleporter'
+            ? findWorldBlockByExactPosition(teleporter.padX, teleporter.padY, 'teleporter_pad')
+            : findWorldBlockByExactPosition(teleporter.baseX, teleporter.baseY, 'teleporter');
+        return counterpart ? { category: 'world', entity: counterpart } : null;
+    }
+
+    function expandSelectionsWithLinkedTeleporters(selections: Selection[]) {
+        let expanded = [...selections];
+        for (const selection of selections) {
+            const linkedSelection = getLinkedTeleporterSelection(selection);
+            if (linkedSelection) {
+                expanded = mergeSelections(expanded, [linkedSelection]);
+            }
+        }
+        return expanded;
+    }
+
     function getSelectionDrawOrder(selection: Selection) {
         const categoryOrder: Record<RuntimeDesignerCategory, number> = {
             world: 0,
@@ -5459,8 +5884,14 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function moveLiveAstronautToWorldPosition(world: Position) {
-        const target = resolvePlacementPosition(world.x, world.y);
+        const target = {
+            x: Math.round(world.x),
+            y: Math.round(world.y)
+        };
         host.resetAstronautToPosition(target);
+        if (state.liveResumeSnapshot) {
+            state.liveResumeSnapshot.astronautPosition = target;
+        }
         setStatus('Moved the live astronaut to the clicked position.', 'success');
     }
 
@@ -5625,6 +6056,15 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         ) {
             addContextMenuSubmenu('Convert', (body) => {
                 if (selection.category === 'world') {
+                    const teleporterPair = getContextMenuSelectedTeleporterPair();
+                    addContextMenuActionToContainer(body, 'Convert selected base+pad to teleporter', () => {
+                        if (!teleporterPair) {
+                            return;
+                        }
+                        runMutation('Converted selected teleporter base+pad to a teleporter.', () => {
+                            convertTeleporterWorldPair(teleporterPair.base, teleporterPair.pad);
+                        });
+                    }, !teleporterPair);
                     addContextMenuActionToContainer(body, 'Convert to collectable', () => {
                         convertPrimarySelectionToCategory('collectables', 'Converted world item to collectable.');
                     });
@@ -5745,9 +6185,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function getPreferredButtonTypes() {
+        const fallbackType = spriteTypes[0] ?? 'button';
         const capType = spriteTypes.includes('button')
             ? 'button'
-            : getCurrentType();
+            : fallbackType;
         const boxType = spriteTypes.includes('button_box')
             ? 'button_box'
             : capType;
@@ -5820,6 +6261,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         collision?: boolean;
         active?: boolean;
         linkedDoors?: number[];
+        linkedTeleporters?: string[];
+        teleporterMode?: TeleporterDestinationMode;
         paletteCycle?: PaletteCycleSettings;
         pressOffset?: number;
         boxOffsetX?: number;
@@ -5847,6 +6290,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             boxPalette: config.boxPalette ?? defaultButtonOverrides.boxPalette,
             rotation: normalizeRotation(config.rotation ?? state.rotation),
             linkedDoors: config.linkedDoors ?? [],
+            linkedTeleporters: config.linkedTeleporters ?? [],
+            teleporterMode: config.teleporterMode ?? 'toggle',
             collision: config.collision !== false,
             active: config.active ?? false,
             pressOffset: config.pressOffset ?? (capOpenOffsetX - capClosedOffsetX),
@@ -6090,6 +6535,269 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         });
     }
 
+    function getTeleporters() {
+        return host.getRawWorldData().teleporters;
+    }
+
+    function getTeleporterById(id: string) {
+        return getTeleporters().find((teleporter) => teleporter.id === id) ?? null;
+    }
+
+    function findTeleporterByPartPosition(
+        type: 'teleporter' | 'teleporter_pad',
+        x: number,
+        y: number,
+        maxDistance: number = TILE_SIZE * 1.5
+    ) {
+        const targetX = Math.round(x);
+        const targetY = Math.round(y);
+        const exact = getTeleporters().find((entry) =>
+            type === 'teleporter'
+                ? entry.baseX === targetX && entry.baseY === targetY
+                : entry.padX === targetX && entry.padY === targetY
+        );
+        if (exact) {
+            return exact;
+        }
+        const maxDistanceSquared = maxDistance * maxDistance;
+        let best: { teleporter: TeleporterSaveData; distanceSquared: number } | null = null;
+        for (const entry of getTeleporters()) {
+            const partX = type === 'teleporter' ? entry.baseX : entry.padX;
+            const partY = type === 'teleporter' ? entry.baseY : entry.padY;
+            const dx = partX - targetX;
+            const dy = partY - targetY;
+            const distanceSquared = dx * dx + dy * dy;
+            if (distanceSquared > maxDistanceSquared) {
+                continue;
+            }
+            if (!best || distanceSquared < best.distanceSquared) {
+                best = { teleporter: entry, distanceSquared };
+            }
+        }
+        return best?.teleporter ?? null;
+    }
+
+    function applyEntityPositionWithTeleporterSync(entity: any, x: number, y: number) {
+        const nextX = Math.round(x);
+        const nextY = Math.round(y);
+        if (entity?.type === 'teleporter' || entity?.type === 'teleporter_pad') {
+            const teleporter = typeof entity.teleporterId === 'string' && entity.teleporterId.trim().length > 0
+                ? getTeleporterById(entity.teleporterId)
+                : findTeleporterByPartPosition(entity.type, entity.x, entity.y);
+            if (teleporter) {
+                if (entity.type === 'teleporter') {
+                    teleporter.baseX = nextX;
+                    teleporter.baseY = nextY;
+                } else {
+                    teleporter.padX = nextX;
+                    teleporter.padY = nextY;
+                }
+                entity.teleporterId = teleporter.id;
+            }
+        }
+        applyPosition(entity, nextX, nextY);
+    }
+
+    function getTeleporterBaseRotationForPadRotation(padRotation: number) {
+        const normalizedPadRotation = normalizeRotation(padRotation);
+        if (normalizedPadRotation === 1) {
+            return 6;
+        }
+        if (normalizedPadRotation === 3) {
+            return 5;
+        }
+        if (normalizedPadRotation === 5) {
+            return 3;
+        }
+        if (normalizedPadRotation === 6) {
+            return 1;
+        }
+        return normalizedPadRotation;
+    }
+
+    function getTeleporterPartBlock(teleporter: TeleporterSaveData, type: 'teleporter' | 'teleporter_pad') {
+        const x = type === 'teleporter' ? teleporter.baseX : teleporter.padX;
+        const y = type === 'teleporter' ? teleporter.baseY : teleporter.padY;
+        const worldMap = host.getRawWorldData().worldMap;
+        const byId = worldMap.find((block) =>
+            block.type === type &&
+            block.teleporterId === teleporter.id
+        );
+        if (byId) {
+            return byId;
+        }
+        return worldMap.find((block) =>
+            block.type === type &&
+            block.x === x &&
+            block.y === y
+        ) ?? null;
+    }
+
+    function applyEntityRotationWithTeleporterSync(entity: any, rotation: number) {
+        const nextRotation = normalizeRotation(rotation);
+        if (entity?.type === 'teleporter' || entity?.type === 'teleporter_pad') {
+            const teleporter = typeof entity.teleporterId === 'string' && entity.teleporterId.trim().length > 0
+                ? getTeleporterById(entity.teleporterId)
+                : findTeleporterByPartPosition(entity.type, entity.x, entity.y);
+            if (teleporter) {
+                const base = getTeleporterPartBlock(teleporter, 'teleporter');
+                const pad = getTeleporterPartBlock(teleporter, 'teleporter_pad');
+                const nextPadRotation = nextRotation;
+                const nextBaseRotation = getTeleporterBaseRotationForPadRotation(nextPadRotation);
+                if (base) {
+                    base.rotation = nextBaseRotation as MapBlock['rotation'];
+                    base.teleporterId = teleporter.id;
+                }
+                if (pad) {
+                    pad.rotation = nextPadRotation as MapBlock['rotation'];
+                    pad.teleporterId = teleporter.id;
+                }
+                entity.teleporterId = teleporter.id;
+            }
+        }
+        entity.rotation = nextRotation;
+    }
+
+    function getNextTeleporterId() {
+        const existingIds = new Set(getTeleporters().map((teleporter) => teleporter.id));
+        let index = 1;
+        while (existingIds.has(`teleporter_${index}`)) {
+            index += 1;
+        }
+        return `teleporter_${index}`;
+    }
+
+    function findWorldBlockByExactPosition(x: number, y: number, type: string) {
+        return host.getRawWorldData().worldMap.find((block) =>
+            block.x === x &&
+            block.y === y &&
+            block.type === type
+        ) ?? null;
+    }
+
+    function findTeleporterForWorldBlock(block: MapBlock) {
+        if (block.type !== 'teleporter' && block.type !== 'teleporter_pad') {
+            return null;
+        }
+        if (typeof block.teleporterId === 'string' && block.teleporterId.trim().length > 0) {
+            const byId = getTeleporterById(block.teleporterId);
+            if (byId) {
+                return byId;
+            }
+        }
+        return findTeleporterByPartPosition(block.type, block.x, block.y);
+    }
+
+    function findClosestTeleporterCounterpart(sourceBlock: MapBlock) {
+        const counterpartType = sourceBlock.type === 'teleporter' ? 'teleporter_pad' : 'teleporter';
+        const sourceCenterX = sourceBlock.x + TILE_SIZE / 2;
+        const sourceCenterY = sourceBlock.y + TILE_SIZE / 2;
+        let best: { block: MapBlock; distanceSquared: number } | null = null;
+        for (const block of host.getRawWorldData().worldMap) {
+            if (block === sourceBlock || block.type !== counterpartType) {
+                continue;
+            }
+            const dx = sourceCenterX - (block.x + TILE_SIZE / 2);
+            const dy = sourceCenterY - (block.y + TILE_SIZE / 2);
+            const distanceSquared = dx * dx + dy * dy;
+            if (!best || distanceSquared < best.distanceSquared) {
+                best = { block, distanceSquared };
+            }
+        }
+        return best?.block ?? null;
+    }
+
+    function convertWorldTeleporterBlock(block: MapBlock) {
+        if (block.type !== 'teleporter' && block.type !== 'teleporter_pad') {
+            throw new Error('Select a teleporter base or teleporter pad world item first.');
+        }
+        if (findTeleporterForWorldBlock(block)) {
+            throw new Error('This world item is already part of a teleporter.');
+        }
+        const counterpart = findClosestTeleporterCounterpart(block);
+        if (!counterpart) {
+            throw new Error(`No nearby "${block.type === 'teleporter' ? 'teleporter_pad' : 'teleporter'}" world item found to pair with.`);
+        }
+        if (findTeleporterForWorldBlock(counterpart)) {
+            throw new Error('The nearest matching teleporter part is already paired.');
+        }
+
+        const base = block.type === 'teleporter' ? block : counterpart;
+        const pad = block.type === 'teleporter_pad' ? block : counterpart;
+        convertTeleporterWorldPair(base, pad);
+    }
+
+    function convertTeleporterWorldPair(base: MapBlock, pad: MapBlock) {
+        if (findTeleporterForWorldBlock(base) || findTeleporterForWorldBlock(pad)) {
+            throw new Error('One of the selected teleporter parts is already paired.');
+        }
+        const astronautStart = host.getRawWorldData().astronautStart;
+        const teleporterId = getNextTeleporterId();
+        base.teleporterId = teleporterId;
+        pad.teleporterId = teleporterId;
+        getTeleporters().push({
+            id: teleporterId,
+            baseX: base.x,
+            baseY: base.y,
+            padX: pad.x,
+            padY: pad.y,
+            enabled: true,
+            requiresKey: false,
+            destinationA: {
+                x: Math.round(astronautStart.x),
+                y: Math.round(astronautStart.y)
+            },
+            destinationB: null,
+            activeDestinationIndex: 0
+        });
+    }
+
+    function createTeleporterCompositeAt(x: number, y: number) {
+        const palette = state.palette;
+        const padRotation = normalizeRotation(state.rotation);
+        const baseRotation = getTeleporterBaseRotationForPadRotation(padRotation);
+        const translation: SpriteTranslation = 'center';
+        const base: MapBlock = {
+            x,
+            y,
+            type: 'teleporter',
+            collision: true,
+            maskAstronaut: false,
+            palette,
+            rotation: baseRotation as MapBlock['rotation'],
+            translation
+        };
+        const pad: MapBlock = {
+            x,
+            y,
+            type: 'teleporter_pad',
+            collision: false,
+            maskAstronaut: false,
+            palette,
+            rotation: padRotation as MapBlock['rotation'],
+            translation
+        };
+        const worldMap = getCategoryArray('world') as MapBlock[];
+        worldMap.push(base);
+        worldMap.push(pad);
+        convertTeleporterWorldPair(base, pad);
+        return base;
+    }
+
+    function getContextMenuSelectedTeleporterPair() {
+        const selections = getContextMenuActionSelections();
+        if (selections.length !== 2 || !selections.every((entry) => entry.category === 'world')) {
+            return null;
+        }
+        const worldBlocks = selections.map((entry) => entry.entity as MapBlock);
+        const base = worldBlocks.find((block) => block.type === 'teleporter') ?? null;
+        const pad = worldBlocks.find((block) => block.type === 'teleporter_pad') ?? null;
+        if (!base || !pad) {
+            return null;
+        }
+        return { base, pad };
+    }
+
     function getConvertTargetCategory(selection: Selection): DesignerCategory | null {
         if (selection.category === 'custom') {
             return canConvertCustomSpriteToButton(selection.entity as CustomSpriteInstance) ? 'buttons' : null;
@@ -6324,6 +7032,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const type = getCurrentType();
 
         if (state.category === 'world') {
+            if (isTeleporterCompositeType(type)) {
+                const teleporterBase = createTeleporterCompositeAt(x, y);
+                setSelections([{ category: 'world', entity: teleporterBase }]);
+                return;
+            }
             const entity: MapBlock = {
                 x,
                 y,
@@ -6340,6 +7053,19 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
 
         if (state.category === 'buttons') {
+            if (isButtonCompositeType(type)) {
+                const button = createButtonEntity({
+                    x,
+                    y,
+                    rotation: state.rotation,
+                    collision: true,
+                    active: false,
+                    linkedDoors: []
+                });
+                getCategoryArray('buttons').push(button);
+                setSelections([{ category: 'buttons', entity: button }]);
+                return;
+            }
             const entity: MapBlock = {
                 x,
                 y,
@@ -6425,6 +7151,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         host.afterWorldDataMutated();
         invalidateOverviewBase();
         updateDirtyState();
+        syncEditModeSnapshot();
         refreshPanel();
         setStatus(message, 'neutral');
     }
@@ -6497,6 +7224,50 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         };
     }
 
+    function getTeleporterSelectionRect(teleporter: TeleporterSaveData): Rect | null {
+        const base = findWorldBlockByExactPosition(teleporter.baseX, teleporter.baseY, 'teleporter');
+        if (base) {
+            return getEntityRect(base, 'world');
+        }
+        const pad = findWorldBlockByExactPosition(teleporter.padX, teleporter.padY, 'teleporter_pad');
+        if (pad) {
+            return getEntityRect(pad, 'world');
+        }
+        return null;
+    }
+
+    function getSelectionVisuals(selections: Selection[]) {
+        const visuals: Array<{ rect: Rect; isPrimary: boolean }> = [];
+        const handledTeleporters = new Set<string>();
+        const primaryTeleporterId = state.selection?.category === 'world'
+            ? (findTeleporterForWorldBlock(state.selection.entity as MapBlock)?.id ?? null)
+            : null;
+
+        for (const selection of selections) {
+            if (selection.category === 'world') {
+                const teleporter = findTeleporterForWorldBlock(selection.entity as MapBlock);
+                if (teleporter) {
+                    if (handledTeleporters.has(teleporter.id)) {
+                        continue;
+                    }
+                    handledTeleporters.add(teleporter.id);
+                    visuals.push({
+                        rect: getTeleporterSelectionRect(teleporter) ?? getEntityRect(selection.entity, selection.category),
+                        isPrimary: primaryTeleporterId === teleporter.id
+                    });
+                    continue;
+                }
+            }
+
+            visuals.push({
+                rect: getEntityRect(selection.entity, selection.category),
+                isPrimary: state.selection ? areSameSelection(selection, state.selection) : false
+            });
+        }
+
+        return visuals;
+    }
+
     function getBoundsFromRects(rects: Rect[]): Rect {
         return {
             left: Math.min(...rects.map((rect) => rect.left)),
@@ -6517,9 +7288,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function beginDrag(world: Position, selections: Selection[]) {
+        const dragSelections = expandSelectionsWithLinkedTeleporters(selections);
         state.dragging = true;
         state.dragAnchorWorld = world;
-        state.dragItems = selections.map((selection) => ({
+        state.dragItems = dragSelections.map((selection) => ({
             selection,
             startX: selection.entity.x,
             startY: selection.entity.y
@@ -6581,7 +7353,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         state.objectSnapGuides = objectSnap.guides;
 
         for (const target of dragTargets) {
-            applyPosition(
+            applyEntityPositionWithTeleporterSync(
                 target.dragItem.selection.entity,
                 target.x + snapDeltaX,
                 target.y + snapDeltaY
@@ -6653,7 +7425,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function rotateSelection() {
-        const selections = getSelectedItems();
+        const selections = expandSelectionsWithLinkedTeleporters(getSelectedItems());
         if (selections.length === 0) return;
         if (selections.some((selection) => selection.category === 'custom')) {
             setStatus('Custom sprites keep the rotation authored into their grouped parts.', 'neutral');
@@ -6661,7 +7433,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
         runMutation('Rotated selection.', () => {
             for (const selection of selections) {
-                selection.entity.rotation = ((normalizeRotation(selection.entity.rotation) % 7) + 1);
+                const nextRotation = ((normalizeRotation(selection.entity.rotation) % 7) + 1);
+                applyEntityRotationWithTeleporterSync(selection.entity, nextRotation);
                 if (selection.category === 'creatures') {
                     selection.entity.state = selection.entity.state ?? {};
                     selection.entity.state.authoredRotation = selection.entity.rotation;
@@ -6674,11 +7447,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function nudgeSelection(dx: number, dy: number) {
-        const selections = getSelectedItems();
+        const selections = expandSelectionsWithLinkedTeleporters(getSelectedItems());
         if (selections.length === 0) return;
         runMutation('Nudged selection.', () => {
             for (const selection of selections) {
-                applyPosition(
+                applyEntityPositionWithTeleporterSync(
                     selection.entity,
                     selection.entity.x + dx,
                     selection.entity.y + dy
@@ -6702,6 +7475,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         state.selectedItems = [];
         invalidateOverviewBase();
         updateDirtyState();
+        syncEditModeSnapshot();
         refreshPanel();
         setStatus(message, 'neutral');
     }
@@ -6764,6 +7538,41 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         snapshot.doors.forEach((entry, index) => validateSpriteAndPalette('Door', entry, index));
         snapshot.creatures.forEach((entry, index) => validateSpriteAndPalette('Creature', entry, index));
         snapshot.collectables.forEach((entry, index) => validateSpriteAndPalette('Collectable', entry, index));
+        const teleporterIds = new Set<string>();
+        const duplicateTeleporterIds = new Set<string>();
+        for (const teleporter of snapshot.teleporters) {
+            if (teleporterIds.has(teleporter.id)) {
+                duplicateTeleporterIds.add(teleporter.id);
+            }
+            teleporterIds.add(teleporter.id);
+        }
+        if (duplicateTeleporterIds.size > 0) {
+            errors.push(`Duplicate teleporter IDs: ${[...duplicateTeleporterIds].join(', ')}`);
+        }
+        snapshot.teleporters.forEach((teleporter, index) => {
+            if (!snapshot.worldMap.some((block) => block.x === teleporter.baseX && block.y === teleporter.baseY && block.type === 'teleporter')) {
+                errors.push(`Teleporter #${index + 1} base sprite is missing at (${teleporter.baseX}, ${teleporter.baseY}).`);
+            }
+            if (!snapshot.worldMap.some((block) => block.x === teleporter.padX && block.y === teleporter.padY && block.type === 'teleporter_pad')) {
+                errors.push(`Teleporter #${index + 1} pad sprite is missing at (${teleporter.padX}, ${teleporter.padY}).`);
+            }
+            if (!Number.isFinite(teleporter.destinationA.x) || !Number.isFinite(teleporter.destinationA.y)) {
+                errors.push(`Teleporter #${index + 1} destination A must have numeric x and y.`);
+            }
+            if (teleporter.destinationB && (!Number.isFinite(teleporter.destinationB.x) || !Number.isFinite(teleporter.destinationB.y))) {
+                errors.push(`Teleporter #${index + 1} destination B must have numeric x and y.`);
+            }
+            if (teleporter.activeDestinationIndex === 1 && !teleporter.destinationB) {
+                errors.push(`Teleporter #${index + 1} is set to destination B but has no destination B.`);
+            }
+        });
+        snapshot.buttons.forEach((entry, index) => {
+            for (const linkedTeleporterId of entry.linkedTeleporters ?? []) {
+                if (!teleporterIds.has(linkedTeleporterId)) {
+                    errors.push(`Button #${index + 1} links to missing teleporter "${linkedTeleporterId}".`);
+                }
+            }
+        });
         if (!Number.isFinite(snapshot.astronautStart.x) || !Number.isFinite(snapshot.astronautStart.y)) {
             errors.push('Astronaut start position must have numeric x and y values.');
         }
@@ -6887,6 +7696,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 await host.saveWorldData(snapshot);
             }
             state.lastSavedSnapshot = snapshot;
+            syncEditModeSnapshot();
             if (!astronautStartChanged) {
                 host.resetAstronautToPosition(liveAstronautPosition);
             }
@@ -8669,12 +9479,12 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             });
             addNumberInspector(container, 'X', entity.x, (value) => {
                 runMutation('Updated X position.', () => {
-                    entity.x = Math.round(value);
+                    applyEntityPositionWithTeleporterSync(entity, value, entity.y);
                 });
             });
             addNumberInspector(container, 'Y', entity.y, (value) => {
                 runMutation('Updated Y position.', () => {
-                    entity.y = Math.round(value);
+                    applyEntityPositionWithTeleporterSync(entity, entity.x, value);
                 });
             });
             const summary = document.createElement('div');
@@ -8699,17 +9509,17 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         });
         addNumberInspector(container, 'X', entity.x, (value) => {
             runMutation('Updated X position.', () => {
-                entity.x = Math.round(value);
+                applyEntityPositionWithTeleporterSync(entity, value, entity.y);
             });
         });
         addNumberInspector(container, 'Y', entity.y, (value) => {
             runMutation('Updated Y position.', () => {
-                entity.y = Math.round(value);
+                applyEntityPositionWithTeleporterSync(entity, entity.x, value);
             });
         });
         addNumberInspector(container, 'Rotation', normalizeRotation(entity.rotation), (value) => {
             runMutation('Updated rotation.', () => {
-                entity.rotation = normalizeRotation(value);
+                applyEntityRotationWithTeleporterSync(entity, value);
                 if (category === 'creatures') {
                     entity.state = entity.state ?? {};
                     entity.state.authoredRotation = entity.rotation;
@@ -8823,6 +9633,136 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     entity.maskAstronaut = checked;
                 });
             });
+
+            if (entity.type === 'teleporter' || entity.type === 'teleporter_pad') {
+                const linkedTeleporter = findTeleporterForWorldBlock(entity);
+                if (!linkedTeleporter) {
+                    const summary = document.createElement('div');
+                    summary.className = 'world-designer-summary';
+                    summary.textContent = 'This teleporter part is not converted yet. Convert to create a linked base+pad mechanism.';
+                    container.appendChild(summary);
+                    addInspectorAction(container, 'Convert to teleporter', () => {
+                        runMutation('Converted world sprites to a teleporter.', () => {
+                            convertWorldTeleporterBlock(entity);
+                        });
+                    });
+                } else {
+                    addTextInspector(container, 'Teleporter ID', linkedTeleporter.id, (value) => {
+                        runMutation('Updated teleporter ID.', () => {
+                            linkedTeleporter.id = value.trim() || linkedTeleporter.id;
+                        });
+                    });
+                    addCheckboxInspector(container, 'Teleporter enabled', linkedTeleporter.enabled !== false, (checked) => {
+                        runMutation('Updated teleporter enabled state.', () => {
+                            linkedTeleporter.enabled = checked;
+                        });
+                    });
+                    addCheckboxInspector(container, 'Require key hook', linkedTeleporter.requiresKey === true, (checked) => {
+                        runMutation('Updated teleporter key requirement.', () => {
+                            linkedTeleporter.requiresKey = checked;
+                        });
+                    });
+                    addNumberInspector(container, 'Destination A X', linkedTeleporter.destinationA.x, (value) => {
+                        runMutation('Updated teleporter destination A X.', () => {
+                            linkedTeleporter.destinationA.x = Math.round(value);
+                        });
+                    });
+                    addNumberInspector(container, 'Destination A Y', linkedTeleporter.destinationA.y, (value) => {
+                        runMutation('Updated teleporter destination A Y.', () => {
+                            linkedTeleporter.destinationA.y = Math.round(value);
+                        });
+                    });
+                    const hasDestinationB = !!linkedTeleporter.destinationB;
+                    addCheckboxInspector(container, 'Enable destination B', hasDestinationB, (checked) => {
+                        runMutation('Updated teleporter destination B.', () => {
+                            linkedTeleporter.destinationB = checked
+                                ? {
+                                    x: linkedTeleporter.destinationA.x,
+                                    y: linkedTeleporter.destinationA.y
+                                }
+                                : null;
+                            if (!checked && linkedTeleporter.activeDestinationIndex === 1) {
+                                linkedTeleporter.activeDestinationIndex = 0;
+                            }
+                        });
+                    });
+                    if (linkedTeleporter.destinationB) {
+                        addNumberInspector(container, 'Destination B X', linkedTeleporter.destinationB.x, (value) => {
+                            runMutation('Updated teleporter destination B X.', () => {
+                                if (linkedTeleporter.destinationB) {
+                                    linkedTeleporter.destinationB.x = Math.round(value);
+                                }
+                            });
+                        });
+                        addNumberInspector(container, 'Destination B Y', linkedTeleporter.destinationB.y, (value) => {
+                            runMutation('Updated teleporter destination B Y.', () => {
+                                if (linkedTeleporter.destinationB) {
+                                    linkedTeleporter.destinationB.y = Math.round(value);
+                                }
+                            });
+                        });
+                    }
+                    addOptionSelectInspector(
+                        container,
+                        'Active destination',
+                        String(linkedTeleporter.activeDestinationIndex === 1 ? 1 : 0),
+                        [
+                            { value: '0', label: 'A' },
+                            { value: '1', label: 'B' }
+                        ],
+                        (value) => {
+                            runMutation('Updated teleporter active destination.', () => {
+                                linkedTeleporter.activeDestinationIndex = value === '1' && linkedTeleporter.destinationB ? 1 : 0;
+                            });
+                        }
+                    );
+                    addInspectorAction(container, 'Set destination A to view center', () => {
+                        runMutation('Set teleporter destination A to view center.', () => {
+                            linkedTeleporter.destinationA = {
+                                x: Math.round(state.camera.x + host.canvas.width / 2),
+                                y: Math.round(state.camera.y + host.canvas.height / 2)
+                            };
+                        });
+                    });
+                    addInspectorAction(container, 'Pick destination A on map', () => {
+                        state.teleporterDestinationPick = {
+                            teleporterId: linkedTeleporter.id,
+                            slot: 'a'
+                        };
+                        setStatus('Click anywhere in the viewport to set teleporter destination A.', 'neutral');
+                    });
+                    if (linkedTeleporter.destinationB) {
+                        addInspectorAction(container, 'Set destination B to view center', () => {
+                            runMutation('Set teleporter destination B to view center.', () => {
+                                if (linkedTeleporter.destinationB) {
+                                    linkedTeleporter.destinationB = {
+                                        x: Math.round(state.camera.x + host.canvas.width / 2),
+                                        y: Math.round(state.camera.y + host.canvas.height / 2)
+                                    };
+                                }
+                            });
+                        });
+                        addInspectorAction(container, 'Pick destination B on map', () => {
+                            state.teleporterDestinationPick = {
+                                teleporterId: linkedTeleporter.id,
+                                slot: 'b'
+                            };
+                            setStatus('Click anywhere in the viewport to set teleporter destination B.', 'neutral');
+                        });
+                    }
+                    if (state.teleporterDestinationPick?.teleporterId === linkedTeleporter.id) {
+                        const pickingSlot = state.teleporterDestinationPick.slot === 'b' ? 'B' : 'A';
+                        const pickerSummary = document.createElement('div');
+                        pickerSummary.className = 'world-designer-summary';
+                        pickerSummary.textContent = `Pick mode is armed for destination ${pickingSlot}.`;
+                        container.appendChild(pickerSummary);
+                        addInspectorAction(container, 'Cancel destination pick mode', () => {
+                            state.teleporterDestinationPick = null;
+                            setStatus('Cancelled teleporter destination pick mode.', 'neutral');
+                        });
+                    }
+                }
+            }
         }
 
         if (category === 'world' || category === 'doors') {
@@ -8873,6 +9813,28 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     entity.linkedDoors = parseDoorIds(value);
                 });
             });
+            addTextInspector(container, 'Linked teleporter IDs (comma separated)', (entity.linkedTeleporters ?? []).join(', '), (value) => {
+                runMutation('Updated button linked teleporters.', () => {
+                    entity.linkedTeleporters = parseStringIds(value);
+                });
+            });
+            addOptionSelectInspector(
+                container,
+                'Teleporter action',
+                entity.teleporterMode ?? 'toggle',
+                [
+                    { value: 'toggle', label: 'Toggle A/B' },
+                    { value: 'destination_a', label: 'Set destination A' },
+                    { value: 'destination_b', label: 'Set destination B' }
+                ],
+                (value) => {
+                    runMutation('Updated button teleporter action.', () => {
+                        entity.teleporterMode = value === 'destination_a' || value === 'destination_b'
+                            ? value
+                            : 'toggle';
+                    });
+                }
+            );
             addTextInspector(container, 'Box sprite', entity.boxType ?? 'button_box', (value) => {
                 runMutation('Updated button box sprite.', () => {
                     entity.boxType = value;
@@ -9655,6 +10617,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             y: Math.round(state.camera.y + host.canvas.height / 2)
         };
         host.resetAstronautToPosition(position);
+        if (state.liveResumeSnapshot) {
+            state.liveResumeSnapshot.astronautPosition = position;
+        }
         setStatus('Moved the live astronaut to the center of the current view.', 'success');
     }
 
@@ -9666,6 +10631,38 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         closeContextMenu();
 
         const world = screenToWorld(point.x, point.y);
+
+        if (state.teleporterDestinationPick) {
+            if (event.button === 2) {
+                state.teleporterDestinationPick = null;
+                setStatus('Cancelled teleporter destination pick mode.', 'neutral');
+                event.preventDefault();
+                return;
+            }
+            if (event.button !== 0) {
+                return;
+            }
+            const pickState = state.teleporterDestinationPick;
+            const slotLabel = pickState.slot === 'b' ? 'B' : 'A';
+            runMutation(`Set teleporter destination ${slotLabel} from map pick.`, () => {
+                const teleporter = getTeleporterById(pickState.teleporterId);
+                if (!teleporter) {
+                    throw new Error(`Teleporter "${pickState.teleporterId}" no longer exists.`);
+                }
+                const destination = {
+                    x: Math.round(world.x),
+                    y: Math.round(world.y)
+                };
+                if (pickState.slot === 'b') {
+                    teleporter.destinationB = destination;
+                } else {
+                    teleporter.destinationA = destination;
+                }
+            });
+            state.teleporterDestinationPick = null;
+            setStatus(`Set teleporter destination ${slotLabel} to (${Math.round(world.x)}, ${Math.round(world.y)}).`, 'success');
+            return;
+        }
 
         if (event.button === 2) {
             const hit = getEntityAt(world.x, world.y);
@@ -9966,6 +10963,12 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             case 'm':
             case 'M':
                 state.mode = state.mode === 'edit' ? 'preview' : 'edit';
+                if (state.mode === 'edit') {
+                    captureLiveResumeSnapshot();
+                }
+                if (state.mode === 'edit' && restoreEditModeSnapshot()) {
+                    setStatus('Restored the authored world state for editing.', 'neutral');
+                }
                 refreshPanel();
                 event.preventDefault();
                 return;
@@ -10035,9 +11038,18 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         state.active = nextActive;
         closeContextMenu();
         if (!state.active) {
+            if (state.mode === 'edit' && restoreLiveResumeSnapshot()) {
+                setStatus('Restored the live game state after leaving edit mode.', 'neutral');
+            }
             closeModal();
             refreshPanel();
             return;
+        }
+        if (state.mode === 'edit') {
+            captureLiveResumeSnapshot();
+        }
+        if (state.mode === 'edit' && restoreEditModeSnapshot()) {
+            setStatus('Restored the authored world state for editing.', 'neutral');
         }
         // Re-sync to the current live view each time the panel is restored so
         // the world does not jump back to an older stored designer camera.
@@ -10120,16 +11132,14 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const scaleX = refs.overviewCanvas.width / MAP_WIDTH;
         const scaleY = refs.overviewCanvas.height / MAP_HEIGHT;
 
-        for (const selection of getSelectedItems()) {
-            const rect = getEntityRect(selection.entity, selection.category);
-            const isPrimary = state.selection ? areSameSelection(selection, state.selection) : false;
-            ctx.strokeStyle = isPrimary ? '#ffffff' : '#93c5fd';
-            ctx.lineWidth = isPrimary ? 2 : 1.5;
+        for (const visual of getSelectionVisuals(getSelectedItems())) {
+            ctx.strokeStyle = visual.isPrimary ? '#ffffff' : '#93c5fd';
+            ctx.lineWidth = visual.isPrimary ? 2 : 1.5;
             ctx.strokeRect(
-                rect.left * scaleX,
-                rect.top * scaleY,
-                Math.max(3, rect.width * scaleX),
-                Math.max(3, rect.height * scaleY)
+                visual.rect.left * scaleX,
+                visual.rect.top * scaleY,
+                Math.max(3, visual.rect.width * scaleX),
+                Math.max(3, visual.rect.height * scaleY)
             );
         }
 
@@ -10233,6 +11243,12 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
     refs.modeSelect.addEventListener('change', () => {
         state.mode = refs.modeSelect.value as DesignerMode;
+        if (state.mode === 'edit') {
+            captureLiveResumeSnapshot();
+        }
+        if (state.mode === 'edit' && restoreEditModeSnapshot()) {
+            setStatus('Restored the authored world state for editing.', 'neutral');
+        }
         refreshPanel();
     });
     refs.toolSelect.addEventListener('change', () => {
@@ -10245,6 +11261,13 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refreshPanel();
     });
     refs.typeSelect.addEventListener('change', () => {
+        if (
+            isTeleporterCompositeType(refs.typeSelect.value) ||
+            isButtonCompositeType(refs.typeSelect.value)
+        ) {
+            setCurrentType(refs.typeSelect.value);
+            return;
+        }
         const selection = getSingleEditableSelection();
         if (selection) {
             if (selection.category === 'custom') {
@@ -10290,7 +11313,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const selection = getSingleEditableSelection();
         if (selection) {
             runMutation('Updated rotation.', () => {
-                selection.entity.rotation = rotation;
+                applyEntityRotationWithTeleporterSync(selection.entity, rotation);
                 if (selection.category === 'creatures') {
                     selection.entity.state = selection.entity.state ?? {};
                     selection.entity.state.authoredRotation = rotation;
@@ -10591,18 +11614,16 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
             const selections = getSelectedItems();
             if (state.mode !== 'preview' && selections.length > 0) {
-                for (const selection of selections) {
-                    const rect = getEntityRect(selection.entity, selection.category);
-                    const isPrimary = state.selection ? areSameSelection(selection, state.selection) : false;
+                for (const visual of getSelectionVisuals(selections)) {
                     ctx.save();
-                    ctx.strokeStyle = isPrimary ? '#f8fafc' : '#60a5fa';
-                    ctx.lineWidth = isPrimary ? 2 : 1.5;
-                    ctx.setLineDash(isPrimary ? [] : [6, 4]);
+                    ctx.strokeStyle = visual.isPrimary ? '#f8fafc' : '#60a5fa';
+                    ctx.lineWidth = visual.isPrimary ? 2 : 1.5;
+                    ctx.setLineDash(visual.isPrimary ? [] : [6, 4]);
                     ctx.strokeRect(
-                        rect.left - state.camera.x,
-                        rect.top - state.camera.y,
-                        rect.width,
-                        rect.height
+                        visual.rect.left - state.camera.x,
+                        visual.rect.top - state.camera.y,
+                        visual.rect.width,
+                        visual.rect.height
                     );
                     ctx.restore();
                 }
@@ -10668,12 +11689,31 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                             dragGhostCanvas,
                             getCustomSpriteDefinitionById(state.pickerDrag.type)
                         );
+                    } else if (
+                        state.pickerDrag.category === 'buttons' &&
+                        isButtonCompositeType(state.pickerDrag.type)
+                    ) {
+                        renderButtonCompositePreviewCanvas(
+                            dragGhostCanvas,
+                            createButtonEntity({
+                                x: 0,
+                                y: 0,
+                                rotation: state.pickerDrag.rotation,
+                                collision: true,
+                                active: false,
+                                linkedDoors: []
+                            })
+                        );
                     } else {
+                        const previewType = getPlacementPreviewType(state.pickerDrag.type);
+                        const previewRotation = isTeleporterCompositeType(state.pickerDrag.type)
+                            ? getTeleporterBaseRotationForPadRotation(state.pickerDrag.rotation)
+                            : state.pickerDrag.rotation;
                         host.drawSpritePreview(
                             ghostCtx,
-                            state.pickerDrag.type,
+                            previewType,
                             state.pickerDrag.palette,
-                            state.pickerDrag.rotation,
+                            previewRotation,
                             true,
                             dragGhostTargetSize
                         );

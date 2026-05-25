@@ -3,6 +3,8 @@ export interface Position {
     y: number;
 }
 
+export type TeleporterDestinationMode = 'toggle' | 'destination_a' | 'destination_b';
+
 export interface PaletteCycleSettings {
     palettes: number[];
     intervalMs: number;
@@ -126,4 +128,17 @@ export interface GameState {
     gravity: number;
     trail: Position[];
     isRunning?: boolean;
+}
+
+export interface TeleporterSaveData {
+    id: string;
+    baseX: number;
+    baseY: number;
+    padX: number;
+    padY: number;
+    enabled?: boolean;
+    requiresKey?: boolean;
+    destinationA: Position;
+    destinationB?: Position | null;
+    activeDestinationIndex?: 0 | 1;
 }
