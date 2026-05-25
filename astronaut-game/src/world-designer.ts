@@ -5692,8 +5692,39 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         });
     }
 
-    function removeSelectedFromArray() {
-        const selections = getSelectedItems();
+    function removeTeleportersForSelections(selections: Selection[]) {
+        const teleporterIdsToRemove = new Set<string>();
+        for (const selection of selections) {
+            if (selection.category !== 'world') {
+                continue;
+            }
+            const block = selection.entity as MapBlock;
+            if (block.type !== 'teleporter' && block.type !== 'teleporter_pad') {
+                continue;
+            }
+            const teleporter = findTeleporterForWorldBlock(block);
+            if (teleporter?.id) {
+                teleporterIdsToRemove.add(teleporter.id);
+            }
+        }
+        if (teleporterIdsToRemove.size === 0) {
+            return;
+        }
+        const teleporters = getTeleporters();
+        for (let index = teleporters.length - 1; index >= 0; index -= 1) {
+            if (teleporterIdsToRemove.has(teleporters[index].id)) {
+                teleporters.splice(index, 1);
+            }
+        }
+        for (const button of host.getRawWorldData().buttons) {
+            if (!Array.isArray(button.linkedTeleporters) || button.linkedTeleporters.length === 0) {
+                continue;
+            }
+            button.linkedTeleporters = button.linkedTeleporters.filter((id) => !teleporterIdsToRemove.has(id));
+        }
+    }
+
+    function removeSelectedFromArray(selections: Selection[] = getSelectedItems()) {
         for (const selection of selections) {
             const arr = getCategoryArray(selection.category);
             const index = arr.indexOf(selection.entity);
@@ -7589,9 +7620,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function deleteSelection() {
-        if (getSelectedItems().length === 0) return;
+        const selections = expandSelectionsWithLinkedTeleporters(getSelectedItems());
+        if (selections.length === 0) return;
         runMutation('Deleted selection.', () => {
-            removeSelectedFromArray();
+            removeTeleportersForSelections(selections);
+            removeSelectedFromArray(selections);
             setSelections([]);
         });
     }
@@ -9618,16 +9651,19 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.inspector.innerHTML = '';
         updateSelectionSummary();
 
-        if (!state.selection || getSelectedItems().length !== 1) {
-            if (getSelectedItems().length > 1) {
-                const summary = document.createElement('div');
-                summary.className = 'world-designer-summary';
-                summary.textContent = 'Multi-selection active. Inspector editing is limited to single-object selection.';
-                refs.inspector.appendChild(summary);
-                if (state.category === 'buttons') {
-                    renderButtonDefaultsInspector(refs.inspector, null);
-                }
-            } else if (state.category === 'buttons') {
+        const selectedItems = getSelectedItems();
+        if (!state.selection) {
+            if (state.category === 'buttons') {
+                renderButtonDefaultsInspector(refs.inspector, null);
+            }
+            return;
+        }
+        if (selectedItems.length > 1) {
+            const summary = document.createElement('div');
+            summary.className = 'world-designer-summary';
+            summary.textContent = 'Multi-selection active. Palette edits apply to all selected sprites.';
+            refs.inspector.appendChild(summary);
+            if (state.category === 'buttons') {
                 renderButtonDefaultsInspector(refs.inspector, null);
             }
             return;
@@ -9721,13 +9757,15 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         if (category === 'buttons') {
             addOptionSelectInspector(container, 'Button cap palette', String(entity.palette ?? 0), paletteOptions, (value) => {
                 runMutation('Updated palette.', () => {
-                    entity.palette = clamp(Math.round(Number(value)), 0, paletteCount - 1);
+                    const nextPalette = clamp(Math.round(Number(value)), 0, paletteCount - 1);
+                    entity.palette = nextPalette;
                 });
             });
         } else {
             addNumberInspector(container, 'Palette', entity.palette ?? 0, (value) => {
                 runMutation('Updated palette.', () => {
-                    entity.palette = clamp(Math.round(value), 0, paletteCount - 1);
+                    const nextPalette = clamp(Math.round(value), 0, paletteCount - 1);
+                    entity.palette = nextPalette;
                 });
             });
         }
@@ -11517,6 +11555,25 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     });
     refs.paletteSelect.addEventListener('change', () => {
         const palette = clamp(Number(refs.paletteSelect.value), 0, paletteCount - 1);
+        const selections = getSelectedItems();
+        if (selections.length > 1) {
+            const paletteTargets = selections
+                .map((selection) => selection.entity)
+                .filter((entity): entity is { palette?: number } =>
+                    !!entity &&
+                    typeof entity === 'object' &&
+                    'palette' in entity
+                );
+            if (paletteTargets.length > 0) {
+                runMutation('Updated selected palettes.', () => {
+                    for (const target of paletteTargets) {
+                        target.palette = palette;
+                    }
+                });
+                updateSelectionFromInspectorState();
+                return;
+            }
+        }
         const selection = getSingleEditableSelection();
         if (selection) {
             runMutation('Updated palette.', () => {

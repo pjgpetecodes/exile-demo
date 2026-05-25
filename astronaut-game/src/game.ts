@@ -737,6 +737,7 @@ type TeleporterRuntime = Required<Omit<TeleporterSaveData, 'destinationB'>> & {
 };
 type TeleporterRenderPad = {
     teleporter: TeleporterRuntime;
+    active: boolean;
     x: number;
     y: number;
     palette: number;
@@ -744,6 +745,26 @@ type TeleporterRenderPad = {
     translation: SpriteTranslation;
     paletteCycle?: PaletteCycleSettings;
 };
+
+type TeleporterPadViewportFilter = {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    margin?: number;
+};
+
+type TeleporterPadProximityFilter = {
+    x: number;
+    y: number;
+    radius: number;
+};
+
+const TELEPORTER_PAD_SWEEP_DURATION_MS = 2400;
+const TELEPORTER_PAD_SWEEP_STEP_MS = 600;
+const TELEPORTER_TILE_SIZE = 32 * SPRITE_SCALE;
+const TELEPORTER_PAD_SWEEP_CACHE_LIMIT = 4096;
+const teleporterPadSweepPositionCache = new Map<string, Position>();
 type BulletImpactParticle = {
     x: number;
     y: number;
@@ -1971,7 +1992,7 @@ async function gameLoop() {
         // Draw map blocks (drawMap uses global mapBlocks, so black_background blocks will be hidden only if not present in mapBlocks)
         // To hide, we need to patch drawMap to accept a blocks array, or temporarily monkey-patch global. For now, just draw overlays using mapBlocksToDraw.
         drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksBehindAstronaut, frameNow);
-        if (layerVisibility.world) {
+        if (layerVisibility.world && !designerActive) {
             drawTeleporterPads(ctx!, camera, frameNow, {
                 ignoreKeyRequirement: designerActive
             });
@@ -3288,9 +3309,26 @@ function getTeleporterPadSweepPosition(
         }
         return { x: sweepStart.x, y: Math.max(sweepStart.y, baseVisibleTop) };
     })();
+    const fallbackSweepEnd = (() => {
+        if (sweepAxis === 'left') {
+            return { x: Math.max(tileLeft, Math.min(baseVisibleRight, tileRight)), y: sweepStart.y };
+        }
+        if (sweepAxis === 'right') {
+            return { x: Math.min(tileRight, Math.max(baseVisibleLeft, tileLeft)), y: sweepStart.y };
+        }
+        if (sweepAxis === 'up') {
+            return { x: sweepStart.x, y: Math.max(tileTop, Math.min(baseVisibleBottom, tileBottom)) };
+        }
+        return { x: sweepStart.x, y: Math.min(tileBottom, Math.max(baseVisibleTop, tileTop)) };
+    })();
+    const usesVerticalAxis = sweepAxis === 'up' || sweepAxis === 'down';
+    const primarySpan = usesVerticalAxis
+        ? Math.abs(sweepEnd.y - sweepStart.y)
+        : Math.abs(sweepEnd.x - sweepStart.x);
+    const effectiveSweepEnd = primarySpan >= 1 ? sweepEnd : fallbackSweepEnd;
     const desiredAnchor = {
-        x: sweepStart.x + (sweepEnd.x - sweepStart.x) * progress,
-        y: sweepStart.y + (sweepEnd.y - sweepStart.y) * progress
+        x: sweepStart.x + (effectiveSweepEnd.x - sweepStart.x) * progress,
+        y: sweepStart.y + (effectiveSweepEnd.y - sweepStart.y) * progress
     };
 
     return {
@@ -3299,16 +3337,88 @@ function getTeleporterPadSweepPosition(
     };
 }
 
+function isTeleporterInViewport(teleporter: TeleporterRuntime, viewport: TeleporterPadViewportFilter) {
+    const margin = Math.max(0, viewport.margin ?? 0);
+    const left = viewport.x - margin;
+    const top = viewport.y - margin;
+    const right = viewport.x + viewport.width + margin;
+    const bottom = viewport.y + viewport.height + margin;
+    const candidates = [
+        { x: teleporter.baseX, y: teleporter.baseY },
+        { x: teleporter.padX, y: teleporter.padY }
+    ];
+    for (const candidate of candidates) {
+        if (
+            candidate.x + TELEPORTER_TILE_SIZE >= left &&
+            candidate.x <= right &&
+            candidate.y + TELEPORTER_TILE_SIZE >= top &&
+            candidate.y <= bottom
+        ) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function isTeleporterNearPoint(teleporter: TeleporterRuntime, proximity: TeleporterPadProximityFilter) {
+    const radius = Math.max(0, proximity.radius);
+    const radiusSquared = radius * radius;
+    const candidates = [
+        { x: teleporter.baseX + TELEPORTER_TILE_SIZE / 2, y: teleporter.baseY + TELEPORTER_TILE_SIZE / 2 },
+        { x: teleporter.padX + TELEPORTER_TILE_SIZE / 2, y: teleporter.padY + TELEPORTER_TILE_SIZE / 2 }
+    ];
+    for (const candidate of candidates) {
+        const dx = candidate.x - proximity.x;
+        const dy = candidate.y - proximity.y;
+        if ((dx * dx + dy * dy) <= radiusSquared) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function getTeleporterRenderPads(
     now: number,
-    options?: { ignoreKeyRequirement?: boolean; activeOnly?: boolean; inactiveOnly?: boolean; fixedProgress?: number }
+    options?: {
+        ignoreKeyRequirement?: boolean;
+        activeOnly?: boolean;
+        inactiveOnly?: boolean;
+        fixedProgress?: number;
+        viewport?: TeleporterPadViewportFilter;
+        proximity?: TeleporterPadProximityFilter;
+    }
 ): TeleporterRenderPad[] {
     const renderPads: TeleporterRenderPad[] = [];
-    const durationMs = 520;
     const sweepProgress = typeof options?.fixedProgress === 'number'
         ? Math.max(0, Math.min(1, options.fixedProgress))
-        : ((now % durationMs) / durationMs);
+        : (() => {
+            const steppedNow = Math.floor(now / TELEPORTER_PAD_SWEEP_STEP_MS) * TELEPORTER_PAD_SWEEP_STEP_MS;
+            return (steppedNow % TELEPORTER_PAD_SWEEP_DURATION_MS) / TELEPORTER_PAD_SWEEP_DURATION_MS;
+        })();
+    const progressBucket = Math.round(sweepProgress * 1000);
+    const baseBlocksById = new Map<string, MapBlock>();
+    const padBlocksById = new Map<string, MapBlock>();
+    for (const block of mapBlocks) {
+        if ((block.type !== 'teleporter' && block.type !== 'teleporter_pad') || !block.teleporterId) {
+            continue;
+        }
+        const id = String(block.teleporterId).trim();
+        if (!id) {
+            continue;
+        }
+        if (block.type === 'teleporter') {
+            baseBlocksById.set(id, block);
+        } else {
+            padBlocksById.set(id, block);
+        }
+    }
     for (const teleporter of teleporterEntities) {
+        if (options?.viewport && !isTeleporterInViewport(teleporter, options.viewport)) {
+            continue;
+        }
+        if (options?.proximity && !isTeleporterNearPoint(teleporter, options.proximity)) {
+            continue;
+        }
         const active = isTeleporterActive(teleporter, options);
         if (options?.activeOnly && !active) {
             continue;
@@ -3316,8 +3426,10 @@ function getTeleporterRenderPads(
         if (options?.inactiveOnly && active) {
             continue;
         }
-        const padBlock = getTeleporterPadBlock(teleporter);
-        const baseBlock = getTeleporterBaseBlock(teleporter);
+        const baseBlock = baseBlocksById.get(teleporter.id)
+            ?? getTeleporterBaseBlock(teleporter);
+        const padBlock = padBlocksById.get(teleporter.id)
+            ?? getTeleporterPadBlock(teleporter);
         const palette = typeof padBlock?.palette === 'number'
             ? padBlock.palette
             : (typeof baseBlock?.palette === 'number' ? baseBlock.palette : 0);
@@ -3326,22 +3438,49 @@ function getTeleporterRenderPads(
             : (typeof baseBlock?.rotation === 'number' ? baseBlock.rotation : 1);
         const translation = normalizeSpriteTranslation(padBlock?.translation ?? baseBlock?.translation);
         const paletteCycle = padBlock?.paletteCycle;
-        const sweepPosition = getTeleporterPadSweepPosition(teleporter, sweepProgress, {
+        const baseRotation = typeof baseBlock?.rotation === 'number' ? baseBlock.rotation : 1;
+        const basePalette = typeof baseBlock?.palette === 'number' ? baseBlock.palette : palette;
+        const baseTranslation = normalizeSpriteTranslation(baseBlock?.translation);
+        const padCycleKey = paletteCycle && Array.isArray(paletteCycle.palettes)
+            ? `${paletteCycle.intervalMs ?? 0}:${paletteCycle.palettes.join(',')}`
+            : 'none';
+        const progress = !active && !options?.activeOnly
+            ? 1
+            : sweepProgress;
+        const progressBucketForPad = Math.round(progress * 1000);
+        const positionCacheKey = [
+            teleporter.id,
+            teleporter.baseX,
+            teleporter.baseY,
+            teleporter.padX,
+            teleporter.padY,
+            progressBucketForPad,
             palette,
             rotation,
             translation,
-            paletteCycle
-        }, baseBlock);
-        const fixedPosition = getTeleporterPadSweepPosition(teleporter, sweepProgress, {
-            palette,
-            rotation,
-            translation,
-            paletteCycle
-        }, baseBlock);
+            basePalette,
+            baseRotation,
+            baseTranslation,
+            padCycleKey
+        ].join('|');
+        let position = teleporterPadSweepPositionCache.get(positionCacheKey);
+        if (!position) {
+            position = getTeleporterPadSweepPosition(teleporter, progress, {
+                palette,
+                rotation,
+                translation,
+                paletteCycle
+            }, baseBlock);
+            if (teleporterPadSweepPositionCache.size >= TELEPORTER_PAD_SWEEP_CACHE_LIMIT) {
+                teleporterPadSweepPositionCache.clear();
+            }
+            teleporterPadSweepPositionCache.set(positionCacheKey, position);
+        }
         renderPads.push({
             teleporter,
-            x: options?.inactiveOnly ? fixedPosition.x : sweepPosition.x,
-            y: options?.inactiveOnly ? fixedPosition.y : sweepPosition.y,
+            active,
+            x: position.x,
+            y: position.y,
             palette,
             rotation,
             translation,
@@ -3365,16 +3504,21 @@ function drawTeleporterPads(
     now: number,
     options?: { ignoreKeyRequirement?: boolean }
 ) {
-    const activePads = getTeleporterRenderPads(now, { ...options, activeOnly: true });
-    const inactivePads = getTeleporterRenderPads(now, {
-        ...options,
-        inactiveOnly: true,
-        fixedProgress: 1
-    });
-    if (activePads.length === 0 && inactivePads.length === 0) {
+    const viewport = {
+        x: camera.x,
+        y: camera.y,
+        width: canvas.width,
+        height: canvas.height,
+        margin: TELEPORTER_TILE_SIZE * 2
+    };
+    const pads = getTeleporterRenderPads(now, { ...options, viewport });
+    if (pads.length === 0) {
         return;
     }
-    const padsToDraw = [...inactivePads, ...activePads];
+    const padsToDraw = [
+        ...pads.filter((pad) => !pad.active),
+        ...pads.filter((pad) => pad.active)
+    ];
     context.save();
     context.globalAlpha = 0.82;
     drawEntities(context, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, padsToDraw.map((pad) => ({
@@ -3394,21 +3538,26 @@ function updateTeleporterPadTeleporting(now: number) {
     if (isDesignerOpen() || teleporting || now < teleporterTouchCooldownUntilMs) {
         return;
     }
-    const astronautRendered = getAstronautRenderedWorldSprite();
-    if (!astronautRendered) {
-        return;
-    }
-    for (const activePad of getTeleporterRenderPads(now, { activeOnly: true })) {
-        const padRendered = getRenderedEntityWorldSprite({
-            x: activePad.x,
-            y: activePad.y,
-            type: 'teleporter_pad',
-            palette: activePad.palette,
-            rotation: activePad.rotation,
-            translation: activePad.translation,
-            paletteCycle: activePad.paletteCycle
-        });
-        if (!doRenderedSpritesOverlap(astronautRendered, padRendered)) {
+    const astronautRect = getAstronautRect();
+    for (const activePad of getTeleporterRenderPads(now, {
+        activeOnly: true,
+        proximity: {
+            x: astronaut.position.x + TELEPORTER_TILE_SIZE / 2,
+            y: astronaut.position.y + TELEPORTER_TILE_SIZE / 2,
+            radius: TELEPORTER_TILE_SIZE * 8
+        }
+    })) {
+        const padLeft = activePad.x;
+        const padTop = activePad.y;
+        const padRight = padLeft + TELEPORTER_TILE_SIZE;
+        const padBottom = padTop + TELEPORTER_TILE_SIZE;
+        const overlapsPad = !(
+            astronautRect.right < padLeft ||
+            astronautRect.left > padRight ||
+            astronautRect.bottom < padTop ||
+            astronautRect.top > padBottom
+        );
+        if (!overlapsPad) {
             continue;
         }
         if (startTeleportToLocation(getTeleporterActiveDestination(activePad.teleporter))) {
