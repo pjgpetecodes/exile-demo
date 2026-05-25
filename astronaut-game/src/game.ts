@@ -760,8 +760,8 @@ type TeleporterPadProximityFilter = {
     radius: number;
 };
 
-const TELEPORTER_PAD_SWEEP_DURATION_MS = 2400;
-const TELEPORTER_PAD_SWEEP_STEP_MS = 600;
+const TELEPORTER_PAD_SWEEP_PHASES = [0, 0.28, 0.56, 0.82, 1] as const;
+const TELEPORTER_PAD_SWEEP_FRAME_MS = 90;
 const TELEPORTER_TILE_SIZE = 32 * SPRITE_SCALE;
 const TELEPORTER_PAD_SWEEP_CACHE_LIMIT = 4096;
 const teleporterPadSweepPositionCache = new Map<string, Position>();
@@ -3392,8 +3392,8 @@ function getTeleporterRenderPads(
     const sweepProgress = typeof options?.fixedProgress === 'number'
         ? Math.max(0, Math.min(1, options.fixedProgress))
         : (() => {
-            const steppedNow = Math.floor(now / TELEPORTER_PAD_SWEEP_STEP_MS) * TELEPORTER_PAD_SWEEP_STEP_MS;
-            return (steppedNow % TELEPORTER_PAD_SWEEP_DURATION_MS) / TELEPORTER_PAD_SWEEP_DURATION_MS;
+            const frameIndex = Math.floor(now / TELEPORTER_PAD_SWEEP_FRAME_MS) % TELEPORTER_PAD_SWEEP_PHASES.length;
+            return TELEPORTER_PAD_SWEEP_PHASES[frameIndex];
         })();
     const progressBucket = Math.round(sweepProgress * 1000);
     const baseBlocksById = new Map<string, MapBlock>();
