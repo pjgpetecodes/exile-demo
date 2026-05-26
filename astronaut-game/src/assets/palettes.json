@@ -262,5 +262,75 @@
       "from": "Red",
       "to": "Green"
     }
+  ],
+  [
+    {
+      "from": "Green",
+      "to": "Yellow"
+    },
+    {
+      "from": "Red",
+      "to": "Green"
+    },
+    {
+      "from": "White",
+      "to": "Red"
+    }
+  ],
+  [
+    {
+      "from": "Red",
+      "to": "Magenta"
+    },
+    {
+      "from": "White",
+      "to": "Blue"
+    },
+    {
+      "from": "Green",
+      "to": "White"
+    }
+  ],
+  [
+    {
+      "from": "Green",
+      "to": "Yellow"
+    },
+    {
+      "from": "Red",
+      "to": "Green"
+    },
+    {
+      "from": "White",
+      "to": "Green"
+    }
+  ],
+  [
+    {
+      "from": "White",
+      "to": "Black"
+    },
+    {
+      "from": "Red",
+      "to": "Cyan"
+    },
+    {
+      "from": "Green",
+      "to": "White"
+    }
+  ],
+  [
+    {
+      "from": "Red",
+      "to": "Yellow"
+    },
+    {
+      "from": "White",
+      "to": "Red"
+    },
+    {
+      "from": "Green",
+      "to": "White"
+    }
   ]
 ]
