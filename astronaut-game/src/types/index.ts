@@ -3,7 +3,13 @@ export interface Position {
     y: number;
 }
 
-export type TeleporterDestinationMode = 'toggle' | 'destination_a' | 'destination_b';
+export type TeleporterDestinationMode =
+    | 'toggle'
+    | 'destination_a'
+    | 'destination_b'
+    | 'toggle_enabled'
+    | 'enable'
+    | 'disable';
 
 export interface PaletteCycleSettings {
     palettes: number[];

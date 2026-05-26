@@ -1123,6 +1123,18 @@ function syncButtonStatesToDoors() {
 }
 
 function applyButtonTeleporterMode(teleporter: TeleporterRuntime, mode: TeleporterDestinationMode) {
+    if (mode === 'enable') {
+        teleporter.enabled = true;
+        return;
+    }
+    if (mode === 'disable') {
+        teleporter.enabled = false;
+        return;
+    }
+    if (mode === 'toggle_enabled') {
+        teleporter.enabled = teleporter.enabled === false;
+        return;
+    }
     if (mode === 'destination_a') {
         teleporter.activeDestinationIndex = 0;
         return;

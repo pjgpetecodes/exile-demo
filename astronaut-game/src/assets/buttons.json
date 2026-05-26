@@ -86,10 +86,9 @@
       0
     ],
     "linkedTeleporters": [
-      "teleporter_2",
-      "teleporter_3"
+      "teleporter_8"
     ],
-    "teleporterMode": "toggle",
+    "teleporterMode": "toggle_enabled",
     "collision": true,
     "pressOffset": 5,
     "boxOffsetX": 10,

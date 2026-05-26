@@ -12,6 +12,15 @@ type ButtonPart = {
     cropRightHalf?: boolean;
 };
 
+function isTeleporterMode(value: unknown): value is TeleporterDestinationMode {
+    return value === 'toggle' ||
+        value === 'destination_a' ||
+        value === 'destination_b' ||
+        value === 'toggle_enabled' ||
+        value === 'enable' ||
+        value === 'disable';
+}
+
 export class Button {
     x: number;
     y: number;
@@ -56,7 +65,7 @@ export class Button {
         this.linkedTeleporters = Array.isArray(data.linkedTeleporters)
             ? data.linkedTeleporters.filter((id: unknown) => typeof id === 'string' && id.trim().length > 0)
             : [];
-        this.teleporterMode = data.teleporterMode === 'destination_a' || data.teleporterMode === 'destination_b'
+        this.teleporterMode = isTeleporterMode(data.teleporterMode)
             ? data.teleporterMode
             : 'toggle';
         this.collision = data.collision !== undefined ? data.collision : true;

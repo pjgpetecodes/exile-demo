@@ -828,7 +828,7 @@ function toButtonData(button: any): ButtonSaveData {
         linkedTeleporters: Array.isArray(button.linkedTeleporters)
             ? button.linkedTeleporters.filter((id: unknown) => typeof id === 'string' && id.trim().length > 0)
             : [],
-        teleporterMode: button.teleporterMode === 'destination_a' || button.teleporterMode === 'destination_b'
+        teleporterMode: isTeleporterMode(button.teleporterMode)
             ? button.teleporterMode
             : 'toggle',
         collision: button.collision !== false,
@@ -989,6 +989,15 @@ function getDefaultType(spriteTypes: string[], category: RuntimeDesignerCategory
 
 function isDoorSpriteType(type: string): type is 'door_horizontal' | 'door_vertical' {
     return type === 'door_horizontal' || type === 'door_vertical';
+}
+
+function isTeleporterMode(value: unknown): value is TeleporterDestinationMode {
+    return value === 'toggle' ||
+        value === 'destination_a' ||
+        value === 'destination_b' ||
+        value === 'toggle_enabled' ||
+        value === 'enable' ||
+        value === 'disable';
 }
 
 function getDoorTypeFromSourceType(type: string): 'door_horizontal' | 'door_vertical' | null {
@@ -10090,13 +10099,14 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 [
                     { value: 'toggle', label: 'Toggle A/B' },
                     { value: 'destination_a', label: 'Set destination A' },
-                    { value: 'destination_b', label: 'Set destination B' }
+                    { value: 'destination_b', label: 'Set destination B' },
+                    { value: 'toggle_enabled', label: 'Toggle enabled' },
+                    { value: 'enable', label: 'Enable teleporter' },
+                    { value: 'disable', label: 'Disable teleporter' }
                 ],
                 (value) => {
                     runMutation('Updated button teleporter action.', () => {
-                        entity.teleporterMode = value === 'destination_a' || value === 'destination_b'
-                            ? value
-                            : 'toggle';
+                        entity.teleporterMode = isTeleporterMode(value) ? value : 'toggle';
                     });
                 }
             );
