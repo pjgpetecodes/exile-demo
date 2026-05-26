@@ -404,5 +404,27 @@
       "y": 0
     },
     "astronautCollisionIgnoreFrames": 0
+  },
+  {
+    "x": 9269,
+    "y": 2784,
+    "type": "chest",
+    "palette": 1,
+    "rotation": 5,
+    "collected": false,
+    "name": "chest",
+    "weight": 0.2,
+    "pickupEnabled": false,
+    "storable": false,
+    "affectsAstronaut": false,
+    "collision": true,
+    "held": false,
+    "stored": false,
+    "isGrounded": false,
+    "velocity": {
+      "x": 0,
+      "y": 0
+    },
+    "astronautCollisionIgnoreFrames": 0
   }
 ]

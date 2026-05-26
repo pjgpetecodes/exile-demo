@@ -2353,8 +2353,8 @@
     "x": 9293,
     "y": 2816,
     "type": "wall_full",
-    "collision": true,
-    "maskAstronaut": false,
+    "collision": false,
+    "maskAstronaut": true,
     "palette": 2,
     "rotation": 1,
     "translation": "center"
@@ -4770,16 +4770,6 @@
     "translation": "top"
   },
   {
-    "x": 8870,
-    "y": 4013,
-    "type": "turret",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 17,
-    "rotation": 6,
-    "translation": "top"
-  },
-  {
     "x": 9011,
     "y": 4013,
     "type": "wall_full",
@@ -5226,16 +5216,6 @@
     "translation": "bottom"
   },
   {
-    "x": 9269,
-    "y": 2784,
-    "type": "chest",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 1,
-    "rotation": 5,
-    "translation": "top"
-  },
-  {
     "x": 9293,
     "y": 2956,
     "type": "wall_diagnonal_thirds",
@@ -5355,8 +5335,8 @@
     "x": 9293,
     "y": 2887,
     "type": "column",
-    "collision": true,
-    "maskAstronaut": false,
+    "collision": false,
+    "maskAstronaut": true,
     "palette": 1,
     "rotation": 1,
     "translation": "center"
@@ -5365,18 +5345,18 @@
     "x": 9224,
     "y": 2743,
     "type": "column",
-    "collision": true,
-    "maskAstronaut": false,
+    "collision": false,
+    "maskAstronaut": true,
     "palette": 1,
     "rotation": 1,
     "translation": "center"
   },
   {
-    "x": 9191,
+    "x": 9199,
     "y": 2743,
     "type": "column",
-    "collision": true,
-    "maskAstronaut": false,
+    "collision": false,
+    "maskAstronaut": true,
     "palette": 1,
     "rotation": 1,
     "translation": "center"
@@ -5385,8 +5365,8 @@
     "x": 9007,
     "y": 2746,
     "type": "column",
-    "collision": true,
-    "maskAstronaut": false,
+    "collision": false,
+    "maskAstronaut": true,
     "palette": 1,
     "rotation": 1,
     "translation": "center"
@@ -5395,8 +5375,8 @@
     "x": 8918,
     "y": 2745,
     "type": "column",
-    "collision": true,
-    "maskAstronaut": false,
+    "collision": false,
+    "maskAstronaut": true,
     "palette": 1,
     "rotation": 1,
     "translation": "center"
@@ -5405,8 +5385,8 @@
     "x": 8983,
     "y": 2886,
     "type": "column",
-    "collision": true,
-    "maskAstronaut": false,
+    "collision": false,
+    "maskAstronaut": true,
     "palette": 1,
     "rotation": 1,
     "translation": "center"
@@ -5415,8 +5395,8 @@
     "x": 8916,
     "y": 2887,
     "type": "column",
-    "collision": true,
-    "maskAstronaut": false,
+    "collision": false,
+    "maskAstronaut": true,
     "palette": 1,
     "rotation": 1,
     "translation": "center"
@@ -5535,8 +5515,8 @@
     "x": 9363,
     "y": 3168,
     "type": "column",
-    "collision": true,
-    "maskAstronaut": false,
+    "collision": false,
+    "maskAstronaut": true,
     "palette": 1,
     "rotation": 1,
     "translation": "center"
@@ -5545,8 +5525,8 @@
     "x": 9363,
     "y": 3097,
     "type": "column",
-    "collision": true,
-    "maskAstronaut": false,
+    "collision": false,
+    "maskAstronaut": true,
     "palette": 1,
     "rotation": 1,
     "translation": "center"
@@ -5555,8 +5535,8 @@
     "x": 9548,
     "y": 3097,
     "type": "column",
-    "collision": true,
-    "maskAstronaut": false,
+    "collision": false,
+    "maskAstronaut": true,
     "palette": 1,
     "rotation": 5,
     "translation": "left"
@@ -5575,8 +5555,8 @@
     "x": 9548,
     "y": 3167,
     "type": "column",
-    "collision": true,
-    "maskAstronaut": false,
+    "collision": false,
+    "maskAstronaut": true,
     "palette": 1,
     "rotation": 5,
     "translation": "left"
@@ -5695,8 +5675,8 @@
     "x": 9261,
     "y": 3310,
     "type": "column",
-    "collision": true,
-    "maskAstronaut": false,
+    "collision": false,
+    "maskAstronaut": true,
     "palette": 1,
     "rotation": 1,
     "translation": "center"
@@ -5705,8 +5685,8 @@
     "x": 9293,
     "y": 3310,
     "type": "column",
-    "collision": true,
-    "maskAstronaut": false,
+    "collision": false,
+    "maskAstronaut": true,
     "palette": 1,
     "rotation": 1,
     "translation": "center"
@@ -5715,8 +5695,8 @@
     "x": 9154,
     "y": 3312,
     "type": "column",
-    "collision": true,
-    "maskAstronaut": false,
+    "collision": false,
+    "maskAstronaut": true,
     "palette": 1,
     "rotation": 1,
     "translation": "center"
@@ -5725,8 +5705,8 @@
     "x": 9122,
     "y": 3312,
     "type": "column",
-    "collision": true,
-    "maskAstronaut": false,
+    "collision": false,
+    "maskAstronaut": true,
     "palette": 1,
     "rotation": 1,
     "translation": "center"
@@ -5848,16 +5828,6 @@
     "translation": "left"
   },
   {
-    "x": 8941,
-    "y": 3731,
-    "type": "door_vertical",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 20,
-    "rotation": 6,
-    "translation": "center"
-  },
-  {
     "x": 8805,
     "y": 3590,
     "type": "column",
@@ -5871,8 +5841,8 @@
     "x": 8799,
     "y": 3622,
     "type": "wall_bush",
-    "collision": true,
-    "maskAstronaut": false,
+    "collision": false,
+    "maskAstronaut": true,
     "palette": 13,
     "rotation": 7,
     "translation": "right"
@@ -5881,8 +5851,8 @@
     "x": 8805,
     "y": 3520,
     "type": "column",
-    "collision": true,
-    "maskAstronaut": false,
+    "collision": false,
+    "maskAstronaut": true,
     "palette": 1,
     "rotation": 5,
     "translation": "right"
@@ -5941,8 +5911,8 @@
     "x": 8518,
     "y": 2816,
     "type": "column",
-    "collision": true,
-    "maskAstronaut": false,
+    "collision": false,
+    "maskAstronaut": true,
     "palette": 1,
     "rotation": 1,
     "translation": "center"
@@ -5981,8 +5951,8 @@
     "x": 9011,
     "y": 3449,
     "type": "column",
-    "collision": true,
-    "maskAstronaut": false,
+    "collision": false,
+    "maskAstronaut": true,
     "palette": 1,
     "rotation": 5,
     "translation": "right"
@@ -5991,8 +5961,8 @@
     "x": 9011,
     "y": 3590,
     "type": "column",
-    "collision": true,
-    "maskAstronaut": false,
+    "collision": false,
+    "maskAstronaut": true,
     "palette": 1,
     "rotation": 5,
     "translation": "right"
@@ -6038,16 +6008,6 @@
     "translation": "center"
   },
   {
-    "x": 9293,
-    "y": 3591,
-    "type": "door_vertical",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 8,
-    "rotation": 6,
-    "translation": "center"
-  },
-  {
     "x": 9292,
     "y": 3731,
     "type": "wall_diag_full",
@@ -6056,16 +6016,6 @@
     "palette": 13,
     "rotation": 5,
     "translation": "left"
-  },
-  {
-    "x": 9197,
-    "y": 3734,
-    "type": "door_vertical",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 8,
-    "rotation": 6,
-    "translation": "center"
   },
   {
     "x": 9856,
