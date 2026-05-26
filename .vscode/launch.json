@@ -3,11 +3,10 @@
   "configurations": [
     {
       "name": "Launch Astronaut Game",
-      "type": "pwa-chrome",
+      "type": "firefox",
       "request": "launch",
       "url": "http://localhost:3000",
-      "runtimeExecutable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-      "userDataDir": "${workspaceFolder}\\.vscode\\chrome-debug-profile",
+      "runtimeExecutable": "C:\\Program Files\\Mozilla Firefox\\firefox.exe",
       "webRoot": "${workspaceFolder}\\astronaut-game",
       "sourceMaps": true,
       "preLaunchTask": "dev astronaut-game",

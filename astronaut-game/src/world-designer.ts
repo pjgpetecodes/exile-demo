@@ -709,7 +709,7 @@ let visibleSpriteRectResolver: ((
 ) => { left: number; top: number; width: number; height: number } | null) | null = null;
 
 const SAVE_FILE_LABELS: Record<keyof RawWorldData, string> = {
-    worldMap: 'world_map.json',
+    worldMap: 'world_chunks/manifest.json (+ chunk files)',
     buttons: 'buttons.json',
     doors: 'doors.json',
     creatures: 'creatures.json',

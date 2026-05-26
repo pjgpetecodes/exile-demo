@@ -5,8 +5,10 @@ const { PNG } = require('pngjs');
 
 const PORT = 3001;
 const ROOT = __dirname;
-const ASSET_FILES = {
-    worldMap: path.join(ROOT, 'src', 'assets', 'world_map.json'),
+const WORLD_CHUNK_DIR = path.join(ROOT, 'src', 'assets', 'world_chunks');
+const WORLD_CHUNK_MANIFEST_FILE = path.join(WORLD_CHUNK_DIR, 'manifest.json');
+const WORLD_CHUNK_WORLD_SIZE = 2048;
+const NON_WORLD_ASSET_FILES = {
     buttons: path.join(ROOT, 'src', 'assets', 'buttons.json'),
     doors: path.join(ROOT, 'src', 'assets', 'doors.json'),
     creatures: path.join(ROOT, 'src', 'assets', 'creatures.json'),
@@ -32,6 +34,70 @@ function sendJson(res, statusCode, payload) {
 function validatePayload(payload) {
     if (!payload || typeof payload !== 'object') {
         throw new Error('Request body must be a JSON object.');
+    }
+
+    function chunkWorldMapBlocks(worldMap) {
+        const chunks = new Map();
+        for (const block of worldMap) {
+            const chunkX = Math.floor(Number(block?.x ?? 0) / WORLD_CHUNK_WORLD_SIZE);
+            const chunkY = Math.floor(Number(block?.y ?? 0) / WORLD_CHUNK_WORLD_SIZE);
+            const key = `${chunkX},${chunkY}`;
+            const chunk = chunks.get(key);
+            if (chunk) {
+                chunk.blocks.push(block);
+            } else {
+                chunks.set(key, {
+                    x: chunkX,
+                    y: chunkY,
+                    blocks: [block]
+                });
+            }
+        }
+        return [...chunks.values()].sort((left, right) => {
+            if (left.y !== right.y) {
+                return left.y - right.y;
+            }
+            return left.x - right.x;
+        });
+    }
+
+    async function writeWorldMapChunks(worldMap) {
+        await fs.mkdir(WORLD_CHUNK_DIR, { recursive: true });
+        const chunkEntries = chunkWorldMapBlocks(worldMap).map((chunk) => {
+            const file = `chunk_${chunk.x}_${chunk.y}.json`;
+            return {
+                ...chunk,
+                file,
+                filePath: path.join(WORLD_CHUNK_DIR, file)
+            };
+        });
+
+        await Promise.all(chunkEntries.map((entry) => writeJsonFile(entry.filePath, entry.blocks)));
+
+        const keepFiles = new Set(chunkEntries.map((entry) => entry.file));
+        const existingFiles = await fs.readdir(WORLD_CHUNK_DIR);
+        const staleChunkFiles = existingFiles.filter((fileName) =>
+            /^chunk_-?\d+_-?\d+\.json$/i.test(fileName) &&
+            !keepFiles.has(fileName)
+        );
+        await Promise.all(staleChunkFiles.map((fileName) => fs.unlink(path.join(WORLD_CHUNK_DIR, fileName))));
+
+        const manifest = {
+            version: 1,
+            chunkWorldSize: WORLD_CHUNK_WORLD_SIZE,
+            chunks: chunkEntries.map((entry) => ({
+                x: entry.x,
+                y: entry.y,
+                file: entry.file,
+                count: entry.blocks.length
+            }))
+        };
+        await writeJsonFile(WORLD_CHUNK_MANIFEST_FILE, manifest);
+
+        return [
+            path.join('world_chunks', path.basename(WORLD_CHUNK_MANIFEST_FILE)),
+            ...chunkEntries.map((entry) => path.join('world_chunks', entry.file))
+        ];
     }
 
     for (const key of ['worldMap', 'buttons', 'doors', 'creatures', 'collectables', 'teleporters']) {
@@ -269,6 +335,7 @@ const server = http.createServer(async (req, res) => {
         try {
             const payload = JSON.parse(body || '{}');
             const filesToWrite = [];
+            const extraSavedFiles = [];
 
             if (req.url === '/normalize-sprite-sheet') {
                 const dryRun = payload?.dryRun !== false;
@@ -284,8 +351,9 @@ const server = http.createServer(async (req, res) => {
 
             if (req.url === '/save-world-data') {
                 validatePayload(payload);
+                extraSavedFiles.push(...await writeWorldMapChunks(payload.worldMap));
                 filesToWrite.push(
-                    ...Object.entries(ASSET_FILES).map(([key, filePath]) => [filePath, payload[key]])
+                    ...Object.entries(NON_WORLD_ASSET_FILES).map(([key, filePath]) => [filePath, payload[key]])
                 );
             } else {
                 if (!payload || typeof payload !== 'object') {
@@ -295,8 +363,9 @@ const server = http.createServer(async (req, res) => {
                 filesToWrite.push([PALETTES_FILE, payload.palettes]);
                 if (payload.worldData !== undefined) {
                     validatePayload(payload.worldData);
+                    extraSavedFiles.push(...await writeWorldMapChunks(payload.worldData.worldMap));
                     filesToWrite.push(
-                        ...Object.entries(ASSET_FILES).map(([key, filePath]) => [filePath, payload.worldData[key]])
+                        ...Object.entries(NON_WORLD_ASSET_FILES).map(([key, filePath]) => [filePath, payload.worldData[key]])
                     );
                 }
             }
@@ -305,7 +374,10 @@ const server = http.createServer(async (req, res) => {
 
             sendJson(res, 200, {
                 ok: true,
-                files: filesToWrite.map(([filePath]) => path.basename(filePath))
+                files: [...new Set([
+                    ...filesToWrite.map(([filePath]) => path.basename(filePath)),
+                    ...extraSavedFiles
+                ])]
             });
         } catch (error) {
             sendJson(res, 400, {

@@ -516,6 +516,7 @@ function drawAstronautSprite(
     if (!spriteSource) {
         return;
     }
+    context.imageSmoothingEnabled = false;
 
     if (!isAstronautDamageFlashVisible(now)) {
         context.drawImage(
@@ -765,6 +766,8 @@ const TELEPORTER_PAD_SWEEP_FRAME_MS = 90;
 const TELEPORTER_TILE_SIZE = 32 * SPRITE_SCALE;
 const TELEPORTER_PAD_SWEEP_CACHE_LIMIT = 4096;
 const teleporterPadSweepPositionCache = new Map<string, Position>();
+let teleporterPadKeyCache: { signature: string; keys: Set<string> } = { signature: '', keys: new Set<string>() };
+const teleporterPadFilteredMapCache = new WeakMap<MapBlock[], { signature: string; filtered: MapBlock[] }>();
 type BulletImpactParticle = {
     x: number;
     y: number;
@@ -1842,8 +1845,8 @@ function drawAstronautInWorld(
 
     context.save();
     context.translate(
-        astronaut.position.x - camera.x,
-        astronaut.position.y - camera.y
+        Math.round(astronaut.position.x - camera.x),
+        Math.round(astronaut.position.y - camera.y)
     );
     if (flipSprite) context.scale(-1, 1);
     if (flipVertical) context.scale(1, -1);
@@ -1927,13 +1930,19 @@ async function gameLoop() {
     let mapBlocksMaskAstronaut = !layerVisibility.world
         ? []
         : getMapBlocksMaskAstronaut();
-    const teleporterPadKeys = getTeleporterPadKeySet();
+    const teleporterPadSignature = getTeleporterPadSignature();
+    const teleporterPadKeys = getTeleporterPadKeySet(teleporterPadSignature);
     if (teleporterPadKeys.size > 0) {
-        const shouldKeepBlock = (block: MapBlock) => (
-            block.type !== 'teleporter_pad' || !teleporterPadKeys.has(`${block.x},${block.y}`)
+        mapBlocksBehindAstronaut = filterTeleporterPadsFromBlocks(
+            mapBlocksBehindAstronaut,
+            teleporterPadKeys,
+            teleporterPadSignature
         );
-        mapBlocksBehindAstronaut = mapBlocksBehindAstronaut.filter(shouldKeepBlock);
-        mapBlocksMaskAstronaut = mapBlocksMaskAstronaut.filter(shouldKeepBlock);
+        mapBlocksMaskAstronaut = filterTeleporterPadsFromBlocks(
+            mapBlocksMaskAstronaut,
+            teleporterPadKeys,
+            teleporterPadSignature
+        );
     }
     const blackBackgroundBlocksToHighlight = showBlackBackgroundBlocks && !hideBlackBackgroundBlocks
         ? getBlackBackgroundBlocks()
@@ -2708,7 +2717,7 @@ async function gameLoop() {
         const drawH = 32 * SPRITE_SCALE;
         const renderNow = performance.now();
         ctx!.save();
-        ctx!.translate(canvas.width / 2, canvas.height / 2);
+        ctx!.translate(Math.round(canvas.width / 2), Math.round(canvas.height / 2));
         if (flipSprite) ctx!.scale(-1, 1);
         if (flipVertical) ctx!.scale(1, -1);
         drawAstronautSprite(ctx!, spriteRect, drawW, drawH, renderNow);
@@ -3490,12 +3499,40 @@ function getTeleporterRenderPads(
     return renderPads;
 }
 
-function getTeleporterPadKeySet() {
+function getTeleporterPadSignature() {
+    if (teleporterEntities.length === 0) {
+        return '';
+    }
+    return teleporterEntities.map((teleporter) =>
+        `${teleporter.id}:${teleporter.padX},${teleporter.padY}`
+    ).join('|');
+}
+
+function getTeleporterPadKeySet(signature: string) {
+    if (teleporterPadKeyCache.signature === signature) {
+        return teleporterPadKeyCache.keys;
+    }
     const keys = new Set<string>();
     for (const teleporter of teleporterEntities) {
         keys.add(`${teleporter.padX},${teleporter.padY}`);
     }
+    teleporterPadKeyCache = { signature, keys };
     return keys;
+}
+
+function filterTeleporterPadsFromBlocks(blocks: MapBlock[], teleporterPadKeys: Set<string>, signature: string) {
+    if (teleporterPadKeys.size === 0 || blocks.length === 0) {
+        return blocks;
+    }
+    const cached = teleporterPadFilteredMapCache.get(blocks);
+    if (cached && cached.signature === signature) {
+        return cached.filtered;
+    }
+    const filtered = blocks.filter((block) =>
+        block.type !== 'teleporter_pad' || !teleporterPadKeys.has(`${block.x},${block.y}`)
+    );
+    teleporterPadFilteredMapCache.set(blocks, { signature, filtered });
+    return filtered;
 }
 
 function drawTeleporterPads(

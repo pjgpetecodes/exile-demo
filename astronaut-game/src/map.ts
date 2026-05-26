@@ -188,6 +188,17 @@ export function shouldMaskAstronaut(block: Pick<MapBlock, 'type' | 'collision' |
 // New: Color alias map and loader
 let colorAliases: Record<string, [number, number, number]> = {};
 let colorAliasesLoaded = false;
+type WorldChunkManifestEntry = {
+    x: number;
+    y: number;
+    file: string;
+    count?: number;
+};
+type WorldChunkManifest = {
+    version?: number;
+    chunkWorldSize?: number;
+    chunks?: WorldChunkManifestEntry[];
+};
 
 async function fetchFreshJson<T>(url: string): Promise<T> {
     const separator = url.includes('?') ? '&' : '?';
@@ -204,6 +215,46 @@ async function loadColorAliases() {
     colorAliasesLoaded = true;
 }
 
+function isChunkManifestEntry(value: unknown): value is WorldChunkManifestEntry {
+    if (!value || typeof value !== 'object') {
+        return false;
+    }
+    const entry = value as Partial<WorldChunkManifestEntry>;
+    return Number.isFinite(entry.x)
+        && Number.isFinite(entry.y)
+        && typeof entry.file === 'string'
+        && entry.file.trim().length > 0;
+}
+
+async function loadChunkedWorldMapBlocks() {
+    let manifest: WorldChunkManifest;
+    try {
+        manifest = await fetchFreshJson<WorldChunkManifest>('./src/assets/world_chunks/manifest.json');
+    } catch (error) {
+        if (error instanceof Error && error.message.includes('world_chunks/manifest.json: 404')) {
+            return null;
+        }
+        throw error;
+    }
+    const chunkEntries = Array.isArray(manifest?.chunks)
+        ? manifest.chunks.filter(isChunkManifestEntry)
+        : [];
+    if (chunkEntries.length === 0) {
+        return [];
+    }
+    const chunkBlocks = await Promise.all(chunkEntries.map((entry) =>
+        fetchFreshJson<any[]>(`./src/assets/world_chunks/${entry.file}`)
+    ));
+    const flattened: any[] = [];
+    for (const chunk of chunkBlocks) {
+        if (!Array.isArray(chunk)) {
+            throw new Error('Invalid world chunk payload. Each chunk file must contain an array of map blocks.');
+        }
+        flattened.push(...chunk);
+    }
+    return flattened;
+}
+
 // Utility: Resolve color alias or return RGB array
 function resolveColor(color: string | [number, number, number]): [number, number, number] {
     if (typeof color === "string") {
@@ -214,7 +265,8 @@ function resolveColor(color: string | [number, number, number]): [number, number
 
 export async function loadMapBlocks() {
     await loadColorAliases(); // Ensure color aliases are loaded
-    const arr = await fetchFreshJson<any[]>('./src/assets/world_map.json');
+    const arr = await loadChunkedWorldMapBlocks()
+        ?? await fetchFreshJson<any[]>('./src/assets/world_map.json');
     // Assign entityId to each block using global assignEntityId
     mapBlocks = arr.map((block: any) => assignEntityId(block));
     rebuildMapBlockRenderCache();

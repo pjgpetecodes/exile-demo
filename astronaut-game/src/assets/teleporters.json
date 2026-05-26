@@ -76,5 +76,20 @@
     },
     "destinationB": null,
     "activeDestinationIndex": 0
+  },
+  {
+    "id": "teleporter_6",
+    "baseX": 8800,
+    "baseY": 3379,
+    "padX": 8800,
+    "padY": 3379,
+    "enabled": true,
+    "requiresKey": false,
+    "destinationA": {
+      "x": 8773,
+      "y": 380
+    },
+    "destinationB": null,
+    "activeDestinationIndex": 0
   }
 ]

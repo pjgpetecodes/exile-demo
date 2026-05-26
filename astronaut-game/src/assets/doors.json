@@ -88,5 +88,23 @@
     "destructible": true,
     "destructionHealth": 24,
     "destructionSource": "grenade_explosion"
+  },
+  {
+    "x": 11264,
+    "y": 5209,
+    "z": 0,
+    "type": "door_vertical",
+    "palette": 11,
+    "rotation": 6,
+    "name": "door_vertical_5",
+    "doorID": 5,
+    "locked": false,
+    "open": false,
+    "palette_locked": null,
+    "palette_unlocked": null,
+    "collision": true,
+    "destructible": true,
+    "destructionHealth": 24,
+    "destructionSource": "any_explosion"
   }
 ]
