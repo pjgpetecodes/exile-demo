@@ -1,4 +1,4 @@
-import { MAP_HEIGHT, MAP_WIDTH, SPRITE_SCALE } from './constants.js';
+import { MAP_HEIGHT, MAP_WIDTH, SPRITE_SCALE, mushroomsSound, getSoundEnabled } from './constants.js';
 import { CREATURE_SOUND_MANIFEST } from './assets/creature-sound-manifest.js';
 import {
     DESTRUCTION_SOURCE_OPTIONS,
@@ -985,6 +985,20 @@ function getDefaultType(spriteTypes: string[], category: RuntimeDesignerCategory
     }
 
     return spriteTypes[0] ?? 'floor_full';
+}
+
+function isDoorSpriteType(type: string): type is 'door_horizontal' | 'door_vertical' {
+    return type === 'door_horizontal' || type === 'door_vertical';
+}
+
+function getDoorTypeFromSourceType(type: string): 'door_horizontal' | 'door_vertical' | null {
+    if (isDoorSpriteType(type)) {
+        return type;
+    }
+    if (type === 'wall_left_quarter') {
+        return 'door_vertical';
+    }
+    return null;
 }
 
 function buildLayerVisibility(): LayerVisibility {
@@ -6683,13 +6697,16 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     function createDoorEntity(config: {
         x: number;
         y: number;
+        type?: string;
         palette?: number;
         rotation?: number;
         collision?: boolean;
         paletteCycle?: PaletteCycleSettings;
     }) {
         const doorId = getNextDoorId();
-        const type = state.typeByCategory.doors;
+        const type = isDoorSpriteType(config.type ?? '')
+            ? (config.type as 'door_horizontal' | 'door_vertical')
+            : (state.typeByCategory.doors as 'door_horizontal' | 'door_vertical');
         return new Door({
             x: config.x,
             y: config.y,
@@ -7152,9 +7169,12 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
 
         if (targetCategory === 'doors') {
+            const sourceType = typeof selection.entity.type === 'string' ? selection.entity.type : '';
+            const resolvedDoorType = getDoorTypeFromSourceType(sourceType);
             const door = createDoorEntity({
                 x: selection.entity.x,
                 y: selection.entity.y,
+                type: resolvedDoorType ?? undefined,
                 palette: basePalette,
                 rotation: baseRotation,
                 collision: baseCollision,
@@ -7240,6 +7260,21 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         return pastedSelections;
     }
 
+    function playMushroomPlacementSound(type: string) {
+        if (type !== 'mushrooms' && type !== 'mushroom') {
+            return;
+        }
+        if (!getSoundEnabled()) {
+            return;
+        }
+        const placementSound = mushroomsSound.cloneNode(true);
+        if (!(placementSound instanceof HTMLAudioElement)) {
+            return;
+        }
+        placementSound.volume = 0.8;
+        void placementSound.play().catch(() => { });
+    }
+
     function placeAtWorld(worldX: number, worldY: number, snapMode: ObjectSnapMode = state.activeObjectSnapMode) {
         const { x, y } = resolvePlacementPosition(worldX, worldY, state.category, snapMode);
         const type = getCurrentType();
@@ -7261,6 +7296,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 translation: state.translation
             };
             getCategoryArray('world').push(entity);
+            playMushroomPlacementSound(type);
             setSelections([{ category: 'world', entity }]);
             return;
         }
@@ -7290,6 +7326,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 translation: 'center'
             };
             getCategoryArray('world').push(entity);
+            playMushroomPlacementSound(type);
             setSelections([{ category: 'world', entity }]);
             return;
         }

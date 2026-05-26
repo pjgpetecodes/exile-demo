@@ -37,6 +37,7 @@ import {
     getBlackBackgroundBlocks,
     getMapBlocksBehindAstronaut,
     getMapBlocksMaskAstronaut,
+    getMushroomBlocks,
     getRenderableMapBlocks,
     rebuildMapBlockRenderCache
 } from './map.js';
@@ -68,7 +69,7 @@ import {
     SPRITE_ROW, SPRITE_COL_STAND, SPRITE_COL_FLY_RIGHT, SPRITE_COL_FLY_DIAGONAL,
     SPRITE_COL_FLY_FLOAT, SPRITE_COL_FLY_DOWN, SPRITE_COL_WALK_START, SPRITE_COL_WALK_RIGHT1,
     SPRITE_COL_WALK_RIGHT2, SPRITE_COL_WALK_END, TELEPORT_ANIM_FRAMES, MAP_WIDTH, MAP_HEIGHT,
-    SPRITE_SCALE, rememberSound, teleportSound, buttonOnSound, doorOpenSound, doorCloseSound, getSound, saveSound, bulletExplosionSound, bulletExplosion2Sound, grenadeArmedSound, ouchSounds, creatureManifestSounds,
+    SPRITE_SCALE, rememberSound, teleportSound, buttonOnSound, doorOpenSound, doorCloseSound, getSound, saveSound, bulletExplosionSound, bulletExplosion2Sound, grenadeArmedSound, mushroomsSound, ouchSounds, creatureManifestSounds,
     setMapBounds,
     getSoundEnabled, setSoundEnabled, toggleSoundEnabled
 } from './constants.js';
@@ -117,6 +118,10 @@ const BIRD_TRACK_RELEASE_RANGE_PADDING = 96;
 const BIRD_AVOIDANCE_VERTICAL_THRESHOLD = 12;
 const HELD_COLLECTABLE_HAND_INSET = 4 * SPRITE_SCALE;
 const HELD_COLLECTABLE_HAND_OVERLAP = -12;
+const MUSHROOM_AMBIENT_RANGE = 360;
+const MUSHROOM_AMBIENT_BASE_VOLUME = 0.6;
+const MUSHROOM_AMBIENT_MIN_DELAY_MS = 180;
+const MUSHROOM_AMBIENT_MAX_DELAY_MS = 420;
 
 function getCreatureProjectilePhysicsSettings(collectable: Pick<Collectable, 'bounciness' | 'creatureProjectile'>) {
     const projectileKind = collectable.creatureProjectile?.kind;
@@ -792,6 +797,7 @@ let bulletImpactParticles: BulletImpactParticle[] = [];
 let destructibleDamageByEntity = new WeakMap<object, number>();
 let bulletImpactAudioSettings: BulletImpactAudioSettings = { ...BULLET_IMPACT_AUDIO_SETTINGS };
 let grenadeArmedLoopActive = false;
+let nextMushroomAmbientAt = 0;
 let worldDesigner: WorldDesigner | null = null;
 const STARFIELD_HEIGHT = Math.min(MAP_HEIGHT, 2000);
 const BULLET_IMPACT_PARTICLE_COLORS = ['#ffffff', '#ffff00', '#ff00ff', '#00ffff', '#0000ff', '#ff0000'];
@@ -4655,6 +4661,56 @@ function updateGrenadeArmedLoopSound() {
     }
 }
 
+function updateMushroomAmbientLoopSound() {
+    if (!getSoundEnabled()) {
+        nextMushroomAmbientAt = 0;
+        return;
+    }
+
+    const mushrooms = getMushroomBlocks();
+    if (mushrooms.length === 0) {
+        nextMushroomAmbientAt = 0;
+        return;
+    }
+
+    const tileSize = 32 * SPRITE_SCALE;
+    const mushroomCenterOffset = tileSize / 2;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    for (const mushroom of mushrooms) {
+        const dx = mushroom.x + mushroomCenterOffset - astronaut.position.x;
+        const dy = mushroom.y + mushroomCenterOffset - astronaut.position.y;
+        const distance = Math.hypot(dx, dy);
+        if (distance < nearestDistance) {
+            nearestDistance = distance;
+        }
+    }
+
+    if (nearestDistance > MUSHROOM_AMBIENT_RANGE) {
+        nextMushroomAmbientAt = 0;
+        return;
+    }
+
+    const now = performance.now();
+    if (now < nextMushroomAmbientAt) {
+        return;
+    }
+
+    const volume = Math.max(
+        0,
+        Math.min(1, MUSHROOM_AMBIENT_BASE_VOLUME * (1 - nearestDistance / MUSHROOM_AMBIENT_RANGE))
+    );
+    if (volume > 0) {
+        const ambientInstance = mushroomsSound.cloneNode(true);
+        if (ambientInstance instanceof HTMLAudioElement) {
+            ambientInstance.volume = volume;
+            void ambientInstance.play().catch(() => { });
+        }
+    }
+    const delay = MUSHROOM_AMBIENT_MIN_DELAY_MS
+        + Math.random() * (MUSHROOM_AMBIENT_MAX_DELAY_MS - MUSHROOM_AMBIENT_MIN_DELAY_MS);
+    nextMushroomAmbientAt = now + delay;
+}
+
 function playBulletImpactSound() {
     playRuntimeSound(bulletExplosionSound, bulletImpactAudioSettings.volume);
 }
@@ -6700,6 +6756,7 @@ function updateCollectablePhysics() {
         updateSingleCollectablePhysics(collectable);
     }
     updateGrenadeArmedLoopSound();
+    updateMushroomAmbientLoopSound();
 }
 
 function updateAndDrawThrowGuide(context: CanvasRenderingContext2D, camera: Position) {

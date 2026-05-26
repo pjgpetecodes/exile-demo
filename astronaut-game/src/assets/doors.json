@@ -106,5 +106,23 @@
     "destructible": true,
     "destructionHealth": 24,
     "destructionSource": "any_explosion"
+  },
+  {
+    "x": 7444,
+    "y": 4225,
+    "z": 0,
+    "type": "door_vertical",
+    "palette": 19,
+    "rotation": 6,
+    "name": "door_vertical_6",
+    "doorID": 6,
+    "locked": true,
+    "open": false,
+    "palette_locked": null,
+    "palette_unlocked": null,
+    "collision": true,
+    "destructible": true,
+    "destructionHealth": 24,
+    "destructionSource": "any_explosion"
   }
 ]

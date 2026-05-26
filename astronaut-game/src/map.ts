@@ -37,13 +37,256 @@ let mapBlocksBehindAstronaut: MapBlock[] = [];
 let mapBlocksBehindAstronautWithoutBlackBackground: MapBlock[] = [];
 let mapBlocksMaskAstronaut: MapBlock[] = [];
 let blackBackgroundBlocks: MapBlock[] = [];
+let mushroomBlocks: MapBlock[] = [];
 let allMapBlockBuckets: BlockBucketMap = new Map();
 let mapBlocksWithoutBlackBackgroundBuckets: BlockBucketMap = new Map();
 let mapBlocksBehindAstronautBuckets: BlockBucketMap = new Map();
 let mapBlocksBehindAstronautWithoutBlackBackgroundBuckets: BlockBucketMap = new Map();
 let mapBlocksMaskAstronautBuckets: BlockBucketMap = new Map();
 let blackBackgroundBlockBuckets: BlockBucketMap = new Map();
+let mapBlockPositionLookup = new Map<string, MapBlock>();
 const spriteRectMapCache = new WeakMap<object, Record<string, any>>();
+const mushroomTransparentPixelCache = new Map<string, MushroomPixelPoint[]>();
+const mushroomSporeFrameCache = new Map<string, { frameIndex: number; canvas: HTMLCanvasElement }>();
+const spriteAlphaMaskCache = new WeakMap<HTMLCanvasElement, Uint8Array>();
+const MUSHROOM_PATTERN_COLORS = ['#2ad850', '#5ef57d', '#f8eb40', '#ef4f58', '#72c9ff', '#ffffff'];
+const MUSHROOM_SPORE_FRAME_MS = 150;
+const MUSHROOM_SPORES_PER_FRAME = 10;
+const MUSHROOM_SIDE_SPILL_PIXELS_PER_FRAME = 4;
+
+type MushroomPixelPoint = {
+    x: number;
+    y: number;
+};
+
+type MushroomSpillSide = 'left' | 'right';
+
+function hashStringToSeed(value: string) {
+    let hash = 2166136261;
+    for (let index = 0; index < value.length; index += 1) {
+        hash ^= value.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+}
+
+function nextSeed(seed: number) {
+    return (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+}
+
+function isMushroomType(type: string) {
+    return type === 'mushrooms' || type === 'mushroom';
+}
+
+function getMushroomPatternKey(block: MapBlock) {
+    const palette = typeof block.palette === 'number' ? block.palette : 0;
+    return `${block.x}:${block.y}:${palette}:${block.rotation ?? 1}`;
+}
+
+function getTransparentMushroomPixels(sourceCanvas: HTMLCanvasElement, key: string) {
+    const cached = mushroomTransparentPixelCache.get(key);
+    if (cached) {
+        return cached;
+    }
+
+    const context = sourceCanvas.getContext('2d');
+    if (!context) {
+        return [];
+    }
+    const imageData = context.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+    const transparentPixels: MushroomPixelPoint[] = [];
+    const lowerHalfStartY = Math.floor(sourceCanvas.height / 2);
+    for (let y = 0; y < sourceCanvas.height; y += 1) {
+        if (y < lowerHalfStartY) {
+            continue;
+        }
+        for (let x = 0; x < sourceCanvas.width; x += 1) {
+            const alpha = imageData.data[(y * sourceCanvas.width + x) * 4 + 3];
+            if (alpha === 0) {
+                transparentPixels.push({ x, y });
+            }
+        }
+    }
+
+    mushroomTransparentPixelCache.set(key, transparentPixels);
+    return transparentPixels;
+}
+
+function getMushroomPatternCanvas(block: MapBlock, spriteCanvas: HTMLCanvasElement, now: number) {
+    const key = getMushroomPatternKey(block);
+    const frameIndex = Math.floor(Math.max(0, now) / MUSHROOM_SPORE_FRAME_MS);
+    const cached = mushroomSporeFrameCache.get(key);
+    if (cached && cached.frameIndex === frameIndex) {
+        return cached.canvas;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = spriteCanvas.width;
+    canvas.height = spriteCanvas.height;
+    const context = canvas.getContext('2d');
+    if (!context) {
+        return null;
+    }
+
+    const transparentPixels = getTransparentMushroomPixels(
+        spriteCanvas,
+        `${block.type}:${block.rotation ?? 1}:${spriteCanvas.width}x${spriteCanvas.height}`
+    );
+    if (transparentPixels.length === 0) {
+        mushroomSporeFrameCache.set(key, { frameIndex, canvas });
+        return canvas;
+    }
+
+    let seed = hashStringToSeed(`${key}:${frameIndex}`);
+    const usedIndexes = new Set<number>();
+    const flashes = Math.min(MUSHROOM_SPORES_PER_FRAME, transparentPixels.length);
+    for (let count = 0; count < flashes; count += 1) {
+        let pixelIndex = -1;
+        for (let attempt = 0; attempt < 6; attempt += 1) {
+            seed = nextSeed(seed);
+            const candidate = seed % transparentPixels.length;
+            if (!usedIndexes.has(candidate)) {
+                pixelIndex = candidate;
+                break;
+            }
+        }
+        if (pixelIndex < 0) {
+            continue;
+        }
+        usedIndexes.add(pixelIndex);
+        const point = transparentPixels[pixelIndex];
+        seed = nextSeed(seed);
+        context.fillStyle = MUSHROOM_PATTERN_COLORS[seed % MUSHROOM_PATTERN_COLORS.length];
+        context.fillRect(point.x, point.y, 1, 1);
+    }
+
+    mushroomSporeFrameCache.set(key, { frameIndex, canvas });
+    return canvas;
+}
+
+function getMapBlockPositionKey(x: number, y: number) {
+    return `${x.toFixed(3)}:${y.toFixed(3)}`;
+}
+
+function getMapBlockAtPosition(x: number, y: number) {
+    return mapBlockPositionLookup.get(getMapBlockPositionKey(x, y));
+}
+
+function getSpriteAlphaMask(sourceCanvas: HTMLCanvasElement) {
+    const cached = spriteAlphaMaskCache.get(sourceCanvas);
+    if (cached) {
+        return cached;
+    }
+    const context = sourceCanvas.getContext('2d');
+    if (!context) {
+        return null;
+    }
+    const width = sourceCanvas.width;
+    const height = sourceCanvas.height;
+    const imageData = context.getImageData(0, 0, width, height);
+    const mask = new Uint8Array(width * height);
+    for (let y = 0; y < height; y += 1) {
+        for (let x = 0; x < width; x += 1) {
+            const alpha = imageData.data[(y * width + x) * 4 + 3];
+            mask[y * width + x] = alpha > 0 ? 1 : 0;
+        }
+    }
+    spriteAlphaMaskCache.set(sourceCanvas, mask);
+    return mask;
+}
+
+function getMapBlockSpriteCanvas(
+    block: MapBlock,
+    rectMap: Record<string, any>,
+    spriteSheets: CanvasImageSource[],
+    now?: number
+) {
+    const rect = rectMap[block.type];
+    if (!rect) {
+        return null;
+    }
+    const basePalette = typeof block.palette === "number" ? block.palette : 0;
+    const paletteIdx = resolveAnimatedPaletteIndex(
+        block.type,
+        block.paletteCycle,
+        basePalette,
+        spriteSheets.length,
+        now
+    );
+    const sheet = spriteSheets[paletteIdx] || spriteSheets[0];
+    const spriteCanvas = getTransformedSpriteCanvas(sheet, rect, block.rotation ?? 1);
+    return spriteCanvas instanceof HTMLCanvasElement ? spriteCanvas : null;
+}
+
+function drawMushroomSpillPixels(
+    ctx: CanvasRenderingContext2D,
+    mushroomBlock: MapBlock,
+    side: MushroomSpillSide,
+    tileW: number,
+    tileH: number,
+    spriteCanvas: HTMLCanvasElement,
+    translationOffset: Position,
+    rectMap: Record<string, any>,
+    spriteSheets: CanvasImageSource[],
+    now: number
+) {
+    const neighborX = side === 'left' ? mushroomBlock.x - tileW : mushroomBlock.x + tileW;
+    const neighbor = getMapBlockAtPosition(neighborX, mushroomBlock.y);
+    const neighborCanvas = neighbor ? getMapBlockSpriteCanvas(neighbor, rectMap, spriteSheets, now) : null;
+    const neighborMask = neighborCanvas ? getSpriteAlphaMask(neighborCanvas) : null;
+    if (neighbor && !neighborMask) {
+        return;
+    }
+    const width = spriteCanvas.width;
+    const height = spriteCanvas.height;
+    const lowerHalfStartY = Math.floor(height / 2);
+    const spillStartX = side === 'left' ? Math.floor(width / 2) : 0;
+    const spillEndXExclusive = side === 'left' ? width : Math.ceil(width / 2);
+    const candidates: MushroomPixelPoint[] = [];
+    for (let y = lowerHalfStartY; y < height; y += 1) {
+        for (let x = spillStartX; x < spillEndXExclusive; x += 1) {
+            if (neighborMask && neighborMask[y * width + x] !== 0) {
+                continue;
+            }
+            candidates.push({ x, y });
+        }
+    }
+    if (candidates.length === 0) {
+        return;
+    }
+
+    const frameIndex = Math.floor(Math.max(0, now) / MUSHROOM_SPORE_FRAME_MS);
+    let seed = hashStringToSeed(`${getMushroomPatternKey(mushroomBlock)}:${side}:${frameIndex}`);
+    const usedIndexes = new Set<number>();
+    const flashes = Math.min(MUSHROOM_SIDE_SPILL_PIXELS_PER_FRAME, candidates.length);
+    const pixelScaleX = tileW / width;
+    const pixelScaleY = tileH / height;
+    const sideOffsetX = side === 'left' ? -tileW : tileW;
+    for (let count = 0; count < flashes; count += 1) {
+        let pixelIndex = -1;
+        for (let attempt = 0; attempt < 6; attempt += 1) {
+            seed = nextSeed(seed);
+            const candidate = seed % candidates.length;
+            if (!usedIndexes.has(candidate)) {
+                pixelIndex = candidate;
+                break;
+            }
+        }
+        if (pixelIndex < 0) {
+            continue;
+        }
+        usedIndexes.add(pixelIndex);
+        const point = candidates[pixelIndex];
+        seed = nextSeed(seed);
+        ctx.fillStyle = MUSHROOM_PATTERN_COLORS[seed % MUSHROOM_PATTERN_COLORS.length];
+        ctx.fillRect(
+            -tileW / 2 + sideOffsetX + translationOffset.x + point.x * pixelScaleX,
+            -tileH / 2 + translationOffset.y + point.y * pixelScaleY,
+            pixelScaleX,
+            pixelScaleY
+        );
+    }
+}
 
 function getBucketKey(column: number, row: number) {
     return `${column},${row}`;
@@ -66,6 +309,12 @@ function buildBlockBuckets(blocks: MapBlock[]) {
 }
 
 export function rebuildMapBlockRenderCache() {
+    mushroomSporeFrameCache.clear();
+    mushroomTransparentPixelCache.clear();
+    mushroomBlocks = mapBlocks.filter((block) => isMushroomType(block.type));
+    mapBlockPositionLookup = new Map(
+        mapBlocks.map((block) => [getMapBlockPositionKey(block.x, block.y), block] as const)
+    );
     mapBlocksWithoutBlackBackground = mapBlocks.filter((block) => block.type !== 'black_background');
     mapBlocksBehindAstronaut = mapBlocks.filter((block) => !shouldMaskAstronaut(block));
     mapBlocksBehindAstronautWithoutBlackBackground = mapBlocksBehindAstronaut.filter((block) => block.type !== 'black_background');
@@ -94,6 +343,10 @@ export function getMapBlocksMaskAstronaut() {
 
 export function getBlackBackgroundBlocks() {
     return blackBackgroundBlocks;
+}
+
+export function getMushroomBlocks() {
+    return mushroomBlocks;
 }
 
 function getBucketMapForBlocks(blocks?: MapBlock[]) {
@@ -347,6 +600,9 @@ export function drawMap(
     if (!spriteMap || !mapLoaded) return;
 
     const rectMap = getSpriteRectMap(spriteMap);
+    const drawNow = typeof now === 'number'
+        ? now
+        : (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
     // Only draw blocks in camera viewport (+1 tile margin)
     const tileW = 32 * SPRITE_SCALE;
@@ -376,14 +632,15 @@ export function drawMap(
             block.paletteCycle,
             basePalette,
             spriteSheets.length,
-            now
+            drawNow
         );
-        const sheet = spriteSheets[paletteIdx] || spriteSheets[0];
 
         ctx.save();
         const drawX = block.x - camera.x;
         const drawY = block.y - camera.y;
         ctx.translate(drawX + tileW / 2, drawY + tileH / 2);
+
+        const sheet = spriteSheets[paletteIdx] || spriteSheets[0];
 
         const offCanvas = getTransformedSpriteCanvas(sheet, rect, block.rotation ?? 1);
         if (!offCanvas) {
@@ -403,6 +660,47 @@ export function drawMap(
             -tileH / 2 + translationOffset.y,
             tileW, tileH
         );
+
+        if (isMushroomType(block.type) && offCanvas instanceof HTMLCanvasElement) {
+            const pattern = getMushroomPatternCanvas(
+                block,
+                offCanvas,
+                drawNow
+            );
+            if (pattern) {
+                ctx.drawImage(
+                    pattern,
+                    -tileW / 2 + translationOffset.x,
+                    -tileH / 2 + translationOffset.y,
+                    tileW,
+                    tileH
+                );
+            }
+            drawMushroomSpillPixels(
+                ctx,
+                block,
+                'left',
+                tileW,
+                tileH,
+                offCanvas,
+                translationOffset,
+                rectMap,
+                spriteSheets,
+                drawNow
+            );
+            drawMushroomSpillPixels(
+                ctx,
+                block,
+                'right',
+                tileW,
+                tileH,
+                offCanvas,
+                translationOffset,
+                rectMap,
+                spriteSheets,
+                drawNow
+            );
+        }
         ctx.restore();
     }
 }
