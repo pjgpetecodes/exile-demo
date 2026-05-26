@@ -6,3 +6,4 @@ npm-debug.log
 .DS_Store
 .vscode/chrome-debug-profile/
 .vscode/msedge-debug-profile/
+appsettings.copilot.json

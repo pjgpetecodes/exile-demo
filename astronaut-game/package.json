@@ -7,6 +7,7 @@
     "start": "node static-server.cjs",
     "save-server": "node designer-save-server.cjs",
     "build": "tsc",
+    "extract-bbc-audio": "node tools/extract-bbc-audio.cjs",
     "dev": "concurrently \"tsc --watch\" \"lite-server --config bs-config.js --no-open\" \"node designer-save-server.cjs\""
   },
   "dependencies": {

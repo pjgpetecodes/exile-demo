@@ -1,0 +1,45 @@
+{
+  "generatedAt": "2026-05-23T22:04:11.796Z",
+  "sampleRate": 44100,
+  "compositeExports": [
+    {
+      "fileName": "teleport_composite.wav",
+      "label": "Teleport composite",
+      "note": "Reference composite for the BBC teleport event: start teleport cue, then the reposition cue 16 ticks later (~0.32s at 50Hz).",
+      "renderedSeconds": 1.4,
+      "file": "composite/teleport_composite.wav",
+      "sources": [
+        {
+          "sourceType": "named",
+          "fileName": "teleport.wav",
+          "offsetSeconds": 0,
+          "gain": 0.95,
+          "file": "named/teleport.wav"
+        },
+        {
+          "sourceType": "named",
+          "fileName": "teleport_transition.wav",
+          "offsetSeconds": 0.32,
+          "gain": 0.85,
+          "file": "named/teleport_transition.wav"
+        }
+      ]
+    },
+    {
+      "fileName": "mushroom_contact_composite.wav",
+      "label": "Mushroom contact composite",
+      "note": "Reference wrapper for the BBC mushroom interaction cue used for tile collision and mushroom-ball burst.",
+      "renderedSeconds": 0.76,
+      "file": "composite/mushroom_contact_composite.wav",
+      "sources": [
+        {
+          "sourceType": "named",
+          "fileName": "mushroom.wav",
+          "offsetSeconds": 0,
+          "gain": 1,
+          "file": "named/mushroom.wav"
+        }
+      ]
+    }
+  ]
+}

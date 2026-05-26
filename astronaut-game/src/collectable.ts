@@ -1,4 +1,28 @@
-import { CreatureSaveData, PaletteCycleSettings, Position } from './types/index.js';
+import { MOVEMENT_SETTINGS } from './settings.js';
+import {
+    CreatureProjectileRuntimeData,
+    CreatureSaveData,
+    PaletteCycleSettings,
+    Position
+} from './types/index.js';
+
+export function isGrenadeCollectableType(type: string): type is 'grenade' | 'plasma_grenade' {
+    return type === 'grenade' || type === 'plasma_grenade';
+}
+
+export function getDefaultGrenadeExplosionPower(type: string) {
+    if (type === 'plasma_grenade') {
+        return MOVEMENT_SETTINGS.plasmaGrenadeExplosionPower;
+    }
+    if (type === 'grenade') {
+        return MOVEMENT_SETTINGS.grenadeExplosionPower;
+    }
+    return undefined;
+}
+
+function getCurrentTimeMs() {
+    return typeof performance !== 'undefined' ? performance.now() : Date.now();
+}
 
 export class Collectable {
     x: number;
@@ -18,6 +42,8 @@ export class Collectable {
     stored: boolean;
     isGrounded: boolean;
     velocity: Position;
+    angleDegrees?: number;
+    bounciness: number;
     astronautCollisionIgnoreFrames: number;
     entityId?: number;
     paletteCycle?: PaletteCycleSettings;
@@ -25,7 +51,13 @@ export class Collectable {
     ambientSoundKey?: string;
     ambientSoundIntervalMs?: number;
     nextAmbientSoundAt?: number;
+    radioactive: boolean;
     creaturePayload?: CreatureSaveData;
+    creatureProjectile?: CreatureProjectileRuntimeData;
+    armed: boolean;
+    armedAtMs?: number;
+    explosionPower?: number;
+    explosionRadius?: number;
 
     constructor(data: any) {
         this.x = data.x;
@@ -45,13 +77,27 @@ export class Collectable {
         this.stored = data.stored ?? false;
         this.isGrounded = data.isGrounded ?? false;
         this.velocity = data.velocity ?? { x: 0, y: 0 };
+        this.angleDegrees = typeof data.angleDegrees === 'number' ? data.angleDegrees : undefined;
+        this.bounciness = typeof data.bounciness === 'number' ? Math.max(0, data.bounciness) : 0;
         this.astronautCollisionIgnoreFrames = data.astronautCollisionIgnoreFrames ?? 0;
         this.paletteCycle = data.paletteCycle;
         this.ttlFrames = typeof data.ttlFrames === 'number' ? data.ttlFrames : undefined;
         this.ambientSoundKey = typeof data.ambientSoundKey === 'string' ? data.ambientSoundKey : undefined;
         this.ambientSoundIntervalMs = typeof data.ambientSoundIntervalMs === 'number' ? data.ambientSoundIntervalMs : undefined;
         this.nextAmbientSoundAt = typeof data.nextAmbientSoundAt === 'number' ? data.nextAmbientSoundAt : undefined;
+        this.radioactive = data.radioactive === true;
         this.creaturePayload = data.creaturePayload;
+        this.creatureProjectile = data.creatureProjectile;
+        this.armed = data.armed === true;
+        this.armedAtMs = typeof data.armedAtMs === 'number'
+            ? data.armedAtMs
+            : (this.armed ? getCurrentTimeMs() : undefined);
+        this.explosionPower = typeof data.explosionPower === 'number'
+            ? data.explosionPower
+            : getDefaultGrenadeExplosionPower(this.type);
+        this.explosionRadius = typeof data.explosionRadius === 'number'
+            ? Math.max(1, data.explosionRadius)
+            : undefined;
     }
 
     collect() {
@@ -85,5 +131,23 @@ export class Collectable {
         this.velocity = velocity;
         this.isGrounded = false;
         this.astronautCollisionIgnoreFrames = astronautCollisionIgnoreFrames;
+    }
+
+    arm(now: number = getCurrentTimeMs()) {
+        this.armed = true;
+        this.armedAtMs = now;
+    }
+
+    disarm() {
+        this.armed = false;
+        this.armedAtMs = undefined;
+    }
+
+    toggleArmed(now: number = getCurrentTimeMs()) {
+        if (this.armed) {
+            this.disarm();
+            return;
+        }
+        this.arm(now);
     }
 }

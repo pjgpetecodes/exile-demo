@@ -1,3 +1,13 @@
+import { CreatureProjectileKind, CreatureProjectileSettings } from './types/index.js';
+
+export type BulletImpactAudioKey = 'bulletExplosion' | 'bulletExplosion2';
+export type BulletImpactAudioSettings = {
+    primary: BulletImpactAudioKey;
+    alternate: BulletImpactAudioKey;
+    alternateChance: number;
+    volume: number;
+};
+
 export const MOVEMENT_SETTINGS = {
     gravity: 0.035,
     groundedTakeoffImpulse: -0.8,
@@ -43,6 +53,12 @@ export const MOVEMENT_SETTINGS = {
     creatureProjectileLifetimeFrames: 180,
     creatureEnergyPodLifetimeFrames: 300,
     creatureGrenadeBounceRestitution: 0.42,
+    grenadeFuseMs: 5000,
+    grenadeExplosionPower: 4,
+    plasmaGrenadeExplosionPower: 6,
+    grenadeMaxExplosionPower: 6,
+    grenadeExplosionRadius: 96,
+    plasmaGrenadeExplosionRadius: 144,
     heldCollectableForwardOffset: 28,
     heldCollectableVerticalOffset: -6,
     droppedCollectableForwardOffset: 24,
@@ -53,10 +69,103 @@ export const MOVEMENT_SETTINGS = {
     throwGuideDotSpeed: 14,
     throwGuideDotEmitIntervalFrames: 2,
     throwGuideDotsPerBurst: 2,
-    throwGuideDotSize: 2.2
+    throwGuideDotSize: 2.2,
+    astronautMaxEnergy: 64,
+    astronautDamageIntakeMultiplier: 2.5,
+    astronautEmergencyTeleportEnergy: 1,
+    astronautEnergyRegenAmount: 1,
+    astronautEnergyRegenIntervalMs: 320,
+    astronautDamageFlashMinIntervalMs: 55,
+    astronautDamageFlashMaxIntervalMs: 210,
+    astronautExplosionSpinChance: 0.08,
+    astronautExplosionSpinMinForce: 1.2
 } as const;
 
 export const VIEWPORT_SETTINGS = {
     defaultWidth: 1000,
     defaultHeight: 675
 } as const;
+
+export const BULLET_IMPACT_AUDIO_SETTINGS: BulletImpactAudioSettings = {
+    primary: 'bulletExplosion',
+    alternate: 'bulletExplosion2',
+    alternateChance: 1 / 20,
+    volume: 0.8
+};
+
+export const CREATURE_PROJECTILE_SETTINGS: Record<CreatureProjectileKind, CreatureProjectileSettings> = {
+    bullet: {
+        spriteType: 'bullet1',
+        lifetimeFrames: MOVEMENT_SETTINGS.creatureProjectileLifetimeFrames,
+        gravityScale: 0.2,
+        speedMultiplier: 1,
+        launchVerticalBias: 0,
+        defaultWeight: 0.08,
+        defaultBounciness: 0,
+        damageMultiplier: 1,
+        directHitDamageMultiplier: 1,
+        angleMatchesVelocity: true,
+        supportsHoming: true,
+        flightAnimation: {
+            frames: ['bullet1', 'bullet2', 'bullet3', 'bullet4', 'bullet5', 'bullet6'],
+            frameDurationFrames: 2,
+            paletteSource: 'projectile'
+        },
+        impactAnimation: {
+            frames: ['explosion_half', 'explosion', 'explosion_half'],
+            frameDurationFrames: 2,
+            paletteSource: 'projectile'
+        }
+    },
+    grenade: {
+        spriteType: 'grenade',
+        lifetimeFrames: MOVEMENT_SETTINGS.creatureProjectileLifetimeFrames,
+        gravityScale: 1,
+        speedMultiplier: 1,
+        launchVerticalBias: -1.2,
+        defaultWeight: 0.35,
+        defaultBounciness: MOVEMENT_SETTINGS.creatureGrenadeBounceRestitution,
+        damageMultiplier: 1,
+        directHitDamageMultiplier: 1.5,
+        splashRadius: 96,
+        splashDamageMultiplier: 1,
+        minimumSplashDamage: 0.5,
+        impactAnimation: {
+            frames: ['explosion_half', 'explosion', 'explosion'],
+            frameDurationFrames: 3,
+            paletteSource: 'projectile'
+        }
+    },
+    plasma_grenade: {
+        spriteType: 'fireball',
+        lifetimeFrames: MOVEMENT_SETTINGS.creatureProjectileLifetimeFrames,
+        gravityScale: 1,
+        speedMultiplier: 0.95,
+        launchVerticalBias: -1.35,
+        defaultWeight: 0.42,
+        defaultBounciness: MOVEMENT_SETTINGS.creatureGrenadeBounceRestitution * 0.95,
+        damageMultiplier: 1.75,
+        directHitDamageMultiplier: 2.1,
+        splashRadius: 128,
+        splashDamageMultiplier: 1.35,
+        minimumSplashDamage: 0.9,
+        impactAnimation: {
+            frames: ['explosion_half', 'explosion', 'explosion', 'explosion_half'],
+            frameDurationFrames: 3,
+            paletteSource: 'projectile'
+        }
+    },
+    energy_pod: {
+        spriteType: 'energy_pod2',
+        lifetimeFrames: MOVEMENT_SETTINGS.creatureEnergyPodLifetimeFrames,
+        gravityScale: 1,
+        speedMultiplier: 0.85,
+        launchVerticalBias: -0.5,
+        defaultWeight: 0.18,
+        defaultBounciness: 0,
+        damageMultiplier: 1,
+        directHitDamageMultiplier: 1,
+        spawnsCollectableOnImpact: true,
+        spawnsCollectableOnExpire: true
+    }
+};

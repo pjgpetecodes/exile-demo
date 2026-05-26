@@ -3,6 +3,14 @@ export interface Position {
     y: number;
 }
 
+export type TeleporterDestinationMode =
+    | 'toggle'
+    | 'destination_a'
+    | 'destination_b'
+    | 'toggle_enabled'
+    | 'enable'
+    | 'disable';
+
 export interface PaletteCycleSettings {
     palettes: number[];
     intervalMs: number;
@@ -10,8 +18,44 @@ export interface PaletteCycleSettings {
 }
 
 export type CreatureMovementMode = 'ground' | 'fly' | 'hover' | 'turret';
-export type CreatureFireMode = 'none' | 'bullets' | 'grenades' | 'energy_pods';
+export type CreatureFireMode = 'none' | 'bullets' | 'grenades' | 'plasma_grenades' | 'energy_pods';
+export type CreatureProjectileKind = 'bullet' | 'grenade' | 'plasma_grenade' | 'energy_pod';
 export type CreatureArchetype = 'custom' | 'monkey' | 'bird' | 'bee' | 'turret';
+
+export interface ProjectileImpactAnimationSettings {
+    frames: string[];
+    frameDurationFrames: number;
+    paletteSource?: 'projectile' | 'default';
+}
+
+export interface CreatureProjectileSettings {
+    spriteType: string;
+    lifetimeFrames: number;
+    gravityScale: number;
+    speedMultiplier: number;
+    launchVerticalBias: number;
+    defaultWeight: number;
+    defaultBounciness: number;
+    damageMultiplier: number;
+    directHitDamageMultiplier: number;
+    angleMatchesVelocity?: boolean;
+    supportsHoming?: boolean;
+    flightAnimation?: ProjectileImpactAnimationSettings;
+    impactAnimation?: ProjectileImpactAnimationSettings;
+    splashRadius?: number;
+    splashDamageMultiplier?: number;
+    minimumSplashDamage?: number;
+    spawnsCollectableOnImpact?: boolean;
+    spawnsCollectableOnExpire?: boolean;
+}
+
+export interface CreatureProjectileRuntimeData {
+    kind: CreatureProjectileKind;
+    homing: boolean;
+    remainingFrames: number;
+    damage: number;
+    sourceEntityId?: number;
+}
 
 export interface CreatureSoundSettings {
     enabled?: boolean;
@@ -48,7 +92,14 @@ export interface CreatureSaveData {
     fireMode?: CreatureFireMode;
     homingBullets?: boolean;
     fireCooldownMs?: number;
+    fireCooldownVarianceMs?: number;
+    targetRefreshMs?: number;
+    aimLeadFactor?: number;
+    aimJitterPx?: number;
+    requiresLineOfSight?: boolean;
     projectileSpeed?: number;
+    projectileWeight?: number;
+    projectileBounciness?: number;
     canEatWasps?: boolean;
     canJump?: boolean;
     jumpStrength?: number;
@@ -72,6 +123,10 @@ export interface Astronaut {
     isFlying: boolean;
     isLanded: boolean;
     velocity: Position;
+    energy: number;
+    maxEnergy: number;
+    controlDazeUntilMs?: number;
+    nextEnergyRegenAtMs?: number;
 }
 
 export interface GameState {
@@ -79,4 +134,17 @@ export interface GameState {
     gravity: number;
     trail: Position[];
     isRunning?: boolean;
+}
+
+export interface TeleporterSaveData {
+    id: string;
+    baseX: number;
+    baseY: number;
+    padX: number;
+    padY: number;
+    enabled?: boolean;
+    requiresKey?: boolean;
+    destinationA: Position;
+    destinationB?: Position | null;
+    activeDestinationIndex?: 0 | 1;
 }

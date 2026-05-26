@@ -1,16 +1,26 @@
-import { MAP_HEIGHT, MAP_WIDTH, SPRITE_SCALE } from './constants.js';
+import { MAP_HEIGHT, MAP_WIDTH, SPRITE_SCALE, mushroomsSound, getSoundEnabled } from './constants.js';
 import { CREATURE_SOUND_MANIFEST } from './assets/creature-sound-manifest.js';
+import {
+    DESTRUCTION_SOURCE_OPTIONS,
+    getDefaultDestructibleEnabled,
+    getDefaultDestructibleHealth,
+    getDefaultDestructionSource,
+    type DestructionSourceRequirement
+} from './destructibles.js';
 import { MapBlock, shouldMaskAstronaut } from './map.js';
 import { Button } from './button.js';
 import { Door } from './door.js';
 import { Creature, toCreatureSaveData } from './creature.js';
-import { Collectable } from './collectable.js';
+import { Collectable, getDefaultGrenadeExplosionPower, isGrenadeCollectableType } from './collectable.js';
 import {
     CreatureSaveData,
     PaletteCycleSettings,
-    Position
+    Position,
+    TeleporterDestinationMode,
+    TeleporterSaveData
 } from './types/index.js';
 import { buildDefaultPaletteCycle, getEffectivePaletteCycle } from './palette-cycle.js';
+import { MOVEMENT_SETTINGS, type BulletImpactAudioSettings } from './settings.js';
 import { getSpriteVisibleBounds, normalizeSpriteTranslation, SPRITE_TRANSLATION_OPTIONS, SpriteTranslation } from './utilities.js';
 
 export type DesignerCategory = 'world' | 'buttons' | 'doors' | 'creatures' | 'collectables' | 'custom';
@@ -29,6 +39,8 @@ export type ButtonSaveData = {
     rotation?: number;
     active?: boolean;
     linkedDoors?: number[];
+    linkedTeleporters?: string[];
+    teleporterMode?: TeleporterDestinationMode;
     collision?: boolean;
     pressOffset?: number;
     boxOffsetX?: number;
@@ -55,6 +67,9 @@ export type DoorSaveData = {
     palette_unlocked?: number | null;
     collision?: boolean;
     paletteCycle?: PaletteCycleSettings;
+    destructible?: boolean;
+    destructionHealth?: number;
+    destructionSource?: DestructionSourceRequirement;
 };
 
 export type CollectableSaveData = {
@@ -76,6 +91,10 @@ export type CollectableSaveData = {
     velocity?: Position;
     astronautCollisionIgnoreFrames?: number;
     paletteCycle?: PaletteCycleSettings;
+    radioactive?: boolean;
+    armed?: boolean;
+    explosionPower?: number;
+    explosionRadius?: number;
 };
 
 export type RawWorldData = {
@@ -84,6 +103,7 @@ export type RawWorldData = {
     doors: DoorSaveData[];
     creatures: CreatureSaveData[];
     collectables: CollectableSaveData[];
+    teleporters: TeleporterSaveData[];
     astronautStart: Position;
 };
 
@@ -148,6 +168,8 @@ export interface WorldDesignerHost {
     setShowSpriteOutlines(value: boolean): void;
     getShowCreatureOverlays(): boolean;
     setShowCreatureOverlays(value: boolean): void;
+    getBulletImpactAudioSettings(): BulletImpactAudioSettings;
+    setBulletImpactAudioSettings(settings: BulletImpactAudioSettings): void;
     drawSpriteOutlineOverlay(ctx: CanvasRenderingContext2D, camera: Position, layerVisibility: LayerVisibility): void;
     getSpriteTypes(): string[];
     getSpriteCatalog(): SpriteCatalogEntry[];
@@ -230,6 +252,11 @@ type DesignerSnapshot = {
     worldData: RawWorldData;
     customSpriteDefinitions: CustomSpriteDefinition[];
     customSpriteInstances: CustomSpriteInstance[];
+};
+
+type LiveResumeSnapshot = {
+    snapshot: DesignerSnapshot;
+    astronautPosition: Position;
 };
 
 type SavePreviewFile = {
@@ -465,6 +492,7 @@ type PersistedDesignerUiState = {
     magnifierEnabled: boolean;
     viewportExpanded: boolean;
     soundEnabled: boolean;
+    bulletImpactAudioSettings?: BulletImpactAudioSettings;
     paletteDesignerOpen: boolean;
     selectedPaletteIndex: number;
     palettePreviewType: string;
@@ -487,6 +515,11 @@ type ContextMenuState = {
     screen: Position | null;
     world: Position | null;
     primarySelection: Selection | null;
+};
+
+type TeleporterDestinationPickState = {
+    teleporterId: string;
+    slot: 'a' | 'b';
 };
 
 type DesignerState = {
@@ -549,9 +582,12 @@ type DesignerState = {
     customSpriteInstances: CustomSpriteInstance[];
     sectionOpenState: Partial<Record<DesignerSectionId, boolean>>;
     contextMenu: ContextMenuState;
+    teleporterDestinationPick: TeleporterDestinationPickState | null;
     suppressContextMenuOnce: boolean;
     undoStack: DesignerSnapshot[];
     redoStack: DesignerSnapshot[];
+    editModeSnapshot: DesignerSnapshot;
+    liveResumeSnapshot: LiveResumeSnapshot | null;
     lastSavedSnapshot: RawWorldData;
 };
 
@@ -596,6 +632,10 @@ type ControlRefs = {
     moveAstronautButton: HTMLButtonElement;
     expandViewportCheckbox: HTMLInputElement;
     soundEnabledCheckbox: HTMLInputElement;
+    bulletImpactPrimarySelect: HTMLSelectElement;
+    bulletImpactAlternateSelect: HTMLSelectElement;
+    bulletImpactAlternateChanceInput: HTMLInputElement;
+    bulletImpactVolumeInput: HTMLInputElement;
     addAtCenterButton: HTMLButtonElement;
     setAstronautStartButton: HTMLButtonElement;
     showCollisionCheckbox: HTMLInputElement;
@@ -649,6 +689,9 @@ const OBJECT_SNAP_ALIGNMENT_THRESHOLD = 24;
 const BUTTON_DEFAULT_PRESS_OFFSET = 3;
 const BUTTON_DEFAULT_BOX_OFFSET_X = 12;
 const BUTTON_DEFAULT_BOX_OFFSET_Y = 0;
+const TELEPORTER_COMPOSITE_TYPE = '__teleporter_composite__';
+const BUTTON_COMPOSITE_TYPE = '__button_composite__';
+const visibleSpriteRectCache = new Map<string, { left: number; top: number; width: number; height: number } | null>();
 const CATEGORY_LABELS: Record<DesignerCategory, string> = {
     world: 'World items',
     buttons: 'Buttons',
@@ -658,16 +701,29 @@ const CATEGORY_LABELS: Record<DesignerCategory, string> = {
     custom: 'Custom sprites'
 };
 let customSpriteDefinitionResolver: ((instance: CustomSpriteInstance) => CustomSpriteDefinition | null) | null = null;
+let visibleSpriteRectResolver: ((
+    type: string,
+    palette: number,
+    rotation: number,
+    translation?: SpriteTranslation
+) => { left: number; top: number; width: number; height: number } | null) | null = null;
 
 const SAVE_FILE_LABELS: Record<keyof RawWorldData, string> = {
-    worldMap: 'world_map.json',
+    worldMap: 'world_chunks/manifest.json (+ chunk files)',
     buttons: 'buttons.json',
     doors: 'doors.json',
     creatures: 'creatures.json',
     collectables: 'collectables.json',
+    teleporters: 'teleporters.json',
     astronautStart: 'astronaut_start.json'
 };
 const PALETTE_FILE_LABEL = 'palettes.json';
+
+type PlacementTypeOption = {
+    value: string;
+    label: string;
+    previewType?: string;
+};
 
 function clamp(value: number, min: number, max: number) {
     return Math.min(Math.max(value, min), max);
@@ -694,6 +750,9 @@ function categorySupportsTranslation(category: DesignerCategory) {
 }
 
 function toMapBlockData(block: MapBlock): MapBlock {
+    const hasDestructibleMetadata = typeof block.destructible === 'boolean'
+        || typeof block.destructionHealth === 'number'
+        || typeof block.destructionSource === 'string';
     return {
         x: block.x,
         y: block.y,
@@ -703,6 +762,47 @@ function toMapBlockData(block: MapBlock): MapBlock {
         palette: typeof block.palette === 'number' ? block.palette : 0,
         rotation: normalizeRotation(block.rotation) as MapBlock['rotation'],
         translation: normalizeSpriteTranslation(block.translation),
+        ...(typeof block.teleporterId === 'string' && block.teleporterId.trim().length > 0
+            ? { teleporterId: block.teleporterId.trim() }
+            : {}),
+        ...(typeof block.teleporterEnabled === 'boolean'
+            ? { teleporterEnabled: block.teleporterEnabled }
+            : {}),
+        ...(typeof block.teleporterRequiresKey === 'boolean'
+            ? { teleporterRequiresKey: block.teleporterRequiresKey }
+            : {}),
+        ...(block.teleporterDestinationA
+            ? {
+                teleporterDestinationA: {
+                    x: Math.round(Number(block.teleporterDestinationA.x) || 0),
+                    y: Math.round(Number(block.teleporterDestinationA.y) || 0)
+                }
+            }
+            : {}),
+        ...(block.teleporterDestinationB
+            ? {
+                teleporterDestinationB: {
+                    x: Math.round(Number(block.teleporterDestinationB.x) || 0),
+                    y: Math.round(Number(block.teleporterDestinationB.y) || 0)
+                }
+            }
+            : {}),
+        ...(typeof block.teleporterActiveDestinationIndex === 'number'
+            ? { teleporterActiveDestinationIndex: block.teleporterActiveDestinationIndex === 1 ? 1 : 0 }
+            : {}),
+        ...(hasDestructibleMetadata
+            ? {
+                destructible: typeof block.destructible === 'boolean'
+                    ? block.destructible
+                    : getDefaultDestructibleEnabled('world', block.type),
+                destructionHealth: typeof block.destructionHealth === 'number'
+                    ? Math.max(0.1, block.destructionHealth)
+                    : getDefaultDestructibleHealth('world', block.type),
+                destructionSource: typeof block.destructionSource === 'string'
+                    ? block.destructionSource
+                    : getDefaultDestructionSource('world', block.type)
+            }
+            : {}),
         ...(block.paletteCycle ? { paletteCycle: deepClone(block.paletteCycle) } : {})
     };
 }
@@ -725,6 +825,12 @@ function toButtonData(button: any): ButtonSaveData {
         rotation: normalizeRotation(button.rotation),
         active: button.defaultActive ?? button.active ?? false,
         linkedDoors: Array.isArray(button.linkedDoors) ? [...button.linkedDoors] : [],
+        linkedTeleporters: Array.isArray(button.linkedTeleporters)
+            ? button.linkedTeleporters.filter((id: unknown) => typeof id === 'string' && id.trim().length > 0)
+            : [],
+        teleporterMode: isTeleporterMode(button.teleporterMode)
+            ? button.teleporterMode
+            : 'toggle',
         collision: button.collision !== false,
         pressOffset: capOpenOffsetX - capClosedOffsetX,
         boxOffsetX: normalizedBoxOffsetX,
@@ -734,6 +840,32 @@ function toButtonData(button: any): ButtonSaveData {
         capOpenOffsetX,
         capOpenOffsetY,
         ...(button.paletteCycle ? { paletteCycle: deepClone(button.paletteCycle) } : {})
+    };
+}
+
+function toTeleporterData(teleporter: any): TeleporterSaveData {
+    const activeDestinationIndex = teleporter.activeDestinationIndex === 1 ? 1 : 0;
+    return {
+        id: typeof teleporter.id === 'string' && teleporter.id.trim().length > 0
+            ? teleporter.id.trim()
+            : `teleporter_${Math.round(Number(teleporter.padX) || 0)}_${Math.round(Number(teleporter.padY) || 0)}`,
+        baseX: Math.round(Number(teleporter.baseX) || 0),
+        baseY: Math.round(Number(teleporter.baseY) || 0),
+        padX: Math.round(Number(teleporter.padX) || 0),
+        padY: Math.round(Number(teleporter.padY) || 0),
+        enabled: teleporter.enabled !== false,
+        requiresKey: teleporter.requiresKey === true,
+        destinationA: {
+            x: Math.round(Number(teleporter.destinationA?.x) || 0),
+            y: Math.round(Number(teleporter.destinationA?.y) || 0)
+        },
+        destinationB: teleporter.destinationB
+            ? {
+                x: Math.round(Number(teleporter.destinationB.x) || 0),
+                y: Math.round(Number(teleporter.destinationB.y) || 0)
+            }
+            : null,
+        activeDestinationIndex
     };
 }
 
@@ -752,6 +884,15 @@ function toDoorData(door: any): DoorSaveData {
         palette_locked: typeof door.palette_locked === 'number' ? door.palette_locked : null,
         palette_unlocked: typeof door.palette_unlocked === 'number' ? door.palette_unlocked : null,
         collision: door.collision !== false,
+        destructible: typeof door.destructible === 'boolean'
+            ? door.destructible
+            : getDefaultDestructibleEnabled('doors', door.type),
+        destructionHealth: typeof door.destructionHealth === 'number'
+            ? Math.max(0.1, door.destructionHealth)
+            : getDefaultDestructibleHealth('doors', door.type),
+        destructionSource: typeof door.destructionSource === 'string'
+            ? door.destructionSource
+            : getDefaultDestructionSource('doors', door.type),
         ...(door.paletteCycle ? { paletteCycle: deepClone(door.paletteCycle) } : {})
     };
 }
@@ -764,6 +905,17 @@ function toCreatureData(creature: any): CreatureSaveData {
 }
 
 function toCollectableData(collectable: any): CollectableSaveData {
+    const grenadeDefaults = isGrenadeCollectableType(collectable.type)
+        ? {
+            armed: collectable.armed === true,
+            explosionPower: typeof collectable.explosionPower === 'number'
+                ? collectable.explosionPower
+                : getDefaultGrenadeExplosionPower(collectable.type),
+            ...(typeof collectable.explosionRadius === 'number'
+                ? { explosionRadius: Math.max(1, collectable.explosionRadius) }
+                : {})
+        }
+        : {};
     return {
         x: collectable.x,
         y: collectable.y,
@@ -782,7 +934,9 @@ function toCollectableData(collectable: any): CollectableSaveData {
         isGrounded: collectable.isGrounded ?? false,
         velocity: deepClone(collectable.velocity ?? { x: 0, y: 0 }),
         astronautCollisionIgnoreFrames: collectable.astronautCollisionIgnoreFrames ?? 0,
-        ...(collectable.paletteCycle ? { paletteCycle: deepClone(collectable.paletteCycle) } : {})
+        ...(collectable.radioactive ? { radioactive: true } : {}),
+        ...(collectable.paletteCycle ? { paletteCycle: deepClone(collectable.paletteCycle) } : {}),
+        ...grenadeDefaults
     };
 }
 
@@ -792,7 +946,10 @@ function serializeWorldData(data: RawWorldData): RawWorldData {
         buttons: data.buttons.map((button) => toButtonData(button)),
         doors: data.doors.map((door) => toDoorData(door)),
         creatures: data.creatures.map((creature) => toCreatureData(creature)),
-        collectables: data.collectables.map((collectable) => toCollectableData(collectable)),
+        collectables: data.collectables
+            .filter((collectable) => !('creatureProjectile' in collectable) || !collectable.creatureProjectile)
+            .map((collectable) => toCollectableData(collectable)),
+        teleporters: (data.teleporters ?? []).map((teleporter) => toTeleporterData(teleporter)),
         astronautStart: {
             x: Math.round(data.astronautStart.x),
             y: Math.round(data.astronautStart.y)
@@ -830,6 +987,29 @@ function getDefaultType(spriteTypes: string[], category: RuntimeDesignerCategory
     return spriteTypes[0] ?? 'floor_full';
 }
 
+function isDoorSpriteType(type: string): type is 'door_horizontal' | 'door_vertical' {
+    return type === 'door_horizontal' || type === 'door_vertical';
+}
+
+function isTeleporterMode(value: unknown): value is TeleporterDestinationMode {
+    return value === 'toggle' ||
+        value === 'destination_a' ||
+        value === 'destination_b' ||
+        value === 'toggle_enabled' ||
+        value === 'enable' ||
+        value === 'disable';
+}
+
+function getDoorTypeFromSourceType(type: string): 'door_horizontal' | 'door_vertical' | null {
+    if (isDoorSpriteType(type)) {
+        return type;
+    }
+    if (type === 'wall_left_quarter') {
+        return 'door_vertical';
+    }
+    return null;
+}
+
 function buildLayerVisibility(): LayerVisibility {
     return {
         world: true,
@@ -854,6 +1034,25 @@ function getRectAtPosition(x: number, y: number, category: DesignerCategory): Re
         width,
         height
     };
+}
+
+function getVisibleSpriteRect(
+    type: string,
+    palette: number,
+    rotation: number,
+    translation: SpriteTranslation = 'center'
+) {
+    if (!visibleSpriteRectResolver) {
+        return null;
+    }
+    const cacheKey = `${type}|${palette}|${rotation}|${translation}`;
+    if (visibleSpriteRectCache.has(cacheKey)) {
+        return visibleSpriteRectCache.get(cacheKey) ?? null;
+    }
+
+    const rect = visibleSpriteRectResolver(type, palette, rotation, translation);
+    visibleSpriteRectCache.set(cacheKey, rect);
+    return rect;
 }
 
 function invertButtonOffset(offsetX: number, offsetY: number, rotation: number) {
@@ -932,6 +1131,28 @@ function getEntityRect(entity: any, category: DesignerCategory) {
             width: right - left,
             height: bottom - top
         };
+    }
+    if (category === 'collectables' && typeof entity.type === 'string') {
+        const visibleRect = getVisibleSpriteRect(
+            entity.type,
+            typeof entity.palette === 'number' ? entity.palette : 0,
+            normalizeRotation('defaultRotation' in entity ? entity.defaultRotation ?? entity.rotation : entity.rotation),
+            'center'
+        );
+        if (visibleRect) {
+            const left = entity.x + visibleRect.left;
+            const top = entity.y + visibleRect.top;
+            const right = left + visibleRect.width;
+            const bottom = top + visibleRect.height;
+            return {
+                left,
+                top,
+                right,
+                bottom,
+                width: right - left,
+                height: bottom - top
+            };
+        }
     }
     return getRectAtPosition(entity.x, entity.y, category);
 }
@@ -1018,6 +1239,15 @@ function parseDoorIds(value: string) {
         .split(',')
         .map((entry) => Number(entry.trim()))
         .filter((entry) => Number.isFinite(entry));
+}
+
+function parseStringIds(value: string) {
+    return [...new Set(
+        value
+            .split(',')
+            .map((entry) => entry.trim())
+            .filter((entry) => entry.length > 0)
+    )];
 }
 
 function yieldToUi() {
@@ -2358,6 +2588,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     if (typeof persistedState?.showCreatureOverlays === 'boolean') {
         host.setShowCreatureOverlays(persistedState.showCreatureOverlays);
     }
+    if (persistedState?.bulletImpactAudioSettings) {
+        host.setBulletImpactAudioSettings(persistedState.bulletImpactAudioSettings);
+    }
     const state: DesignerState = {
         active: persistedState?.active ?? false,
         mode: persistedState?.mode === 'preview' ? 'preview' : 'edit',
@@ -2426,14 +2659,56 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             world: null,
             primarySelection: null
         },
+        teleporterDestinationPick: null,
         pendingRightPan: false,
         suppressContextMenuOnce: false,
         undoStack: [],
         redoStack: [],
+        editModeSnapshot: {
+            worldData: initialSnapshot,
+            customSpriteDefinitions: deepClone(restoredCustomSpriteDefinitions),
+            customSpriteInstances: deepClone(
+                restoredCustomSpriteInstances.filter((instance) =>
+                    restoredCustomSpriteDefinitions.some((definition) => definition.id === instance.customSpriteId)
+                )
+            )
+        },
+        liveResumeSnapshot: null,
         lastSavedSnapshot: initialSnapshot
     };
     customSpriteDefinitionResolver = (instance) =>
         state.customSpriteDefinitions.find((definition) => definition.id === instance.customSpriteId) ?? null;
+    visibleSpriteRectResolver = (type, palette, rotation, translation = 'center') => {
+        const spriteCanvas = document.createElement('canvas');
+        spriteCanvas.width = TILE_SIZE;
+        spriteCanvas.height = TILE_SIZE;
+        const spriteCtx = spriteCanvas.getContext('2d');
+        if (!spriteCtx) {
+            return null;
+        }
+        const rendered = host.drawSpriteSample(
+            spriteCtx,
+            type,
+            palette,
+            rotation,
+            true,
+            TILE_SIZE,
+            translation
+        );
+        if (!rendered) {
+            return null;
+        }
+        const visibleBounds = getSpriteVisibleBounds(spriteCanvas);
+        if (!visibleBounds) {
+            return null;
+        }
+        return {
+            left: visibleBounds.minX,
+            top: visibleBounds.minY,
+            width: visibleBounds.width,
+            height: visibleBounds.height
+        };
+    };
 
     const root = document.createElement('div');
     root.className = 'world-designer-panel world-designer-hidden';
@@ -2536,6 +2811,26 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             <summary>Preview toggles</summary>
             <div class="world-designer-accordion-body">
             <label class="world-designer-checkbox"><input type="checkbox" data-role="sound-enabled" /> Sound enabled</label>
+            <div class="world-designer-grid" style="margin-top:8px;">
+                <label class="world-designer-field">Bullet impact primary audio
+                    <select data-role="bullet-impact-primary">
+                        <option value="bulletExplosion">BulletExplosion.wav</option>
+                        <option value="bulletExplosion2">BulletExplosion2.wav</option>
+                    </select>
+                </label>
+                <label class="world-designer-field">Bullet impact alternate audio
+                    <select data-role="bullet-impact-alternate">
+                        <option value="bulletExplosion">BulletExplosion.wav</option>
+                        <option value="bulletExplosion2">BulletExplosion2.wav</option>
+                    </select>
+                </label>
+                <label class="world-designer-field">Alternate chance (0..1)
+                    <input type="number" min="0" max="1" step="0.01" data-role="bullet-impact-alternate-chance" />
+                </label>
+                <label class="world-designer-field">Bullet impact volume (0..1)
+                    <input type="number" min="0" max="1" step="0.05" data-role="bullet-impact-volume" />
+                </label>
+            </div>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="expand-viewport" /> Expand viewport to window</label>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="show-collision" /> Show collision outlines</label>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="show-creature-overlays" /> Show creature overlays</label>
@@ -2670,6 +2965,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         moveAstronautButton: root.querySelector('[data-role="move-astronaut"]') as HTMLButtonElement,
         expandViewportCheckbox: root.querySelector('[data-role="expand-viewport"]') as HTMLInputElement,
         soundEnabledCheckbox: root.querySelector('[data-role="sound-enabled"]') as HTMLInputElement,
+        bulletImpactPrimarySelect: root.querySelector('[data-role="bullet-impact-primary"]') as HTMLSelectElement,
+        bulletImpactAlternateSelect: root.querySelector('[data-role="bullet-impact-alternate"]') as HTMLSelectElement,
+        bulletImpactAlternateChanceInput: root.querySelector('[data-role="bullet-impact-alternate-chance"]') as HTMLInputElement,
+        bulletImpactVolumeInput: root.querySelector('[data-role="bullet-impact-volume"]') as HTMLInputElement,
         addAtCenterButton: root.querySelector('[data-role="add-center"]') as HTMLButtonElement,
         setAstronautStartButton: root.querySelector('[data-role="set-start"]') as HTMLButtonElement,
         showCollisionCheckbox: root.querySelector('[data-role="show-collision"]') as HTMLInputElement,
@@ -2800,8 +3099,259 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     attachDraggableSurface(root, panelDragHandle);
     attachDraggableSurface(paletteFlyout, paletteFlyoutDragHandle);
 
+    function findNearestWorldBlockByType(
+        worldMap: MapBlock[],
+        type: 'teleporter' | 'teleporter_pad',
+        targetX: number,
+        targetY: number,
+        maxDistance: number
+    ) {
+        let bestPart: MapBlock | null = null;
+        let bestDistanceSquared = Number.POSITIVE_INFINITY;
+        const maxDistanceSquared = maxDistance * maxDistance;
+        for (const part of worldMap) {
+            if (part.type !== type) {
+                continue;
+            }
+            const dx = targetX - part.x;
+            const dy = targetY - part.y;
+            const distanceSquared = dx * dx + dy * dy;
+            if (distanceSquared <= maxDistanceSquared && distanceSquared < bestDistanceSquared) {
+                bestPart = part;
+                bestDistanceSquared = distanceSquared;
+            }
+        }
+        return bestPart;
+    }
+
+    function findWorldTeleporterPartById(
+        worldMap: MapBlock[],
+        type: 'teleporter' | 'teleporter_pad',
+        teleporterId: string,
+        targetX: number,
+        targetY: number
+    ) {
+        const candidates = worldMap.filter((block) =>
+            block.type === type &&
+            block.teleporterId === teleporterId
+        );
+        if (candidates.length === 0) {
+            return null;
+        }
+        let best = candidates[0];
+        let bestDistanceSquared = Number.POSITIVE_INFINITY;
+        for (const candidate of candidates) {
+            const dx = targetX - candidate.x;
+            const dy = targetY - candidate.y;
+            const distanceSquared = dx * dx + dy * dy;
+            if (distanceSquared < bestDistanceSquared) {
+                best = candidate;
+                bestDistanceSquared = distanceSquared;
+            }
+        }
+        return best;
+    }
+
+    function syncTeleporterMetadataToWorldBlocks(data: RawWorldData) {
+        for (const teleporter of data.teleporters ?? []) {
+            const base = data.worldMap.find((block) =>
+                block.type === 'teleporter' &&
+                (block.teleporterId === teleporter.id || (block.x === teleporter.baseX && block.y === teleporter.baseY))
+            ) ?? null;
+            const pad = data.worldMap.find((block) =>
+                block.type === 'teleporter_pad' &&
+                (block.teleporterId === teleporter.id || (block.x === teleporter.padX && block.y === teleporter.padY))
+            ) ?? null;
+            for (const part of [base, pad]) {
+                if (!part) {
+                    continue;
+                }
+                part.teleporterId = teleporter.id;
+                part.teleporterEnabled = teleporter.enabled !== false;
+                part.teleporterRequiresKey = teleporter.requiresKey === true;
+                part.teleporterDestinationA = {
+                    x: Math.round(teleporter.destinationA.x),
+                    y: Math.round(teleporter.destinationA.y)
+                };
+                part.teleporterDestinationB = teleporter.destinationB
+                    ? {
+                        x: Math.round(teleporter.destinationB.x),
+                        y: Math.round(teleporter.destinationB.y)
+                    }
+                    : null;
+                part.teleporterActiveDestinationIndex = teleporter.activeDestinationIndex === 1 ? 1 : 0;
+            }
+        }
+    }
+
+    function reconcileTeleporterPairsForSave(data: RawWorldData) {
+        const teleporters = data.teleporters ?? [];
+        const taggedTeleporterParts = new Map<string, { base?: MapBlock; pad?: MapBlock }>();
+        for (const block of data.worldMap) {
+            if ((block.type !== 'teleporter' && block.type !== 'teleporter_pad') || !block.teleporterId) {
+                continue;
+            }
+            const id = String(block.teleporterId).trim();
+            if (!id) {
+                continue;
+            }
+            const existing = taggedTeleporterParts.get(id) ?? {};
+            if (block.type === 'teleporter') {
+                existing.base = block;
+            } else {
+                existing.pad = block;
+            }
+            taggedTeleporterParts.set(id, existing);
+        }
+        if (taggedTeleporterParts.size > 0) {
+            const byId = new Map<string, TeleporterSaveData>();
+            for (const teleporter of teleporters) {
+                byId.set(teleporter.id, teleporter);
+            }
+            const startX = Math.round(data.astronautStart.x);
+            const startY = Math.round(data.astronautStart.y);
+            const toPositionOrNull = (value: unknown) => {
+                if (!value || typeof value !== 'object') {
+                    return null;
+                }
+                const x = Math.round(Number((value as { x?: number }).x));
+                const y = Math.round(Number((value as { y?: number }).y));
+                if (!Number.isFinite(x) || !Number.isFinite(y)) {
+                    return null;
+                }
+                return { x, y };
+            };
+            for (const [id, parts] of taggedTeleporterParts.entries()) {
+                if (!parts.base || !parts.pad) {
+                    continue;
+                }
+                const existing = byId.get(id)
+                    ?? teleporters.find((teleporter) =>
+                        teleporter.baseX === parts.base!.x &&
+                        teleporter.baseY === parts.base!.y &&
+                        teleporter.padX === parts.pad!.x &&
+                        teleporter.padY === parts.pad!.y
+                    );
+                if (existing) {
+                    existing.baseX = parts.base.x;
+                    existing.baseY = parts.base.y;
+                    existing.padX = parts.pad.x;
+                    existing.padY = parts.pad.y;
+                    parts.base.teleporterId = existing.id;
+                    parts.pad.teleporterId = existing.id;
+                } else {
+                    const destinationA = toPositionOrNull(parts.base.teleporterDestinationA)
+                        ?? toPositionOrNull(parts.pad.teleporterDestinationA)
+                        ?? { x: startX, y: startY };
+                    const destinationB = toPositionOrNull(parts.base.teleporterDestinationB)
+                        ?? toPositionOrNull(parts.pad.teleporterDestinationB);
+                    data.teleporters.push({
+                        id,
+                        baseX: parts.base.x,
+                        baseY: parts.base.y,
+                        padX: parts.pad.x,
+                        padY: parts.pad.y,
+                        enabled: (parts.base.teleporterEnabled ?? parts.pad.teleporterEnabled) !== false,
+                        requiresKey: (parts.base.teleporterRequiresKey ?? parts.pad.teleporterRequiresKey) === true,
+                        destinationA,
+                        destinationB,
+                        activeDestinationIndex:
+                            ((parts.base.teleporterActiveDestinationIndex ?? parts.pad.teleporterActiveDestinationIndex) === 1 && destinationB)
+                                ? 1
+                                : 0
+                    });
+                }
+            }
+        }
+        if (teleporters.length === 0) {
+            return;
+        }
+        const correctionDistancePx = TILE_SIZE * 1.5;
+        teleporters.forEach((teleporter) => {
+            teleporter.baseX = Math.round(teleporter.baseX);
+            teleporter.baseY = Math.round(teleporter.baseY);
+            teleporter.padX = Math.round(teleporter.padX);
+            teleporter.padY = Math.round(teleporter.padY);
+            const baseById = findWorldTeleporterPartById(
+                data.worldMap,
+                'teleporter',
+                teleporter.id,
+                teleporter.baseX,
+                teleporter.baseY
+            );
+            const padById = findWorldTeleporterPartById(
+                data.worldMap,
+                'teleporter_pad',
+                teleporter.id,
+                teleporter.padX,
+                teleporter.padY
+            );
+            if (baseById) {
+                teleporter.baseX = baseById.x;
+                teleporter.baseY = baseById.y;
+                baseById.teleporterId = teleporter.id;
+            }
+            if (padById) {
+                teleporter.padX = padById.x;
+                teleporter.padY = padById.y;
+                padById.teleporterId = teleporter.id;
+            }
+            const hasBaseAtPosition = data.worldMap.some((block) =>
+                block.type === 'teleporter' &&
+                block.x === teleporter.baseX &&
+                block.y === teleporter.baseY
+            );
+            if (!hasBaseAtPosition) {
+                const correctedBase = findNearestWorldBlockByType(
+                    data.worldMap,
+                    'teleporter',
+                    teleporter.baseX,
+                    teleporter.baseY,
+                    correctionDistancePx
+                );
+                if (correctedBase) {
+                    teleporter.baseX = correctedBase.x;
+                    teleporter.baseY = correctedBase.y;
+                    correctedBase.teleporterId = teleporter.id;
+                }
+            }
+            const hasPadAtPosition = data.worldMap.some((block) =>
+                block.type === 'teleporter_pad' &&
+                block.x === teleporter.padX &&
+                block.y === teleporter.padY
+            );
+            if (!hasPadAtPosition) {
+                const correctedPad = findNearestWorldBlockByType(
+                    data.worldMap,
+                    'teleporter_pad',
+                    teleporter.padX,
+                    teleporter.padY,
+                    correctionDistancePx
+                );
+                if (correctedPad) {
+                    teleporter.padX = correctedPad.x;
+                    teleporter.padY = correctedPad.y;
+                    correctedPad.teleporterId = teleporter.id;
+                }
+            }
+        });
+        syncTeleporterMetadataToWorldBlocks(data);
+    }
+
     function getWorldSnapshot() {
-        return serializeWorldData(host.getRawWorldData());
+        const rawWorldData = host.getRawWorldData();
+        reconcileTeleporterPairsForSave(rawWorldData);
+        return serializeWorldData(rawWorldData);
+    }
+
+    function getAuthoredWorldSnapshot() {
+        return serializeWorldData(state.editModeSnapshot.worldData);
+    }
+
+    function getWorldSnapshotForSave() {
+        return state.mode === 'edit'
+            ? getWorldSnapshot()
+            : getAuthoredWorldSnapshot();
     }
 
     function getSnapshot(): DesignerSnapshot {
@@ -2810,6 +3360,50 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             customSpriteDefinitions: deepClone(state.customSpriteDefinitions),
             customSpriteInstances: deepClone(state.customSpriteInstances)
         };
+    }
+
+    function syncEditModeSnapshot() {
+        state.editModeSnapshot = getSnapshot();
+    }
+
+    function captureLiveResumeSnapshot() {
+        state.liveResumeSnapshot = {
+            snapshot: getSnapshot(),
+            astronautPosition: host.getFocusWorldPosition()
+        };
+    }
+
+    function restoreEditModeSnapshot() {
+        const liveAstronautPosition = host.getFocusWorldPosition();
+        if (designerSnapshotsEqual(getSnapshot(), state.editModeSnapshot)) {
+            return false;
+        }
+
+        host.replaceRawWorldData(state.editModeSnapshot.worldData);
+        state.customSpriteDefinitions = deepClone(state.editModeSnapshot.customSpriteDefinitions);
+        state.customSpriteInstances = deepClone(state.editModeSnapshot.customSpriteInstances);
+        if (!getCustomSpriteDefinitionById(state.typeByCategory.custom)) {
+            state.typeByCategory.custom = state.customSpriteDefinitions[0]?.id ?? '';
+        }
+        state.selection = null;
+        state.selectedItems = [];
+        host.resetAstronautToPosition(liveAstronautPosition);
+        invalidateOverviewBase();
+        updateDirtyState();
+        return true;
+    }
+
+    function restoreLiveResumeSnapshot() {
+        if (!state.liveResumeSnapshot) {
+            return false;
+        }
+
+        host.replaceRawWorldData(state.liveResumeSnapshot.snapshot.worldData);
+        state.selection = null;
+        state.selectedItems = [];
+        host.resetAstronautToPosition(state.liveResumeSnapshot.astronautPosition);
+        state.liveResumeSnapshot = null;
+        return true;
     }
 
     function persistDesignerUiState() {
@@ -2842,6 +3436,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 magnifierEnabled: state.magnifierEnabled,
                 viewportExpanded: state.viewportExpanded,
                 soundEnabled: host.getSoundEnabled(),
+                bulletImpactAudioSettings: host.getBulletImpactAudioSettings(),
                 paletteDesignerOpen: state.paletteDesignerOpen,
                 selectedPaletteIndex: state.selectedPaletteIndex,
                 palettePreviewType: state.palettePreviewType,
@@ -2884,7 +3479,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     refreshSectionAccordions();
 
     function updateDirtyState() {
-        state.dirty = !snapshotsEqual(getWorldSnapshot(), state.lastSavedSnapshot);
+        state.dirty = !snapshotsEqual(getWorldSnapshotForSave(), state.lastSavedSnapshot);
     }
 
     function setStatus(message: string, tone: DesignerState['statusTone'] = 'neutral') {
@@ -2900,6 +3495,55 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
     function getCurrentType() {
         return state.typeByCategory[state.category];
+    }
+
+    function isTeleporterCompositeType(type: string) {
+        return type === TELEPORTER_COMPOSITE_TYPE;
+    }
+
+    function isButtonCompositeType(type: string) {
+        return type === BUTTON_COMPOSITE_TYPE;
+    }
+
+    function getPlacementTypeOptions(category: DesignerCategory, includeComposite = true): PlacementTypeOption[] {
+        if (category === 'custom') {
+            return [];
+        }
+        const baseOptions = spriteTypes.map((type) => ({ value: type, label: type }));
+        if (!includeComposite) {
+            return baseOptions;
+        }
+        if (category === 'world') {
+            return [
+                {
+                    value: TELEPORTER_COMPOSITE_TYPE,
+                    label: 'teleporter (composite)',
+                    previewType: 'teleporter'
+                },
+                ...baseOptions
+            ];
+        }
+        if (category === 'buttons') {
+            return [
+                {
+                    value: BUTTON_COMPOSITE_TYPE,
+                    label: 'button (composite)',
+                    previewType: 'button'
+                },
+                ...baseOptions
+            ];
+        }
+        return baseOptions;
+    }
+
+    function getPlacementPreviewType(type: string) {
+        if (isTeleporterCompositeType(type)) {
+            return 'teleporter';
+        }
+        if (isButtonCompositeType(type)) {
+            return 'button';
+        }
+        return type;
     }
 
     function getCustomSpriteDefinitionById(id: string | null | undefined) {
@@ -2925,6 +3569,19 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function setCurrentType(type: string) {
+        if (state.category !== 'custom') {
+            const options = getPlacementTypeOptions(state.category, true);
+            if (!options.some((option) => option.value === type)) {
+                type = options[0]?.value ?? spriteTypes[0] ?? type;
+            }
+        }
+        if (
+            state.category === 'world' &&
+            isTeleporterCompositeType(type) &&
+            !getSingleEditableSelection()
+        ) {
+            state.rotation = 1;
+        }
         state.typeByCategory[state.category] = type;
         refs.typeSelect.value = type;
         renderCurrentSpritePreview();
@@ -2932,15 +3589,17 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function refreshSelectOptions() {
+        const editingSelection = getSingleEditableSelection();
+        const placementTypeOptions = getPlacementTypeOptions(state.category, !editingSelection);
         const selectableTypes = state.category === 'custom'
             ? state.customSpriteDefinitions.map((definition) => definition.id)
-            : spriteTypes;
+            : placementTypeOptions.map((option) => option.value);
         refs.typeSelect.innerHTML = state.category === 'custom'
             ? state.customSpriteDefinitions
                 .map((definition) => `<option value="${definition.id}">${definition.name}</option>`)
                 .join('')
-            : spriteTypes
-                .map((type) => `<option value="${type}">${type}</option>`)
+            : placementTypeOptions
+                .map((option) => `<option value="${option.value}">${option.label}</option>`)
                 .join('');
         refs.palettePreviewTypeSelect.innerHTML = spriteTypes
             .map((type) => `<option value="${type}">${type}</option>`)
@@ -2966,6 +3625,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         ].map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
         if (state.category === 'custom' && !selectableTypes.includes(state.typeByCategory.custom)) {
             state.typeByCategory.custom = selectableTypes[0] ?? '';
+        }
+        if (state.category !== 'custom' && !selectableTypes.includes(state.typeByCategory[state.category])) {
+            state.typeByCategory[state.category] = selectableTypes[0] ?? '';
         }
     }
 
@@ -3162,6 +3824,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 state.selectedItems = [];
                 state.lastSavedSnapshot = serializeWorldData(worldDataToSave);
                 updateDirtyState();
+                syncEditModeSnapshot();
             }
             syncPaletteCount();
             state.selectedPaletteIndex = clamp(state.selectedPaletteIndex, 0, paletteCount - 1);
@@ -3508,21 +4171,40 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const selectedButton = state.selection?.category === 'buttons' && getSelectedItems().length === 1
             ? state.selection.entity as Button
             : null;
+        const selectedType = getCurrentType();
+        const compositeButtonPreview = !selectedButton && state.category === 'buttons' && isButtonCompositeType(selectedType)
+            ? createButtonEntity({
+                x: 0,
+                y: 0,
+                rotation: state.rotation,
+                collision: true,
+                active: false,
+                linkedDoors: []
+            })
+            : null;
         const customDefinition = state.category === 'custom'
             ? getCustomSpriteDefinitionById(getCurrentType())
             : null;
+        const previewType = getPlacementPreviewType(selectedType);
         const type = state.category === 'buttons'
-            ? getCurrentType()
+            ? selectedType
             : state.category === 'custom'
                 ? (customDefinition?.name ?? 'Custom sprite')
-            : getCurrentType();
-        const previewTranslation = categorySupportsTranslation(state.category) ? state.translation : 'center';
+                : previewType;
+        const previewTranslation = (
+            state.category === 'world' &&
+            isTeleporterCompositeType(selectedType)
+        )
+            ? 'center'
+            : (categorySupportsTranslation(state.category) ? state.translation : 'center');
         const rendered = selectedButton
             ? renderButtonCompositePreviewCanvas(refs.spritePreviewCanvas, selectedButton)
+            : compositeButtonPreview
+                ? renderButtonCompositePreviewCanvas(refs.spritePreviewCanvas, compositeButtonPreview)
             : state.category === 'buttons'
                 ? renderSpritePreviewCanvas(
                 refs.spritePreviewCanvas,
-                type,
+                previewType,
                 state.palette,
                 state.rotation,
                 'center'
@@ -3541,8 +4223,12 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 ? `${type} — palette ${state.palette}, rotation ${state.rotation}, translation ${formatSpriteTranslation(state.translation)}`
                 : selectedButton
                 ? `${selectedButton.type} + ${selectedButton.boxType} — ${selectedButton.active ? 'open' : 'closed'} preview`
+                : compositeButtonPreview
+                    ? 'button (composite) — one drop places a full live button (cap + box)'
                 : state.category === 'buttons'
-                ? `${type} — place button/button_box as world sprites, then group and convert to make a live button`
+                ? `${type} — place button/button_box sprites manually, then group and convert to make a live button`
+                : state.category === 'world' && isTeleporterCompositeType(selectedType)
+                    ? 'teleporter (composite) — one drop places base + pad + linked teleporter mechanism'
                 : state.category === 'custom'
                     ? customDefinition
                         ? `${customDefinition.name} — ${customDefinition.members.length} part${customDefinition.members.length === 1 ? '' : 's'}`
@@ -4397,6 +5083,40 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const currentType = getCurrentType();
         const filter = state.spritePickerFilter.trim().toLowerCase();
         const activeCategoryFilter = filter.length > 0 ? 'all' : state.spritePickerCategoryFilter;
+        type PickerEntry = {
+            key: string;
+            name: string;
+            label: string;
+            category: DesignerCategory;
+            previewType?: string;
+        };
+        const compositePickerEntries: PickerEntry[] = [];
+        if (
+            state.category === 'world' ||
+            activeCategoryFilter === 'all' ||
+            activeCategoryFilter === 'world'
+        ) {
+            compositePickerEntries.push({
+                key: `sprite:${TELEPORTER_COMPOSITE_TYPE}`,
+                name: TELEPORTER_COMPOSITE_TYPE,
+                label: 'teleporter (composite)',
+                category: 'world',
+                previewType: 'teleporter'
+            });
+        }
+        if (
+            state.category === 'buttons' ||
+            activeCategoryFilter === 'all' ||
+            activeCategoryFilter === 'buttons'
+        ) {
+            compositePickerEntries.push({
+                key: `sprite:${BUTTON_COMPOSITE_TYPE}`,
+                name: BUTTON_COMPOSITE_TYPE,
+                label: 'button (composite)',
+                category: 'buttons',
+                previewType: 'button'
+            });
+        }
         const spriteCategorySets = (() => {
             const data = host.getRawWorldData();
             const buttons = new Set<string>(['button', 'button_box']);
@@ -4415,19 +5135,22 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             ));
             return { world, buttons, doors, creatures, collectables } satisfies Record<RuntimeDesignerCategory, Set<string>>;
         })();
-        const pickerEntries = state.category === 'custom' || activeCategoryFilter === 'custom'
+        const pickerEntries: PickerEntry[] = state.category === 'custom' || activeCategoryFilter === 'custom'
             ? state.customSpriteDefinitions.map((definition) => ({
                 key: `custom:${definition.id}`,
                 name: definition.id,
                 label: definition.name,
                 category: 'custom' as const
             }))
-            : spriteCatalog.map((entry) => ({
-                key: `sprite:${entry.name}`,
-                name: entry.name,
-                label: entry.name,
-                category: state.category
-            }));
+            : [
+                ...compositePickerEntries,
+                ...spriteCatalog.map((entry) => ({
+                    key: `sprite:${entry.name}`,
+                    name: entry.name,
+                    label: entry.name,
+                    category: state.category as DesignerCategory
+                }))
+            ];
         const activeKeys = new Set(pickerEntries.map((entry) => entry.key));
 
         for (const entry of pickerEntries) {
@@ -4459,15 +5182,21 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     if (event.button !== 0) return;
                     event.preventDefault();
                     state.category = entry.category;
+                    setCurrentType(entry.name);
+                    const dragTranslation = (
+                        entry.category === 'world' &&
+                        isTeleporterCompositeType(entry.name)
+                    )
+                        ? 'center'
+                        : state.translation;
                     state.pickerDrag = {
                         category: entry.category,
                         type: entry.name,
                         palette: state.palette,
                         rotation: state.rotation,
-                        translation: state.translation
+                        translation: dragTranslation
                     };
                     state.pickerDragCanvas = null;
-                    setCurrentType(entry.name);
                     button!.classList.add('dragging');
                     setStatus(`Dragging ${entry.label} onto the world to place it.`, 'neutral');
                 });
@@ -4480,6 +5209,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             const matchesCategory = state.category === 'custom' ||
                 activeCategoryFilter === 'all' ||
                 activeCategoryFilter === 'custom' ||
+                (entry.name === TELEPORTER_COMPOSITE_TYPE && activeCategoryFilter === 'world') ||
+                (entry.name === BUTTON_COMPOSITE_TYPE && activeCategoryFilter === 'buttons') ||
                 spriteCategorySets[activeCategoryFilter].has(entry.name);
             button.hidden = !matchesFilter;
             button.style.display = matchesFilter && matchesCategory ? '' : 'none';
@@ -4497,10 +5228,12 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 } else {
                     renderSpritePreviewCanvas(
                         canvas,
-                        entry.name,
+                        entry.previewType ?? entry.name,
                         state.palette,
                         1,
-                        state.category === 'world' ? state.translation : 'center'
+                        entry.category === 'world' && !isTeleporterCompositeType(entry.name)
+                            ? state.translation
+                            : 'center'
                     );
                 }
             }
@@ -4935,6 +5668,35 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         return existing.filter((item) => !areSameSelection(item, target));
     }
 
+    function getLinkedTeleporterSelection(selection: Selection): Selection | null {
+        if (selection.category !== 'world') {
+            return null;
+        }
+        const block = selection.entity as MapBlock;
+        if (block.type !== 'teleporter' && block.type !== 'teleporter_pad') {
+            return null;
+        }
+        const teleporter = findTeleporterForWorldBlock(block);
+        if (!teleporter) {
+            return null;
+        }
+        const counterpart = block.type === 'teleporter'
+            ? findWorldBlockByExactPosition(teleporter.padX, teleporter.padY, 'teleporter_pad')
+            : findWorldBlockByExactPosition(teleporter.baseX, teleporter.baseY, 'teleporter');
+        return counterpart ? { category: 'world', entity: counterpart } : null;
+    }
+
+    function expandSelectionsWithLinkedTeleporters(selections: Selection[]) {
+        let expanded = [...selections];
+        for (const selection of selections) {
+            const linkedSelection = getLinkedTeleporterSelection(selection);
+            if (linkedSelection) {
+                expanded = mergeSelections(expanded, [linkedSelection]);
+            }
+        }
+        return expanded;
+    }
+
     function getSelectionDrawOrder(selection: Selection) {
         const categoryOrder: Record<RuntimeDesignerCategory, number> = {
             world: 0,
@@ -4963,8 +5725,39 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         });
     }
 
-    function removeSelectedFromArray() {
-        const selections = getSelectedItems();
+    function removeTeleportersForSelections(selections: Selection[]) {
+        const teleporterIdsToRemove = new Set<string>();
+        for (const selection of selections) {
+            if (selection.category !== 'world') {
+                continue;
+            }
+            const block = selection.entity as MapBlock;
+            if (block.type !== 'teleporter' && block.type !== 'teleporter_pad') {
+                continue;
+            }
+            const teleporter = findTeleporterForWorldBlock(block);
+            if (teleporter?.id) {
+                teleporterIdsToRemove.add(teleporter.id);
+            }
+        }
+        if (teleporterIdsToRemove.size === 0) {
+            return;
+        }
+        const teleporters = getTeleporters();
+        for (let index = teleporters.length - 1; index >= 0; index -= 1) {
+            if (teleporterIdsToRemove.has(teleporters[index].id)) {
+                teleporters.splice(index, 1);
+            }
+        }
+        for (const button of host.getRawWorldData().buttons) {
+            if (!Array.isArray(button.linkedTeleporters) || button.linkedTeleporters.length === 0) {
+                continue;
+            }
+            button.linkedTeleporters = button.linkedTeleporters.filter((id) => !teleporterIdsToRemove.has(id));
+        }
+    }
+
+    function removeSelectedFromArray(selections: Selection[] = getSelectedItems()) {
         for (const selection of selections) {
             const arr = getCategoryArray(selection.category);
             const index = arr.indexOf(selection.entity);
@@ -5290,8 +6083,14 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function moveLiveAstronautToWorldPosition(world: Position) {
-        const target = resolvePlacementPosition(world.x, world.y);
+        const target = {
+            x: Math.round(world.x),
+            y: Math.round(world.y)
+        };
         host.resetAstronautToPosition(target);
+        if (state.liveResumeSnapshot) {
+            state.liveResumeSnapshot.astronautPosition = target;
+        }
         setStatus('Moved the live astronaut to the clicked position.', 'success');
     }
 
@@ -5456,6 +6255,15 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         ) {
             addContextMenuSubmenu('Convert', (body) => {
                 if (selection.category === 'world') {
+                    const teleporterPair = getContextMenuSelectedTeleporterPair();
+                    addContextMenuActionToContainer(body, 'Convert selected base+pad to teleporter', () => {
+                        if (!teleporterPair) {
+                            return;
+                        }
+                        runMutation('Converted selected teleporter base+pad to a teleporter.', () => {
+                            convertTeleporterWorldPair(teleporterPair.base, teleporterPair.pad);
+                        });
+                    }, !teleporterPair);
                     addContextMenuActionToContainer(body, 'Convert to collectable', () => {
                         convertPrimarySelectionToCategory('collectables', 'Converted world item to collectable.');
                     });
@@ -5576,9 +6384,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function getPreferredButtonTypes() {
+        const fallbackType = spriteTypes[0] ?? 'button';
         const capType = spriteTypes.includes('button')
             ? 'button'
-            : getCurrentType();
+            : fallbackType;
         const boxType = spriteTypes.includes('button_box')
             ? 'button_box'
             : capType;
@@ -5651,6 +6460,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         collision?: boolean;
         active?: boolean;
         linkedDoors?: number[];
+        linkedTeleporters?: string[];
+        teleporterMode?: TeleporterDestinationMode;
         paletteCycle?: PaletteCycleSettings;
         pressOffset?: number;
         boxOffsetX?: number;
@@ -5678,6 +6489,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             boxPalette: config.boxPalette ?? defaultButtonOverrides.boxPalette,
             rotation: normalizeRotation(config.rotation ?? state.rotation),
             linkedDoors: config.linkedDoors ?? [],
+            linkedTeleporters: config.linkedTeleporters ?? [],
+            teleporterMode: config.teleporterMode ?? 'toggle',
             collision: config.collision !== false,
             active: config.active ?? false,
             pressOffset: config.pressOffset ?? (capOpenOffsetX - capClosedOffsetX),
@@ -5689,6 +6502,20 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             capOpenOffsetY,
             paletteCycle: config.paletteCycle ? deepClone(config.paletteCycle) : undefined
         });
+    }
+
+    function getDefaultCollectableWeight(type: string, radioactive = false) {
+        if (type === 'boulder' && radioactive) {
+            return 0.17;
+        }
+        return 0.2;
+    }
+
+    function getDefaultCollectablePaletteCycle(type: string, palette: number, paletteCount: number, radioactive = false) {
+        if (type === 'boulder' && radioactive) {
+            return buildDefaultPaletteCycle(palette, paletteCount);
+        }
+        return undefined;
     }
 
     function createCustomSpriteInstance(definition: CustomSpriteDefinition, x: number, y: number): CustomSpriteInstance {
@@ -5879,13 +6706,16 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     function createDoorEntity(config: {
         x: number;
         y: number;
+        type?: string;
         palette?: number;
         rotation?: number;
         collision?: boolean;
         paletteCycle?: PaletteCycleSettings;
     }) {
         const doorId = getNextDoorId();
-        const type = state.typeByCategory.doors;
+        const type = isDoorSpriteType(config.type ?? '')
+            ? (config.type as 'door_horizontal' | 'door_vertical')
+            : (state.typeByCategory.doors as 'door_horizontal' | 'door_vertical');
         return new Door({
             x: config.x,
             y: config.y,
@@ -5900,8 +6730,311 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             collision: config.collision !== false,
             palette_locked: null,
             palette_unlocked: null,
+            destructible: getDefaultDestructibleEnabled('doors', type),
+            destructionHealth: getDefaultDestructibleHealth('doors', type),
+            destructionSource: getDefaultDestructionSource('doors', type),
             paletteCycle: config.paletteCycle ? deepClone(config.paletteCycle) : undefined
         });
+    }
+
+    function getTeleporters() {
+        return host.getRawWorldData().teleporters;
+    }
+
+    function getTeleporterById(id: string) {
+        return getTeleporters().find((teleporter) => teleporter.id === id) ?? null;
+    }
+
+    function findTeleporterByPartPosition(
+        type: 'teleporter' | 'teleporter_pad',
+        x: number,
+        y: number,
+        maxDistance: number = TILE_SIZE * 1.5
+    ) {
+        const targetX = Math.round(x);
+        const targetY = Math.round(y);
+        const exact = getTeleporters().find((entry) =>
+            type === 'teleporter'
+                ? entry.baseX === targetX && entry.baseY === targetY
+                : entry.padX === targetX && entry.padY === targetY
+        );
+        if (exact) {
+            return exact;
+        }
+        const maxDistanceSquared = maxDistance * maxDistance;
+        let best: { teleporter: TeleporterSaveData; distanceSquared: number } | null = null;
+        for (const entry of getTeleporters()) {
+            const partX = type === 'teleporter' ? entry.baseX : entry.padX;
+            const partY = type === 'teleporter' ? entry.baseY : entry.padY;
+            const dx = partX - targetX;
+            const dy = partY - targetY;
+            const distanceSquared = dx * dx + dy * dy;
+            if (distanceSquared > maxDistanceSquared) {
+                continue;
+            }
+            if (!best || distanceSquared < best.distanceSquared) {
+                best = { teleporter: entry, distanceSquared };
+            }
+        }
+        return best?.teleporter ?? null;
+    }
+
+    function applyEntityPositionWithTeleporterSync(entity: any, x: number, y: number) {
+        const nextX = Math.round(x);
+        const nextY = Math.round(y);
+        if (entity?.type === 'teleporter' || entity?.type === 'teleporter_pad') {
+            const teleporter = typeof entity.teleporterId === 'string' && entity.teleporterId.trim().length > 0
+                ? getTeleporterById(entity.teleporterId)
+                : findTeleporterByPartPosition(entity.type, entity.x, entity.y);
+            if (teleporter) {
+                if (entity.type === 'teleporter') {
+                    teleporter.baseX = nextX;
+                    teleporter.baseY = nextY;
+                } else {
+                    teleporter.padX = nextX;
+                    teleporter.padY = nextY;
+                }
+                entity.teleporterId = teleporter.id;
+            }
+        }
+        applyPosition(entity, nextX, nextY);
+    }
+
+    function getTeleporterBaseRotationForPadRotation(padRotation: number) {
+        const normalizedPadRotation = normalizeRotation(padRotation);
+        if (normalizedPadRotation === 1) {
+            return 6;
+        }
+        if (normalizedPadRotation === 3) {
+            return 5;
+        }
+        if (normalizedPadRotation === 5) {
+            return 3;
+        }
+        if (normalizedPadRotation === 6) {
+            return 6;
+        }
+        return normalizedPadRotation;
+    }
+
+    function getTeleporterPartBlock(teleporter: TeleporterSaveData, type: 'teleporter' | 'teleporter_pad') {
+        const x = type === 'teleporter' ? teleporter.baseX : teleporter.padX;
+        const y = type === 'teleporter' ? teleporter.baseY : teleporter.padY;
+        const worldMap = host.getRawWorldData().worldMap;
+        const byId = worldMap.find((block) =>
+            block.type === type &&
+            block.teleporterId === teleporter.id
+        );
+        if (byId) {
+            return byId;
+        }
+        return worldMap.find((block) =>
+            block.type === type &&
+            block.x === x &&
+            block.y === y
+        ) ?? null;
+    }
+
+    function renameTeleporterId(teleporter: TeleporterSaveData, requestedId: string) {
+        const nextId = requestedId.trim();
+        if (!nextId || nextId === teleporter.id) {
+            return;
+        }
+        if (getTeleporters().some((entry) => entry !== teleporter && entry.id === nextId)) {
+            return;
+        }
+        const previousId = teleporter.id;
+        teleporter.id = nextId;
+        const base = getTeleporterPartBlock(teleporter, 'teleporter');
+        const pad = getTeleporterPartBlock(teleporter, 'teleporter_pad');
+        if (base) {
+            base.teleporterId = nextId;
+        }
+        if (pad) {
+            pad.teleporterId = nextId;
+        }
+        for (const button of host.getRawWorldData().buttons) {
+            if (!Array.isArray(button.linkedTeleporters) || button.linkedTeleporters.length === 0) {
+                continue;
+            }
+            button.linkedTeleporters = button.linkedTeleporters.map((id) => id === previousId ? nextId : id);
+        }
+    }
+
+    function applyEntityRotationWithTeleporterSync(entity: any, rotation: number) {
+        const nextRotation = normalizeRotation(rotation);
+        if (entity?.type === 'teleporter' || entity?.type === 'teleporter_pad') {
+            const teleporter = typeof entity.teleporterId === 'string' && entity.teleporterId.trim().length > 0
+                ? getTeleporterById(entity.teleporterId)
+                : findTeleporterByPartPosition(entity.type, entity.x, entity.y);
+            if (teleporter) {
+                const base = getTeleporterPartBlock(teleporter, 'teleporter');
+                const pad = getTeleporterPartBlock(teleporter, 'teleporter_pad');
+                const nextPadRotation = nextRotation;
+                const nextBaseRotation = getTeleporterBaseRotationForPadRotation(nextPadRotation);
+                if (base) {
+                    base.rotation = nextBaseRotation as MapBlock['rotation'];
+                    base.teleporterId = teleporter.id;
+                }
+                if (pad) {
+                    pad.rotation = nextPadRotation as MapBlock['rotation'];
+                    pad.teleporterId = teleporter.id;
+                }
+                entity.teleporterId = teleporter.id;
+            }
+        }
+        entity.rotation = nextRotation;
+    }
+
+    function getNextTeleporterId() {
+        const existingIds = new Set(getTeleporters().map((teleporter) => teleporter.id));
+        let index = 1;
+        while (existingIds.has(`teleporter_${index}`)) {
+            index += 1;
+        }
+        return `teleporter_${index}`;
+    }
+
+    function findWorldBlockByExactPosition(x: number, y: number, type: string) {
+        return host.getRawWorldData().worldMap.find((block) =>
+            block.x === x &&
+            block.y === y &&
+            block.type === type
+        ) ?? null;
+    }
+
+    function findTeleporterForWorldBlock(block: MapBlock) {
+        if (block.type !== 'teleporter' && block.type !== 'teleporter_pad') {
+            return null;
+        }
+        if (typeof block.teleporterId === 'string' && block.teleporterId.trim().length > 0) {
+            const byId = getTeleporterById(block.teleporterId);
+            if (byId) {
+                return byId;
+            }
+        }
+        return findTeleporterByPartPosition(block.type, block.x, block.y);
+    }
+
+    function findClosestTeleporterCounterpart(sourceBlock: MapBlock) {
+        const counterpartType = sourceBlock.type === 'teleporter' ? 'teleporter_pad' : 'teleporter';
+        const sourceCenterX = sourceBlock.x + TILE_SIZE / 2;
+        const sourceCenterY = sourceBlock.y + TILE_SIZE / 2;
+        let best: { block: MapBlock; distanceSquared: number } | null = null;
+        for (const block of host.getRawWorldData().worldMap) {
+            if (block === sourceBlock || block.type !== counterpartType) {
+                continue;
+            }
+            const dx = sourceCenterX - (block.x + TILE_SIZE / 2);
+            const dy = sourceCenterY - (block.y + TILE_SIZE / 2);
+            const distanceSquared = dx * dx + dy * dy;
+            if (!best || distanceSquared < best.distanceSquared) {
+                best = { block, distanceSquared };
+            }
+        }
+        return best?.block ?? null;
+    }
+
+    function convertWorldTeleporterBlock(block: MapBlock) {
+        if (block.type !== 'teleporter' && block.type !== 'teleporter_pad') {
+            throw new Error('Select a teleporter base or teleporter pad world item first.');
+        }
+        if (findTeleporterForWorldBlock(block)) {
+            throw new Error('This world item is already part of a teleporter.');
+        }
+        const counterpart = findClosestTeleporterCounterpart(block);
+        if (!counterpart) {
+            throw new Error(`No nearby "${block.type === 'teleporter' ? 'teleporter_pad' : 'teleporter'}" world item found to pair with.`);
+        }
+        if (findTeleporterForWorldBlock(counterpart)) {
+            throw new Error('The nearest matching teleporter part is already paired.');
+        }
+
+        const base = block.type === 'teleporter' ? block : counterpart;
+        const pad = block.type === 'teleporter_pad' ? block : counterpart;
+        convertTeleporterWorldPair(base, pad);
+    }
+
+    function convertTeleporterWorldPair(base: MapBlock, pad: MapBlock) {
+        if (findTeleporterForWorldBlock(base) || findTeleporterForWorldBlock(pad)) {
+            throw new Error('One of the selected teleporter parts is already paired.');
+        }
+        const astronautStart = host.getRawWorldData().astronautStart;
+        const teleporterId = getNextTeleporterId();
+        base.teleporterId = teleporterId;
+        pad.teleporterId = teleporterId;
+        const teleporter: TeleporterSaveData = {
+            id: teleporterId,
+            baseX: base.x,
+            baseY: base.y,
+            padX: pad.x,
+            padY: pad.y,
+            enabled: true,
+            requiresKey: false,
+            destinationA: {
+                x: Math.round(astronautStart.x),
+                y: Math.round(astronautStart.y)
+            },
+            destinationB: null,
+            activeDestinationIndex: 0
+        };
+        getTeleporters().push(teleporter);
+        base.teleporterEnabled = true;
+        pad.teleporterEnabled = true;
+        base.teleporterRequiresKey = false;
+        pad.teleporterRequiresKey = false;
+        base.teleporterDestinationA = { ...teleporter.destinationA };
+        pad.teleporterDestinationA = { ...teleporter.destinationA };
+        base.teleporterDestinationB = null;
+        pad.teleporterDestinationB = null;
+        base.teleporterActiveDestinationIndex = 0;
+        pad.teleporterActiveDestinationIndex = 0;
+    }
+
+    function createTeleporterCompositeAt(x: number, y: number) {
+        const palette = state.palette;
+        const padRotation = normalizeRotation(state.rotation);
+        const baseRotation = getTeleporterBaseRotationForPadRotation(padRotation);
+        const translation: SpriteTranslation = 'center';
+        const base: MapBlock = {
+            x,
+            y,
+            type: 'teleporter',
+            collision: true,
+            maskAstronaut: false,
+            palette,
+            rotation: baseRotation as MapBlock['rotation'],
+            translation
+        };
+        const pad: MapBlock = {
+            x,
+            y,
+            type: 'teleporter_pad',
+            collision: false,
+            maskAstronaut: false,
+            palette,
+            rotation: padRotation as MapBlock['rotation'],
+            translation
+        };
+        const worldMap = getCategoryArray('world') as MapBlock[];
+        worldMap.push(base);
+        worldMap.push(pad);
+        convertTeleporterWorldPair(base, pad);
+        return base;
+    }
+
+    function getContextMenuSelectedTeleporterPair() {
+        const selections = getContextMenuActionSelections();
+        if (selections.length !== 2 || !selections.every((entry) => entry.category === 'world')) {
+            return null;
+        }
+        const worldBlocks = selections.map((entry) => entry.entity as MapBlock);
+        const base = worldBlocks.find((block) => block.type === 'teleporter') ?? null;
+        const pad = worldBlocks.find((block) => block.type === 'teleporter_pad') ?? null;
+        if (!base || !pad) {
+            return null;
+        }
+        return { base, pad };
     }
 
     function getConvertTargetCategory(selection: Selection): DesignerCategory | null {
@@ -5974,20 +7107,23 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
         if (targetCategory === 'collectables') {
             const block = selection.entity as MapBlock;
+            const blockPalette = typeof block.palette === 'number' ? block.palette : 0;
             const collectable = new Collectable({
                 x: block.x,
                 y: block.y,
                 type: block.type,
-                palette: block.palette ?? 0,
+                palette: blockPalette,
                 rotation: normalizeRotation(block.rotation),
                 name: block.type,
-                weight: 0.2,
+                weight: getDefaultCollectableWeight(block.type),
                 pickupEnabled: true,
                 storable: true,
                 affectsAstronaut: true,
                 collision: block.collision !== false,
                 collected: false,
-                paletteCycle: block.paletteCycle ? deepClone(block.paletteCycle) : undefined
+                paletteCycle: block.paletteCycle
+                    ? deepClone(block.paletteCycle)
+                    : getDefaultCollectablePaletteCycle(block.type, blockPalette, paletteCount)
             });
             getCategoryArray('collectables').push(collectable);
             setSelections([{ category: 'collectables', entity: collectable }]);
@@ -6042,9 +7178,12 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
 
         if (targetCategory === 'doors') {
+            const sourceType = typeof selection.entity.type === 'string' ? selection.entity.type : '';
+            const resolvedDoorType = getDoorTypeFromSourceType(sourceType);
             const door = createDoorEntity({
                 x: selection.entity.x,
                 y: selection.entity.y,
+                type: resolvedDoorType ?? undefined,
                 palette: basePalette,
                 rotation: baseRotation,
                 collision: baseCollision,
@@ -6106,7 +7245,15 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         if (category === 'creatures') {
             return new Creature(data as CreatureSaveData);
         }
-        return new Collectable(data as CollectableSaveData);
+        const collectableData = {
+            ...(data as CollectableSaveData),
+            collected: false,
+            held: false,
+            stored: false,
+            velocity: { x: 0, y: 0 },
+            astronautCollisionIgnoreFrames: 0
+        };
+        return new Collectable(collectableData);
     }
 
     function createPastedSelections(entries: ClipboardEntry[], offsetX: number, offsetY: number) {
@@ -6122,11 +7269,31 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         return pastedSelections;
     }
 
+    function playMushroomPlacementSound(type: string) {
+        if (type !== 'mushrooms' && type !== 'mushroom') {
+            return;
+        }
+        if (!getSoundEnabled()) {
+            return;
+        }
+        const placementSound = mushroomsSound.cloneNode(true);
+        if (!(placementSound instanceof HTMLAudioElement)) {
+            return;
+        }
+        placementSound.volume = 0.8;
+        void placementSound.play().catch(() => { });
+    }
+
     function placeAtWorld(worldX: number, worldY: number, snapMode: ObjectSnapMode = state.activeObjectSnapMode) {
         const { x, y } = resolvePlacementPosition(worldX, worldY, state.category, snapMode);
         const type = getCurrentType();
 
         if (state.category === 'world') {
+            if (isTeleporterCompositeType(type)) {
+                const teleporterBase = createTeleporterCompositeAt(x, y);
+                setSelections([{ category: 'world', entity: teleporterBase }]);
+                return;
+            }
             const entity: MapBlock = {
                 x,
                 y,
@@ -6138,11 +7305,25 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 translation: state.translation
             };
             getCategoryArray('world').push(entity);
+            playMushroomPlacementSound(type);
             setSelections([{ category: 'world', entity }]);
             return;
         }
 
         if (state.category === 'buttons') {
+            if (isButtonCompositeType(type)) {
+                const button = createButtonEntity({
+                    x,
+                    y,
+                    rotation: state.rotation,
+                    collision: true,
+                    active: false,
+                    linkedDoors: []
+                });
+                getCategoryArray('buttons').push(button);
+                setSelections([{ category: 'buttons', entity: button }]);
+                return;
+            }
             const entity: MapBlock = {
                 x,
                 y,
@@ -6154,6 +7335,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 translation: 'center'
             };
             getCategoryArray('world').push(entity);
+            playMushroomPlacementSound(type);
             setSelections([{ category: 'world', entity }]);
             return;
         }
@@ -6205,14 +7387,15 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             palette: state.palette,
             rotation: state.rotation,
             name: type,
-            weight: 0.2,
+            weight: getDefaultCollectableWeight(type),
             pickupEnabled: true,
             storable: true,
             affectsAstronaut: true,
             collision: true,
             collected: false,
             held: false,
-            stored: false
+            stored: false,
+            paletteCycle: getDefaultCollectablePaletteCycle(type, state.palette, paletteCount)
         });
         getCategoryArray('collectables').push(entity);
         setSelections([{ category: 'collectables', entity }]);
@@ -6227,6 +7410,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         host.afterWorldDataMutated();
         invalidateOverviewBase();
         updateDirtyState();
+        syncEditModeSnapshot();
         refreshPanel();
         setStatus(message, 'neutral');
     }
@@ -6246,6 +7430,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const candidates: Array<{ category: DesignerCategory; entity: any }> = [];
 
         for (const collectable of [...data.collectables].reverse()) {
+            if ('creatureProjectile' in collectable && collectable.creatureProjectile) {
+                continue;
+            }
             candidates.push({ category: 'collectables', entity: collectable });
         }
         for (const creature of [...data.creatures].reverse()) {
@@ -6296,6 +7483,50 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         };
     }
 
+    function getTeleporterSelectionRect(teleporter: TeleporterSaveData): Rect | null {
+        const base = findWorldBlockByExactPosition(teleporter.baseX, teleporter.baseY, 'teleporter');
+        if (base) {
+            return getEntityRect(base, 'world');
+        }
+        const pad = findWorldBlockByExactPosition(teleporter.padX, teleporter.padY, 'teleporter_pad');
+        if (pad) {
+            return getEntityRect(pad, 'world');
+        }
+        return null;
+    }
+
+    function getSelectionVisuals(selections: Selection[]) {
+        const visuals: Array<{ rect: Rect; isPrimary: boolean }> = [];
+        const handledTeleporters = new Set<string>();
+        const primaryTeleporterId = state.selection?.category === 'world'
+            ? (findTeleporterForWorldBlock(state.selection.entity as MapBlock)?.id ?? null)
+            : null;
+
+        for (const selection of selections) {
+            if (selection.category === 'world') {
+                const teleporter = findTeleporterForWorldBlock(selection.entity as MapBlock);
+                if (teleporter) {
+                    if (handledTeleporters.has(teleporter.id)) {
+                        continue;
+                    }
+                    handledTeleporters.add(teleporter.id);
+                    visuals.push({
+                        rect: getTeleporterSelectionRect(teleporter) ?? getEntityRect(selection.entity, selection.category),
+                        isPrimary: primaryTeleporterId === teleporter.id
+                    });
+                    continue;
+                }
+            }
+
+            visuals.push({
+                rect: getEntityRect(selection.entity, selection.category),
+                isPrimary: state.selection ? areSameSelection(selection, state.selection) : false
+            });
+        }
+
+        return visuals;
+    }
+
     function getBoundsFromRects(rects: Rect[]): Rect {
         return {
             left: Math.min(...rects.map((rect) => rect.left)),
@@ -6316,9 +7547,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function beginDrag(world: Position, selections: Selection[]) {
+        const dragSelections = expandSelectionsWithLinkedTeleporters(selections);
         state.dragging = true;
         state.dragAnchorWorld = world;
-        state.dragItems = selections.map((selection) => ({
+        state.dragItems = dragSelections.map((selection) => ({
             selection,
             startX: selection.entity.x,
             startY: selection.entity.y
@@ -6380,7 +7612,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         state.objectSnapGuides = objectSnap.guides;
 
         for (const target of dragTargets) {
-            applyPosition(
+            applyEntityPositionWithTeleporterSync(
                 target.dragItem.selection.entity,
                 target.x + snapDeltaX,
                 target.y + snapDeltaY
@@ -6444,15 +7676,17 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function deleteSelection() {
-        if (getSelectedItems().length === 0) return;
+        const selections = expandSelectionsWithLinkedTeleporters(getSelectedItems());
+        if (selections.length === 0) return;
         runMutation('Deleted selection.', () => {
-            removeSelectedFromArray();
+            removeTeleportersForSelections(selections);
+            removeSelectedFromArray(selections);
             setSelections([]);
         });
     }
 
     function rotateSelection() {
-        const selections = getSelectedItems();
+        const selections = expandSelectionsWithLinkedTeleporters(getSelectedItems());
         if (selections.length === 0) return;
         if (selections.some((selection) => selection.category === 'custom')) {
             setStatus('Custom sprites keep the rotation authored into their grouped parts.', 'neutral');
@@ -6460,7 +7694,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
         runMutation('Rotated selection.', () => {
             for (const selection of selections) {
-                selection.entity.rotation = ((normalizeRotation(selection.entity.rotation) % 7) + 1);
+                const nextRotation = ((normalizeRotation(selection.entity.rotation) % 7) + 1);
+                applyEntityRotationWithTeleporterSync(selection.entity, nextRotation);
                 if (selection.category === 'creatures') {
                     selection.entity.state = selection.entity.state ?? {};
                     selection.entity.state.authoredRotation = selection.entity.rotation;
@@ -6473,11 +7708,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function nudgeSelection(dx: number, dy: number) {
-        const selections = getSelectedItems();
+        const selections = expandSelectionsWithLinkedTeleporters(getSelectedItems());
         if (selections.length === 0) return;
         runMutation('Nudged selection.', () => {
             for (const selection of selections) {
-                applyPosition(
+                applyEntityPositionWithTeleporterSync(
                     selection.entity,
                     selection.entity.x + dx,
                     selection.entity.y + dy
@@ -6501,6 +7736,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         state.selectedItems = [];
         invalidateOverviewBase();
         updateDirtyState();
+        syncEditModeSnapshot();
         refreshPanel();
         setStatus(message, 'neutral');
     }
@@ -6520,7 +7756,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function getSavePreview(): SavePreviewState {
-        const snapshot = getWorldSnapshot();
+        const snapshot = getWorldSnapshotForSave();
         const errors: string[] = [];
         const spriteTypeSet = new Set(spriteTypes);
         const paletteMax = paletteCount - 1;
@@ -6563,6 +7799,41 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         snapshot.doors.forEach((entry, index) => validateSpriteAndPalette('Door', entry, index));
         snapshot.creatures.forEach((entry, index) => validateSpriteAndPalette('Creature', entry, index));
         snapshot.collectables.forEach((entry, index) => validateSpriteAndPalette('Collectable', entry, index));
+        const teleporterIds = new Set<string>();
+        const duplicateTeleporterIds = new Set<string>();
+        for (const teleporter of snapshot.teleporters) {
+            if (teleporterIds.has(teleporter.id)) {
+                duplicateTeleporterIds.add(teleporter.id);
+            }
+            teleporterIds.add(teleporter.id);
+        }
+        if (duplicateTeleporterIds.size > 0) {
+            errors.push(`Duplicate teleporter IDs: ${[...duplicateTeleporterIds].join(', ')}`);
+        }
+        snapshot.teleporters.forEach((teleporter, index) => {
+            if (!snapshot.worldMap.some((block) => block.x === teleporter.baseX && block.y === teleporter.baseY && block.type === 'teleporter')) {
+                errors.push(`Teleporter #${index + 1} base sprite is missing at (${teleporter.baseX}, ${teleporter.baseY}).`);
+            }
+            if (!snapshot.worldMap.some((block) => block.x === teleporter.padX && block.y === teleporter.padY && block.type === 'teleporter_pad')) {
+                errors.push(`Teleporter #${index + 1} pad sprite is missing at (${teleporter.padX}, ${teleporter.padY}).`);
+            }
+            if (!Number.isFinite(teleporter.destinationA.x) || !Number.isFinite(teleporter.destinationA.y)) {
+                errors.push(`Teleporter #${index + 1} destination A must have numeric x and y.`);
+            }
+            if (teleporter.destinationB && (!Number.isFinite(teleporter.destinationB.x) || !Number.isFinite(teleporter.destinationB.y))) {
+                errors.push(`Teleporter #${index + 1} destination B must have numeric x and y.`);
+            }
+            if (teleporter.activeDestinationIndex === 1 && !teleporter.destinationB) {
+                errors.push(`Teleporter #${index + 1} is set to destination B but has no destination B.`);
+            }
+        });
+        snapshot.buttons.forEach((entry, index) => {
+            for (const linkedTeleporterId of entry.linkedTeleporters ?? []) {
+                if (!teleporterIds.has(linkedTeleporterId)) {
+                    errors.push(`Button #${index + 1} links to missing teleporter "${linkedTeleporterId}".`);
+                }
+            }
+        });
         if (!Number.isFinite(snapshot.astronautStart.x) || !Number.isFinite(snapshot.astronautStart.y)) {
             errors.push('Astronaut start position must have numeric x and y values.');
         }
@@ -6668,7 +7939,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             return;
         }
 
-        const snapshot = getWorldSnapshot();
+        const snapshot = getWorldSnapshotForSave();
         const liveAstronautPosition = host.getFocusWorldPosition();
         const astronautStartChanged =
             snapshot.astronautStart.x !== state.lastSavedSnapshot.astronautStart.x ||
@@ -6686,6 +7957,15 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 await host.saveWorldData(snapshot);
             }
             state.lastSavedSnapshot = snapshot;
+            if (state.mode === 'edit') {
+                syncEditModeSnapshot();
+            } else {
+                state.editModeSnapshot = {
+                    worldData: serializeWorldData(snapshot),
+                    customSpriteDefinitions: deepClone(state.customSpriteDefinitions),
+                    customSpriteInstances: deepClone(state.customSpriteInstances)
+                };
+            }
             if (!astronautStartChanged) {
                 host.resetAstronautToPosition(liveAstronautPosition);
             }
@@ -8435,16 +9715,19 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.inspector.innerHTML = '';
         updateSelectionSummary();
 
-        if (!state.selection || getSelectedItems().length !== 1) {
-            if (getSelectedItems().length > 1) {
-                const summary = document.createElement('div');
-                summary.className = 'world-designer-summary';
-                summary.textContent = 'Multi-selection active. Inspector editing is limited to single-object selection.';
-                refs.inspector.appendChild(summary);
-                if (state.category === 'buttons') {
-                    renderButtonDefaultsInspector(refs.inspector, null);
-                }
-            } else if (state.category === 'buttons') {
+        const selectedItems = getSelectedItems();
+        if (!state.selection) {
+            if (state.category === 'buttons') {
+                renderButtonDefaultsInspector(refs.inspector, null);
+            }
+            return;
+        }
+        if (selectedItems.length > 1) {
+            const summary = document.createElement('div');
+            summary.className = 'world-designer-summary';
+            summary.textContent = 'Multi-selection active. Palette edits apply to all selected sprites.';
+            refs.inspector.appendChild(summary);
+            if (state.category === 'buttons') {
                 renderButtonDefaultsInspector(refs.inspector, null);
             }
             return;
@@ -8468,12 +9751,12 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             });
             addNumberInspector(container, 'X', entity.x, (value) => {
                 runMutation('Updated X position.', () => {
-                    entity.x = Math.round(value);
+                    applyEntityPositionWithTeleporterSync(entity, value, entity.y);
                 });
             });
             addNumberInspector(container, 'Y', entity.y, (value) => {
                 runMutation('Updated Y position.', () => {
-                    entity.y = Math.round(value);
+                    applyEntityPositionWithTeleporterSync(entity, entity.x, value);
                 });
             });
             const summary = document.createElement('div');
@@ -8498,17 +9781,17 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         });
         addNumberInspector(container, 'X', entity.x, (value) => {
             runMutation('Updated X position.', () => {
-                entity.x = Math.round(value);
+                applyEntityPositionWithTeleporterSync(entity, value, entity.y);
             });
         });
         addNumberInspector(container, 'Y', entity.y, (value) => {
             runMutation('Updated Y position.', () => {
-                entity.y = Math.round(value);
+                applyEntityPositionWithTeleporterSync(entity, entity.x, value);
             });
         });
         addNumberInspector(container, 'Rotation', normalizeRotation(entity.rotation), (value) => {
             runMutation('Updated rotation.', () => {
-                entity.rotation = normalizeRotation(value);
+                applyEntityRotationWithTeleporterSync(entity, value);
                 if (category === 'creatures') {
                     entity.state = entity.state ?? {};
                     entity.state.authoredRotation = entity.rotation;
@@ -8538,13 +9821,15 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         if (category === 'buttons') {
             addOptionSelectInspector(container, 'Button cap palette', String(entity.palette ?? 0), paletteOptions, (value) => {
                 runMutation('Updated palette.', () => {
-                    entity.palette = clamp(Math.round(Number(value)), 0, paletteCount - 1);
+                    const nextPalette = clamp(Math.round(Number(value)), 0, paletteCount - 1);
+                    entity.palette = nextPalette;
                 });
             });
         } else {
             addNumberInspector(container, 'Palette', entity.palette ?? 0, (value) => {
                 runMutation('Updated palette.', () => {
-                    entity.palette = clamp(Math.round(value), 0, paletteCount - 1);
+                    const nextPalette = clamp(Math.round(value), 0, paletteCount - 1);
+                    entity.palette = nextPalette;
                 });
             });
         }
@@ -8622,6 +9907,172 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     entity.maskAstronaut = checked;
                 });
             });
+
+            if (entity.type === 'teleporter' || entity.type === 'teleporter_pad') {
+                const linkedTeleporter = findTeleporterForWorldBlock(entity);
+                if (!linkedTeleporter) {
+                    const summary = document.createElement('div');
+                    summary.className = 'world-designer-summary';
+                    summary.textContent = 'This teleporter part is not converted yet. Convert to create a linked base+pad mechanism.';
+                    container.appendChild(summary);
+                    addInspectorAction(container, 'Convert to teleporter', () => {
+                        runMutation('Converted world sprites to a teleporter.', () => {
+                            convertWorldTeleporterBlock(entity);
+                        });
+                    });
+                } else {
+                    addTextInspector(container, 'Teleporter ID', linkedTeleporter.id, (value) => {
+                        runMutation('Updated teleporter ID.', () => {
+                            renameTeleporterId(linkedTeleporter, value);
+                        });
+                    });
+                    addCheckboxInspector(container, 'Teleporter enabled', linkedTeleporter.enabled !== false, (checked) => {
+                        runMutation('Updated teleporter enabled state.', () => {
+                            linkedTeleporter.enabled = checked;
+                        });
+                    });
+                    addCheckboxInspector(container, 'Require key hook', linkedTeleporter.requiresKey === true, (checked) => {
+                        runMutation('Updated teleporter key requirement.', () => {
+                            linkedTeleporter.requiresKey = checked;
+                        });
+                    });
+                    addNumberInspector(container, 'Destination A X', linkedTeleporter.destinationA.x, (value) => {
+                        runMutation('Updated teleporter destination A X.', () => {
+                            linkedTeleporter.destinationA.x = Math.round(value);
+                        });
+                    });
+                    addNumberInspector(container, 'Destination A Y', linkedTeleporter.destinationA.y, (value) => {
+                        runMutation('Updated teleporter destination A Y.', () => {
+                            linkedTeleporter.destinationA.y = Math.round(value);
+                        });
+                    });
+                    const hasDestinationB = !!linkedTeleporter.destinationB;
+                    addCheckboxInspector(container, 'Enable destination B', hasDestinationB, (checked) => {
+                        runMutation('Updated teleporter destination B.', () => {
+                            linkedTeleporter.destinationB = checked
+                                ? {
+                                    x: linkedTeleporter.destinationA.x,
+                                    y: linkedTeleporter.destinationA.y
+                                }
+                                : null;
+                            if (!checked && linkedTeleporter.activeDestinationIndex === 1) {
+                                linkedTeleporter.activeDestinationIndex = 0;
+                            }
+                        });
+                    });
+                    if (linkedTeleporter.destinationB) {
+                        addNumberInspector(container, 'Destination B X', linkedTeleporter.destinationB.x, (value) => {
+                            runMutation('Updated teleporter destination B X.', () => {
+                                if (linkedTeleporter.destinationB) {
+                                    linkedTeleporter.destinationB.x = Math.round(value);
+                                }
+                            });
+                        });
+                        addNumberInspector(container, 'Destination B Y', linkedTeleporter.destinationB.y, (value) => {
+                            runMutation('Updated teleporter destination B Y.', () => {
+                                if (linkedTeleporter.destinationB) {
+                                    linkedTeleporter.destinationB.y = Math.round(value);
+                                }
+                            });
+                        });
+                    }
+                    addOptionSelectInspector(
+                        container,
+                        'Active destination',
+                        String(linkedTeleporter.activeDestinationIndex === 1 ? 1 : 0),
+                        [
+                            { value: '0', label: 'A' },
+                            { value: '1', label: 'B' }
+                        ],
+                        (value) => {
+                            runMutation('Updated teleporter active destination.', () => {
+                                linkedTeleporter.activeDestinationIndex = value === '1' && linkedTeleporter.destinationB ? 1 : 0;
+                            });
+                        }
+                    );
+                    addInspectorAction(container, 'Set destination A to view center', () => {
+                        runMutation('Set teleporter destination A to view center.', () => {
+                            linkedTeleporter.destinationA = {
+                                x: Math.round(state.camera.x + host.canvas.width / 2),
+                                y: Math.round(state.camera.y + host.canvas.height / 2)
+                            };
+                        });
+                    });
+                    addInspectorAction(container, 'Pick destination A on map', () => {
+                        state.teleporterDestinationPick = {
+                            teleporterId: linkedTeleporter.id,
+                            slot: 'a'
+                        };
+                        setStatus('Click anywhere in the viewport to set teleporter destination A.', 'neutral');
+                    });
+                    if (linkedTeleporter.destinationB) {
+                        addInspectorAction(container, 'Set destination B to view center', () => {
+                            runMutation('Set teleporter destination B to view center.', () => {
+                                if (linkedTeleporter.destinationB) {
+                                    linkedTeleporter.destinationB = {
+                                        x: Math.round(state.camera.x + host.canvas.width / 2),
+                                        y: Math.round(state.camera.y + host.canvas.height / 2)
+                                    };
+                                }
+                            });
+                        });
+                        addInspectorAction(container, 'Pick destination B on map', () => {
+                            state.teleporterDestinationPick = {
+                                teleporterId: linkedTeleporter.id,
+                                slot: 'b'
+                            };
+                            setStatus('Click anywhere in the viewport to set teleporter destination B.', 'neutral');
+                        });
+                    }
+                    if (state.teleporterDestinationPick?.teleporterId === linkedTeleporter.id) {
+                        const pickingSlot = state.teleporterDestinationPick.slot === 'b' ? 'B' : 'A';
+                        const pickerSummary = document.createElement('div');
+                        pickerSummary.className = 'world-designer-summary';
+                        pickerSummary.textContent = `Pick mode is armed for destination ${pickingSlot}.`;
+                        container.appendChild(pickerSummary);
+                        addInspectorAction(container, 'Cancel destination pick mode', () => {
+                            state.teleporterDestinationPick = null;
+                            setStatus('Cancelled teleporter destination pick mode.', 'neutral');
+                        });
+                    }
+                }
+            }
+        }
+
+        if (category === 'world' || category === 'doors') {
+            const destructibleCategory = category;
+            const resolvedDestructible = typeof entity.destructible === 'boolean'
+                ? entity.destructible
+                : getDefaultDestructibleEnabled(destructibleCategory, entity.type);
+            const resolvedHealth = typeof entity.destructionHealth === 'number'
+                ? Math.max(0.1, entity.destructionHealth)
+                : getDefaultDestructibleHealth(destructibleCategory, entity.type);
+            const resolvedSource = typeof entity.destructionSource === 'string'
+                ? entity.destructionSource
+                : getDefaultDestructionSource(destructibleCategory, entity.type);
+
+            addCheckboxInspector(container, 'Destructible', resolvedDestructible, (checked) => {
+                runMutation('Updated destructible flag.', () => {
+                    entity.destructible = checked;
+                    if (checked) {
+                        entity.destructionHealth = entity.destructionHealth ?? getDefaultDestructibleHealth(destructibleCategory, entity.type);
+                        entity.destructionSource = entity.destructionSource ?? getDefaultDestructionSource(destructibleCategory, entity.type);
+                    }
+                });
+            });
+
+            if (resolvedDestructible) {
+                addNumberInspector(container, 'Damage required', resolvedHealth, (value) => {
+                    runMutation('Updated destruction health.', () => {
+                        entity.destructionHealth = Math.max(0.1, value);
+                    });
+                }, 0.1);
+                addOptionSelectInspector(container, 'Damage source', resolvedSource, DESTRUCTION_SOURCE_OPTIONS, (value) => {
+                    runMutation('Updated destruction source.', () => {
+                        entity.destructionSource = value as DestructionSourceRequirement;
+                    });
+                });
+            }
         }
 
         if (category === 'buttons') {
@@ -8636,6 +10087,29 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     entity.linkedDoors = parseDoorIds(value);
                 });
             });
+            addTextInspector(container, 'Linked teleporter IDs (comma separated)', (entity.linkedTeleporters ?? []).join(', '), (value) => {
+                runMutation('Updated button linked teleporters.', () => {
+                    entity.linkedTeleporters = parseStringIds(value);
+                });
+            });
+            addOptionSelectInspector(
+                container,
+                'Teleporter action',
+                entity.teleporterMode ?? 'toggle',
+                [
+                    { value: 'toggle', label: 'Toggle A/B' },
+                    { value: 'destination_a', label: 'Set destination A' },
+                    { value: 'destination_b', label: 'Set destination B' },
+                    { value: 'toggle_enabled', label: 'Toggle enabled' },
+                    { value: 'enable', label: 'Enable teleporter' },
+                    { value: 'disable', label: 'Disable teleporter' }
+                ],
+                (value) => {
+                    runMutation('Updated button teleporter action.', () => {
+                        entity.teleporterMode = isTeleporterMode(value) ? value : 'toggle';
+                    });
+                }
+            );
             addTextInspector(container, 'Box sprite', entity.boxType ?? 'button_box', (value) => {
                 runMutation('Updated button box sprite.', () => {
                     entity.boxType = value;
@@ -8761,6 +10235,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 { value: 'none', label: 'None' },
                 { value: 'bullets', label: 'Bullets' },
                 { value: 'grenades', label: 'Grenades' },
+                { value: 'plasma_grenades', label: 'Plasma grenades' },
                 { value: 'energy_pods', label: 'Energy pods' }
             ];
             const soundOptions = [
@@ -8880,11 +10355,46 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     entity.fireCooldownMs = Math.max(0, value);
                 });
             });
+            addNumberInspector(container, 'Fire cooldown variance (ms)', entity.fireCooldownVarianceMs ?? 0, (value) => {
+                runMutation('Updated cooldown variance.', () => {
+                    entity.fireCooldownVarianceMs = Math.max(0, value);
+                });
+            });
+            addNumberInspector(container, 'Target refresh (ms)', entity.targetRefreshMs ?? 0, (value) => {
+                runMutation('Updated target refresh.', () => {
+                    entity.targetRefreshMs = Math.max(0, value);
+                });
+            });
+            addNumberInspector(container, 'Aim lead factor', entity.aimLeadFactor ?? 0, (value) => {
+                runMutation('Updated aim lead factor.', () => {
+                    entity.aimLeadFactor = Math.max(0, value);
+                });
+            }, 0.05);
+            addNumberInspector(container, 'Aim jitter (px)', entity.aimJitterPx ?? 0, (value) => {
+                runMutation('Updated aim jitter.', () => {
+                    entity.aimJitterPx = Math.max(0, value);
+                });
+            }, 0.5);
+            addCheckboxInspector(container, 'Requires line of sight', entity.requiresLineOfSight ?? false, (checked) => {
+                runMutation('Updated line-of-sight gating.', () => {
+                    entity.requiresLineOfSight = checked;
+                });
+            });
             addNumberInspector(container, 'Projectile speed', entity.projectileSpeed ?? 3, (value) => {
                 runMutation('Updated projectile speed.', () => {
                     entity.projectileSpeed = Math.max(0, value);
                 });
             }, 0.1);
+            addNumberInspector(container, 'Projectile weight', entity.projectileWeight ?? 0.1, (value) => {
+                runMutation('Updated projectile weight.', () => {
+                    entity.projectileWeight = Math.max(0, value);
+                });
+            }, 0.05);
+            addNumberInspector(container, 'Projectile bounciness', entity.projectileBounciness ?? 0, (value) => {
+                runMutation('Updated projectile bounciness.', () => {
+                    entity.projectileBounciness = Math.max(0, value);
+                });
+            }, 0.05);
             addCheckboxInspector(container, 'Can eat wasps', entity.canEatWasps ?? false, (checked) => {
                 runMutation('Updated predator flag.', () => {
                     entity.canEatWasps = checked;
@@ -9048,6 +10558,41 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     entity.name = value;
                 });
             });
+            if (entity.type === 'boulder') {
+                addCheckboxInspector(container, 'Radioactive', entity.radioactive === true, (checked) => {
+                    runMutation('Updated boulder radioactivity.', () => {
+                        const regularWeight = getDefaultCollectableWeight(entity.type, false);
+                        const radioactiveWeight = getDefaultCollectableWeight(entity.type, true);
+                        const radioactivePaletteCycle = getDefaultCollectablePaletteCycle(
+                            entity.type,
+                            entity.palette ?? 0,
+                            paletteCount,
+                            true
+                        );
+                        entity.radioactive = checked;
+                        if (checked) {
+                            if (Math.abs((entity.weight ?? regularWeight) - regularWeight) < 0.0001) {
+                                entity.weight = radioactiveWeight;
+                            }
+                            if (!entity.paletteCycle && radioactivePaletteCycle) {
+                                entity.paletteCycle = radioactivePaletteCycle;
+                            }
+                            return;
+                        }
+
+                        if (Math.abs((entity.weight ?? radioactiveWeight) - radioactiveWeight) < 0.0001) {
+                            entity.weight = regularWeight;
+                        }
+                        if (
+                            radioactivePaletteCycle &&
+                            entity.paletteCycle &&
+                            stableStringify(entity.paletteCycle) === stableStringify(radioactivePaletteCycle)
+                        ) {
+                            entity.paletteCycle = undefined;
+                        }
+                    });
+                });
+            }
             addNumberInspector(container, 'Weight', entity.weight ?? 0, (value) => {
                 runMutation('Updated item weight.', () => {
                     entity.weight = Number.isFinite(value) ? value : 0;
@@ -9081,6 +10626,41 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     entity.affectsAstronaut = checked;
                 });
             });
+            if (isGrenadeCollectableType(entity.type)) {
+                addCheckboxInspector(container, 'Armed', entity.armed ?? false, (checked) => {
+                    runMutation('Updated grenade armed state.', () => {
+                        if (checked) {
+                            entity.arm();
+                        } else {
+                            entity.disarm();
+                        }
+                    });
+                });
+                addNumberInspector(
+                    container,
+                    'Explosion power',
+                    entity.explosionPower ?? getDefaultGrenadeExplosionPower(entity.type) ?? 0,
+                    (value) => {
+                        runMutation('Updated grenade explosion power.', () => {
+                            entity.explosionPower = Math.max(0.5, value);
+                        });
+                    },
+                    0.1
+                );
+                addNumberInspector(
+                    container,
+                    'Explosion radius',
+                    entity.explosionRadius ?? (entity.type === 'plasma_grenade'
+                        ? MOVEMENT_SETTINGS.plasmaGrenadeExplosionRadius
+                        : MOVEMENT_SETTINGS.grenadeExplosionRadius),
+                    (value) => {
+                        runMutation('Updated grenade explosion radius.', () => {
+                            entity.explosionRadius = Math.max(1, value);
+                        });
+                    },
+                    1
+                );
+            }
         }
     }
 
@@ -9090,6 +10670,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.activeToggle.textContent = state.active ? 'Hide panel' : 'Show panel';
         refs.expandViewportCheckbox.checked = state.viewportExpanded;
         refs.soundEnabledCheckbox.checked = host.getSoundEnabled();
+        const bulletImpactAudioSettings = host.getBulletImpactAudioSettings();
+        refs.bulletImpactPrimarySelect.value = bulletImpactAudioSettings.primary;
+        refs.bulletImpactAlternateSelect.value = bulletImpactAudioSettings.alternate;
+        refs.bulletImpactAlternateChanceInput.value = bulletImpactAudioSettings.alternateChance.toFixed(2);
+        refs.bulletImpactVolumeInput.value = bulletImpactAudioSettings.volume.toFixed(2);
         refs.modeSelect.value = state.mode;
         refs.toolSelect.value = state.tool;
         refs.categorySelect.value = state.category;
@@ -9307,6 +10892,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             y: Math.round(state.camera.y + host.canvas.height / 2)
         };
         host.resetAstronautToPosition(position);
+        if (state.liveResumeSnapshot) {
+            state.liveResumeSnapshot.astronautPosition = position;
+        }
         setStatus('Moved the live astronaut to the center of the current view.', 'success');
     }
 
@@ -9318,6 +10906,38 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         closeContextMenu();
 
         const world = screenToWorld(point.x, point.y);
+
+        if (state.teleporterDestinationPick) {
+            if (event.button === 2) {
+                state.teleporterDestinationPick = null;
+                setStatus('Cancelled teleporter destination pick mode.', 'neutral');
+                event.preventDefault();
+                return;
+            }
+            if (event.button !== 0) {
+                return;
+            }
+            const pickState = state.teleporterDestinationPick;
+            const slotLabel = pickState.slot === 'b' ? 'B' : 'A';
+            runMutation(`Set teleporter destination ${slotLabel} from map pick.`, () => {
+                const teleporter = getTeleporterById(pickState.teleporterId);
+                if (!teleporter) {
+                    throw new Error(`Teleporter "${pickState.teleporterId}" no longer exists.`);
+                }
+                const destination = {
+                    x: Math.round(world.x),
+                    y: Math.round(world.y)
+                };
+                if (pickState.slot === 'b') {
+                    teleporter.destinationB = destination;
+                } else {
+                    teleporter.destinationA = destination;
+                }
+            });
+            state.teleporterDestinationPick = null;
+            setStatus(`Set teleporter destination ${slotLabel} to (${Math.round(world.x)}, ${Math.round(world.y)}).`, 'success');
+            return;
+        }
 
         if (event.button === 2) {
             const hit = getEntityAt(world.x, world.y);
@@ -9618,6 +11238,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             case 'm':
             case 'M':
                 state.mode = state.mode === 'edit' ? 'preview' : 'edit';
+                if (state.mode === 'edit' && restoreEditModeSnapshot()) {
+                    setStatus('Restored the authored world state for editing.', 'neutral');
+                }
+                state.liveResumeSnapshot = null;
                 refreshPanel();
                 event.preventDefault();
                 return;
@@ -9688,8 +11312,12 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         closeContextMenu();
         if (!state.active) {
             closeModal();
+            state.liveResumeSnapshot = null;
             refreshPanel();
             return;
+        }
+        if (state.mode === 'edit' && restoreEditModeSnapshot()) {
+            setStatus('Restored the authored world state for editing.', 'neutral');
         }
         // Re-sync to the current live view each time the panel is restored so
         // the world does not jump back to an older stored designer camera.
@@ -9772,16 +11400,14 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const scaleX = refs.overviewCanvas.width / MAP_WIDTH;
         const scaleY = refs.overviewCanvas.height / MAP_HEIGHT;
 
-        for (const selection of getSelectedItems()) {
-            const rect = getEntityRect(selection.entity, selection.category);
-            const isPrimary = state.selection ? areSameSelection(selection, state.selection) : false;
-            ctx.strokeStyle = isPrimary ? '#ffffff' : '#93c5fd';
-            ctx.lineWidth = isPrimary ? 2 : 1.5;
+        for (const visual of getSelectionVisuals(getSelectedItems())) {
+            ctx.strokeStyle = visual.isPrimary ? '#ffffff' : '#93c5fd';
+            ctx.lineWidth = visual.isPrimary ? 2 : 1.5;
             ctx.strokeRect(
-                rect.left * scaleX,
-                rect.top * scaleY,
-                Math.max(3, rect.width * scaleX),
-                Math.max(3, rect.height * scaleY)
+                visual.rect.left * scaleX,
+                visual.rect.top * scaleY,
+                Math.max(3, visual.rect.width * scaleX),
+                Math.max(3, visual.rect.height * scaleY)
             );
         }
 
@@ -9885,6 +11511,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
     refs.modeSelect.addEventListener('change', () => {
         state.mode = refs.modeSelect.value as DesignerMode;
+        if (state.mode === 'edit' && restoreEditModeSnapshot()) {
+            setStatus('Restored the authored world state for editing.', 'neutral');
+        }
+        state.liveResumeSnapshot = null;
         refreshPanel();
     });
     refs.toolSelect.addEventListener('change', () => {
@@ -9897,6 +11527,13 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refreshPanel();
     });
     refs.typeSelect.addEventListener('change', () => {
+        if (
+            isTeleporterCompositeType(refs.typeSelect.value) ||
+            isButtonCompositeType(refs.typeSelect.value)
+        ) {
+            setCurrentType(refs.typeSelect.value);
+            return;
+        }
         const selection = getSingleEditableSelection();
         if (selection) {
             if (selection.category === 'custom') {
@@ -9942,7 +11579,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const selection = getSingleEditableSelection();
         if (selection) {
             runMutation('Updated rotation.', () => {
-                selection.entity.rotation = rotation;
+                applyEntityRotationWithTeleporterSync(selection.entity, rotation);
                 if (selection.category === 'creatures') {
                     selection.entity.state = selection.entity.state ?? {};
                     selection.entity.state.authoredRotation = rotation;
@@ -9974,6 +11611,25 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     });
     refs.paletteSelect.addEventListener('change', () => {
         const palette = clamp(Number(refs.paletteSelect.value), 0, paletteCount - 1);
+        const selections = getSelectedItems();
+        if (selections.length > 1) {
+            const paletteTargets = selections
+                .map((selection) => selection.entity)
+                .filter((entity): entity is { palette?: number } =>
+                    !!entity &&
+                    typeof entity === 'object' &&
+                    'palette' in entity
+                );
+            if (paletteTargets.length > 0) {
+                runMutation('Updated selected palettes.', () => {
+                    for (const target of paletteTargets) {
+                        target.palette = palette;
+                    }
+                });
+                updateSelectionFromInspectorState();
+                return;
+            }
+        }
         const selection = getSingleEditableSelection();
         if (selection) {
             runMutation('Updated palette.', () => {
@@ -10042,6 +11698,34 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     refs.showSpriteOutlineCheckbox.addEventListener('change', () => {
         host.setShowSpriteOutlines(refs.showSpriteOutlineCheckbox.checked);
     });
+    const applyBulletImpactAudioSettingsFromControls = () => {
+        const current = host.getBulletImpactAudioSettings();
+        const alternateChance = clamp(Number(refs.bulletImpactAlternateChanceInput.value) || 0, 0, 1);
+        const volume = clamp(Number(refs.bulletImpactVolumeInput.value) || 0, 0, 1);
+        host.setBulletImpactAudioSettings({
+            primary: refs.bulletImpactPrimarySelect.value === 'bulletExplosion2' ? 'bulletExplosion2' : 'bulletExplosion',
+            alternate: refs.bulletImpactAlternateSelect.value === 'bulletExplosion2' ? 'bulletExplosion2' : 'bulletExplosion',
+            alternateChance,
+            volume
+        });
+        const updated = host.getBulletImpactAudioSettings();
+        refs.bulletImpactPrimarySelect.value = updated.primary;
+        refs.bulletImpactAlternateSelect.value = updated.alternate;
+        refs.bulletImpactAlternateChanceInput.value = updated.alternateChance.toFixed(2);
+        refs.bulletImpactVolumeInput.value = updated.volume.toFixed(2);
+        if (
+            current.primary !== updated.primary ||
+            current.alternate !== updated.alternate ||
+            current.alternateChance !== updated.alternateChance ||
+            current.volume !== updated.volume
+        ) {
+            persistDesignerUiState();
+        }
+    };
+    refs.bulletImpactPrimarySelect.addEventListener('change', applyBulletImpactAudioSettingsFromControls);
+    refs.bulletImpactAlternateSelect.addEventListener('change', applyBulletImpactAudioSettingsFromControls);
+    refs.bulletImpactAlternateChanceInput.addEventListener('change', applyBulletImpactAudioSettingsFromControls);
+    refs.bulletImpactVolumeInput.addEventListener('change', applyBulletImpactAudioSettingsFromControls);
     refs.magnifierCheckbox.addEventListener('change', () => {
         state.magnifierEnabled = refs.magnifierCheckbox.checked;
         if (!state.magnifierEnabled) {
@@ -10214,21 +11898,17 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             }
 
             const selections = getSelectedItems();
-            if (selections.length > 0) {
-                for (const selection of selections) {
-                    const rect = getEntityRect(selection.entity, selection.category);
-                    const isPrimary = state.selection ? areSameSelection(selection, state.selection) : false;
+            if (state.mode !== 'preview' && selections.length > 0) {
+                for (const visual of getSelectionVisuals(selections)) {
                     ctx.save();
-                    ctx.strokeStyle = isPrimary ? '#f8fafc' : '#60a5fa';
-                    ctx.lineWidth = isPrimary ? 2 : 1.5;
-                    ctx.setLineDash(isPrimary
-                        ? (state.mode === 'preview' ? [8, 4] : [])
-                        : [6, 4]);
+                    ctx.strokeStyle = visual.isPrimary ? '#f8fafc' : '#60a5fa';
+                    ctx.lineWidth = visual.isPrimary ? 2 : 1.5;
+                    ctx.setLineDash(visual.isPrimary ? [] : [6, 4]);
                     ctx.strokeRect(
-                        rect.left - state.camera.x,
-                        rect.top - state.camera.y,
-                        rect.width,
-                        rect.height
+                        visual.rect.left - state.camera.x,
+                        visual.rect.top - state.camera.y,
+                        visual.rect.width,
+                        visual.rect.height
                     );
                     ctx.restore();
                 }
@@ -10256,16 +11936,17 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 ctx.restore();
             }
 
-            if (state.showCollisionOverlay) {
+            if (state.showCollisionOverlay && state.mode !== 'preview') {
                 ctx.save();
-                ctx.strokeStyle = state.mode === 'preview'
-                    ? (state.disableCollisionInPreview ? '#94a3b8' : '#22c55e')
-                    : '#38bdf8';
+                ctx.strokeStyle = '#38bdf8';
                 ctx.lineWidth = 1.5;
-                ctx.setLineDash(state.mode === 'preview' && state.disableCollisionInPreview ? [4, 4] : []);
+                ctx.setLineDash([]);
                 for (const [category, visible] of Object.entries(state.layerVisibility) as Array<[DesignerCategory, boolean]>) {
                     if (!visible) continue;
                     for (const entity of getCategoryArray(category)) {
+                        if (category === 'collectables' && 'creatureProjectile' in entity && entity.creatureProjectile) {
+                            continue;
+                        }
                         if ('collision' in entity && entity.collision === false) continue;
                         const rect = getEntityRect(entity, category);
                         ctx.strokeRect(
@@ -10293,12 +11974,31 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                             dragGhostCanvas,
                             getCustomSpriteDefinitionById(state.pickerDrag.type)
                         );
+                    } else if (
+                        state.pickerDrag.category === 'buttons' &&
+                        isButtonCompositeType(state.pickerDrag.type)
+                    ) {
+                        renderButtonCompositePreviewCanvas(
+                            dragGhostCanvas,
+                            createButtonEntity({
+                                x: 0,
+                                y: 0,
+                                rotation: state.pickerDrag.rotation,
+                                collision: true,
+                                active: false,
+                                linkedDoors: []
+                            })
+                        );
                     } else {
+                        const previewType = getPlacementPreviewType(state.pickerDrag.type);
+                        const previewRotation = isTeleporterCompositeType(state.pickerDrag.type)
+                            ? getTeleporterBaseRotationForPadRotation(state.pickerDrag.rotation)
+                            : state.pickerDrag.rotation;
                         host.drawSpritePreview(
                             ghostCtx,
-                            state.pickerDrag.type,
+                            previewType,
                             state.pickerDrag.palette,
-                            state.pickerDrag.rotation,
+                            previewRotation,
                             true,
                             dragGhostTargetSize
                         );
@@ -10343,6 +12043,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         destroy() {
             setViewportExpanded(false);
             customSpriteDefinitionResolver = null;
+            visibleSpriteRectResolver = null;
+            visibleSpriteRectCache.clear();
             closeContextMenu();
             refs.overviewCanvas.removeEventListener('mousedown', handleOverviewMouseDown);
             refs.overviewCanvas.removeEventListener('mousemove', handleOverviewMouseMove);

@@ -1,5 +1,15 @@
 // Main entry point for the astronaut game
-import { Astronaut, GameState, Position } from './types/index.js';
+import {
+    Astronaut,
+    CreatureFireMode,
+    CreatureProjectileKind,
+    CreatureProjectileRuntimeData,
+    GameState,
+    PaletteCycleSettings,
+    Position,
+    TeleporterDestinationMode,
+    TeleporterSaveData
+} from './types/index.js';
 import {
     astronaut, resetAstronaut, resetAstronautToPosition, flipAstronaut, handleAstronautMovement, applyLandingMomentum, getAstronautCollisionOffsets, setAstronautCollisionProfile,
     getAstronautStartPosition, setAstronautStartPosition,
@@ -8,6 +18,7 @@ import {
 } from './astronaut.js';
 import { applyGravity } from './gravity.js';
 import {
+    DynamicObjectPhysicsSettings,
     applyDynamicObjectGravity,
     applyDynamicObjectGroundFriction,
     getDynamicObjectBounceRestitution,
@@ -18,6 +29,7 @@ import {
 import {
     clearMapSpriteCache,
     mapBlocks,
+    type MapBlock,
     mapLoaded,
     loadMapBlocks,
     drawMap,
@@ -25,24 +37,39 @@ import {
     getBlackBackgroundBlocks,
     getMapBlocksBehindAstronaut,
     getMapBlocksMaskAstronaut,
+    getMushroomBlocks,
     getRenderableMapBlocks,
     rebuildMapBlockRenderCache
 } from './map.js';
 import { initStars, updateAndDrawStars } from './stars.js';
 import { emitJetpackDots, updateAndDrawJetpackDots, resetJetpackDotEmitTimer, hasActiveJetpackDots } from './jetpack.js';
 import { Button } from './button.js';
+import {
+    getDefaultDestructibleEnabled,
+    getDefaultDestructibleHealth,
+    getDefaultDestructionSource,
+    type DestructionSourceRequirement
+} from './destructibles.js';
 import { Door } from './door.js';
-import { Creature, toCreatureSaveData } from './creature.js';
-import { Collectable } from './collectable.js';
+import { Creature, getCreatureAuthoredType, toCreatureSaveData } from './creature.js';
+import { Collectable, getDefaultGrenadeExplosionPower, isGrenadeCollectableType } from './collectable.js';
 import { makeBlackTransparent, remapSpritePalette, calculateSpriteCollisionBoundingBoxes, 
-    calculateAstronautSpriteBoundingBoxes, getSolidBlockAtWorld, getAnyBlockAtWorld, 
-    drawEntities, getSpriteTranslationOffset, getTransformedSpriteCanvas, normalizeSpriteTranslation, SpriteTranslation } from './utilities.js';
-import { MOVEMENT_SETTINGS, VIEWPORT_SETTINGS } from './settings.js';
+calculateAstronautSpriteBoundingBoxes, getSolidBlockAtWorld, getAnyBlockAtWorld, 
+drawEntities, getSpriteTranslationOffset, getSpriteVisibleBounds, getTransformedSpriteCanvas,
+getVisibleCenterRotationOffset, getRenderedEntitySpriteCanvas, normalizeSpriteTranslation, SpriteTranslation
+} from './utilities.js';
+import {
+    BULLET_IMPACT_AUDIO_SETTINGS,
+    type BulletImpactAudioSettings,
+    CREATURE_PROJECTILE_SETTINGS,
+    MOVEMENT_SETTINGS,
+    VIEWPORT_SETTINGS
+} from './settings.js';
 import {
     SPRITE_ROW, SPRITE_COL_STAND, SPRITE_COL_FLY_RIGHT, SPRITE_COL_FLY_DIAGONAL,
     SPRITE_COL_FLY_FLOAT, SPRITE_COL_FLY_DOWN, SPRITE_COL_WALK_START, SPRITE_COL_WALK_RIGHT1,
     SPRITE_COL_WALK_RIGHT2, SPRITE_COL_WALK_END, TELEPORT_ANIM_FRAMES, MAP_WIDTH, MAP_HEIGHT,
-    SPRITE_SCALE, rememberSound, teleportSound, buttonOnSound, doorOpenSound, doorCloseSound, getSound, saveSound, ouchSounds, creatureManifestSounds,
+    SPRITE_SCALE, rememberSound, teleportSound, buttonOnSound, doorOpenSound, doorCloseSound, getSound, saveSound, bulletExplosionSound, bulletExplosion2Sound, grenadeArmedSound, mushroomsSound, ouchSounds, creatureManifestSounds,
     setMapBounds,
     getSoundEnabled, setSoundEnabled, toggleSoundEnabled
 } from './constants.js';
@@ -84,6 +111,35 @@ const COLLECTABLE_PHYSICS_SETTINGS = {
     headBounceMinImpactSpeed: MOVEMENT_SETTINGS.headBounceMinImpactSpeed,
     headBounceMaxLaunchSpeed: MOVEMENT_SETTINGS.collectableHeadBounceMaxLaunchSpeed
 } as const;
+const BIRD_ANIMATION_FRAMES = ['bird1', 'bird2', 'bird3', 'bird4'] as const;
+const BIRD_ANIMATION_FRAME_DURATION_MS = 90;
+const BIRD_TRACK_RELEASE_RANGE_MULTIPLIER = 1.75;
+const BIRD_TRACK_RELEASE_RANGE_PADDING = 96;
+const BIRD_AVOIDANCE_VERTICAL_THRESHOLD = 12;
+const HELD_COLLECTABLE_HAND_INSET = 4 * SPRITE_SCALE;
+const HELD_COLLECTABLE_HAND_OVERLAP = -12;
+const MUSHROOM_AMBIENT_RANGE = 360;
+const MUSHROOM_AMBIENT_BASE_VOLUME = 0.6;
+const MUSHROOM_AMBIENT_MIN_DELAY_MS = 180;
+const MUSHROOM_AMBIENT_MAX_DELAY_MS = 420;
+
+function getCreatureProjectilePhysicsSettings(collectable: Pick<Collectable, 'bounciness' | 'creatureProjectile'>) {
+    const projectileKind = collectable.creatureProjectile?.kind;
+    const projectileSettings = projectileKind ? getProjectileSettings(projectileKind) : null;
+    return {
+        ...COLLECTABLE_PHYSICS_SETTINGS,
+        gravity: MOVEMENT_SETTINGS.creatureProjectileGravity * (projectileSettings?.gravityScale ?? 1),
+        terminalVelocity: MOVEMENT_SETTINGS.creatureProjectileTerminalVelocity,
+        bounceRestitution: Math.max(0, collectable.bounciness),
+        headBounceMaxLaunchSpeed: 0
+    } as const;
+}
+
+function getCollectablePhysicsSettings(collectable: Pick<Collectable, 'bounciness' | 'creatureProjectile'>) {
+    return collectable.creatureProjectile
+        ? getCreatureProjectilePhysicsSettings(collectable)
+        : COLLECTABLE_PHYSICS_SETTINGS;
+}
 
 function deepClone<T>(value: T): T {
     return JSON.parse(JSON.stringify(value));
@@ -141,12 +197,20 @@ function applyPaletteDefinitions(definitions: PaletteDefinition[]) {
 }
 
 window.addEventListener('keydown', (event) => {
-    keys[event.key] = true;
+    const key = event.code === 'Space' ? ' ' : event.key;
+    if (key === ' ') {
+        event.preventDefault();
+    }
+    keys[key] = true;
     requestImmediateFrame();
 });
 
 window.addEventListener('keyup', (event) => {
-    keys[event.key] = false;
+    const key = event.code === 'Space' ? ' ' : event.key;
+    if (key === ' ') {
+        event.preventDefault();
+    }
+    keys[key] = false;
     requestImmediateFrame();
 });
 
@@ -268,14 +332,19 @@ function hasMovingCollectables() {
     return collectableEntities.some((collectable) =>
         !collectable.collected &&
         !collectable.stored &&
-        !collectable.held &&
         (
+            collectable.armed ||
+            collectable.held ||
             !collectable.isGrounded ||
             Math.abs(collectable.velocity.x) > ACTIVE_MOTION_EPSILON ||
             Math.abs(collectable.velocity.y) > ACTIVE_MOTION_EPSILON ||
             collectable.astronautCollisionIgnoreFrames > 0
         )
     );
+}
+
+function hasActiveCreatureWork() {
+    return creatureEntities.length > 0 || collectableEntities.some(isCreatureProjectileCollectable);
 }
 
 function shouldRunInteractiveFrameRate() {
@@ -291,8 +360,10 @@ function shouldRunInteractiveFrameRate() {
         throwGuideDots.length > 0 ||
         hasActiveJetpackDots() ||
         doorEntities.some((door) => door.animating) ||
+        hasActiveCreatureWork() ||
         hasMovingCollectables() ||
         !astronaut.isLanded ||
+        astronaut.energy < astronaut.maxEnergy ||
         Math.abs(astronaut.velocity.x) > ACTIVE_MOTION_EPSILON ||
         Math.abs(astronaut.velocity.y) > ACTIVE_MOTION_EPSILON ||
         Math.abs(walkSpeed) > ACTIVE_MOTION_EPSILON
@@ -375,6 +446,173 @@ function updateAstronautStartPosition(position: Position, applyToAstronaut: bool
     syncDefaultTeleportLocation(position);
 }
 
+function popLatestTeleportLocation() {
+    if (teleportLocations.length > 0) {
+        const location = teleportLocations.pop()!;
+        if (teleportSlot > teleportLocations.length) {
+            teleportSlot = teleportLocations.length;
+        }
+        return location;
+    }
+    return { ...defaultTeleportLocation };
+}
+
+function startTeleportToLocation(location: TeleportLocation) {
+    if (teleporting) {
+        return false;
+    }
+
+    teleporting = true;
+    teleportPhase = 'out';
+    teleportAnimFrame = 0;
+    teleportTarget = location;
+    teleportSpriteCol = currentAstronautRenderState.spriteCol;
+    teleportFlipSprite = currentAstronautRenderState.flipSprite;
+    teleportFlipVertical = currentAstronautRenderState.flipVertical;
+    try { teleportSound.currentTime = 0; teleportSound.play(); } catch {}
+    requestImmediateFrame();
+    return true;
+}
+
+function getAstronautInjuryRatio() {
+    if (astronaut.maxEnergy <= 0) {
+        return 0;
+    }
+    return Math.max(0, 1 - astronaut.energy / astronaut.maxEnergy);
+}
+
+function isAstronautDamageFlashVisible(now: number) {
+    const injuryRatio = getAstronautInjuryRatio();
+    if (injuryRatio <= 0) {
+        return false;
+    }
+
+    const flashIntervalMs = MOVEMENT_SETTINGS.astronautDamageFlashMaxIntervalMs - injuryRatio * (
+        MOVEMENT_SETTINGS.astronautDamageFlashMaxIntervalMs - MOVEMENT_SETTINGS.astronautDamageFlashMinIntervalMs
+    );
+    return Math.floor(now / flashIntervalMs) % 2 === 0;
+}
+
+function drawAstronautDamageFlashOverlay(
+    context: CanvasRenderingContext2D,
+    drawW: number,
+    drawH: number,
+    now: number
+) {
+    if (!isAstronautDamageFlashVisible(now)) {
+        return;
+    }
+
+    context.save();
+    context.globalCompositeOperation = 'source-atop';
+    context.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    context.fillRect(-drawW / 2, -drawH / 2, drawW, drawH);
+    context.restore();
+}
+
+function drawAstronautSprite(
+    context: CanvasRenderingContext2D,
+    spriteRect: { x: number; y: number; w: number; h: number },
+    drawW: number,
+    drawH: number,
+    now: number
+) {
+    const frameCanvas = getAstronautSpriteFrameCanvas(spriteRect);
+    if (!frameCanvas) {
+        return;
+    }
+    context.imageSmoothingEnabled = false;
+
+    if (!isAstronautDamageFlashVisible(now)) {
+        context.drawImage(
+            frameCanvas,
+            -drawW / 2,
+            -drawH / 2,
+            drawW, drawH
+        );
+        return;
+    }
+
+    const flashCanvas = document.createElement('canvas');
+    flashCanvas.width = Math.max(1, Math.round(drawW));
+    flashCanvas.height = Math.max(1, Math.round(drawH));
+    const flashContext = flashCanvas.getContext('2d');
+    if (!flashContext) {
+        context.drawImage(
+            frameCanvas,
+            -drawW / 2,
+            -drawH / 2,
+            drawW, drawH
+        );
+        return;
+    }
+
+    flashContext.imageSmoothingEnabled = false;
+    flashContext.drawImage(
+        frameCanvas,
+        0,
+        0,
+        flashCanvas.width,
+        flashCanvas.height
+    );
+    flashContext.globalCompositeOperation = 'source-atop';
+    flashContext.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    flashContext.fillRect(0, 0, flashCanvas.width, flashCanvas.height);
+    context.drawImage(
+        flashCanvas,
+        -drawW / 2,
+        -drawH / 2,
+        drawW,
+        drawH
+    );
+}
+
+function updateAstronautEnergyRecovery(now: number) {
+    if (teleporting || astronaut.energy >= astronaut.maxEnergy) {
+        return;
+    }
+
+    const nextRegenAt = astronaut.nextEnergyRegenAtMs ?? (now + MOVEMENT_SETTINGS.astronautEnergyRegenIntervalMs);
+    if (now < nextRegenAt) {
+        astronaut.nextEnergyRegenAtMs = nextRegenAt;
+        return;
+    }
+
+    const intervalMs = MOVEMENT_SETTINGS.astronautEnergyRegenIntervalMs;
+    const regenSteps = Math.floor((now - nextRegenAt) / intervalMs) + 1;
+    astronaut.energy = Math.min(
+        astronaut.maxEnergy,
+        astronaut.energy + regenSteps * MOVEMENT_SETTINGS.astronautEnergyRegenAmount
+    );
+    astronaut.nextEnergyRegenAtMs = nextRegenAt + regenSteps * intervalMs;
+}
+
+function triggerAstronautEmergencyTeleport() {
+    if (teleporting) {
+        return;
+    }
+
+    releaseHeldCollectable();
+    astronaut.energy = Math.min(
+        astronaut.maxEnergy,
+        Math.max(1, MOVEMENT_SETTINGS.astronautEmergencyTeleportEnergy)
+    );
+    startTeleportToLocation(popLatestTeleportLocation());
+}
+
+function applyAstronautDamage(amount: number, now: number = performance.now()) {
+    if (amount <= 0 || teleporting) {
+        return;
+    }
+
+    const scaledDamage = amount * MOVEMENT_SETTINGS.astronautDamageIntakeMultiplier;
+    astronaut.energy = Math.max(0, astronaut.energy - scaledDamage);
+    astronaut.nextEnergyRegenAtMs = now + MOVEMENT_SETTINGS.astronautEnergyRegenIntervalMs;
+    if (astronaut.energy <= 0) {
+        triggerAstronautEmergencyTeleport();
+    }
+}
+
 function rememberLastFlyPose(col: number, flip: boolean) {
     lastFlySpriteCol = col;
     lastFlyFlipSprite = flip;
@@ -449,6 +687,8 @@ let buttonEntities: Button[] = [];
 let doorEntities: Door[] = [];
 let creatureEntities: Creature[] = [];
 let collectableEntities: Collectable[] = [];
+let teleporterEntities: TeleporterRuntime[] = [];
+let teleporterTouchCooldownUntilMs = 0;
 let heldCollectable: Collectable | null = null;
 let storedCollectables: Collectable[] = [];
 let inventoryCycleIndex = -1;
@@ -462,25 +702,142 @@ type ThrowGuideDot = {
     hueDrift: number;
     flickerOffset: number;
 };
-type CreatureProjectileKind = 'bullet' | 'grenade' | 'energy_pod';
-type CreatureProjectile = {
+type CreatureProjectileCollectable = Collectable & {
+    creatureProjectile: CreatureProjectileRuntimeData;
+};
+type ProjectileImpactEffect = {
+    x: number;
+    y: number;
+    centerX: number;
+    centerY: number;
+    type: string;
+    palette: number;
+    rotation: number;
+    frameIndex: number;
+    frameTimer: number;
+    frames: string[];
+    frameDurationFrames: number;
+};
+type DoorDestructionEffect = {
     x: number;
     y: number;
     type: string;
     palette: number;
     rotation: number;
-    velocity: Position;
-    kind: CreatureProjectileKind;
-    homing: boolean;
-    remainingFrames: number;
-    damage: number;
-    sourceEntityId?: number;
+    translation?: string | null;
+    state?: Record<string, unknown>;
+    flipAroundVisibleCenter?: boolean;
+    angleDegrees: number;
+    vx: number;
+    vy: number;
+    spinVelocity: number;
+    life: number;
+    maxLife: number;
+};
+type TeleporterRuntime = Required<Omit<TeleporterSaveData, 'destinationB'>> & {
+    destinationB: Position | null;
+    activeDestinationIndex: 0 | 1;
+};
+type TeleporterRenderPad = {
+    teleporter: TeleporterRuntime;
+    active: boolean;
+    x: number;
+    y: number;
+    palette: number;
+    rotation: number;
+    translation: SpriteTranslation;
+    paletteCycle?: PaletteCycleSettings;
+};
+
+type TeleporterPadViewportFilter = {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    margin?: number;
+};
+
+type TeleporterPadProximityFilter = {
+    x: number;
+    y: number;
+    radius: number;
+};
+
+const TELEPORTER_PAD_SWEEP_PHASES = [0, 0.28, 0.56, 0.82, 1] as const;
+const TELEPORTER_PAD_SWEEP_FRAME_MS = 90;
+const TELEPORTER_TILE_SIZE = 32 * SPRITE_SCALE;
+const TELEPORTER_PAD_SWEEP_CACHE_LIMIT = 4096;
+const teleporterPadSweepPositionCache = new Map<string, Position>();
+let teleporterPadKeyCache: { signature: string; keys: Set<string> } = { signature: '', keys: new Set<string>() };
+const teleporterPadFilteredMapCache = new WeakMap<MapBlock[], { signature: string; filtered: MapBlock[] }>();
+type BulletImpactParticle = {
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    color: string;
+    size: number;
+    life: number;
+    maxLife: number;
+};
+type DestructibleRuntimeEntity = {
+    x: number;
+    y: number;
+    type: string;
+    palette?: string | number;
+    destructible?: boolean;
+    destructionHealth?: number;
+    destructionSource?: DestructionSourceRequirement;
 };
 let throwGuideDots: ThrowGuideDot[] = [];
 let throwGuideDotEmitTimer = 0;
-let creatureProjectiles: CreatureProjectile[] = [];
+let projectileImpactEffects: ProjectileImpactEffect[] = [];
+let doorDestructionEffects: DoorDestructionEffect[] = [];
+let bulletImpactParticles: BulletImpactParticle[] = [];
+let destructibleDamageByEntity = new WeakMap<object, number>();
+let bulletImpactAudioSettings: BulletImpactAudioSettings = { ...BULLET_IMPACT_AUDIO_SETTINGS };
+let grenadeArmedLoopActive = false;
+let nextMushroomAmbientAt = 0;
 let worldDesigner: WorldDesigner | null = null;
 const STARFIELD_HEIGHT = Math.min(MAP_HEIGHT, 2000);
+const BULLET_IMPACT_PARTICLE_COLORS = ['#ffffff', '#ffff00', '#ff00ff', '#00ffff', '#0000ff', '#ff0000'];
+const BULLET_DAZE_DURATION_MS = 380;
+const BULLET_DAZE_WALK_SCALE = 0.45;
+const BULLET_DAZE_FLIGHT_SCALE = 0.35;
+let currentAstronautRenderState = {
+    spriteCol: SPRITE_COL_STAND,
+    flipSprite: false,
+    flipVertical: false
+};
+const astronautSpriteFrameCache = new Map<string, HTMLCanvasElement>();
+
+function getAstronautSpriteFrameCanvas(spriteRect: { x: number; y: number; w: number; h: number }) {
+    const spriteSource = astronautSpriteSource || spriteSheet;
+    if (!spriteSource) {
+        return null;
+    }
+    const cacheKey = `${spriteRect.x},${spriteRect.y},${spriteRect.w},${spriteRect.h}`;
+    const cached = astronautSpriteFrameCache.get(cacheKey);
+    if (cached) {
+        return cached;
+    }
+    const frameCanvas = document.createElement('canvas');
+    frameCanvas.width = Math.max(1, spriteRect.w);
+    frameCanvas.height = Math.max(1, spriteRect.h);
+    const frameContext = frameCanvas.getContext('2d');
+    if (!frameContext) {
+        return null;
+    }
+    frameContext.imageSmoothingEnabled = false;
+    frameContext.clearRect(0, 0, frameCanvas.width, frameCanvas.height);
+    frameContext.drawImage(
+        spriteSource,
+        spriteRect.x, spriteRect.y, spriteRect.w, spriteRect.h,
+        0, 0, frameCanvas.width, frameCanvas.height
+    );
+    astronautSpriteFrameCache.set(cacheKey, frameCanvas);
+    return frameCanvas;
+}
 
 (window as any).__exileDebug = {
     getButtons: () => buttonEntities,
@@ -539,6 +896,210 @@ export function assignEntityId(obj: any) {
     return obj;
 }
 
+function normalizeTeleporter(data: any): TeleporterRuntime {
+    const destinationA = {
+        x: Math.round(Number(data?.destinationA?.x) || 0),
+        y: Math.round(Number(data?.destinationA?.y) || 0)
+    };
+    const destinationB = data?.destinationB
+        ? {
+            x: Math.round(Number(data.destinationB.x) || 0),
+            y: Math.round(Number(data.destinationB.y) || 0)
+        }
+        : null;
+    const activeDestinationIndex = data?.activeDestinationIndex === 1 && destinationB ? 1 : 0;
+    return {
+        id: typeof data?.id === 'string' && data.id.trim().length > 0
+            ? data.id.trim()
+            : `teleporter_${Math.round(Number(data?.padX) || 0)}_${Math.round(Number(data?.padY) || 0)}`,
+        baseX: Math.round(Number(data?.baseX) || 0),
+        baseY: Math.round(Number(data?.baseY) || 0),
+        padX: Math.round(Number(data?.padX) || 0),
+        padY: Math.round(Number(data?.padY) || 0),
+        enabled: data?.enabled !== false,
+        requiresKey: data?.requiresKey === true,
+        destinationA,
+        destinationB,
+        activeDestinationIndex
+    };
+}
+
+function toRoundedPosition(value: any, fallback: Position) {
+    const x = Math.round(Number(value?.x));
+    const y = Math.round(Number(value?.y));
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        return { x: Math.round(fallback.x), y: Math.round(fallback.y) };
+    }
+    return { x, y };
+}
+
+function buildTeleportersFromMapMetadata() {
+    const grouped = new Map<string, { base?: MapBlock; pad?: MapBlock }>();
+    for (const block of mapBlocks) {
+        if ((block.type !== 'teleporter' && block.type !== 'teleporter_pad') || !block.teleporterId) {
+            continue;
+        }
+        const id = String(block.teleporterId).trim();
+        if (!id) {
+            continue;
+        }
+        const entry = grouped.get(id) ?? {};
+        if (block.type === 'teleporter') {
+            entry.base = block;
+        } else {
+            entry.pad = block;
+        }
+        grouped.set(id, entry);
+    }
+    const fallbackDestination = getAstronautStartPosition();
+    const reconstructed: TeleporterRuntime[] = [];
+    for (const [id, parts] of grouped.entries()) {
+        if (!parts.base || !parts.pad) {
+            continue;
+        }
+        const base = parts.base;
+        const pad = parts.pad;
+        const destinationA = toRoundedPosition(
+            base.teleporterDestinationA ?? pad.teleporterDestinationA,
+            fallbackDestination
+        );
+        const destinationBSource = base.teleporterDestinationB ?? pad.teleporterDestinationB;
+        const destinationB = destinationBSource
+            ? toRoundedPosition(destinationBSource, destinationA)
+            : null;
+        const activeDestinationIndex = (base.teleporterActiveDestinationIndex ?? pad.teleporterActiveDestinationIndex) === 1 && destinationB
+            ? 1
+            : 0;
+        reconstructed.push(normalizeTeleporter({
+            id,
+            baseX: base.x,
+            baseY: base.y,
+            padX: pad.x,
+            padY: pad.y,
+            enabled: (base.teleporterEnabled ?? pad.teleporterEnabled) !== false,
+            requiresKey: (base.teleporterRequiresKey ?? pad.teleporterRequiresKey) === true,
+            destinationA,
+            destinationB,
+            activeDestinationIndex
+        }));
+    }
+    return reconstructed;
+}
+
+function findNearestMapBlockByType(
+    type: 'teleporter' | 'teleporter_pad',
+    targetX: number,
+    targetY: number,
+    maxDistance: number
+) {
+    const maxDistanceSquared = maxDistance * maxDistance;
+    let best: MapBlock | null = null;
+    let bestDistanceSquared = Number.POSITIVE_INFINITY;
+    for (const block of mapBlocks) {
+        if (block.type !== type) {
+            continue;
+        }
+        const dx = targetX - block.x;
+        const dy = targetY - block.y;
+        const distanceSquared = dx * dx + dy * dy;
+        if (distanceSquared <= maxDistanceSquared && distanceSquared < bestDistanceSquared) {
+            best = block;
+            bestDistanceSquared = distanceSquared;
+        }
+    }
+    return best;
+}
+
+function findMapBlockByTeleporterId(
+    type: 'teleporter' | 'teleporter_pad',
+    teleporterId: string,
+    targetX: number,
+    targetY: number
+) {
+    const candidates = mapBlocks.filter((block) =>
+        block.type === type &&
+        block.teleporterId === teleporterId
+    );
+    if (candidates.length === 0) {
+        return null;
+    }
+    let best = candidates[0];
+    let bestDistanceSquared = Number.POSITIVE_INFINITY;
+    for (const candidate of candidates) {
+        const dx = targetX - candidate.x;
+        const dy = targetY - candidate.y;
+        const distanceSquared = dx * dx + dy * dy;
+        if (distanceSquared < bestDistanceSquared) {
+            best = candidate;
+            bestDistanceSquared = distanceSquared;
+        }
+    }
+    return best;
+}
+
+function reconcileTeleporterRuntimePositions(teleporters: TeleporterRuntime[]) {
+    const correctionDistancePx = 32 * 1.5;
+    for (const teleporter of teleporters) {
+        const baseById = findMapBlockByTeleporterId('teleporter', teleporter.id, teleporter.baseX, teleporter.baseY);
+        const padById = findMapBlockByTeleporterId('teleporter_pad', teleporter.id, teleporter.padX, teleporter.padY);
+        if (baseById) {
+            teleporter.baseX = baseById.x;
+            teleporter.baseY = baseById.y;
+            baseById.teleporterId = teleporter.id;
+        }
+        if (padById) {
+            teleporter.padX = padById.x;
+            teleporter.padY = padById.y;
+            padById.teleporterId = teleporter.id;
+        }
+        const hasBaseAtPosition = mapBlocks.some((block) =>
+            block.type === 'teleporter' &&
+            block.x === teleporter.baseX &&
+            block.y === teleporter.baseY
+        );
+        if (!hasBaseAtPosition) {
+            const correctedBase = findNearestMapBlockByType(
+                'teleporter',
+                teleporter.baseX,
+                teleporter.baseY,
+                correctionDistancePx
+            );
+            if (correctedBase) {
+                teleporter.baseX = correctedBase.x;
+                teleporter.baseY = correctedBase.y;
+                correctedBase.teleporterId = teleporter.id;
+            }
+        }
+
+        const hasPadAtPosition = mapBlocks.some((block) =>
+            block.type === 'teleporter_pad' &&
+            block.x === teleporter.padX &&
+            block.y === teleporter.padY
+        );
+        if (!hasPadAtPosition) {
+            const correctedPad = findNearestMapBlockByType(
+                'teleporter_pad',
+                teleporter.padX,
+                teleporter.padY,
+                correctionDistancePx
+            );
+            if (correctedPad) {
+                teleporter.padX = correctedPad.x;
+                teleporter.padY = correctedPad.y;
+                correctedPad.teleporterId = teleporter.id;
+            }
+        }
+    }
+}
+
+async function loadTeleporters() {
+    const arr = await fetchFreshJson<any[]>('./src/assets/teleporters.json');
+    teleporterEntities = arr.length > 0
+        ? arr.map(normalizeTeleporter)
+        : buildTeleportersFromMapMetadata();
+    reconcileTeleporterRuntimePositions(teleporterEntities);
+}
+
 async function loadButtons() {
     const arr = await fetchFreshJson<any[]>('./src/assets/buttons.json');
     buttonEntities = arr.map((data: any) => assignEntityId(new Button(data)));
@@ -560,6 +1121,49 @@ function syncButtonStatesToDoors() {
         );
     }
 }
+
+function applyButtonTeleporterMode(teleporter: TeleporterRuntime, mode: TeleporterDestinationMode) {
+    if (mode === 'enable') {
+        teleporter.enabled = true;
+        return;
+    }
+    if (mode === 'disable') {
+        teleporter.enabled = false;
+        return;
+    }
+    if (mode === 'toggle_enabled') {
+        teleporter.enabled = teleporter.enabled === false;
+        return;
+    }
+    if (mode === 'destination_a') {
+        teleporter.activeDestinationIndex = 0;
+        return;
+    }
+    if (mode === 'destination_b') {
+        if (teleporter.destinationB) {
+            teleporter.activeDestinationIndex = 1;
+        }
+        return;
+    }
+    if (teleporter.destinationB) {
+        teleporter.activeDestinationIndex = teleporter.activeDestinationIndex === 0 ? 1 : 0;
+    } else {
+        teleporter.activeDestinationIndex = 0;
+    }
+}
+
+function applyButtonTeleporterLinks(button: Button) {
+    if (!Array.isArray(button.linkedTeleporters) || button.linkedTeleporters.length === 0) {
+        return;
+    }
+    const mode: TeleporterDestinationMode = button.teleporterMode ?? 'toggle';
+    for (const teleporterId of button.linkedTeleporters) {
+        const teleporter = teleporterEntities.find((entry) => entry.id === teleporterId);
+        if (teleporter) {
+            applyButtonTeleporterMode(teleporter, mode);
+        }
+    }
+}
 async function loadDoors() {
     const arr = await fetchFreshJson<any[]>('./src/assets/doors.json');
     doorEntities = arr.map((data: any) => assignEntityId(new Door(data)));
@@ -567,7 +1171,6 @@ async function loadDoors() {
 async function loadCreatures() {
     const arr = await fetchFreshJson<any[]>('./src/assets/creatures.json');
     creatureEntities = arr.map((data: any) => assignEntityId(new Creature(data)));
-    creatureProjectiles = [];
 }
 async function loadCollectables() {
     const arr = await fetchFreshJson<any[]>('./src/assets/collectables.json');
@@ -584,6 +1187,38 @@ function syncCollectableRuntimeState() {
     storedCollectables = collectableEntities.filter(collectable => collectable.stored);
     heldCollectable = collectableEntities.find(collectable => collectable.held) ?? null;
     inventoryCycleIndex = storedCollectables.length > 0 ? storedCollectables.length - 1 : -1;
+    const now = performance.now();
+    for (const collectable of collectableEntities) {
+        syncGrenadeFuseState(collectable, now);
+    }
+}
+
+function isCreatureProjectileCollectable(collectable: Collectable): collectable is CreatureProjectileCollectable {
+    return !!collectable.creatureProjectile;
+}
+
+function getCreatureProjectileCollectables() {
+    return collectableEntities.filter(isCreatureProjectileCollectable);
+}
+
+function getRenderableCollectables() {
+    return collectableEntities.filter((collectable) =>
+        !isCreatureProjectileCollectable(collectable) &&
+        !collectable.stored &&
+        !collectable.held &&
+        !collectable.collected
+    );
+}
+
+function getDesignerRenderableCollectables() {
+    return collectableEntities.filter((collectable) =>
+        !isCreatureProjectileCollectable(collectable) &&
+        !collectable.held
+    );
+}
+
+function getSavableCollectables() {
+    return collectableEntities.filter((collectable) => !isCreatureProjectileCollectable(collectable));
 }
 
 function findSpriteRectByType(type: string) {
@@ -720,46 +1355,13 @@ function drawWorldBoundingBoxOverlay(
 
     const drawWorldBBox = (entity: any) => {
         if (!entity.collision) return;
-        const bbox = blockInstanceRotatedBoundingBoxes.get(entity);
-        if (!bbox) return;
-        const scale = SPRITE_SCALE;
-        const tileW = 32 * scale;
-        const tileH = 32 * scale;
-        const drawX = entity.x - camera.x + tileW / 2;
-        const drawY = entity.y - camera.y + tileH / 2;
-        context.save();
-        context.translate(drawX, drawY);
-        if (entity.rotation) {
-            if (entity.rotation >= 1 && entity.rotation <= 4) {
-                context.rotate(((entity.rotation - 1) * Math.PI) / 2);
-            } else if (entity.rotation === 5) {
-                context.scale(-1, 1);
-            } else if (entity.rotation === 6) {
-                context.scale(1, -1);
-            } else if (entity.rotation === 7) {
-                context.scale(-1, -1);
-            }
-        }
-        const rect = findSpriteRectByType(entity.type);
-        const previewSheet = getEntityPreviewSheet(entity);
-        const transformedSprite = rect && previewSheet
-            ? getTransformedSpriteCanvas(
-                previewSheet,
-                rect,
-                typeof entity.rotation === 'number' ? entity.rotation : 1
-            )
-            : null;
-        const translationOffset = getSpriteTranslationOffset(
-            transformedSprite,
-            normalizeSpriteTranslation(entity.translation),
-            scale
+        const bounds = getEntityCollisionBounds(entity);
+        context.strokeRect(
+            entity.x - camera.x + bounds.left,
+            entity.y - camera.y + bounds.top,
+            bounds.right - bounds.left + 1,
+            bounds.bottom - bounds.top + 1
         );
-        const x = -tileW / 2 + translationOffset.x + bbox.minX * scale;
-        const y = -tileH / 2 + translationOffset.y + bbox.minY * scale;
-        const w = bbox.width * scale;
-        const h = bbox.height * scale;
-        context.strokeRect(x, y, w, h);
-        context.restore();
     };
 
     const mapBlocksToDraw = !layerVisibility.world
@@ -768,12 +1370,15 @@ function drawWorldBoundingBoxOverlay(
             ? mapBlocks.filter((b) => b.type !== 'black_background')
             : mapBlocks;
     const collectablesToDraw = worldDesigner?.isActive() && !worldDesigner.isPreviewMode()
-        ? collectableEntities.filter((collectable) => !collectable.held)
-        : collectableEntities.filter((collectable) => !collectable.stored && !collectable.collected);
+        ? getDesignerRenderableCollectables()
+        : getRenderableCollectables();
     mapBlocksToDraw.forEach(drawWorldBBox);
     if (layerVisibility.doors) doorEntities.forEach(drawWorldBBox);
     if (layerVisibility.buttons) buttonEntities.forEach(drawWorldBBox);
-    if (layerVisibility.creatures) creatureEntities.forEach(drawWorldBBox);
+    if (layerVisibility.creatures) {
+        creatureEntities.forEach(drawWorldBBox);
+        getCreatureProjectileCollectables().forEach(drawWorldBBox);
+    }
     if (layerVisibility.collectables) {
         collectablesToDraw.forEach(drawWorldBBox);
     }
@@ -787,6 +1392,7 @@ function getRawWorldData(): RawWorldData {
         doors: doorEntities as RawWorldData['doors'],
         creatures: creatureEntities as RawWorldData['creatures'],
         collectables: collectableEntities as RawWorldData['collectables'],
+        teleporters: teleporterEntities as RawWorldData['teleporters'],
         astronautStart: getAstronautStartPosition()
     };
 }
@@ -796,8 +1402,11 @@ function replaceRawWorldData(data: RawWorldData) {
     doorEntities = data.doors.map((door) => assignEntityId(new Door(door)));
     buttonEntities = data.buttons.map((button) => assignEntityId(new Button(button)));
     creatureEntities = data.creatures.map((creature) => assignEntityId(new Creature(creature)));
-    creatureProjectiles = [];
     collectableEntities = data.collectables.map((collectable) => assignEntityId(new Collectable(collectable)));
+    teleporterEntities = (data.teleporters ?? []).length > 0
+        ? (data.teleporters ?? []).map(normalizeTeleporter)
+        : buildTeleportersFromMapMetadata();
+    reconcileTeleporterRuntimePositions(teleporterEntities);
     updateAstronautStartPosition(data.astronautStart, true);
     afterWorldDataMutated();
 }
@@ -996,6 +1605,17 @@ async function saveWorldData(data: RawWorldData) {
     if (!res.ok) {
         throw new Error(await getDesignerSaveError(res, 'Failed to save world data.'));
     }
+    try {
+        const payload = await res.clone().json() as { files?: string[] };
+        const files = Array.isArray(payload.files) ? payload.files : [];
+        if (!files.includes('teleporters.json')) {
+            throw new Error('The local designer save server is out of date and did not save teleporters.json. Restart the save server on port 3001 and try again.');
+        }
+    } catch (error) {
+        if (error instanceof Error && error.message.includes('teleporters.json')) {
+            throw error;
+        }
+    }
 }
 
 async function postDesignerSaveRequest(url: string, body: unknown) {
@@ -1059,6 +1679,7 @@ async function postSpriteSheetNormalization(dryRun: boolean): Promise<SpriteShee
             'Sprite-sheet normalization is unavailable because the local save server is out of date. Restart the dev/save server on port 3001 and try again.'
         ));
     }
+
     const payload = await res.json() as { report: SpriteSheetNormalizationReport };
     return payload.report;
 }
@@ -1080,6 +1701,7 @@ async function init() {
     await loadButtons();
     await loadCreatures();
     await loadCollectables();
+    await loadTeleporters();
     await loadAstronautStartPosition();
     initStars(MAP_WIDTH, STARFIELD_HEIGHT);
     const img = new Image();
@@ -1214,6 +1836,10 @@ async function init() {
                     setShowCreatureOverlays: (value: boolean) => {
                         showCreatureOverlays = value;
                     },
+                    getBulletImpactAudioSettings: () => ({ ...bulletImpactAudioSettings }),
+                    setBulletImpactAudioSettings: (value: BulletImpactAudioSettings) => {
+                        bulletImpactAudioSettings = normalizeBulletImpactAudioSettings(value);
+                    },
                     drawSpriteOutlineOverlay: drawWorldBoundingBoxOverlay,
                     getSpriteTypes,
                     getSpriteCatalog,
@@ -1259,21 +1885,16 @@ function drawAstronautInWorld(
     const spriteRect = getSpriteRectFromMap(SPRITE_ROW, spriteCol);
     const drawW = 32 * SPRITE_SCALE;
     const drawH = 32 * SPRITE_SCALE;
+    const renderNow = performance.now();
 
     context.save();
     context.translate(
-        astronaut.position.x - camera.x,
-        astronaut.position.y - camera.y
+        Math.round(astronaut.position.x - camera.x),
+        Math.round(astronaut.position.y - camera.y)
     );
     if (flipSprite) context.scale(-1, 1);
     if (flipVertical) context.scale(1, -1);
-    context.drawImage(
-        astronautSpriteSource || spriteSheet,
-        spriteRect.x, spriteRect.y, spriteRect.w, spriteRect.h,
-        -drawW / 2,
-        -drawH / 2,
-        drawW, drawH
-    );
+    drawAstronautSprite(context, spriteRect, drawW, drawH, renderNow);
     context.restore();
 }
 
@@ -1318,26 +1939,10 @@ async function gameLoop() {
         try { rememberSound.currentTime = 0; rememberSound.play(); } catch {}
     }
     if (!isDesignerOpen() && keys['t'] && !prevKeys['t']) {
-        let loc: TeleportLocation | null = null;
-        if (teleportLocations.length > 0) {
-            // Use the most recent (last) location
-            loc = teleportLocations.pop()!;
-            if (teleportSlot > teleportLocations.length) teleportSlot = teleportLocations.length;
-        } else {
-            loc = { ...defaultTeleportLocation };
-        }
-        if (loc && !teleporting) {
-            teleporting = true;
-            teleportPhase = 'out';
-            teleportAnimFrame = 0;
-            teleportTarget = loc;
-            teleportSpriteCol = spriteCol;
-            teleportFlipSprite = flipSprite;
-            teleportFlipVertical = flipVertical;
-            // Play teleport sound
-            try { teleportSound.currentTime = 0; teleportSound.play(); } catch {}
-        }
+        startTeleportToLocation(popLatestTeleportLocation());
     }
+
+    updateAstronautEnergyRecovery(frameNow);
 
     // --- Draw twinkling stars ---
         updateAndDrawStars(
@@ -1359,15 +1964,30 @@ async function gameLoop() {
             creatures: true,
             collectables: true
         };
+    const designerActive = worldDesigner?.isActive() === true;
     const mapBlocksToDraw = !layerVisibility.world
         ? []
         : getRenderableMapBlocks(hideBlackBackgroundBlocks);
-    const mapBlocksBehindAstronaut = !layerVisibility.world
+    let mapBlocksBehindAstronaut = !layerVisibility.world
         ? []
         : getMapBlocksBehindAstronaut(hideBlackBackgroundBlocks);
-    const mapBlocksMaskAstronaut = !layerVisibility.world
+    let mapBlocksMaskAstronaut = !layerVisibility.world
         ? []
         : getMapBlocksMaskAstronaut();
+    const teleporterPadSignature = getTeleporterPadSignature();
+    const teleporterPadKeys = getTeleporterPadKeySet(teleporterPadSignature);
+    if (teleporterPadKeys.size > 0) {
+        mapBlocksBehindAstronaut = filterTeleporterPadsFromBlocks(
+            mapBlocksBehindAstronaut,
+            teleporterPadKeys,
+            teleporterPadSignature
+        );
+        mapBlocksMaskAstronaut = filterTeleporterPadsFromBlocks(
+            mapBlocksMaskAstronaut,
+            teleporterPadKeys,
+            teleporterPadSignature
+        );
+    }
     const blackBackgroundBlocksToHighlight = showBlackBackgroundBlocks && !hideBlackBackgroundBlocks
         ? getBlackBackgroundBlocks()
         : [];
@@ -1425,20 +2045,24 @@ async function gameLoop() {
         // Draw map blocks (drawMap uses global mapBlocks, so black_background blocks will be hidden only if not present in mapBlocks)
         // To hide, we need to patch drawMap to accept a blocks array, or temporarily monkey-patch global. For now, just draw overlays using mapBlocksToDraw.
         drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksBehindAstronaut, frameNow);
+        if (layerVisibility.world && !designerActive) {
+            drawTeleporterPads(ctx!, camera, frameNow, {
+                ignoreKeyRequirement: designerActive
+            });
+        }
         if (layerVisibility.buttons) {
             drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, buttonEntities, frameNow);
         }
         if (layerVisibility.creatures) {
             drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureEntities, frameNow);
-            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureProjectiles, frameNow);
             if (showCreatureOverlays) {
                 drawCreatureOverlays(ctx!, camera);
             }
         }
         if (layerVisibility.collectables) {
             const collectablesToDraw = worldDesigner?.isActive() && !worldDesigner.isPreviewMode()
-                ? collectableEntities.filter((collectable) => !collectable.held)
-                : collectableEntities.filter((collectable) => !collectable.stored && !collectable.held && !collectable.collected);
+                ? getDesignerRenderableCollectables()
+                : getRenderableCollectables();
             drawEntities(
                 ctx!,
                 camera,
@@ -1449,6 +2073,9 @@ async function gameLoop() {
                 frameNow
             );
         }
+        if (layerVisibility.doors && doorDestructionEffects.length > 0) {
+            drawDoorDestructionEffects(ctx!, camera);
+        }
     }
 
     if (worldDesigner?.isActive()) {
@@ -1456,8 +2083,26 @@ async function gameLoop() {
         if (mapBlocksMaskAstronaut.length > 0) {
             drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
         }
+        if (layerVisibility.world) {
+            drawTeleporterPads(ctx!, camera, frameNow, {
+                ignoreKeyRequirement: designerActive
+            });
+        }
+        const creatureProjectileDrawables = getCreatureProjectileCollectables();
+        if (layerVisibility.creatures && creatureProjectileDrawables.length > 0) {
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureProjectileDrawables, frameNow);
+        }
+        if (layerVisibility.creatures && projectileImpactEffects.length > 0) {
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, projectileImpactEffects, frameNow);
+        }
+        if (bulletImpactParticles.length > 0) {
+            updateAndDrawBulletImpactParticles(layerVisibility.creatures ? ctx! : null, camera);
+        }
         if (heldCollectable) {
             drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, [heldCollectable], frameNow);
+        }
+        if (layerVisibility.doors && doorDestructionEffects.length > 0) {
+            drawDoorDestructionEffects(ctx!, camera);
         }
         worldDesigner.render(ctx!);
         prevKeys = { ...keys };
@@ -1468,9 +2113,10 @@ async function gameLoop() {
     const movementStartX = gameState.astronaut.position.x;
     const movementStartY = gameState.astronaut.position.y;
     const movementModifiers = getHeldMovementModifiers();
+    const astronautControlModifiers = getAstronautControlModifiers(frameNow);
     handleAstronautMovement(keys, true, {
-        walkSpeedScale: movementModifiers.walkSpeedScale,
-        flightControlScale: movementModifiers.flightControlScale
+        walkSpeedScale: movementModifiers.walkSpeedScale * astronautControlModifiers.walkSpeedScale,
+        flightControlScale: movementModifiers.flightControlScale * astronautControlModifiers.flightControlScale
     });
     const movementTargetX = astronaut.position.x;
     const movementTargetY = astronaut.position.y;
@@ -1567,6 +2213,7 @@ async function gameLoop() {
                     door.locked = !door.locked;
                 }
             }
+            applyButtonTeleporterLinks(collidedButton);
             syncButtonStatesToDoors();
             buttonPressTimestamps.set(collidedButton, now);
             try { buttonOnSound.currentTime = 0; buttonOnSound.play(); } catch {}
@@ -1590,11 +2237,13 @@ async function gameLoop() {
 
     updateCreatures(frameNow);
     updateCreatureSounds(frameNow);
-    updateCreatureProjectiles();
+    updateProjectileImpactEffects();
+    updateDoorDestructionEffects();
     resolveAstronautCreatureCollisions();
     updateThrowAngle();
     handleCollectableInteractions();
     updateHeldCollectablePosition();
+    updateTeleporterPadTeleporting(frameNow);
     resolveAstronautCollectableCollisions(
         gameState.astronaut.position.x - movementStartX,
         gameState.astronaut.position.y - movementStartY
@@ -2011,6 +2660,12 @@ async function gameLoop() {
         resetFlySwitchAnimationState();
     }
 
+    currentAstronautRenderState = {
+        spriteCol,
+        flipSprite,
+        flipVertical
+    };
+
     // --- Teleport animation rendering ---
     if (teleporting && spriteSheet && spriteSheet.complete) {
         const spriteRect = getSpriteRectFromMap(SPRITE_ROW, teleportSpriteCol);
@@ -2049,6 +2704,10 @@ async function gameLoop() {
         if (mapBlocksMaskAstronaut.length > 0) {
             drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
         }
+        const creatureProjectileOverlayDrawables = getCreatureProjectileCollectables();
+        if (layerVisibility.creatures && creatureProjectileOverlayDrawables.length > 0) {
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureProjectileOverlayDrawables, frameNow);
+        }
         teleportAnimFrame++;
 
         if (teleportPhase === 'out' && teleportAnimFrame >= TELEPORT_ANIM_FRAMES) {
@@ -2079,6 +2738,10 @@ async function gameLoop() {
             teleportPhase = 'in';
             teleportAnimFrame = 0;
         } else if (teleportPhase === 'in' && teleportAnimFrame >= TELEPORT_ANIM_FRAMES) {
+            astronaut.energy = Math.min(
+                astronaut.maxEnergy,
+                astronaut.energy + 1
+            );
             teleporting = false;
             teleportPhase = 'none';
             teleportTarget = null;
@@ -2096,17 +2759,12 @@ async function gameLoop() {
         const SPRITE_H = spriteRect.h;
         const drawW = 32 * SPRITE_SCALE;
         const drawH = 32 * SPRITE_SCALE;
+        const renderNow = performance.now();
         ctx!.save();
-        ctx!.translate(canvas.width / 2, canvas.height / 2);
+        ctx!.translate(Math.round(canvas.width / 2), Math.round(canvas.height / 2));
         if (flipSprite) ctx!.scale(-1, 1);
         if (flipVertical) ctx!.scale(1, -1);
-        ctx!.drawImage(
-            astronautSpriteSource || spriteSheet,
-            spriteRect.x, spriteRect.y, SPRITE_W, SPRITE_H,
-            -drawW / 2,
-            -drawH / 2,
-            drawW, drawH
-        );
+        drawAstronautSprite(ctx!, spriteRect, drawW, drawH, renderNow);
 
         // --- Draw tight bounding box for astronaut (with transforms) ---
         if (showTightBoundingBoxes) {
@@ -2143,6 +2801,10 @@ async function gameLoop() {
 
         if (mapBlocksMaskAstronaut.length > 0) {
             drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
+        }
+        const creatureProjectileDebugDrawables = getCreatureProjectileCollectables();
+        if (layerVisibility.creatures && creatureProjectileDebugDrawables.length > 0) {
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureProjectileDebugDrawables, frameNow);
         }
 
         // --- Draw tight bounding boxes for world map sprites with collision ---
@@ -2182,7 +2844,7 @@ async function gameLoop() {
                     }
                 }
                 const rect = findSpriteRectByType(entity.type);
-                const previewSheet = getEntityPreviewSheet(entity);
+                const previewSheet = getEntityPreviewSheet(entity as { palette?: number });
                 const transformedSprite = rect && previewSheet
                     ? getTransformedSpriteCanvas(
                         previewSheet,
@@ -2212,6 +2874,17 @@ async function gameLoop() {
 
         if (heldCollectable) {
             drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, [heldCollectable], frameNow);
+        }
+
+        const creatureProjectileHudDrawables = getCreatureProjectileCollectables();
+        if (layerVisibility.creatures && creatureProjectileHudDrawables.length > 0) {
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureProjectileHudDrawables, frameNow);
+        }
+        if (layerVisibility.creatures && projectileImpactEffects.length > 0) {
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, projectileImpactEffects, frameNow);
+        }
+        if (bulletImpactParticles.length > 0) {
+            updateAndDrawBulletImpactParticles(layerVisibility.creatures ? ctx! : null, camera);
         }
 
         if (!getSoundEnabled()) {
@@ -2271,19 +2944,97 @@ type CollisionBounds = {
     bottom: number;
 };
 
-function getEntityCollisionBounds(entity: { type: string, rotation?: number }) {
+function getEntityRenderOffset(entity: {
+    type: string;
+    rotation?: number;
+    translation?: string | null;
+    palette?: number;
+    state?: Record<string, unknown>;
+    flipAroundVisibleCenter?: boolean;
+}) {
+    const rotation = typeof entity.rotation === 'number' ? Math.round(entity.rotation) : 0;
+    const spriteRect = findSpriteRectByType(entity.type);
+    const previewSheet = getEntityPreviewSheet(entity);
+    const transformedSprite = spriteRect && previewSheet
+        ? getTransformedSpriteCanvas(previewSheet, spriteRect, rotation)
+        : null;
+    const translationOffset = getSpriteTranslationOffset(
+        transformedSprite,
+        normalizeSpriteTranslation(entity.translation),
+        SPRITE_SCALE
+    );
+    const authoredRotation = typeof entity.state?.authoredRotation === 'number'
+        ? Math.round(Number(entity.state.authoredRotation))
+        : rotation;
+    const visibleCenterOffset = entity.flipAroundVisibleCenter === true && spriteRect && previewSheet
+        ? getVisibleCenterRotationOffset(previewSheet, spriteRect, authoredRotation, rotation)
+        : { x: 0, y: 0 };
+
+    return {
+        x: translationOffset.x + visibleCenterOffset.x * SPRITE_SCALE,
+        y: translationOffset.y + visibleCenterOffset.y * SPRITE_SCALE
+    };
+}
+
+function getEntityCollisionBounds(entity: {
+    type: string;
+    rotation?: number;
+    translation?: string | null;
+    palette?: number;
+    state?: Record<string, unknown>;
+    flipAroundVisibleCenter?: boolean;
+    angleDegrees?: number;
+    cropLeftHalf?: boolean;
+    cropRightHalf?: boolean;
+    creatureProjectile?: { kind?: string };
+}) {
     const tileSize = 32 * SPRITE_SCALE;
     const rotation = typeof entity.rotation === "number" ? entity.rotation : 0;
+    const renderOffset = getEntityRenderOffset(entity);
+    const spriteRect = findSpriteRectByType(entity.type);
+    const previewSheet = getEntityPreviewSheet(entity as { palette?: number });
+
+    if (
+        Number.isFinite(entity.angleDegrees) &&
+        spriteRect &&
+        previewSheet &&
+        entity.creatureProjectile?.kind !== 'bullet'
+    ) {
+        const renderedSprite = getRenderedEntitySpriteCanvas(previewSheet, spriteRect, entity);
+        const renderedBounds = getSpriteVisibleBounds(renderedSprite?.canvas ?? null);
+        if (renderedSprite && renderedBounds) {
+            return {
+                left: renderOffset.x + renderedSprite.offsetX * SPRITE_SCALE + renderedBounds.minX * SPRITE_SCALE,
+                right: renderOffset.x + renderedSprite.offsetX * SPRITE_SCALE + (renderedBounds.maxX + 1) * SPRITE_SCALE - 1,
+                top: renderOffset.y + renderedSprite.offsetY * SPRITE_SCALE + renderedBounds.minY * SPRITE_SCALE,
+                bottom: renderOffset.y + renderedSprite.offsetY * SPRITE_SCALE + (renderedBounds.maxY + 1) * SPRITE_SCALE - 1
+            };
+        }
+    }
+
     const bbox =
         worldMapRotatedBoundingBoxes[entity.type]?.[rotation] ||
         blockInstanceRotatedBoundingBoxes.get(entity as object) ||
         worldMapBoundingBoxes[entity.type];
     if (bbox) {
         return {
-            left: bbox.minX * SPRITE_SCALE,
-            right: (bbox.maxX + 1) * SPRITE_SCALE - 1,
-            top: bbox.minY * SPRITE_SCALE,
-            bottom: (bbox.maxY + 1) * SPRITE_SCALE - 1
+            left: renderOffset.x + bbox.minX * SPRITE_SCALE,
+            right: renderOffset.x + (bbox.maxX + 1) * SPRITE_SCALE - 1,
+            top: renderOffset.y + bbox.minY * SPRITE_SCALE,
+            bottom: renderOffset.y + (bbox.maxY + 1) * SPRITE_SCALE - 1
+        };
+    }
+
+    const transformedSprite = spriteRect && previewSheet
+        ? getTransformedSpriteCanvas(previewSheet, spriteRect, rotation)
+        : null;
+    const visibleBounds = getSpriteVisibleBounds(transformedSprite);
+    if (visibleBounds) {
+        return {
+            left: renderOffset.x + visibleBounds.minX * SPRITE_SCALE,
+            right: renderOffset.x + (visibleBounds.maxX + 1) * SPRITE_SCALE - 1,
+            top: renderOffset.y + visibleBounds.minY * SPRITE_SCALE,
+            bottom: renderOffset.y + (visibleBounds.maxY + 1) * SPRITE_SCALE - 1
         };
     }
 
@@ -2337,6 +3088,33 @@ function getHeldMovementModifiers() {
     };
 }
 
+function getAstronautDazeProgress(now: number) {
+    const dazeUntil = astronaut.controlDazeUntilMs ?? 0;
+    if (dazeUntil <= now) {
+        return 0;
+    }
+    return Math.min(1, (dazeUntil - now) / BULLET_DAZE_DURATION_MS);
+}
+
+function getAstronautControlModifiers(now: number) {
+    const dazeProgress = getAstronautDazeProgress(now);
+    if (dazeProgress <= 0) {
+        return {
+            walkSpeedScale: 1,
+            flightControlScale: 1
+        };
+    }
+
+    return {
+        walkSpeedScale: BULLET_DAZE_WALK_SCALE + (1 - BULLET_DAZE_WALK_SCALE) * (1 - dazeProgress),
+        flightControlScale: BULLET_DAZE_FLIGHT_SCALE + (1 - BULLET_DAZE_FLIGHT_SCALE) * (1 - dazeProgress)
+    };
+}
+
+function applyAstronautBulletDaze(now: number, durationMs: number = BULLET_DAZE_DURATION_MS) {
+    astronaut.controlDazeUntilMs = Math.max(astronaut.controlDazeUntilMs ?? 0, now + durationMs);
+}
+
 function getFacingSign() {
     return facingLeft ? -1 : 1;
 }
@@ -2387,41 +3165,1463 @@ function getEntityPositionFromCenter(
     };
 }
 
+function getRenderedEntityWorldSprite(entity: {
+    x: number;
+    y: number;
+    type: string;
+    rotation?: number;
+    translation?: string | null;
+    palette?: number;
+    paletteCycle?: PaletteCycleSettings;
+    state?: Record<string, unknown>;
+    flipAroundVisibleCenter?: boolean;
+    angleDegrees?: number;
+    cropLeftHalf?: boolean;
+    cropRightHalf?: boolean;
+}) {
+    const spriteRect = findSpriteRectByType(entity.type);
+    const previewSheet = getEntityPreviewSheet(entity);
+    if (!spriteRect || !previewSheet) {
+        return null;
+    }
+
+    const renderedSprite = getRenderedEntitySpriteCanvas(previewSheet, spriteRect, entity);
+    if (!renderedSprite) {
+        return null;
+    }
+
+    const translationOffset = getSpriteTranslationOffset(
+        renderedSprite.canvas,
+        normalizeSpriteTranslation(entity.translation),
+        SPRITE_SCALE
+    );
+    const authoredRotation = typeof entity.state?.authoredRotation === 'number'
+        ? Math.round(Number(entity.state.authoredRotation))
+        : (typeof entity.rotation === 'number' ? Math.round(entity.rotation) : 1);
+    const visibleCenterFlipOffset = entity.flipAroundVisibleCenter === true
+        ? getVisibleCenterRotationOffset(previewSheet, spriteRect, authoredRotation, entity.rotation)
+        : { x: 0, y: 0 };
+
+    return {
+        canvas: renderedSprite.canvas,
+        drawX: entity.x
+            + renderedSprite.offsetX * SPRITE_SCALE
+            + translationOffset.x
+            + visibleCenterFlipOffset.x * SPRITE_SCALE,
+        drawY: entity.y
+            + renderedSprite.offsetY * SPRITE_SCALE
+            + translationOffset.y
+            + visibleCenterFlipOffset.y * SPRITE_SCALE
+    };
+}
+
+function canUseKeyLockedTeleporter(_teleporter: TeleporterRuntime) {
+    // Hook for future RCD+key progression checks.
+    return false;
+}
+
+function isTeleporterActive(teleporter: TeleporterRuntime, options?: { ignoreKeyRequirement?: boolean }) {
+    if (teleporter.enabled === false) {
+        return false;
+    }
+    if (!options?.ignoreKeyRequirement && teleporter.requiresKey && !canUseKeyLockedTeleporter(teleporter)) {
+        return false;
+    }
+    return true;
+}
+
+function getTeleporterActiveDestination(teleporter: TeleporterRuntime) {
+    if (teleporter.activeDestinationIndex === 1 && teleporter.destinationB) {
+        return teleporter.destinationB;
+    }
+    return teleporter.destinationA;
+}
+
+function getTeleporterBaseBlock(teleporter: TeleporterRuntime) {
+    return mapBlocks.find((block) =>
+        block.type === 'teleporter' &&
+        block.x === teleporter.baseX &&
+        block.y === teleporter.baseY
+    ) ?? null;
+}
+
+function getTeleporterPadBlock(teleporter: TeleporterRuntime) {
+    return mapBlocks.find((block) =>
+        block.type === 'teleporter_pad' &&
+        block.x === teleporter.padX &&
+        block.y === teleporter.padY
+    ) ?? null;
+}
+
+function getTeleporterPadSweepPosition(
+    teleporter: TeleporterRuntime,
+    progress: number,
+    padRender: Pick<TeleporterRenderPad, 'palette' | 'rotation' | 'translation' | 'paletteCycle'>,
+    baseBlock: MapBlock | null
+) {
+    const basePalette = typeof baseBlock?.palette === 'number' ? baseBlock.palette : padRender.palette;
+    const baseRotation = typeof baseBlock?.rotation === 'number' ? baseBlock.rotation : 1;
+    const baseTranslation = normalizeSpriteTranslation(baseBlock?.translation);
+    const baseRendered = getRenderedEntityWorldSprite({
+        x: teleporter.baseX,
+        y: teleporter.baseY,
+        type: 'teleporter',
+        palette: basePalette,
+        rotation: baseRotation,
+        translation: baseTranslation,
+        paletteCycle: baseBlock?.paletteCycle
+    });
+    const padProbe = getRenderedEntityWorldSprite({
+        x: teleporter.baseX,
+        y: teleporter.baseY,
+        type: 'teleporter_pad',
+        palette: padRender.palette,
+        rotation: padRender.rotation,
+        translation: padRender.translation,
+        paletteCycle: padRender.paletteCycle
+    });
+
+    const baseBounds = baseRendered ? getSpriteVisibleBounds(baseRendered.canvas) : null;
+    const padBounds = padProbe ? getSpriteVisibleBounds(padProbe.canvas) : null;
+    const fallbackSpan = 32 * SPRITE_SCALE;
+    const tileLeft = teleporter.baseX;
+    const tileTop = teleporter.baseY;
+    const tileRight = tileLeft + fallbackSpan;
+    const tileBottom = tileTop + fallbackSpan;
+    const tileCenterX = tileLeft + fallbackSpan / 2;
+    const tileCenterY = tileTop + fallbackSpan / 2;
+    const baseVisibleLeft = baseRendered && baseBounds
+        ? baseRendered.drawX + baseBounds.minX * SPRITE_SCALE
+        : tileLeft;
+    const baseVisibleRight = baseRendered && baseBounds
+        ? baseRendered.drawX + (baseBounds.maxX + 1) * SPRITE_SCALE
+        : tileRight;
+    const baseVisibleTop = baseRendered && baseBounds
+        ? baseRendered.drawY + baseBounds.minY * SPRITE_SCALE
+        : tileTop;
+    const baseVisibleBottom = baseRendered && baseBounds
+        ? baseRendered.drawY + (baseBounds.maxY + 1) * SPRITE_SCALE
+        : tileBottom;
+
+    const normalizedRotation = Math.round(padRender.rotation);
+    const sweepAxis = normalizedRotation === 2
+        ? 'left'
+        : normalizedRotation === 3
+            ? 'up'
+            : normalizedRotation === 4
+                ? 'right'
+                : normalizedRotation === 6 || normalizedRotation === 7
+                    ? 'up'
+                    : 'down';
+
+    const padProbeAnchor = (() => {
+        if (!padProbe || !padBounds) {
+            return { x: teleporter.baseX, y: teleporter.baseY };
+        }
+        const left = padProbe.drawX + padBounds.minX * SPRITE_SCALE;
+        const right = padProbe.drawX + (padBounds.maxX + 1) * SPRITE_SCALE;
+        const top = padProbe.drawY + padBounds.minY * SPRITE_SCALE;
+        const bottom = padProbe.drawY + (padBounds.maxY + 1) * SPRITE_SCALE;
+        const centerX = (left + right) / 2;
+        const centerY = (top + bottom) / 2;
+        if (sweepAxis === 'left') {
+            return { x: right, y: centerY };
+        }
+        if (sweepAxis === 'right') {
+            return { x: left, y: centerY };
+        }
+        if (sweepAxis === 'up') {
+            return { x: centerX, y: bottom };
+        }
+        return { x: centerX, y: top };
+    })();
+    const padAnchorOffsetX = padProbeAnchor.x - teleporter.baseX;
+    const padAnchorOffsetY = padProbeAnchor.y - teleporter.baseY;
+
+    const sweepStart = (() => {
+        if (sweepAxis === 'left') {
+            return { x: tileRight, y: tileCenterY };
+        }
+        if (sweepAxis === 'right') {
+            return { x: tileLeft, y: tileCenterY };
+        }
+        if (sweepAxis === 'up') {
+            return { x: tileCenterX, y: tileBottom };
+        }
+        return { x: tileCenterX, y: tileTop };
+    })();
+    const sweepEnd = (() => {
+        if (sweepAxis === 'left') {
+            return { x: Math.min(sweepStart.x, baseVisibleRight), y: sweepStart.y };
+        }
+        if (sweepAxis === 'right') {
+            return { x: Math.max(sweepStart.x, baseVisibleLeft), y: sweepStart.y };
+        }
+        if (sweepAxis === 'up') {
+            return { x: sweepStart.x, y: Math.min(sweepStart.y, baseVisibleBottom) };
+        }
+        return { x: sweepStart.x, y: Math.max(sweepStart.y, baseVisibleTop) };
+    })();
+    const fallbackSweepEnd = (() => {
+        if (sweepAxis === 'left') {
+            return { x: Math.max(tileLeft, Math.min(baseVisibleRight, tileRight)), y: sweepStart.y };
+        }
+        if (sweepAxis === 'right') {
+            return { x: Math.min(tileRight, Math.max(baseVisibleLeft, tileLeft)), y: sweepStart.y };
+        }
+        if (sweepAxis === 'up') {
+            return { x: sweepStart.x, y: Math.max(tileTop, Math.min(baseVisibleBottom, tileBottom)) };
+        }
+        return { x: sweepStart.x, y: Math.min(tileBottom, Math.max(baseVisibleTop, tileTop)) };
+    })();
+    const usesVerticalAxis = sweepAxis === 'up' || sweepAxis === 'down';
+    const primarySpan = usesVerticalAxis
+        ? Math.abs(sweepEnd.y - sweepStart.y)
+        : Math.abs(sweepEnd.x - sweepStart.x);
+    const effectiveSweepEnd = primarySpan >= 1 ? sweepEnd : fallbackSweepEnd;
+    const desiredAnchor = {
+        x: sweepStart.x + (effectiveSweepEnd.x - sweepStart.x) * progress,
+        y: sweepStart.y + (effectiveSweepEnd.y - sweepStart.y) * progress
+    };
+
+    return {
+        x: desiredAnchor.x - padAnchorOffsetX,
+        y: desiredAnchor.y - padAnchorOffsetY
+    };
+}
+
+function isTeleporterInViewport(teleporter: TeleporterRuntime, viewport: TeleporterPadViewportFilter) {
+    const margin = Math.max(0, viewport.margin ?? 0);
+    const left = viewport.x - margin;
+    const top = viewport.y - margin;
+    const right = viewport.x + viewport.width + margin;
+    const bottom = viewport.y + viewport.height + margin;
+    const candidates = [
+        { x: teleporter.baseX, y: teleporter.baseY },
+        { x: teleporter.padX, y: teleporter.padY }
+    ];
+    for (const candidate of candidates) {
+        if (
+            candidate.x + TELEPORTER_TILE_SIZE >= left &&
+            candidate.x <= right &&
+            candidate.y + TELEPORTER_TILE_SIZE >= top &&
+            candidate.y <= bottom
+        ) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function isTeleporterNearPoint(teleporter: TeleporterRuntime, proximity: TeleporterPadProximityFilter) {
+    const radius = Math.max(0, proximity.radius);
+    const radiusSquared = radius * radius;
+    const candidates = [
+        { x: teleporter.baseX + TELEPORTER_TILE_SIZE / 2, y: teleporter.baseY + TELEPORTER_TILE_SIZE / 2 },
+        { x: teleporter.padX + TELEPORTER_TILE_SIZE / 2, y: teleporter.padY + TELEPORTER_TILE_SIZE / 2 }
+    ];
+    for (const candidate of candidates) {
+        const dx = candidate.x - proximity.x;
+        const dy = candidate.y - proximity.y;
+        if ((dx * dx + dy * dy) <= radiusSquared) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function getTeleporterRenderPads(
+    now: number,
+    options?: {
+        ignoreKeyRequirement?: boolean;
+        activeOnly?: boolean;
+        inactiveOnly?: boolean;
+        fixedProgress?: number;
+        viewport?: TeleporterPadViewportFilter;
+        proximity?: TeleporterPadProximityFilter;
+    }
+): TeleporterRenderPad[] {
+    const renderPads: TeleporterRenderPad[] = [];
+    const sweepProgress = typeof options?.fixedProgress === 'number'
+        ? Math.max(0, Math.min(1, options.fixedProgress))
+        : (() => {
+            const frameIndex = Math.floor(now / TELEPORTER_PAD_SWEEP_FRAME_MS) % TELEPORTER_PAD_SWEEP_PHASES.length;
+            return TELEPORTER_PAD_SWEEP_PHASES[frameIndex];
+        })();
+    const progressBucket = Math.round(sweepProgress * 1000);
+    const baseBlocksById = new Map<string, MapBlock>();
+    const padBlocksById = new Map<string, MapBlock>();
+    for (const block of mapBlocks) {
+        if ((block.type !== 'teleporter' && block.type !== 'teleporter_pad') || !block.teleporterId) {
+            continue;
+        }
+        const id = String(block.teleporterId).trim();
+        if (!id) {
+            continue;
+        }
+        if (block.type === 'teleporter') {
+            baseBlocksById.set(id, block);
+        } else {
+            padBlocksById.set(id, block);
+        }
+    }
+    for (const teleporter of teleporterEntities) {
+        if (options?.viewport && !isTeleporterInViewport(teleporter, options.viewport)) {
+            continue;
+        }
+        if (options?.proximity && !isTeleporterNearPoint(teleporter, options.proximity)) {
+            continue;
+        }
+        const active = isTeleporterActive(teleporter, options);
+        if (options?.activeOnly && !active) {
+            continue;
+        }
+        if (options?.inactiveOnly && active) {
+            continue;
+        }
+        const baseBlock = baseBlocksById.get(teleporter.id)
+            ?? getTeleporterBaseBlock(teleporter);
+        const padBlock = padBlocksById.get(teleporter.id)
+            ?? getTeleporterPadBlock(teleporter);
+        const palette = typeof padBlock?.palette === 'number'
+            ? padBlock.palette
+            : (typeof baseBlock?.palette === 'number' ? baseBlock.palette : 0);
+        const rotation = typeof padBlock?.rotation === 'number'
+            ? padBlock.rotation
+            : (typeof baseBlock?.rotation === 'number' ? baseBlock.rotation : 1);
+        const translation = normalizeSpriteTranslation(padBlock?.translation ?? baseBlock?.translation);
+        const paletteCycle = padBlock?.paletteCycle;
+        const baseRotation = typeof baseBlock?.rotation === 'number' ? baseBlock.rotation : 1;
+        const basePalette = typeof baseBlock?.palette === 'number' ? baseBlock.palette : palette;
+        const baseTranslation = normalizeSpriteTranslation(baseBlock?.translation);
+        const padCycleKey = paletteCycle && Array.isArray(paletteCycle.palettes)
+            ? `${paletteCycle.intervalMs ?? 0}:${paletteCycle.palettes.join(',')}`
+            : 'none';
+        const progress = !active && !options?.activeOnly
+            ? 1
+            : sweepProgress;
+        const progressBucketForPad = Math.round(progress * 1000);
+        const positionCacheKey = [
+            teleporter.id,
+            teleporter.baseX,
+            teleporter.baseY,
+            teleporter.padX,
+            teleporter.padY,
+            progressBucketForPad,
+            palette,
+            rotation,
+            translation,
+            basePalette,
+            baseRotation,
+            baseTranslation,
+            padCycleKey
+        ].join('|');
+        let position = teleporterPadSweepPositionCache.get(positionCacheKey);
+        if (!position) {
+            position = getTeleporterPadSweepPosition(teleporter, progress, {
+                palette,
+                rotation,
+                translation,
+                paletteCycle
+            }, baseBlock);
+            if (teleporterPadSweepPositionCache.size >= TELEPORTER_PAD_SWEEP_CACHE_LIMIT) {
+                teleporterPadSweepPositionCache.clear();
+            }
+            teleporterPadSweepPositionCache.set(positionCacheKey, position);
+        }
+        renderPads.push({
+            teleporter,
+            active,
+            x: position.x,
+            y: position.y,
+            palette,
+            rotation,
+            translation,
+            paletteCycle
+        });
+    }
+    return renderPads;
+}
+
+function getTeleporterPadSignature() {
+    if (teleporterEntities.length === 0) {
+        return '';
+    }
+    return teleporterEntities.map((teleporter) =>
+        `${teleporter.id}:${teleporter.padX},${teleporter.padY}`
+    ).join('|');
+}
+
+function getTeleporterPadKeySet(signature: string) {
+    if (teleporterPadKeyCache.signature === signature) {
+        return teleporterPadKeyCache.keys;
+    }
+    const keys = new Set<string>();
+    for (const teleporter of teleporterEntities) {
+        keys.add(`${teleporter.padX},${teleporter.padY}`);
+    }
+    teleporterPadKeyCache = { signature, keys };
+    return keys;
+}
+
+function filterTeleporterPadsFromBlocks(blocks: MapBlock[], teleporterPadKeys: Set<string>, signature: string) {
+    if (teleporterPadKeys.size === 0 || blocks.length === 0) {
+        return blocks;
+    }
+    const cached = teleporterPadFilteredMapCache.get(blocks);
+    if (cached && cached.signature === signature) {
+        return cached.filtered;
+    }
+    const filtered = blocks.filter((block) =>
+        block.type !== 'teleporter_pad' || !teleporterPadKeys.has(`${block.x},${block.y}`)
+    );
+    teleporterPadFilteredMapCache.set(blocks, { signature, filtered });
+    return filtered;
+}
+
+function drawTeleporterPads(
+    context: CanvasRenderingContext2D,
+    camera: Position,
+    now: number,
+    options?: { ignoreKeyRequirement?: boolean }
+) {
+    const viewport = {
+        x: camera.x,
+        y: camera.y,
+        width: canvas.width,
+        height: canvas.height,
+        margin: TELEPORTER_TILE_SIZE * 2
+    };
+    const pads = getTeleporterRenderPads(now, { ...options, viewport });
+    if (pads.length === 0) {
+        return;
+    }
+    const padsToDraw = [
+        ...pads.filter((pad) => !pad.active),
+        ...pads.filter((pad) => pad.active)
+    ];
+    context.save();
+    context.globalAlpha = 0.82;
+    drawEntities(context, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, padsToDraw.map((pad) => ({
+        x: pad.x,
+        y: pad.y,
+        type: 'teleporter_pad',
+        palette: pad.palette,
+        rotation: pad.rotation,
+        translation: pad.translation,
+        paletteCycle: pad.paletteCycle,
+        collision: false
+    })), now);
+    context.restore();
+}
+
+function updateTeleporterPadTeleporting(now: number) {
+    if (isDesignerOpen() || teleporting || now < teleporterTouchCooldownUntilMs) {
+        return;
+    }
+    const astronautRect = getAstronautRect();
+    for (const activePad of getTeleporterRenderPads(now, {
+        activeOnly: true,
+        proximity: {
+            x: astronaut.position.x + TELEPORTER_TILE_SIZE / 2,
+            y: astronaut.position.y + TELEPORTER_TILE_SIZE / 2,
+            radius: TELEPORTER_TILE_SIZE * 8
+        }
+    })) {
+        const padLeft = activePad.x;
+        const padTop = activePad.y;
+        const padRight = padLeft + TELEPORTER_TILE_SIZE;
+        const padBottom = padTop + TELEPORTER_TILE_SIZE;
+        const overlapsPad = !(
+            astronautRect.right < padLeft ||
+            astronautRect.left > padRight ||
+            astronautRect.bottom < padTop ||
+            astronautRect.top > padBottom
+        );
+        if (!overlapsPad) {
+            continue;
+        }
+        if (startTeleportToLocation(getTeleporterActiveDestination(activePad.teleporter))) {
+            teleporterTouchCooldownUntilMs = now + 700;
+        }
+        break;
+    }
+}
+
+function getRenderedSpriteOpaqueSamples(canvas: HTMLCanvasElement) {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+        return [];
+    }
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    const points: Array<{ x: number; y: number }> = [];
+    for (let y = 0; y < canvas.height; y++) {
+        for (let x = 0; x < canvas.width; x++) {
+            if (imageData[(y * canvas.width + x) * 4 + 3] > 0) {
+                points.push({ x, y });
+            }
+        }
+    }
+    return points;
+}
+
+function isRenderedSpriteOpaqueAtWorld(
+    rendered: { canvas: HTMLCanvasElement; drawX: number; drawY: number } | null,
+    worldX: number,
+    worldY: number
+) {
+    if (!rendered) {
+        return false;
+    }
+
+    const localX = Math.floor((worldX - rendered.drawX) / SPRITE_SCALE);
+    const localY = Math.floor((worldY - rendered.drawY) / SPRITE_SCALE);
+    if (
+        localX < 0 ||
+        localY < 0 ||
+        localX >= rendered.canvas.width ||
+        localY >= rendered.canvas.height
+    ) {
+        return false;
+    }
+
+    const ctx = rendered.canvas.getContext('2d');
+    if (!ctx) {
+        return false;
+    }
+    return ctx.getImageData(localX, localY, 1, 1).data[3] > 0;
+}
+
+function doRenderedSpritesOverlap(
+    first: { canvas: HTMLCanvasElement; drawX: number; drawY: number } | null,
+    second: { canvas: HTMLCanvasElement; drawX: number; drawY: number } | null
+) {
+    if (!first || !second) {
+        return false;
+    }
+
+    const overlapLeft = Math.max(first.drawX, second.drawX);
+    const overlapTop = Math.max(first.drawY, second.drawY);
+    const overlapRight = Math.min(
+        first.drawX + first.canvas.width * SPRITE_SCALE,
+        second.drawX + second.canvas.width * SPRITE_SCALE
+    );
+    const overlapBottom = Math.min(
+        first.drawY + first.canvas.height * SPRITE_SCALE,
+        second.drawY + second.canvas.height * SPRITE_SCALE
+    );
+
+    if (overlapRight <= overlapLeft || overlapBottom <= overlapTop) {
+        return false;
+    }
+
+    for (let worldY = Math.floor(overlapTop); worldY < Math.ceil(overlapBottom); worldY++) {
+        for (let worldX = Math.floor(overlapLeft); worldX < Math.ceil(overlapRight); worldX++) {
+            if (
+                isRenderedSpriteOpaqueAtWorld(first, worldX, worldY) &&
+                isRenderedSpriteOpaqueAtWorld(second, worldX, worldY)
+            ) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+function getAstronautRenderedWorldSprite() {
+    if (!(astronautSpriteSource || spriteSheet) || !(spriteSheet && spriteSheet.complete)) {
+        return null;
+    }
+
+    const spriteRect = getSpriteRectFromMap(SPRITE_ROW, currentAstronautRenderState.spriteCol);
+    if (!spriteRect) {
+        return null;
+    }
+
+    let rotation = 1;
+    if (currentAstronautRenderState.flipSprite && currentAstronautRenderState.flipVertical) {
+        rotation = 7;
+    } else if (currentAstronautRenderState.flipSprite) {
+        rotation = 5;
+    } else if (currentAstronautRenderState.flipVertical) {
+        rotation = 6;
+    }
+
+    const renderedSprite = getRenderedEntitySpriteCanvas(
+        astronautSpriteSource || spriteSheet,
+        spriteRect,
+        { rotation }
+    );
+    if (!renderedSprite) {
+        return null;
+    }
+
+    return {
+        canvas: renderedSprite.canvas,
+        drawX: astronaut.position.x - (spriteRect.w * SPRITE_SCALE) / 2 + renderedSprite.offsetX * SPRITE_SCALE,
+        drawY: astronaut.position.y - (spriteRect.h * SPRITE_SCALE) / 2 + renderedSprite.offsetY * SPRITE_SCALE
+    };
+}
+
+function getRenderedSpriteWorldCenter(
+    rendered: { canvas: HTMLCanvasElement; drawX: number; drawY: number } | null
+) {
+    if (!rendered) {
+        return null;
+    }
+
+    const visibleBounds = getSpriteVisibleBounds(rendered.canvas);
+    if (visibleBounds) {
+        const width = visibleBounds.maxX - visibleBounds.minX + 1;
+        const height = visibleBounds.maxY - visibleBounds.minY + 1;
+        return {
+            x: rendered.drawX + (visibleBounds.minX + width / 2) * SPRITE_SCALE,
+            y: rendered.drawY + (visibleBounds.minY + height / 2) * SPRITE_SCALE
+        };
+    }
+
+    return {
+        x: rendered.drawX + (rendered.canvas.width * SPRITE_SCALE) / 2,
+        y: rendered.drawY + (rendered.canvas.height * SPRITE_SCALE) / 2
+    };
+}
+
+function getAstronautAimPoint() {
+    const renderedCenter = getRenderedSpriteWorldCenter(getAstronautRenderedWorldSprite());
+    if (renderedCenter) {
+        return renderedCenter;
+    }
+
+    const astronautRect = getAstronautRect();
+    return {
+        x: (astronautRect.left + astronautRect.right) / 2,
+        y: (astronautRect.top + astronautRect.bottom) / 2
+    };
+}
+
+function getEntitySideAnchorPoint(
+    entity: {
+        x: number;
+        y: number;
+        type: string;
+        rotation?: number;
+        translation?: string | null;
+        palette?: number;
+        state?: Record<string, unknown>;
+        flipAroundVisibleCenter?: boolean;
+        angleDegrees?: number;
+        cropLeftHalf?: boolean;
+        cropRightHalf?: boolean;
+    },
+    side: 'left' | 'right'
+) {
+    const rendered = getRenderedEntityWorldSprite(entity);
+    if (!rendered) {
+        return null;
+    }
+
+    const opaquePoints = getRenderedSpriteOpaqueSamples(rendered.canvas);
+    if (opaquePoints.length === 0) {
+        return null;
+    }
+
+    const edgeX = side === 'left'
+        ? Math.min(...opaquePoints.map((point) => point.x))
+        : Math.max(...opaquePoints.map((point) => point.x));
+    const edgePoints = opaquePoints.filter((point) => point.x === edgeX);
+    const averageY = edgePoints.reduce((sum, point) => sum + point.y + 0.5, 0) / edgePoints.length;
+
+    return {
+        x: rendered.drawX + (edgeX + 0.5) * SPRITE_SCALE,
+        y: rendered.drawY + averageY * SPRITE_SCALE
+    };
+}
+
+function getEntityFrontAnchorPoint(
+    entity: {
+        x: number;
+        y: number;
+        type: string;
+        rotation?: number;
+        translation?: string | null;
+        palette?: number;
+        state?: Record<string, unknown>;
+        flipAroundVisibleCenter?: boolean;
+        angleDegrees?: number;
+        cropLeftHalf?: boolean;
+        cropRightHalf?: boolean;
+    },
+    direction: Position
+) {
+    const rendered = getRenderedEntityWorldSprite(entity);
+    if (!rendered) {
+        return null;
+    }
+
+    const opaquePoints = getRenderedSpriteOpaqueSamples(rendered.canvas);
+    if (opaquePoints.length === 0) {
+        return null;
+    }
+
+    const magnitude = Math.hypot(direction.x, direction.y);
+    const normalizedDirection = magnitude > 0.001
+        ? { x: direction.x / magnitude, y: direction.y / magnitude }
+        : { x: 1, y: 0 };
+    let bestPoint = opaquePoints[0];
+    let bestScore = Number.NEGATIVE_INFINITY;
+    for (const point of opaquePoints) {
+        const score = (point.x + 0.5) * normalizedDirection.x + (point.y + 0.5) * normalizedDirection.y;
+        if (score > bestScore) {
+            bestScore = score;
+            bestPoint = point;
+        }
+    }
+
+    return {
+        x: rendered.drawX + (bestPoint.x + 0.5) * SPRITE_SCALE,
+        y: rendered.drawY + (bestPoint.y + 0.5) * SPRITE_SCALE
+    };
+}
+
+function getStableCreatureAimCenter(creature: Creature, rotation: number) {
+    const spriteRect = findSpriteRectByType(creature.type);
+    const previewSheet = getEntityPreviewSheet(creature);
+    if (!spriteRect || !previewSheet) {
+        const bounds = getEntityCollisionBounds(creature);
+        return getEntityCenter(creature.x, creature.y, bounds);
+    }
+    const transformedSprite = getTransformedSpriteCanvas(previewSheet, spriteRect, rotation, false);
+    const visibleBounds = getSpriteVisibleBounds(transformedSprite);
+    const renderOffset = getEntityRenderOffset({
+        ...creature,
+        rotation
+    });
+    if (!visibleBounds) {
+        return {
+            x: creature.x + renderOffset.x + (spriteRect.w * SPRITE_SCALE) / 2,
+            y: creature.y + renderOffset.y + (spriteRect.h * SPRITE_SCALE) / 2
+        };
+    }
+
+    return {
+        x: creature.x + renderOffset.x + ((visibleBounds.minX + visibleBounds.maxX + 1) / 2) * SPRITE_SCALE,
+        y: creature.y + renderOffset.y + ((visibleBounds.minY + visibleBounds.maxY + 1) / 2) * SPRITE_SCALE
+    };
+}
+
+function getTurretFacingRotations(authoredRotation: number) {
+    const normalizedRotation = typeof authoredRotation === 'number'
+        ? Math.round(authoredRotation)
+        : 1;
+
+    switch (normalizedRotation) {
+        case 5:
+            return { left: 5, right: 1, authoredFacing: -1 };
+        case 2:
+            return { left: 4, right: 2, authoredFacing: 1 };
+        case 4:
+            return { left: 4, right: 2, authoredFacing: -1 };
+        case 3:
+            return { left: 3, right: 6, authoredFacing: -1 };
+        case 6:
+            return { left: 3, right: 6, authoredFacing: 1 };
+        case 7:
+            return { left: 7, right: 6, authoredFacing: -1 };
+        case 1:
+        default:
+            return { left: 5, right: 1, authoredFacing: 1 };
+    }
+}
+
+function isTurretLikeCreature(creature: Creature) {
+    return creature.archetype === 'turret' || creature.movementMode === 'turret';
+}
+
+function isBirdCreature(creature: Creature, authoredType = getCreatureAuthoredType(creature.type, creature.state)) {
+    return creature.archetype === 'bird' || /^bird/i.test(authoredType);
+}
+
+function getBirdSpriteFrameOffset(type: string) {
+    const match = /^bird(\d+)$/i.exec(type);
+    if (!match) {
+        return 0;
+    }
+    return (Math.max(1, Number(match[1])) - 1) % BIRD_ANIMATION_FRAMES.length;
+}
+
+function getAnimatedBirdSpriteType(authoredType: string, frameNow: number, entityId?: number) {
+    const frameOffset = getBirdSpriteFrameOffset(authoredType);
+    const entityOffset = typeof entityId === 'number'
+        ? Math.abs(entityId) % BIRD_ANIMATION_FRAMES.length
+        : 0;
+    const frameIndex = (
+        Math.floor(frameNow / BIRD_ANIMATION_FRAME_DURATION_MS) + frameOffset + entityOffset
+    ) % BIRD_ANIMATION_FRAMES.length;
+    return BIRD_ANIMATION_FRAMES[frameIndex];
+}
+
 function clampToRange(value: number, minimum: number, maximum: number) {
     return Math.max(minimum, Math.min(maximum, value));
 }
 
-function getProjectileSpriteType(kind: CreatureProjectileKind) {
-    if (kind === 'grenade') {
-        return 'grenade';
-    }
-    if (kind === 'energy_pod') {
-        return 'energy_pod2';
-    }
-    return 'bullet1';
+function normalizeBulletImpactAudioSettings(
+    settings: BulletImpactAudioSettings | Partial<BulletImpactAudioSettings> | null | undefined
+): BulletImpactAudioSettings {
+    const normalizeKey = (value: unknown): BulletImpactAudioSettings['primary'] =>
+        value === 'bulletExplosion2' ? 'bulletExplosion2' : 'bulletExplosion';
+
+    return {
+        primary: normalizeKey(settings?.primary),
+        alternate: normalizeKey(settings?.alternate),
+        alternateChance: clampToRange(
+            typeof settings?.alternateChance === 'number'
+                ? settings.alternateChance
+                : BULLET_IMPACT_AUDIO_SETTINGS.alternateChance,
+            0,
+            1
+        ),
+        volume: clampToRange(
+            typeof settings?.volume === 'number'
+                ? settings.volume
+                : BULLET_IMPACT_AUDIO_SETTINGS.volume,
+            0,
+            1
+        )
+    };
 }
 
-function spawnEnergyPodCollectable(projectile: CreatureProjectile) {
-    const pod = assignEntityId(new Collectable({
-        x: Math.round(projectile.x),
-        y: Math.round(projectile.y),
-        type: 'energy_pod2',
-        palette: projectile.palette ?? 0,
-        rotation: projectile.rotation,
-        collected: false,
-        name: 'energy_pod',
-        weight: 0.1,
-        pickupEnabled: true,
+function getCreatureProjectileLaunchSpeed(creature: Creature) {
+    const kind = getProjectileKindForFireMode(creature.fireMode);
+    const projectileSettings = kind ? getProjectileSettings(kind) : null;
+    return Math.max(1, creature.projectileSpeed) * (projectileSettings?.speedMultiplier ?? 1);
+}
+
+function getNextCreatureFireAt(frameNow: number, creature: Creature) {
+    const baseCooldown = Math.max(250, creature.fireCooldownMs);
+    const variance = Math.max(0, creature.fireCooldownVarianceMs ?? 0);
+    const offset = variance > 0 ? (Math.random() * 2 - 1) * variance : 0;
+    return frameNow + Math.max(250, baseCooldown + offset);
+}
+
+function hasCreatureLineOfSight(start: Position, target: Position) {
+    const dx = target.x - start.x;
+    const dy = target.y - start.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance < 8) {
+        return true;
+    }
+
+    const steps = Math.max(2, Math.ceil(distance / 6));
+    for (let index = 1; index < steps; index++) {
+        const progress = index / steps;
+        const sampleX = start.x + dx * progress;
+        const sampleY = start.y + dy * progress;
+        if (getSolidBlockAtWorld(
+            sampleX,
+            sampleY,
+            spriteMap,
+            SPRITE_SCALE,
+            mapBlocks,
+            doorEntities,
+            buttonEntities
+        )) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function getCreatureTargetPoint(
+    creature: Creature,
+    aimOrigin: Position,
+    targetCenter: Position
+) {
+    const leadFactor = Math.max(0, creature.aimLeadFactor ?? 0);
+    const astronautSpeed = Math.hypot(astronaut.velocity.x, astronaut.velocity.y);
+    const jitterScale = clampToRange(astronautSpeed / 2.5, 0, 1);
+    const jitterRadius = Math.max(0, creature.aimJitterPx ?? 0) * jitterScale;
+    const projectileTravelFrames = Math.max(
+        1,
+        Math.hypot(targetCenter.x - aimOrigin.x, targetCenter.y - aimOrigin.y) /
+            Math.max(1, getCreatureProjectileLaunchSpeed(creature))
+    );
+    const jitterAngle = Math.random() * Math.PI * 2;
+    const jitterDistance = Math.random() * jitterRadius;
+
+    return {
+        x: targetCenter.x + astronaut.velocity.x * projectileTravelFrames * leadFactor + Math.cos(jitterAngle) * jitterDistance,
+        y: targetCenter.y + astronaut.velocity.y * projectileTravelFrames * leadFactor + Math.sin(jitterAngle) * jitterDistance
+    };
+}
+
+function isGrenadeCollectable(collectable: Collectable | null | undefined): collectable is Collectable {
+    return !!collectable && isGrenadeCollectableType(collectable.type);
+}
+
+function getGrenadeExplosionRadius(type: string, explosionRadius?: number) {
+    const fallbackRadius = type === 'plasma_grenade'
+        ? MOVEMENT_SETTINGS.plasmaGrenadeExplosionRadius
+        : MOVEMENT_SETTINGS.grenadeExplosionRadius;
+    return typeof explosionRadius === 'number'
+        ? Math.max(1, explosionRadius)
+        : fallbackRadius;
+}
+
+function getGrenadeExplosionPower(type: string, explosionPower?: number) {
+    const fallbackPower = getDefaultGrenadeExplosionPower(type) ?? MOVEMENT_SETTINGS.grenadeExplosionPower;
+    const resolvedPower = typeof explosionPower === 'number' ? explosionPower : fallbackPower;
+    return clampToRange(resolvedPower, 0.5, MOVEMENT_SETTINGS.grenadeMaxExplosionPower);
+}
+
+function getExplosionDamageSource(type: 'grenade' | 'plasma_grenade' | 'coronium') {
+    if (type === 'plasma_grenade') {
+        return 'plasma_grenade_explosion' as const;
+    }
+    if (type === 'coronium') {
+        return 'coronium_explosion' as const;
+    }
+    return 'grenade_explosion' as const;
+}
+
+function isRadioactiveBoulderCollectable(collectable: Collectable) {
+    return collectable.type === 'boulder' && collectable.radioactive === true;
+}
+
+function isCoroniumExplosionAtCenter(center: Position) {
+    const radioactiveBoulderCenters = collectableEntities
+        .filter((collectable) =>
+            isRadioactiveBoulderCollectable(collectable) &&
+            !collectable.collected &&
+            !collectable.stored
+        )
+        .map((collectable) => getEntityCenter(
+            collectable.x,
+            collectable.y,
+            getEntityCollisionBounds(collectable)
+        ));
+
+    for (let index = 0; index < radioactiveBoulderCenters.length; index++) {
+        for (let otherIndex = index + 1; otherIndex < radioactiveBoulderCenters.length; otherIndex++) {
+            const a = radioactiveBoulderCenters[index];
+            const b = radioactiveBoulderCenters[otherIndex];
+            const midpoint = {
+                x: (a.x + b.x) / 2,
+                y: (a.y + b.y) / 2
+            };
+            const pairDistance = Math.hypot(a.x - b.x, a.y - b.y);
+            if (
+                pairDistance <= 120 &&
+                Math.hypot(midpoint.x - center.x, midpoint.y - center.y) <= 28
+            ) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+function getEffectiveDestructibleSettings(entity: DestructibleRuntimeEntity, category: 'world' | 'doors') {
+    return {
+        destructible: typeof entity.destructible === 'boolean'
+            ? entity.destructible
+            : getDefaultDestructibleEnabled(category, entity.type),
+        health: typeof entity.destructionHealth === 'number'
+            ? Math.max(0.1, entity.destructionHealth)
+            : getDefaultDestructibleHealth(category, entity.type),
+        source: typeof entity.destructionSource === 'string'
+            ? entity.destructionSource
+            : getDefaultDestructionSource(category, entity.type)
+    };
+}
+
+function matchesDestructionSourceRequirement(
+    requiredSource: DestructionSourceRequirement,
+    source: DestructionSourceRequirement
+) {
+    if (requiredSource === 'any_explosion') {
+        return true;
+    }
+    return requiredSource === source;
+}
+
+function removeDoorEntity(door: Door) {
+    const index = doorEntities.indexOf(door);
+    if (index >= 0) {
+        doorEntities.splice(index, 1);
+    }
+}
+
+function removeMapBlockEntity(block: MapBlock) {
+    const index = mapBlocks.indexOf(block);
+    if (index >= 0) {
+        mapBlocks.splice(index, 1);
+    }
+}
+
+function getDestructibleCollisionBounds(entity: DestructibleRuntimeEntity) {
+    return getEntityCollisionBounds({
+        ...entity,
+        palette: typeof entity.palette === 'number' ? entity.palette : 0
+    });
+}
+
+function spawnDestructibleExplosionEffect(
+    entity: DestructibleRuntimeEntity,
+    category: 'world' | 'doors',
+    source: DestructionSourceRequirement,
+    centerX: number,
+    centerY: number,
+    blastCenter?: Position
+) {
+    const palette = typeof entity.palette === 'number' ? entity.palette : 0;
+    const explosionType = source === 'plasma_grenade_explosion' || source === 'coronium_explosion'
+        ? 'plasma_grenade'
+        : 'grenade';
+    spawnGrenadeExplosionEffect(explosionType, palette, centerX, centerY);
+    if (category === 'doors') {
+        const sourceCenter = blastCenter ?? { x: centerX, y: centerY };
+        const horizontalDirection = centerX >= sourceCenter.x ? 1 : -1;
+        const verticalDirection = centerY - sourceCenter.y;
+        const distance = Math.hypot(centerX - sourceCenter.x, verticalDirection);
+        const normalizedDirection = distance > 0.001
+            ? {
+                x: (centerX - sourceCenter.x) / distance,
+                y: verticalDirection / distance
+            }
+            : {
+                x: horizontalDirection,
+                y: -0.35
+            };
+        const liftBias = Math.min(-0.25, normalizedDirection.y - 0.35);
+        doorDestructionEffects.push({
+            x: entity.x,
+            y: entity.y,
+            type: entity.type,
+            palette,
+            rotation: typeof (entity as { rotation?: unknown }).rotation === 'number'
+                ? Math.round(Number((entity as { rotation?: unknown }).rotation))
+                : 1,
+            translation: typeof (entity as { translation?: unknown }).translation === 'string'
+                ? String((entity as { translation?: unknown }).translation)
+                : undefined,
+            state: typeof (entity as { state?: unknown }).state === 'object' && (entity as { state?: unknown }).state
+                ? { ...((entity as { state?: Record<string, unknown> }).state ?? {}) }
+                : undefined,
+            flipAroundVisibleCenter: (entity as { flipAroundVisibleCenter?: unknown }).flipAroundVisibleCenter === true,
+            angleDegrees: 0,
+            vx: normalizedDirection.x * 8.5,
+            vy: liftBias * 6.4,
+            spinVelocity: horizontalDirection * 28,
+            life: 24,
+            maxLife: 24
+        });
+    }
+}
+
+function damageDestructibleEntity(
+    entity: DestructibleRuntimeEntity,
+    category: 'world' | 'doors',
+    damage: number,
+    source: DestructionSourceRequirement,
+    blastCenter?: Position
+) {
+    const settings = getEffectiveDestructibleSettings(entity, category);
+    if (
+        !settings.destructible ||
+        damage <= 0 ||
+        !matchesDestructionSourceRequirement(settings.source, source)
+    ) {
+        return false;
+    }
+
+    const accumulatedDamage = (destructibleDamageByEntity.get(entity as object) ?? 0) + damage;
+    if (accumulatedDamage < settings.health) {
+        destructibleDamageByEntity.set(entity as object, accumulatedDamage);
+        return false;
+    }
+
+    const bounds = getDestructibleCollisionBounds(entity);
+    const center = getEntityCenter(entity.x, entity.y, bounds);
+    spawnDestructibleExplosionEffect(entity, category, source, center.x, center.y, blastCenter);
+    destructibleDamageByEntity.delete(entity as object);
+    if (category === 'doors') {
+        removeDoorEntity(entity as Door);
+    } else {
+        removeMapBlockEntity(entity as MapBlock);
+    }
+    return true;
+}
+
+function applyExplosionDamageToDestructibles(
+    center: Position,
+    radius: number,
+    maxDamage: number,
+    source: DestructionSourceRequirement
+) {
+    let destroyedAny = false;
+    let destroyedDoor = false;
+
+    for (const door of [...doorEntities]) {
+        const bounds = getEntityCollisionBounds(door);
+        const entityCenter = getEntityCenter(door.x, door.y, bounds);
+        const distance = Math.hypot(entityCenter.x - center.x, entityCenter.y - center.y);
+        if (distance > radius) {
+            continue;
+        }
+        const scaledDamage = maxDamage * (1 - distance / radius);
+        if (damageDestructibleEntity(door, 'doors', scaledDamage, source, center)) {
+            destroyedAny = true;
+            destroyedDoor = true;
+        }
+    }
+
+    for (const block of [...mapBlocks]) {
+        const bounds = getDestructibleCollisionBounds(block);
+        const entityCenter = getEntityCenter(block.x, block.y, bounds);
+        const distance = Math.hypot(entityCenter.x - center.x, entityCenter.y - center.y);
+        if (distance > radius) {
+            continue;
+        }
+        const scaledDamage = maxDamage * (1 - distance / radius);
+        if (damageDestructibleEntity(block, 'world', scaledDamage, source, center)) {
+            destroyedAny = true;
+        }
+    }
+
+    if (destroyedAny) {
+        afterWorldDataMutated();
+    }
+
+    return {
+        destroyedAny,
+        destroyedDoor
+    };
+}
+
+function syncGrenadeFuseState(collectable: Collectable, now: number = performance.now()) {
+    if (!isGrenadeCollectable(collectable)) {
+        return;
+    }
+
+    if (collectable.armed) {
+        if (typeof collectable.armedAtMs !== 'number') {
+            collectable.armedAtMs = now;
+        }
+    } else {
+        collectable.armedAtMs = undefined;
+    }
+}
+
+function setGrenadeCollectableArmedState(collectable: Collectable, armed: boolean, now: number = performance.now()) {
+    if (!isGrenadeCollectable(collectable)) {
+        return;
+    }
+
+    if (armed) {
+        collectable.arm(now);
+    } else {
+        collectable.disarm();
+    }
+}
+
+function spawnGrenadeExplosionEffect(type: 'grenade' | 'plasma_grenade', palette: number, centerX: number, centerY: number) {
+    const settings = getProjectileSettings(type);
+    const effectBounds = getEntityCollisionBounds({
+        type: settings.spriteType,
+        rotation: 1
+    });
+    const effectPosition = getEntityPositionFromCenter(centerX, centerY, effectBounds);
+    spawnProjectileImpactEffect(new Collectable({
+        x: effectPosition.x,
+        y: effectPosition.y,
+        type: settings.spriteType,
+        palette,
+        rotation: 1,
+        pickupEnabled: false,
         storable: false,
         affectsAstronaut: false,
         collision: false,
         velocity: { x: 0, y: 0 },
+        weight: 0,
+        bounciness: 0,
         isGrounded: false,
-        ttlFrames: MOVEMENT_SETTINGS.creatureEnergyPodLifetimeFrames,
-        ambientSoundKey: 'get',
-        ambientSoundIntervalMs: 900
-    }));
-    collectableEntities.push(pod);
+        creatureProjectile: {
+            kind: type,
+            homing: false,
+            remainingFrames: 0,
+            damage: 0
+        }
+    }) as CreatureProjectileCollectable);
+}
+
+function getProjectileSettings(kind: CreatureProjectileKind) {
+    return CREATURE_PROJECTILE_SETTINGS[kind];
+}
+
+function updateProjectileFlightFrame(
+    projectile: CreatureProjectileCollectable,
+    projectileSettings: ReturnType<typeof getProjectileSettings>
+) {
+    const flightAnimation = projectileSettings.flightAnimation;
+    if (!flightAnimation || flightAnimation.frames.length === 0) {
+        projectile.type = projectileSettings.spriteType;
+        return;
+    }
+
+    const ageFrames = Math.max(0, projectileSettings.lifetimeFrames - projectile.creatureProjectile.remainingFrames);
+    const frameDurationFrames = Math.max(1, flightAnimation.frameDurationFrames);
+    if (projectile.creatureProjectile.kind === 'bullet' && flightAnimation.frames.length > 1) {
+        const velocity = projectile.velocity;
+        const speed = Math.hypot(velocity.x, velocity.y);
+        if (speed <= 0.001) {
+            projectile.type = flightAnimation.frames[0];
+            return;
+        }
+        const angle = Math.atan2(Math.abs(velocity.y), Math.abs(velocity.x));
+        const angleRatio = clampToRange(angle / (Math.PI / 2), 0, 1);
+        const frameIndex = Math.min(
+            flightAnimation.frames.length - 1,
+            Math.round(angleRatio * (flightAnimation.frames.length - 1))
+        );
+        projectile.type = flightAnimation.frames[frameIndex];
+        return;
+    }
+
+    const frameIndex = Math.floor(ageFrames / frameDurationFrames) % flightAnimation.frames.length;
+    projectile.type = flightAnimation.frames[frameIndex];
+}
+
+function getProjectileKindForFireMode(fireMode: CreatureFireMode): CreatureProjectileKind | null {
+    if (fireMode === 'bullets') {
+        return 'bullet';
+    }
+    if (fireMode === 'grenades') {
+        return 'grenade';
+    }
+    if (fireMode === 'plasma_grenades') {
+        return 'plasma_grenade';
+    }
+    if (fireMode === 'energy_pods') {
+        return 'energy_pod';
+    }
+    return null;
+}
+
+function updateProjectileImpactEffectFrame(effect: ProjectileImpactEffect) {
+    const nextType = effect.frames[clampToRange(effect.frameIndex, 0, effect.frames.length - 1)];
+    const bounds = getEntityCollisionBounds({
+        type: nextType,
+        rotation: effect.rotation
+    });
+    const position = getEntityPositionFromCenter(effect.centerX, effect.centerY, bounds);
+    effect.type = nextType;
+    effect.x = position.x;
+    effect.y = position.y;
+}
+
+function spawnProjectileImpactEffect(
+    projectile: CreatureProjectileCollectable,
+    entityX = projectile.x,
+    entityY = projectile.y,
+    centerOverride?: Position
+) {
+    const settings = getProjectileSettings(projectile.creatureProjectile.kind);
+    const impactAnimation = settings.impactAnimation;
+    if (!impactAnimation || impactAnimation.frames.length === 0) {
+        return;
+    }
+    const bounds = getEntityCollisionBounds(projectile);
+    const center = centerOverride ?? getEntityCenter(entityX, entityY, bounds);
+    const effect: ProjectileImpactEffect = {
+        x: entityX,
+        y: entityY,
+        centerX: center.x,
+        centerY: center.y,
+        type: impactAnimation.frames[0],
+        palette: impactAnimation.paletteSource === 'projectile' ? projectile.palette ?? 0 : 0,
+        rotation: 1,
+        frameIndex: 0,
+        frameTimer: 0,
+        frames: [...impactAnimation.frames],
+        frameDurationFrames: Math.max(1, impactAnimation.frameDurationFrames)
+    };
+    updateProjectileImpactEffectFrame(effect);
+    projectileImpactEffects.push(effect);
+
+    if (projectile.creatureProjectile.kind === 'bullet') {
+        playBulletImpactSound();
+        spawnBulletImpactParticles(effect.centerX, effect.centerY);
+        applyAstronautBulletImpactBlast(effect.centerX, effect.centerY, projectile.creatureProjectile.damage);
+    }
+}
+
+function updateProjectileImpactEffects() {
+    const nextEffects: ProjectileImpactEffect[] = [];
+    for (const effect of projectileImpactEffects) {
+        effect.frameTimer++;
+        if (effect.frameTimer >= effect.frameDurationFrames) {
+            effect.frameTimer = 0;
+            effect.frameIndex++;
+            if (effect.frameIndex >= effect.frames.length) {
+                continue;
+            }
+            updateProjectileImpactEffectFrame(effect);
+        }
+        nextEffects.push(effect);
+    }
+    projectileImpactEffects = nextEffects;
+}
+
+function updateDoorDestructionEffects() {
+    const nextEffects: DoorDestructionEffect[] = [];
+    for (const effect of doorDestructionEffects) {
+        effect.x += effect.vx;
+        effect.y += effect.vy;
+        effect.vy += 0.22;
+        effect.vx *= 0.97;
+        effect.angleDegrees += effect.spinVelocity;
+        effect.spinVelocity *= 0.92;
+        effect.life--;
+        if (effect.life <= 0) {
+            continue;
+        }
+        nextEffects.push(effect);
+    }
+    doorDestructionEffects = nextEffects;
+}
+
+function drawDoorDestructionEffects(context: CanvasRenderingContext2D, camera: Position) {
+    for (const effect of doorDestructionEffects) {
+        const rendered = getRenderedEntityWorldSprite(effect);
+        if (!rendered) {
+            continue;
+        }
+        const age = effect.maxLife - effect.life;
+        const fadeAlpha = clampToRange(effect.life / effect.maxLife, 0, 1);
+        const alpha = Math.max(0.2, fadeAlpha);
+        if (alpha <= 0.02) {
+            continue;
+        }
+        const drawX = rendered.drawX - camera.x;
+        const drawY = rendered.drawY - camera.y;
+        const drawWidth = rendered.canvas.width * SPRITE_SCALE;
+        const drawHeight = rendered.canvas.height * SPRITE_SCALE;
+        const flashProgress = age < 6 ? 1 - age / 6 : 0;
+        context.save();
+        context.globalAlpha = alpha;
+        context.drawImage(
+            rendered.canvas,
+            drawX,
+            drawY,
+            drawWidth,
+            drawHeight
+        );
+        if (flashProgress > 0) {
+            const flashScale = 1 + flashProgress * 0.24;
+            const flashWidth = drawWidth * flashScale;
+            const flashHeight = drawHeight * flashScale;
+            context.globalCompositeOperation = 'lighter';
+            context.globalAlpha = 0.55 * flashProgress;
+            context.drawImage(
+                rendered.canvas,
+                drawX - (flashWidth - drawWidth) / 2,
+                drawY - (flashHeight - drawHeight) / 2,
+                flashWidth,
+                flashHeight
+            );
+        }
+        context.restore();
+    }
+}
+
+function spawnBulletImpactParticles(centerX: number, centerY: number) {
+    const particleCount = 28 + Math.floor(Math.random() * 9);
+    for (let index = 0; index < particleCount; index++) {
+        const angle = Math.random() * Math.PI * 2;
+        const launchRadius = 2 + Math.random() * 6;
+        const speed = 1.4 + Math.random() * 4.6;
+        const life = 18 + Math.floor(Math.random() * 10);
+        bulletImpactParticles.push({
+            x: centerX + Math.cos(angle) * launchRadius,
+            y: centerY + Math.sin(angle) * launchRadius,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed - Math.random() * 1.2,
+            color: BULLET_IMPACT_PARTICLE_COLORS[Math.floor(Math.random() * BULLET_IMPACT_PARTICLE_COLORS.length)],
+            size: Math.random() < 0.4 ? 4 : 3,
+            life,
+            maxLife: life
+        });
+    }
+}
+
+function updateAndDrawBulletImpactParticles(context: CanvasRenderingContext2D | null, camera: Position) {
+    const nextParticles: BulletImpactParticle[] = [];
+
+    for (const particle of bulletImpactParticles) {
+        particle.x += particle.vx;
+        particle.y += particle.vy;
+        particle.vy += 0.08;
+        particle.vx *= 0.97;
+        particle.life--;
+
+        if (particle.life <= 0) {
+            continue;
+        }
+
+        const screenX = Math.round(particle.x - camera.x);
+        const screenY = Math.round(particle.y - camera.y);
+        if (
+            screenX + particle.size < 0 ||
+            screenX > canvas.width ||
+            screenY + particle.size < 0 ||
+            screenY > canvas.height
+        ) {
+            continue;
+        }
+
+        nextParticles.push(particle);
+        if (context) {
+            context.save();
+            context.globalAlpha = Math.max(0.45, particle.life / particle.maxLife);
+            context.fillStyle = particle.color;
+            context.fillRect(screenX, screenY, particle.size, particle.size);
+            context.restore();
+        }
+    }
+
+    bulletImpactParticles = nextParticles;
+}
+
+function getProjectileAngleDegrees(velocity: Position) {
+    if (!Number.isFinite(velocity.x) || !Number.isFinite(velocity.y)) {
+        return 0;
+    }
+    if (Math.abs(velocity.x) < 0.001 && Math.abs(velocity.y) < 0.001) {
+        return 0;
+    }
+    return (Math.atan2(velocity.y, velocity.x) * 180) / Math.PI;
+}
+
+function convertProjectileToEnergyPodCollectable(projectile: CreatureProjectileCollectable) {
+    projectile.type = 'energy_pod2';
+    projectile.name = 'energy_pod';
+    projectile.weight = 0.1;
+    projectile.pickupEnabled = true;
+    projectile.storable = false;
+    projectile.affectsAstronaut = false;
+    projectile.collision = false;
+    projectile.velocity = { x: 0, y: 0 };
+    projectile.isGrounded = false;
+    projectile.ttlFrames = MOVEMENT_SETTINGS.creatureEnergyPodLifetimeFrames;
+    projectile.ambientSoundKey = 'get';
+    projectile.ambientSoundIntervalMs = 900;
+    projectile.nextAmbientSoundAt = undefined;
+    projectile.angleDegrees = undefined;
+    projectile.bounciness = 0;
+    delete (projectile as Collectable).creatureProjectile;
 }
 
 function playRuntimeSound(audio: HTMLAudioElement, volume = 1) {
@@ -2441,6 +4641,97 @@ function playManifestSound(key: string, volume = 1) {
         return;
     }
     playRuntimeSound(audio, volume);
+}
+
+function playAstronautImpactSound() {
+    playRuntimeSound(ouchSounds[Math.floor(Math.random() * ouchSounds.length)], 0.8);
+}
+
+function updateGrenadeArmedLoopSound() {
+    const shouldPlay = getSoundEnabled() && collectableEntities.some(
+        (collectable) => isGrenadeCollectable(collectable) && collectable.armed
+    );
+    if (shouldPlay) {
+        grenadeArmedSound.loop = true;
+        grenadeArmedSound.volume = 0.5;
+        if (!grenadeArmedLoopActive) {
+            try {
+                grenadeArmedSound.currentTime = 0;
+                grenadeArmedSound.play();
+            } catch {}
+            grenadeArmedLoopActive = true;
+        }
+        return;
+    }
+
+    if (grenadeArmedLoopActive) {
+        try {
+            grenadeArmedSound.pause();
+            grenadeArmedSound.currentTime = 0;
+        } catch {}
+        grenadeArmedLoopActive = false;
+    }
+}
+
+function updateMushroomAmbientLoopSound() {
+    if (!getSoundEnabled()) {
+        nextMushroomAmbientAt = 0;
+        return;
+    }
+
+    const mushrooms = getMushroomBlocks();
+    if (mushrooms.length === 0) {
+        nextMushroomAmbientAt = 0;
+        return;
+    }
+
+    const tileSize = 32 * SPRITE_SCALE;
+    const mushroomCenterOffset = tileSize / 2;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    for (const mushroom of mushrooms) {
+        const dx = mushroom.x + mushroomCenterOffset - astronaut.position.x;
+        const dy = mushroom.y + mushroomCenterOffset - astronaut.position.y;
+        const distance = Math.hypot(dx, dy);
+        if (distance < nearestDistance) {
+            nearestDistance = distance;
+        }
+    }
+
+    if (nearestDistance > MUSHROOM_AMBIENT_RANGE) {
+        nextMushroomAmbientAt = 0;
+        return;
+    }
+
+    const now = performance.now();
+    if (now < nextMushroomAmbientAt) {
+        return;
+    }
+
+    const volume = Math.max(
+        0,
+        Math.min(1, MUSHROOM_AMBIENT_BASE_VOLUME * (1 - nearestDistance / MUSHROOM_AMBIENT_RANGE))
+    );
+    if (volume > 0) {
+        const ambientInstance = mushroomsSound.cloneNode(true);
+        if (ambientInstance instanceof HTMLAudioElement) {
+            ambientInstance.volume = volume;
+            void ambientInstance.play().catch(() => { });
+        }
+    }
+    const delay = MUSHROOM_AMBIENT_MIN_DELAY_MS
+        + Math.random() * (MUSHROOM_AMBIENT_MAX_DELAY_MS - MUSHROOM_AMBIENT_MIN_DELAY_MS);
+    nextMushroomAmbientAt = now + delay;
+}
+
+function playBulletImpactSound() {
+    playRuntimeSound(bulletExplosionSound, bulletImpactAudioSettings.volume);
+}
+
+function playExplosionDamageSound(destroyedDoor: boolean, volume: number) {
+    playRuntimeSound(
+        destroyedDoor ? bulletExplosion2Sound : bulletExplosionSound,
+        volume
+    );
 }
 
 function cleanupCollectableReferences(collectable: Collectable) {
@@ -2466,16 +4757,95 @@ function removeCollectableEntity(collectable: Collectable) {
     }
 }
 
-function applyAstronautImpact(sourceX: number, sourceY: number, force: number) {
+function applyAstronautImpact(sourceX: number, sourceY: number, force: number, canSpinFromExplosion = false) {
     const astronautRect = getAstronautRect();
     const astronautCenterX = (astronautRect.left + astronautRect.right) / 2;
     const astronautCenterY = (astronautRect.top + astronautRect.bottom) / 2;
     const dx = astronautCenterX - sourceX;
     const dy = astronautCenterY - sourceY;
     const distance = Math.max(1, Math.hypot(dx, dy));
-    astronaut.velocity.x += (dx / distance) * force;
-    astronaut.velocity.y += (dy / distance) * Math.max(0.8, force * 0.65);
-    playRuntimeSound(ouchSounds[Math.floor(Math.random() * ouchSounds.length)], 0.8);
+    const wasLanded = astronaut.isLanded;
+    const horizontalImpulse = (dx / distance) * Math.max(1, force * 1.1);
+    let verticalDirection = dy / distance;
+    if (wasLanded && verticalDirection > -0.35) {
+        verticalDirection = -0.35;
+    }
+
+    astronaut.isLanded = false;
+    astronaut.isFlying = true;
+    astronaut.velocity.x += horizontalImpulse;
+    astronaut.velocity.y += verticalDirection * Math.max(1.1, force * 0.95);
+    if (
+        canSpinFromExplosion &&
+        force >= MOVEMENT_SETTINGS.astronautExplosionSpinMinForce &&
+        Math.random() < MOVEMENT_SETTINGS.astronautExplosionSpinChance
+    ) {
+        const blastDirection = Math.sign(dx);
+        if (blastDirection !== 0) {
+            const shouldFaceLeft = blastDirection < 0;
+            if (facingLeft !== shouldFaceLeft) {
+                flipAstronaut();
+            }
+        }
+    }
+    playAstronautImpactSound();
+}
+
+function applyAstronautBulletImpactBlast(centerX: number, centerY: number, damage: number) {
+    const blastRadius = 34;
+    const astronautRect = getAstronautRect();
+    const astronautCenter = {
+        x: (astronautRect.left + astronautRect.right) / 2,
+        y: (astronautRect.top + astronautRect.bottom) / 2
+    };
+    const astronautDistance = Math.hypot(astronautCenter.x - centerX, astronautCenter.y - centerY);
+    if (astronautDistance > blastRadius) {
+        return;
+    }
+
+    const proximity = 1 - astronautDistance / blastRadius;
+    applyAstronautDamage(
+        Math.max(6, damage * (5 + proximity * 7)),
+        performance.now()
+    );
+    applyAstronautBulletDaze(
+        performance.now(),
+        BULLET_DAZE_DURATION_MS + damage * 90 + proximity * 140
+    );
+    applyAstronautImpact(
+        centerX,
+        centerY,
+        Math.max(1.6, damage * 0.75 + proximity * 2.6),
+        true
+    );
+}
+
+function applyAstronautProjectileImpact(projectile: CreatureProjectileCollectable) {
+    if (projectile.creatureProjectile.kind === 'bullet') {
+        return;
+    }
+
+    const astronautDamage = Math.max(
+        5,
+        projectile.creatureProjectile.damage * 8
+    );
+    applyAstronautDamage(astronautDamage);
+
+    const speed = Math.hypot(projectile.velocity.x, projectile.velocity.y);
+    if (speed < 0.001) {
+        applyAstronautImpact(projectile.x, projectile.y, Math.max(0.9, projectile.creatureProjectile.damage));
+        return;
+    }
+
+    const physicsSettings = getCreatureProjectilePhysicsSettings(projectile);
+    const pushScale = getDynamicObjectPushScale(projectile, physicsSettings);
+    const force = Math.max(
+        projectile.creatureProjectile.damage * 0.7,
+        speed * Math.max(0.45, projectile.weight * 2.4) * pushScale
+    );
+    astronaut.velocity.x += (projectile.velocity.x / speed) * force;
+    astronaut.velocity.y += (projectile.velocity.y / speed) * Math.max(0.55, force * 0.8);
+    playAstronautImpactSound();
 }
 
 function markCreatureDamaged(creature: Creature, damage: number) {
@@ -2535,7 +4905,7 @@ function applyDamageToCreature(creature: Creature, damage: number) {
     return false;
 }
 
-function projectileOverlapsCreature(projectile: CreatureProjectile, creature: Creature) {
+function projectileOverlapsCreature(projectile: CreatureProjectileCollectable, creature: Creature) {
     const projectileBounds = getEntityCollisionBounds(projectile);
     const projectileRect = getEntityRect(projectile.x, projectile.y, projectileBounds);
     const creatureBounds = getEntityCollisionBounds(creature);
@@ -2548,19 +4918,49 @@ function projectileOverlapsCreature(projectile: CreatureProjectile, creature: Cr
     );
 }
 
-function explodeProjectile(projectile: CreatureProjectile) {
-    const radius = projectile.kind === 'grenade' ? 96 : 52;
+function explodeProjectile(projectile: CreatureProjectileCollectable, entityX = projectile.x, entityY = projectile.y) {
+    const settings = getProjectileSettings(projectile.creatureProjectile.kind);
+    const radius = settings.splashRadius;
+    if (!radius) {
+        spawnProjectileImpactEffect(projectile, entityX, entityY);
+        return;
+    }
+    const bounds = getEntityCollisionBounds(projectile);
+    const center = getEntityCenter(entityX, entityY, bounds);
+    spawnProjectileImpactEffect(projectile, entityX, entityY);
+    const destructionSource = isCoroniumExplosionAtCenter(center)
+        ? getExplosionDamageSource('coronium')
+        : projectile.creatureProjectile.kind === 'plasma_grenade'
+            ? getExplosionDamageSource('plasma_grenade')
+            : getExplosionDamageSource('grenade');
+    const doorCountBeforeExplosion = doorEntities.length;
+    const destructibleDamageResult = applyExplosionDamageToDestructibles(
+        center,
+        radius,
+        Math.max(
+            6,
+            projectile.creatureProjectile.damage * 12 * (settings.splashDamageMultiplier ?? 1)
+        ),
+        destructionSource
+    );
+    playExplosionDamageSound(
+        destructibleDamageResult.destroyedDoor || doorEntities.length < doorCountBeforeExplosion,
+        bulletImpactAudioSettings.volume
+    );
     for (const creature of [...creatureEntities]) {
-        if (creature.entityId === projectile.sourceEntityId) {
+        if (creature.entityId === projectile.creatureProjectile.sourceEntityId) {
             continue;
         }
         const creatureBounds = getEntityCollisionBounds(creature);
         const creatureCenter = getEntityCenter(creature.x, creature.y, creatureBounds);
-        const distance = Math.hypot(creatureCenter.x - projectile.x, creatureCenter.y - projectile.y);
+        const distance = Math.hypot(creatureCenter.x - center.x, creatureCenter.y - center.y);
         if (distance > radius) {
             continue;
         }
-        const damage = Math.max(0.5, projectile.damage * (1 - distance / radius));
+        const damage = Math.max(
+            settings.minimumSplashDamage ?? 0.5,
+            projectile.creatureProjectile.damage * (settings.splashDamageMultiplier ?? 1) * (1 - distance / radius)
+        );
         applyDamageToCreature(creature, damage);
     }
 
@@ -2569,10 +4969,114 @@ function explodeProjectile(projectile: CreatureProjectile) {
         x: (astronautRect.left + astronautRect.right) / 2,
         y: (astronautRect.top + astronautRect.bottom) / 2
     };
-    const astronautDistance = Math.hypot(astronautCenter.x - projectile.x, astronautCenter.y - projectile.y);
+    const astronautDistance = Math.hypot(astronautCenter.x - center.x, astronautCenter.y - center.y);
     if (astronautDistance <= radius) {
-        applyAstronautImpact(projectile.x, projectile.y, Math.max(0.8, projectile.damage * (1 - astronautDistance / radius)));
+        applyAstronautDamage(
+            Math.max(
+                8,
+                projectile.creatureProjectile.damage * 10 * (1 - astronautDistance / radius)
+            )
+        );
+        applyAstronautImpact(
+            center.x,
+            center.y,
+            Math.max(0.8, projectile.creatureProjectile.damage * (settings.splashDamageMultiplier ?? 1) * (1 - astronautDistance / radius)),
+            true
+        );
     }
+}
+
+function explodeCollectableGrenade(collectable: Collectable) {
+    if (!isGrenadeCollectable(collectable)) {
+        return;
+    }
+
+    const center = collectable.stored
+        ? { x: astronaut.position.x, y: astronaut.position.y }
+        : getEntityCenter(collectable.x, collectable.y, getEntityCollisionBounds(collectable));
+    const grenadeType = collectable.type === 'plasma_grenade' ? 'plasma_grenade' : 'grenade';
+    const radius = getGrenadeExplosionRadius(grenadeType, collectable.explosionRadius);
+    const power = getGrenadeExplosionPower(grenadeType, collectable.explosionPower);
+    const destructionSource = isCoroniumExplosionAtCenter(center)
+        ? getExplosionDamageSource('coronium')
+        : getExplosionDamageSource(grenadeType);
+    spawnGrenadeExplosionEffect(grenadeType, collectable.palette ?? 0, center.x, center.y);
+    const doorCountBeforeExplosion = doorEntities.length;
+    const destructibleDamageResult = applyExplosionDamageToDestructibles(
+        center,
+        radius,
+        power * 6,
+        destructionSource
+    );
+    playExplosionDamageSound(
+        destructibleDamageResult.destroyedDoor || doorEntities.length < doorCountBeforeExplosion,
+        0.9
+    );
+
+    for (const creature of [...creatureEntities]) {
+        const creatureBounds = getEntityCollisionBounds(creature);
+        const creatureCenter = getEntityCenter(creature.x, creature.y, creatureBounds);
+        const distance = Math.hypot(creatureCenter.x - center.x, creatureCenter.y - center.y);
+        if (distance > radius) {
+            continue;
+        }
+        const damage = Math.max(0.75, power * 1.35 * (1 - distance / radius));
+        applyDamageToCreature(creature, damage);
+    }
+
+    const astronautRect = getAstronautRect();
+    const astronautCenter = {
+        x: (astronautRect.left + astronautRect.right) / 2,
+        y: (astronautRect.top + astronautRect.bottom) / 2
+    };
+    const astronautDistance = Math.hypot(astronautCenter.x - center.x, astronautCenter.y - center.y);
+    if (astronautDistance <= radius) {
+        applyAstronautDamage(
+            Math.max(10, power * 4 * (1 - astronautDistance / radius))
+        );
+        applyAstronautImpact(
+            center.x,
+            center.y,
+            Math.max(1, power * (1 - astronautDistance / radius)),
+            true
+        );
+    }
+
+    removeCollectableEntity(collectable);
+}
+
+function spawnCreatureGrenadeCollectable(
+    creature: Creature,
+    kind: 'grenade' | 'plasma_grenade',
+    spawnPosition: Position,
+    velocity: Position,
+    rotation: number
+) {
+    const defaultPower = getDefaultGrenadeExplosionPower(kind) ?? MOVEMENT_SETTINGS.grenadeExplosionPower;
+    const grenade = assignEntityId(new Collectable({
+        x: spawnPosition.x,
+        y: spawnPosition.y,
+        type: kind,
+        palette: creature.palette ?? 0,
+        rotation,
+        collected: false,
+        name: kind,
+        weight: Math.max(0.1, creature.projectileWeight ?? 0.2),
+        bounciness: Math.max(0, creature.projectileBounciness ?? CREATURE_PROJECTILE_SETTINGS[kind].defaultBounciness),
+        pickupEnabled: true,
+        storable: true,
+        affectsAstronaut: false,
+        collision: true,
+        velocity,
+        isGrounded: false,
+        armed: true,
+        explosionPower: getGrenadeExplosionPower(
+            kind,
+            defaultPower * Math.max(0.5, creature.damageOnContact ?? 1)
+        )
+    }));
+    syncGrenadeFuseState(grenade);
+    collectableEntities.push(grenade);
 }
 
 function getNearestPickupCreature() {
@@ -2594,94 +5098,346 @@ function getNearestPickupCreature() {
     return bestCreature;
 }
 
-function spawnCreatureProjectile(creature: Creature, targetX: number, targetY: number) {
-    if (creature.fireMode === 'none') {
+function spawnCreatureProjectile(
+    creature: Creature,
+    targetX: number,
+    targetY: number,
+    aimOriginOverride?: Position
+) {
+    const kind = getProjectileKindForFireMode(creature.fireMode);
+    if (!kind) {
         return;
     }
 
-    const kind: CreatureProjectileKind = creature.fireMode === 'grenades'
-        ? 'grenade'
-        : creature.fireMode === 'energy_pods'
-            ? 'energy_pod'
-            : 'bullet';
+    const projectileSettings = getProjectileSettings(kind);
+    const projectilePalette = kind === 'bullet' ? 0 : (creature.palette ?? 0);
     const bounds = getEntityCollisionBounds(creature);
     const creatureCenter = getEntityCenter(creature.x, creature.y, bounds);
     const creatureRect = getEntityRect(creature.x, creature.y, bounds);
-    const dx = targetX - creatureCenter.x;
-    const dy = targetY - creatureCenter.y;
-    const distance = Math.max(1, Math.hypot(dx, dy));
-    const directionX = dx / distance;
-    const directionY = dy / distance;
-    const speed = Math.max(1, creature.projectileSpeed);
-    const baseVelocity = kind === 'grenade'
+    const aimOrigin = aimOriginOverride ?? creatureCenter;
+    const speed = Math.max(1, creature.projectileSpeed) * projectileSettings.speedMultiplier;
+    const turretFacingRotations = getTurretFacingRotations(
+        typeof creature.state?.authoredRotation === 'number'
+            ? Number(creature.state.authoredRotation)
+            : creature.rotation
+    );
+    let launchDirectionX = targetX - aimOrigin.x;
+    let launchDirectionY = targetY - aimOrigin.y;
+    let launchDistance = Math.max(1, Math.hypot(launchDirectionX, launchDirectionY));
+    let directionX = launchDirectionX / launchDistance;
+    let directionY = launchDirectionY / launchDistance;
+    let projectileRotation = directionX < 0 ? 5 : 1;
+    const muzzleSourceEntity = isTurretLikeCreature(creature)
         ? {
-            x: directionX * speed,
-            y: directionY * speed - 1.2
+            ...creature,
+            rotation: directionX < 0 ? turretFacingRotations.left : turretFacingRotations.right
         }
-        : kind === 'energy_pod'
-            ? {
-                x: directionX * Math.max(1, speed * 0.85),
-                y: directionY * Math.max(1, speed * 0.85) - 0.5
+        : creature;
+    let muzzleAnchor = getEntityFrontAnchorPoint(
+        muzzleSourceEntity,
+        { x: directionX, y: directionY }
+    ) ?? getEntitySideAnchorPoint(
+        muzzleSourceEntity,
+        directionX < 0 ? 'left' : 'right'
+    );
+    if (muzzleAnchor) {
+        launchDirectionX = targetX - muzzleAnchor.x;
+        launchDirectionY = targetY - muzzleAnchor.y;
+        launchDistance = Math.max(1, Math.hypot(launchDirectionX, launchDirectionY));
+        directionX = launchDirectionX / launchDistance;
+        directionY = launchDirectionY / launchDistance;
+        const refinedProjectileRotation = directionX < 0 ? 5 : 1;
+        if (refinedProjectileRotation !== projectileRotation && isTurretLikeCreature(creature)) {
+            projectileRotation = refinedProjectileRotation;
+            muzzleAnchor = getEntityFrontAnchorPoint(
+                {
+                    ...creature,
+                    rotation: directionX < 0 ? turretFacingRotations.left : turretFacingRotations.right
+                },
+                { x: directionX, y: directionY }
+            ) ?? getEntitySideAnchorPoint(
+                {
+                    ...creature,
+                    rotation: directionX < 0 ? turretFacingRotations.left : turretFacingRotations.right
+                },
+                directionX < 0 ? 'left' : 'right'
+            );
+            if (muzzleAnchor) {
+                launchDirectionX = targetX - muzzleAnchor.x;
+                launchDirectionY = targetY - muzzleAnchor.y;
+                launchDistance = Math.max(1, Math.hypot(launchDirectionX, launchDirectionY));
+                directionX = launchDirectionX / launchDistance;
+                directionY = launchDirectionY / launchDistance;
             }
-            : {
-                x: directionX * speed,
-                y: directionY * speed
-            };
-    const projectileRotation = directionX < 0 ? 5 : 1;
-    const projectileBounds = getEntityCollisionBounds({
-        type: getProjectileSpriteType(kind),
-        rotation: projectileRotation
-    });
-    const creatureHalfWidth = (creatureRect.right - creatureRect.left + 1) / 2;
-    const creatureHalfHeight = (creatureRect.bottom - creatureRect.top + 1) / 2;
-    const projectileHalfExtent = Math.max(
-        (projectileBounds.right - projectileBounds.left + 1) / 2,
-        (projectileBounds.bottom - projectileBounds.top + 1) / 2
-    );
-    const distanceToCreatureEdge = Math.min(
-        Number.POSITIVE_INFINITY,
-        directionX === 0 ? Number.POSITIVE_INFINITY : creatureHalfWidth / Math.max(0.001, Math.abs(directionX)),
-        directionY === 0 ? Number.POSITIVE_INFINITY : creatureHalfHeight / Math.max(0.001, Math.abs(directionY))
-    );
-    const muzzlePadding = 2;
-    const projectileSpawnCenter = {
-        x: creatureCenter.x + directionX * (distanceToCreatureEdge + projectileHalfExtent + muzzlePadding),
-        y: creatureCenter.y + directionY * (distanceToCreatureEdge + projectileHalfExtent + muzzlePadding)
+        } else {
+            projectileRotation = refinedProjectileRotation;
+        }
+    }
+    const baseVelocity = {
+        x: directionX * speed,
+        y: directionY * speed + projectileSettings.launchVerticalBias
     };
-    const projectileSpawnPosition = getEntityPositionFromCenter(
-        projectileSpawnCenter.x,
-        projectileSpawnCenter.y,
-        projectileBounds
+    const projectileTemplate = {
+        type: projectileSettings.spriteType,
+        rotation: projectileRotation,
+        palette: projectilePalette,
+        angleDegrees: projectileSettings.angleMatchesVelocity ? getProjectileAngleDegrees(baseVelocity) : undefined,
+        creatureProjectile: { kind }
+    };
+    const projectileBounds = getEntityCollisionBounds(projectileTemplate);
+    const projectileRearOffset = getEntityFrontAnchorPoint(
+        {
+            ...projectileTemplate,
+            x: 0,
+            y: 0
+        },
+        {
+            x: -baseVelocity.x,
+            y: -baseVelocity.y
+        }
     );
+    const muzzlePadding = 2 * SPRITE_SCALE;
+    const projectileSpawnPosition = muzzleAnchor && projectileRearOffset
+        ? {
+            x: muzzleAnchor.x + directionX * muzzlePadding - projectileRearOffset.x,
+            y: muzzleAnchor.y + directionY * muzzlePadding - projectileRearOffset.y
+        }
+        : getEntityPositionFromCenter(
+            creatureCenter.x + directionX * (
+                Math.min(
+                    Number.POSITIVE_INFINITY,
+                    directionX === 0 ? Number.POSITIVE_INFINITY : (creatureRect.right - creatureRect.left + 1) / 2 / Math.max(0.001, Math.abs(directionX)),
+                    directionY === 0 ? Number.POSITIVE_INFINITY : (creatureRect.bottom - creatureRect.top + 1) / 2 / Math.max(0.001, Math.abs(directionY))
+                ) + Math.max(
+                    (projectileBounds.right - projectileBounds.left + 1) / 2,
+                    (projectileBounds.bottom - projectileBounds.top + 1) / 2
+                ) + 2
+            ),
+            creatureCenter.y + directionY * (
+                Math.min(
+                    Number.POSITIVE_INFINITY,
+                    directionX === 0 ? Number.POSITIVE_INFINITY : (creatureRect.right - creatureRect.left + 1) / 2 / Math.max(0.001, Math.abs(directionX)),
+                    directionY === 0 ? Number.POSITIVE_INFINITY : (creatureRect.bottom - creatureRect.top + 1) / 2 / Math.max(0.001, Math.abs(directionY))
+                ) + Math.max(
+                    (projectileBounds.right - projectileBounds.left + 1) / 2,
+                    (projectileBounds.bottom - projectileBounds.top + 1) / 2
+                ) + 2
+            ),
+            projectileBounds
+        );
 
-    creatureProjectiles.push({
+    if (kind === 'grenade' || kind === 'plasma_grenade') {
+        spawnCreatureGrenadeCollectable(
+            creature,
+            kind,
+            projectileSpawnPosition,
+            baseVelocity,
+            projectileRotation
+        );
+        return;
+    }
+
+    const projectile = assignEntityId(new Collectable({
         x: projectileSpawnPosition.x,
         y: projectileSpawnPosition.y,
-        type: getProjectileSpriteType(kind),
-        palette: creature.palette ?? 0,
+        type: projectileSettings.spriteType,
+        palette: projectilePalette,
         rotation: projectileRotation,
+        collected: false,
+        name: kind,
+        weight: Math.max(0, creature.projectileWeight ?? projectileSettings.defaultWeight),
+        pickupEnabled: false,
+        storable: false,
+        affectsAstronaut: false,
+        collision: true,
         velocity: baseVelocity,
-        kind,
-        homing: creature.homingBullets && kind === 'bullet',
-        remainingFrames: kind === 'energy_pod'
-            ? MOVEMENT_SETTINGS.creatureEnergyPodLifetimeFrames
-            : MOVEMENT_SETTINGS.creatureProjectileLifetimeFrames,
-        damage: Math.max(1, creature.damageOnContact || 1),
-        sourceEntityId: creature.entityId
-    });
+        angleDegrees: projectileSettings.angleMatchesVelocity ? getProjectileAngleDegrees(baseVelocity) : undefined,
+        bounciness: Math.max(0, creature.projectileBounciness ?? projectileSettings.defaultBounciness),
+        isGrounded: false,
+        creatureProjectile: {
+            kind,
+            homing: creature.homingBullets && projectileSettings.supportsHoming === true,
+            remainingFrames: projectileSettings.lifetimeFrames,
+            damage: Math.max(1, creature.damageOnContact || 1) * projectileSettings.damageMultiplier,
+            sourceEntityId: creature.entityId
+        }
+    }));
+    collectableEntities.push(projectile);
 }
 
-function projectileHitsWorld(projectile: CreatureProjectile, nextX: number, nextY: number) {
-    const bounds = getEntityCollisionBounds(projectile);
-    return (
-        collidesAtSide(nextX, nextY, bounds, 'left') ||
-        collidesAtSide(nextX, nextY, bounds, 'right') ||
-        collidesAtSide(nextX, nextY, bounds, 'top') ||
-        collidesAtSide(nextX, nextY, bounds, 'bottom')
+function getProjectileImpactPointAgainstWorld(
+    projectile: CreatureProjectileCollectable,
+    previousPosition: Position,
+    previousVelocity: Position,
+    previousAngleDegrees: number | undefined
+) {
+    const direction = Math.hypot(previousVelocity.x, previousVelocity.y) > 0.001
+        ? previousVelocity
+        : { x: projectile.x - previousPosition.x, y: projectile.y - previousPosition.y };
+    const previousFront = getEntityFrontAnchorPoint(
+        {
+            ...projectile,
+            x: previousPosition.x,
+            y: previousPosition.y,
+            angleDegrees: previousAngleDegrees
+        },
+        direction
     );
+    const currentFront = getEntityFrontAnchorPoint(
+        {
+            ...projectile,
+            angleDegrees: projectile.angleDegrees
+        },
+        direction
+    );
+    if (!previousFront || !currentFront) {
+        return null;
+    }
+
+    const magnitude = Math.hypot(direction.x, direction.y);
+    const normalizedDirection = magnitude > 0.001
+        ? { x: direction.x / magnitude, y: direction.y / magnitude }
+        : { x: 1, y: 0 };
+    const endPoint = {
+        x: currentFront.x + normalizedDirection.x * SPRITE_SCALE,
+        y: currentFront.y + normalizedDirection.y * SPRITE_SCALE
+    };
+    const steps = Math.max(2, Math.ceil(Math.hypot(endPoint.x - previousFront.x, endPoint.y - previousFront.y)));
+    for (let index = 0; index <= steps; index++) {
+        const progress = index / steps;
+        const sampleX = previousFront.x + (endPoint.x - previousFront.x) * progress;
+        const sampleY = previousFront.y + (endPoint.y - previousFront.y) * progress;
+        if (getSolidBlockAtWorld(
+            sampleX,
+            sampleY,
+            spriteMap,
+            SPRITE_SCALE,
+            mapBlocks,
+            doorEntities,
+            buttonEntities
+        )) {
+            return { x: sampleX, y: sampleY };
+        }
+    }
+
+    return currentFront;
 }
 
-function projectileOverlapsAstronaut(projectile: CreatureProjectile) {
+function getProjectileImpactPointAgainstRect(
+    projectile: CreatureProjectileCollectable,
+    previousPosition: Position,
+    previousVelocity: Position,
+    previousAngleDegrees: number | undefined,
+    rect: { left: number; right: number; top: number; bottom: number },
+    clampOnMiss: boolean = true
+) {
+    const direction = Math.hypot(previousVelocity.x, previousVelocity.y) > 0.001
+        ? previousVelocity
+        : { x: projectile.x - previousPosition.x, y: projectile.y - previousPosition.y };
+    const previousFront = getEntityFrontAnchorPoint(
+        {
+            ...projectile,
+            x: previousPosition.x,
+            y: previousPosition.y,
+            angleDegrees: previousAngleDegrees
+        },
+        direction
+    );
+    const currentFront = getEntityFrontAnchorPoint(
+        {
+            ...projectile,
+            angleDegrees: projectile.angleDegrees
+        },
+        direction
+    );
+    if (!previousFront || !currentFront) {
+        return null;
+    }
+
+    const steps = Math.max(2, Math.ceil(Math.hypot(currentFront.x - previousFront.x, currentFront.y - previousFront.y)));
+    for (let index = 0; index <= steps; index++) {
+        const progress = index / steps;
+        const sampleX = previousFront.x + (currentFront.x - previousFront.x) * progress;
+        const sampleY = previousFront.y + (currentFront.y - previousFront.y) * progress;
+        if (
+            sampleX >= rect.left &&
+            sampleX <= rect.right &&
+            sampleY >= rect.top &&
+            sampleY <= rect.bottom
+        ) {
+            return { x: sampleX, y: sampleY };
+        }
+    }
+
+    if (!clampOnMiss) {
+        return null;
+    }
+
+    return {
+        x: Math.max(rect.left, Math.min(rect.right, currentFront.x)),
+        y: Math.max(rect.top, Math.min(rect.bottom, currentFront.y))
+    };
+}
+
+function getProjectileImpactPointAgainstOpaquePixels(
+    projectile: CreatureProjectileCollectable,
+    previousPosition: Position,
+    previousVelocity: Position,
+    previousAngleDegrees: number | undefined,
+    hitTest: (worldX: number, worldY: number) => boolean
+) {
+    const direction = Math.hypot(previousVelocity.x, previousVelocity.y) > 0.001
+        ? previousVelocity
+        : { x: projectile.x - previousPosition.x, y: projectile.y - previousPosition.y };
+    const previousFront = getEntityFrontAnchorPoint(
+        {
+            ...projectile,
+            x: previousPosition.x,
+            y: previousPosition.y,
+            angleDegrees: previousAngleDegrees
+        },
+        direction
+    );
+    const currentFront = getEntityFrontAnchorPoint(
+        {
+            ...projectile,
+            angleDegrees: projectile.angleDegrees
+        },
+        direction
+    );
+    if (!previousFront || !currentFront) {
+        return null;
+    }
+
+    const steps = Math.max(2, Math.ceil(Math.hypot(currentFront.x - previousFront.x, currentFront.y - previousFront.y)));
+    for (let index = 0; index <= steps; index++) {
+        const progress = index / steps;
+        const sampleX = previousFront.x + (currentFront.x - previousFront.x) * progress;
+        const sampleY = previousFront.y + (currentFront.y - previousFront.y) * progress;
+        if (hitTest(sampleX, sampleY)) {
+            return { x: sampleX, y: sampleY };
+        }
+    }
+
+    return null;
+}
+
+function updateSingleCreatureProjectilePhysics(projectile: CreatureProjectileCollectable) {
+    const surfaceResult = updateSingleCollectablePhysics(
+        projectile,
+        getCreatureProjectilePhysicsSettings(projectile),
+        {
+            bounceHorizontally: true,
+            groundFrictionStopThreshold: 0.01
+        }
+    );
+    if (getProjectileSettings(projectile.creatureProjectile.kind).angleMatchesVelocity) {
+        projectile.angleDegrees = getProjectileAngleDegrees(projectile.velocity);
+    }
+    return surfaceResult;
+}
+
+function projectileOverlapsAstronaut(projectile: CreatureProjectileCollectable) {
     const bounds = getEntityCollisionBounds(projectile);
     const projectileRect = getEntityRect(projectile.x, projectile.y, bounds);
     const astronautRect = getAstronautRect();
@@ -2693,112 +5449,148 @@ function projectileOverlapsAstronaut(projectile: CreatureProjectile) {
     );
 }
 
-function updateCreatureProjectiles() {
-    const nextProjectiles: CreatureProjectile[] = [];
-    for (const projectile of creatureProjectiles) {
-        let expired = false;
+function updateProjectileHomingVelocity(projectile: CreatureProjectileCollectable) {
+    const bounds = getEntityCollisionBounds(projectile);
+    const projectileCenter = getEntityCenter(projectile.x, projectile.y, bounds);
+    const astronautRect = getAstronautRect();
+    const astronautCenter = {
+        x: (astronautRect.left + astronautRect.right) / 2,
+        y: (astronautRect.top + astronautRect.bottom) / 2
+    };
+    const dx = astronautCenter.x - projectileCenter.x;
+    const dy = astronautCenter.y - projectileCenter.y;
+    const distance = Math.max(1, Math.hypot(dx, dy));
+    const speed = Math.max(1, Math.hypot(projectile.velocity.x, projectile.velocity.y));
+    const targetVx = (dx / distance) * speed;
+    const targetVy = (dy / distance) * speed;
+    projectile.velocity.x += (targetVx - projectile.velocity.x) * 0.08;
+    projectile.velocity.y += (targetVy - projectile.velocity.y) * 0.08;
+}
 
-        if (projectile.homing) {
-            const bounds = getEntityCollisionBounds(projectile);
-            const projectileCenter = getEntityCenter(projectile.x, projectile.y, bounds);
-            const astronautRect = getAstronautRect();
-            const astronautCenter = {
-                x: (astronautRect.left + astronautRect.right) / 2,
-                y: (astronautRect.top + astronautRect.bottom) / 2
-            };
-            const dx = astronautCenter.x - projectileCenter.x;
-            const dy = astronautCenter.y - projectileCenter.y;
-            const distance = Math.max(1, Math.hypot(dx, dy));
-            const targetVx = (dx / distance) * Math.max(1, Math.hypot(projectile.velocity.x, projectile.velocity.y));
-            const targetVy = (dy / distance) * Math.max(1, Math.hypot(projectile.velocity.x, projectile.velocity.y));
-            projectile.velocity.x += (targetVx - projectile.velocity.x) * 0.08;
-            projectile.velocity.y += (targetVy - projectile.velocity.y) * 0.08;
-        }
+function updateCreatureProjectileCollectable(projectile: CreatureProjectileCollectable) {
+    let expired = false;
+    const projectileRuntime = projectile.creatureProjectile;
+    const previousPosition = {
+        x: projectile.x,
+        y: projectile.y
+    };
+    const previousVelocity = {
+        x: projectile.velocity.x,
+        y: projectile.velocity.y
+    };
+    const previousAngleDegrees = projectile.angleDegrees;
 
-        if (projectile.kind !== 'bullet') {
-            projectile.velocity.y = Math.min(
-                projectile.velocity.y + MOVEMENT_SETTINGS.creatureProjectileGravity,
-                MOVEMENT_SETTINGS.creatureProjectileTerminalVelocity
-            );
-        }
-
-        const targetX = projectile.x + projectile.velocity.x;
-        const targetY = projectile.y + projectile.velocity.y;
-        const steps = Math.max(1, Math.ceil(Math.max(Math.abs(projectile.velocity.x), Math.abs(projectile.velocity.y))));
-
-        for (let step = 0; step < steps; step++) {
-            const nextX = projectile.x + (targetX - projectile.x) / Math.max(1, steps - step);
-            const nextY = projectile.y + (targetY - projectile.y) / Math.max(1, steps - step);
-
-            if (projectileHitsWorld(projectile, nextX, nextY)) {
-                if (projectile.kind === 'grenade') {
-                    explodeProjectile(projectile);
-                    expired = true;
-                } else if (projectile.kind === 'energy_pod') {
-                    spawnEnergyPodCollectable(projectile);
-                    expired = true;
-                } else {
-                    expired = true;
-                }
-                break;
-            }
-
-            projectile.x = nextX;
-            projectile.y = nextY;
-
-            for (const creature of [...creatureEntities]) {
-                if (creature.entityId === projectile.sourceEntityId) {
-                    continue;
-                }
-                if (!projectileOverlapsCreature(projectile, creature)) {
-                    continue;
-                }
-                const wasRemoved = applyDamageToCreature(
-                    creature,
-                    projectile.kind === 'grenade' ? projectile.damage * 1.5 : projectile.damage
-                );
-                if (projectile.kind === 'energy_pod') {
-                    spawnEnergyPodCollectable(projectile);
-                }
-                if (projectile.kind === 'grenade') {
-                    explodeProjectile(projectile);
-                }
-                expired = true;
-                if (wasRemoved) {
-                    playManifestSound('get', 0.55);
-                }
-                break;
-            }
-            if (expired) {
-                break;
-            }
-
-            if (projectileOverlapsAstronaut(projectile)) {
-                if (projectile.kind === 'grenade') {
-                    explodeProjectile(projectile);
-                } else {
-                    applyAstronautImpact(projectile.x, projectile.y, Math.max(0.9, projectile.damage));
-                }
-                expired = true;
-                break;
-            }
-        }
-
-        projectile.remainingFrames--;
-        if (projectile.remainingFrames <= 0) {
-            if (projectile.kind === 'grenade') {
-                explodeProjectile(projectile);
-            } else if (projectile.kind === 'energy_pod') {
-                spawnEnergyPodCollectable(projectile);
-            }
-            expired = true;
-        }
-
-        if (!expired) {
-            nextProjectiles.push(projectile);
-        }
+    if (projectileRuntime.homing) {
+        updateProjectileHomingVelocity(projectile);
     }
-    creatureProjectiles = nextProjectiles;
+
+    const projectileSettings = getProjectileSettings(projectileRuntime.kind);
+    updateProjectileFlightFrame(projectile, projectileSettings);
+    const usePreciseHitTest = projectileRuntime.kind === 'bullet' || projectileSettings.angleMatchesVelocity === true;
+
+    const surfaceResult = updateSingleCreatureProjectilePhysics(projectile);
+    if (surfaceResult.hitWorld && projectile.bounciness <= 0) {
+        const impactPoint = getProjectileImpactPointAgainstWorld(
+            projectile,
+            previousPosition,
+            previousVelocity,
+            previousAngleDegrees
+        );
+        if (projectileSettings.splashRadius) {
+            explodeProjectile(projectile);
+        } else if (projectileSettings.spawnsCollectableOnImpact) {
+            convertProjectileToEnergyPodCollectable(projectile);
+        } else {
+            spawnProjectileImpactEffect(projectile, projectile.x, projectile.y, impactPoint ?? undefined);
+            removeCollectableEntity(projectile);
+        }
+        expired = true;
+    }
+    if (expired) {
+        if (isCreatureProjectileCollectable(projectile)) {
+            removeCollectableEntity(projectile);
+        }
+        return;
+    }
+
+    for (const creature of [...creatureEntities]) {
+        if (creature.entityId === projectileRuntime.sourceEntityId) {
+            continue;
+        }
+        const creatureRendered = getRenderedEntityWorldSprite(creature);
+        const creatureImpactPoint = usePreciseHitTest
+            ? getProjectileImpactPointAgainstOpaquePixels(
+                projectile,
+                previousPosition,
+                previousVelocity,
+                previousAngleDegrees,
+                (worldX, worldY) => isRenderedSpriteOpaqueAtWorld(creatureRendered, worldX, worldY)
+            )
+            : null;
+        if (usePreciseHitTest ? !creatureImpactPoint : !projectileOverlapsCreature(projectile, creature)) {
+            continue;
+        }
+        const wasRemoved = applyDamageToCreature(
+            creature,
+            projectileRuntime.damage * projectileSettings.directHitDamageMultiplier
+        );
+        if (projectileSettings.spawnsCollectableOnImpact) {
+            convertProjectileToEnergyPodCollectable(projectile);
+        }
+        if (projectileSettings.splashRadius) {
+            explodeProjectile(projectile);
+        } else if (!projectileSettings.spawnsCollectableOnImpact) {
+            spawnProjectileImpactEffect(projectile, projectile.x, projectile.y, creatureImpactPoint ?? undefined);
+            removeCollectableEntity(projectile);
+        }
+        expired = true;
+        if (wasRemoved) {
+            playManifestSound('get', 0.55);
+        }
+        break;
+    }
+    if (expired) {
+        if (isCreatureProjectileCollectable(projectile)) {
+            removeCollectableEntity(projectile);
+        }
+        return;
+    }
+
+    const astronautRendered = getAstronautRenderedWorldSprite();
+    const astronautImpactPoint = usePreciseHitTest
+        ? getProjectileImpactPointAgainstOpaquePixels(
+            projectile,
+            previousPosition,
+            previousVelocity,
+            previousAngleDegrees,
+            (worldX, worldY) => isRenderedSpriteOpaqueAtWorld(astronautRendered, worldX, worldY)
+        )
+        : null;
+    if (usePreciseHitTest ? !!astronautImpactPoint : projectileOverlapsAstronaut(projectile)) {
+        applyAstronautProjectileImpact(projectile);
+        if (projectileSettings.splashRadius) {
+            explodeProjectile(projectile);
+        } else {
+            spawnProjectileImpactEffect(projectile, projectile.x, projectile.y, astronautImpactPoint ?? undefined);
+            removeCollectableEntity(projectile);
+        }
+        expired = true;
+    }
+
+    projectileRuntime.remainingFrames--;
+    if (projectileRuntime.remainingFrames <= 0) {
+        if (projectileSettings.splashRadius) {
+            explodeProjectile(projectile);
+        } else if (projectileSettings.spawnsCollectableOnExpire) {
+            convertProjectileToEnergyPodCollectable(projectile);
+        } else {
+            removeCollectableEntity(projectile);
+        }
+        expired = true;
+    }
+    if (expired && isCreatureProjectileCollectable(projectile)) {
+        removeCollectableEntity(projectile);
+    }
 }
 
 function updateCreatures(frameNow: number) {
@@ -2807,24 +5599,80 @@ function updateCreatures(frameNow: number) {
         x: (astronautRect.left + astronautRect.right) / 2,
         y: (astronautRect.top + astronautRect.bottom) / 2
     };
+    const astronautAimPoint = getAstronautAimPoint();
 
     for (const creature of creatureEntities) {
         creature.previousX = creature.x;
         creature.previousY = creature.y;
 
         const runtimeState = creature.state ?? {};
+        const authoredType = getCreatureAuthoredType(creature.type, runtimeState);
+        runtimeState.authoredType = authoredType;
+        const bird = isBirdCreature(creature, authoredType);
         const authoredRotation = typeof runtimeState.authoredRotation === 'number'
             ? Math.round(Number(runtimeState.authoredRotation))
             : (runtimeState.authoredRotation = creature.rotation);
+        const turretAimCenter = getStableCreatureAimCenter(creature, authoredRotation);
         const bounds = getEntityCollisionBounds(creature);
         const creatureCenter = getEntityCenter(creature.x, creature.y, bounds);
         const dx = astronautCenter.x - creatureCenter.x;
         const dy = astronautCenter.y - creatureCenter.y;
         const distanceToAstronaut = Math.hypot(dx, dy);
         const trackRange = Math.max(creature.trackRange ?? 0, creature.followRange ?? 0);
-        const shouldTrackAstronaut = distanceToAstronaut <= trackRange;
-        const shouldAutoAim = shouldTrackAstronaut && (creature.followsAstronaut || creature.fireMode !== 'none');
+        const wasTrackingAstronaut = runtimeState.followingAstronaut === true;
+        const shouldTrackAstronaut = distanceToAstronaut <= trackRange || (
+            bird &&
+            wasTrackingAstronaut &&
+            distanceToAstronaut <= Math.max(
+                trackRange * BIRD_TRACK_RELEASE_RANGE_MULTIPLIER,
+                trackRange + BIRD_TRACK_RELEASE_RANGE_PADDING
+            )
+        );
+        const isTurret = isTurretLikeCreature(creature);
+        const hasSightToAstronaut = !creature.requiresLineOfSight || hasCreatureLineOfSight(turretAimCenter, astronautCenter);
         const homeDistance = Math.hypot(creature.x - creature.homeX, creature.y - creature.homeY);
+        let aimTarget = astronautAimPoint;
+        let hasFiringTarget = shouldTrackAstronaut && hasSightToAstronaut;
+        let hasAimTarget = shouldTrackAstronaut;
+
+        if (isTurret) {
+            const nextTargetRefreshAt = typeof runtimeState.nextTargetRefreshAt === 'number'
+                ? Number(runtimeState.nextTargetRefreshAt)
+                : 0;
+            const hasCachedTarget = typeof runtimeState.targetX === 'number' && typeof runtimeState.targetY === 'number';
+            if (!hasCachedTarget || frameNow >= nextTargetRefreshAt) {
+                if (shouldTrackAstronaut && hasSightToAstronaut) {
+                    const refreshedTarget = getCreatureTargetPoint(creature, turretAimCenter, astronautAimPoint);
+                    runtimeState.targetX = refreshedTarget.x;
+                    runtimeState.targetY = refreshedTarget.y;
+                    runtimeState.hasTarget = true;
+                    runtimeState.nextTargetRefreshAt = frameNow + Math.max(0, creature.targetRefreshMs ?? 0);
+                } else {
+                    delete runtimeState.targetX;
+                    delete runtimeState.targetY;
+                    runtimeState.hasTarget = false;
+                    runtimeState.nextTargetRefreshAt = frameNow + Math.min(
+                        80,
+                        Math.max(0, creature.targetRefreshMs ?? 0) || 80
+                    );
+                }
+            }
+
+            if (runtimeState.hasTarget === true && typeof runtimeState.targetX === 'number' && typeof runtimeState.targetY === 'number') {
+                aimTarget = {
+                    x: Number(runtimeState.targetX),
+                    y: Number(runtimeState.targetY)
+                };
+                hasAimTarget = true;
+                hasFiringTarget = shouldTrackAstronaut && hasSightToAstronaut;
+            } else {
+                hasAimTarget = false;
+                hasFiringTarget = false;
+            }
+        }
+
+        const turretAimDx = aimTarget.x - turretAimCenter.x;
+        const shouldAutoAim = hasAimTarget && (creature.followsAstronaut || creature.fireMode !== 'none');
 
         if (creature.teleportHome && homeDistance > creature.teleportHomeDistance) {
             creature.x = Math.round(creature.homeX);
@@ -2885,17 +5733,25 @@ function updateCreatures(frameNow: number) {
             }
         } else if (creature.movementMode === 'fly' || creature.movementMode === 'hover') {
             if (creature.followsAstronaut && shouldTrackAstronaut) {
-                nextX = clampToRange(
-                    creature.x + (Math.sign(dx) || 0) * speed,
-                    creature.patrolMinX,
-                    creature.patrolMaxX
-                );
-                if (creature.movementMode === 'fly') {
-                    nextY = clampToRange(
-                        creature.y + (Math.sign(dy) || 0) * Math.max(0.5, speed * 0.75),
-                        creature.patrolMinY,
-                        creature.patrolMaxY
+                if (bird) {
+                    const normalizedDistance = distanceToAstronaut > 0.001 ? distanceToAstronaut : 1;
+                    nextX = creature.x + (dx / normalizedDistance) * Math.max(1, speed);
+                    if (creature.movementMode === 'fly') {
+                        nextY = creature.y + (dy / normalizedDistance) * Math.max(0.9, speed);
+                    }
+                } else {
+                    nextX = clampToRange(
+                        creature.x + (Math.sign(dx) || 0) * speed,
+                        creature.patrolMinX,
+                        creature.patrolMaxX
                     );
+                    if (creature.movementMode === 'fly') {
+                        nextY = clampToRange(
+                            creature.y + (Math.sign(dy) || 0) * Math.max(0.5, speed * 0.75),
+                            creature.patrolMinY,
+                            creature.patrolMaxY
+                        );
+                    }
                 }
             } else {
                 if (creature.x <= creature.patrolMinX) {
@@ -2934,27 +5790,83 @@ function updateCreatures(frameNow: number) {
         }
 
         runtimeState.patrolDirection = horizontalDirection;
-        if (creature.fireMode !== 'none' && shouldTrackAstronaut) {
+        runtimeState.followingAstronaut = creature.followsAstronaut && shouldTrackAstronaut;
+        if (creature.fireMode !== 'none' && hasFiringTarget) {
             const nextFireAt = typeof runtimeState.nextFireAt === 'number'
                 ? Number(runtimeState.nextFireAt)
                 : 0;
             if (frameNow >= nextFireAt) {
-                spawnCreatureProjectile(creature, astronautCenter.x, astronautCenter.y);
-                runtimeState.nextFireAt = frameNow + Math.max(250, creature.fireCooldownMs);
+                spawnCreatureProjectile(creature, aimTarget.x, aimTarget.y, isTurret ? turretAimCenter : undefined);
+                runtimeState.nextFireAt = getNextCreatureFireAt(frameNow, creature);
             }
         }
-        creature.state = runtimeState;
-        creature.x = Math.round(nextX);
-        creature.y = Math.round(nextY);
 
-        if (shouldAutoAim && (authoredRotation === 1 || authoredRotation === 5)) {
-            if (dx < 0) {
-                creature.rotation = 5;
-            } else if (dx > 0) {
-                creature.rotation = 1;
-            } else {
-                creature.rotation = authoredRotation;
+        if (bird && creature.movementMode === 'fly') {
+            const chasingAstronaut = runtimeState.followingAstronaut === true;
+            if (chasingAstronaut && Math.abs(dy) < BIRD_AVOIDANCE_VERTICAL_THRESHOLD) {
+                const avoidanceDirection = typeof runtimeState.birdAvoidanceDirection === 'number'
+                    ? Math.sign(Number(runtimeState.birdAvoidanceDirection)) || 1
+                    : (Math.sign(dx) || 1);
+                runtimeState.birdAvoidanceDirection = avoidanceDirection;
+                nextY += avoidanceDirection * Math.max(1, speed * 0.8);
+            } else if (!chasingAstronaut) {
+                delete runtimeState.birdAvoidanceDirection;
             }
+
+            const movementResult = moveCreatureWithEnvironmentCollisions(creature, nextX, nextY);
+            nextX = movementResult.x;
+            nextY = movementResult.y;
+
+            if (chasingAstronaut) {
+                if (movementResult.movedY !== 0) {
+                    runtimeState.birdAvoidanceDirection = Math.sign(movementResult.movedY) || runtimeState.birdAvoidanceDirection;
+                }
+                if (movementResult.blockedX && movementResult.blockedY) {
+                    const currentAvoidance = typeof runtimeState.birdAvoidanceDirection === 'number'
+                        ? Math.sign(Number(runtimeState.birdAvoidanceDirection)) || 1
+                        : 1;
+                    runtimeState.birdAvoidanceDirection = -currentAvoidance;
+                }
+            }
+        }
+
+        creature.state = runtimeState;
+        if (!bird || creature.movementMode !== 'fly') {
+            creature.x = Math.round(nextX);
+            creature.y = Math.round(nextY);
+        }
+        if (bird) {
+            creature.type = getAnimatedBirdSpriteType(authoredType, frameNow, creature.entityId);
+        }
+
+        const shouldUseTurretAutoAim = shouldAutoAim && (
+            creature.fixed ||
+            creature.movementMode === 'turret' ||
+            authoredRotation === 1 ||
+            authoredRotation === 5
+        );
+        if (shouldUseTurretAutoAim) {
+            const aimDeadZone = 4;
+            const facingRotations = getTurretFacingRotations(authoredRotation);
+            const currentAimFacing = typeof runtimeState.aimFacing === 'number'
+                ? Math.sign(Number(runtimeState.aimFacing)) || facingRotations.authoredFacing
+                : facingRotations.authoredFacing;
+            let nextAimFacing = currentAimFacing;
+            if (turretAimDx < -aimDeadZone) {
+                nextAimFacing = -1;
+            } else if (turretAimDx > aimDeadZone) {
+                nextAimFacing = 1;
+            }
+            runtimeState.aimFacing = nextAimFacing;
+            creature.rotation = nextAimFacing < 0
+                ? facingRotations.left
+                : facingRotations.right;
+        } else if (
+            bird &&
+            (authoredRotation === 1 || authoredRotation === 5) &&
+            creature.x !== creature.previousX
+        ) {
+            creature.rotation = creature.x < creature.previousX ? 5 : 1;
         } else {
             creature.rotation = authoredRotation;
         }
@@ -3019,12 +5931,19 @@ function resolveAstronautCreatureCollisions() {
             }
         }
 
-        if (creature.hostile && creature.damageOnContact > 0) {
+        if (creature.damageOnContact > 0) {
             const runtimeState = creature.state ?? {};
             const nextSoundAt = typeof runtimeState.nextContactSoundAt === 'number'
                 ? Number(runtimeState.nextContactSoundAt)
                 : 0;
+            const nextDamageAt = typeof runtimeState.nextContactDamageAt === 'number'
+                ? Number(runtimeState.nextContactDamageAt)
+                : 0;
             const now = performance.now();
+            if (now >= nextDamageAt) {
+                applyAstronautDamage(Math.max(4, creature.damageOnContact * 6), now);
+                runtimeState.nextContactDamageAt = now + 450;
+            }
             if (now >= nextSoundAt) {
                 const ouchSound = ouchSounds[Math.floor(Math.random() * ouchSounds.length)];
                 try {
@@ -3092,16 +6011,17 @@ function updateCreatureSounds(frameNow: number) {
 function drawCreatureOverlays(context: CanvasRenderingContext2D, camera: Position) {
     const now = performance.now();
     for (const creature of creatureEntities) {
-        const bounds = getEntityCollisionBounds(creature);
-        const rect = getEntityRect(creature.x, creature.y, bounds);
-        const screenX = rect.left - camera.x;
-        const screenY = rect.top - camera.y;
-        const width = rect.right - rect.left + 1;
-        const height = rect.bottom - rect.top + 1;
         const damageFlashUntil = typeof creature.state?.damageFlashUntil === 'number'
             ? Number(creature.state.damageFlashUntil)
             : 0;
         if (creature.damageFlash && damageFlashUntil > now) {
+            const rendered = getRenderedEntityWorldSprite(creature);
+            const bounds = getEntityCollisionBounds(creature);
+            const rect = getEntityRect(creature.x, creature.y, bounds);
+            const screenX = (rendered?.drawX ?? rect.left) - camera.x;
+            const screenY = (rendered?.drawY ?? rect.top) - camera.y;
+            const width = (rendered?.canvas.width ?? (rect.right - rect.left + 1) / SPRITE_SCALE) * SPRITE_SCALE;
+            const height = (rendered?.canvas.height ?? (rect.bottom - rect.top + 1) / SPRITE_SCALE) * SPRITE_SCALE;
             context.strokeStyle = 'rgba(255, 255, 255, 0.9)';
             context.lineWidth = 2;
             context.strokeRect(screenX - 1, screenY - 1, width + 2, height + 2);
@@ -3117,14 +6037,28 @@ function getHeldCollectableTargetPosition(): Position {
         };
     }
 
-    const astronautRect = getAstronautRect();
     const collectableBounds = getEntityCollisionBounds(heldCollectable);
     const collectableHalfHeight = (collectableBounds.bottom - collectableBounds.top + 1) / 2;
     const desiredCenterY = astronaut.position.y + MOVEMENT_SETTINGS.heldCollectableVerticalOffset;
+    const renderedAstronaut = getAstronautRenderedWorldSprite();
+    const visibleBounds = renderedAstronaut ? getSpriteVisibleBounds(renderedAstronaut.canvas) : null;
 
-    const x = facingLeft
-        ? astronautRect.left - 2 - collectableBounds.right
-        : astronautRect.right + 2 - collectableBounds.left;
+    let x: number;
+    if (renderedAstronaut && visibleBounds) {
+        const visibleLeft = renderedAstronaut.drawX + visibleBounds.minX * SPRITE_SCALE;
+        const visibleRight = renderedAstronaut.drawX + (visibleBounds.maxX + 1) * SPRITE_SCALE;
+        const handX = facingLeft
+            ? visibleLeft + HELD_COLLECTABLE_HAND_INSET
+            : visibleRight - HELD_COLLECTABLE_HAND_INSET;
+        x = facingLeft
+            ? handX + HELD_COLLECTABLE_HAND_OVERLAP - collectableBounds.right
+            : handX - HELD_COLLECTABLE_HAND_OVERLAP - collectableBounds.left;
+    } else {
+        const astronautRect = getAstronautRect();
+        x = facingLeft
+            ? astronautRect.left + HELD_COLLECTABLE_HAND_INSET - collectableBounds.right
+            : astronautRect.right - HELD_COLLECTABLE_HAND_INSET - collectableBounds.left;
+    }
 
     return {
         x,
@@ -3166,7 +6100,7 @@ function getReleasedCollectablePosition(thrown: boolean) {
 function getDroppedCollectableReleaseVelocity(): Position {
     return {
         x: astronaut.velocity.x * MOVEMENT_SETTINGS.droppedCollectableMomentumTransfer,
-        y: astronaut.velocity.y * MOVEMENT_SETTINGS.droppedCollectableMomentumTransfer
+        y: Math.max(0, astronaut.velocity.y * MOVEMENT_SETTINGS.droppedCollectableMomentumTransfer)
     };
 }
 
@@ -3233,6 +6167,7 @@ function getNearestPickupCollectable() {
 
 function storeHeldCollectable() {
     if (!heldCollectable || !heldCollectable.storable) return;
+    if (isGrenadeCollectable(heldCollectable) && heldCollectable.armed) return;
     if (storedCollectables.length >= MOVEMENT_SETTINGS.collectableInventoryLimit) return;
 
     heldCollectable.store();
@@ -3294,6 +6229,9 @@ function releaseHeldCollectable(velocity: Position = { x: 0, y: 0 }) {
         releaseVelocity,
         isThrown ? 0 : MOVEMENT_SETTINGS.droppedCollectableAstronautIgnoreFrames
     );
+    if (isGrenadeCollectable(heldCollectable)) {
+        setGrenadeCollectableArmedState(heldCollectable, true);
+    }
     heldCollectable = null;
 }
 
@@ -3320,6 +6258,10 @@ function handleCollectableInteractions() {
 
     if (keys['g'] && !prevKeys['g']) {
         cycleStoredCollectable();
+    }
+
+    if (keys[' '] && !prevKeys[' '] && heldCollectable && isGrenadeCollectable(heldCollectable)) {
+        setGrenadeCollectableArmedState(heldCollectable, !heldCollectable.armed);
     }
 
     if (keys['m'] && !prevKeys['m']) {
@@ -3391,6 +6333,99 @@ function collidesAtSide(
         doorEntities,
         buttonEntities
     ));
+}
+
+type AxisMovementResult = {
+    x: number;
+    y: number;
+    movedX: number;
+    movedY: number;
+    blockedX: boolean;
+    blockedY: boolean;
+};
+
+function simulateCreatureAxisMovement(
+    creature: Creature,
+    collisionBounds: CollisionBounds,
+    targetX: number,
+    targetY: number,
+    axisOrder: Array<'x' | 'y'>
+): AxisMovementResult {
+    let x = creature.x;
+    let y = creature.y;
+    let movedX = 0;
+    let movedY = 0;
+    let blockedX = false;
+    let blockedY = false;
+
+    for (const axis of axisOrder) {
+        const target = axis === 'x' ? targetX : targetY;
+        const current = axis === 'x' ? x : y;
+        const amount = target - current;
+        const direction = Math.sign(amount);
+        if (direction === 0) {
+            continue;
+        }
+
+        const side = axis === 'x'
+            ? (direction > 0 ? 'right' : 'left')
+            : (direction > 0 ? 'bottom' : 'top');
+        let moved = 0;
+
+        for (let step = 0; step < Math.abs(amount); step++) {
+            const nextX = axis === 'x' ? x + direction : x;
+            const nextY = axis === 'y' ? y + direction : y;
+            if (collidesAtSide(nextX, nextY, collisionBounds, side)) {
+                if (axis === 'x') {
+                    blockedX = true;
+                } else {
+                    blockedY = true;
+                }
+                break;
+            }
+
+            if (axis === 'x') {
+                x = nextX;
+            } else {
+                y = nextY;
+            }
+            moved += direction;
+        }
+
+        if (axis === 'x') {
+            movedX = moved;
+            if (moved !== amount) {
+                blockedX = true;
+            }
+        } else {
+            movedY = moved;
+            if (moved !== amount) {
+                blockedY = true;
+            }
+        }
+    }
+
+    return { x, y, movedX, movedY, blockedX, blockedY };
+}
+
+function moveCreatureWithEnvironmentCollisions(creature: Creature, targetX: number, targetY: number): AxisMovementResult {
+    const collisionBounds = getEntityCollisionBounds(creature);
+    const clampedTargetX = Math.round(clampToRange(targetX, 0, MAP_WIDTH));
+    const clampedTargetY = Math.round(clampToRange(targetY, 0, MAP_HEIGHT));
+    const horizontalFirst = simulateCreatureAxisMovement(creature, collisionBounds, clampedTargetX, clampedTargetY, ['x', 'y']);
+    const verticalFirst = simulateCreatureAxisMovement(creature, collisionBounds, clampedTargetX, clampedTargetY, ['y', 'x']);
+    const horizontalError = Math.abs(clampedTargetX - horizontalFirst.x) + Math.abs(clampedTargetY - horizontalFirst.y);
+    const verticalError = Math.abs(clampedTargetX - verticalFirst.x) + Math.abs(clampedTargetY - verticalFirst.y);
+    const bestResult = verticalError < horizontalError
+        ? verticalFirst
+        : verticalError > horizontalError
+            ? horizontalFirst
+            : (Math.abs(verticalFirst.movedX) + Math.abs(verticalFirst.movedY)) > (Math.abs(horizontalFirst.movedX) + Math.abs(horizontalFirst.movedY))
+                ? verticalFirst
+                : horizontalFirst;
+    creature.x = bestResult.x;
+    creature.y = bestResult.y;
+    return bestResult;
 }
 
 function getFloorSnapAmount(entityX: number, entityY: number, collisionBounds: CollisionBounds) {
@@ -3476,8 +6511,10 @@ function moveCollectableVertically(collectable: Collectable, amount: number) {
 }
 
 function resolveAstronautCollectableCollisions(horizontalMovement: number, verticalMovement: number) {
+    const astronautRendered = getAstronautRenderedWorldSprite();
     for (const collectable of collectableEntities) {
         if (!isLooseCollectable(collectable)) continue;
+        if (isCreatureProjectileCollectable(collectable)) continue;
         if (collectable.astronautCollisionIgnoreFrames > 0) continue;
 
         const astronautRect = getAstronautRect();
@@ -3487,6 +6524,10 @@ function resolveAstronautCollectableCollisions(horizontalMovement: number, verti
         const overlapY = Math.min(astronautRect.bottom, collectableRect.bottom) - Math.max(astronautRect.top, collectableRect.top) + 1;
 
         if (overlapX <= 0 || overlapY <= 0) {
+            continue;
+        }
+
+        if (!doRenderedSpritesOverlap(astronautRendered, getRenderedEntityWorldSprite(collectable))) {
             continue;
         }
 
@@ -3500,7 +6541,8 @@ function resolveAstronautCollectableCollisions(horizontalMovement: number, verti
                     : 1;
             const pushAmount = Math.ceil(overlapX);
             if (horizontalMovement !== 0) {
-                const pushScale = getDynamicObjectPushScale(collectable, COLLECTABLE_PHYSICS_SETTINGS);
+                const physicsSettings = getCollectablePhysicsSettings(collectable);
+                const pushScale = getDynamicObjectPushScale(collectable, physicsSettings);
                 const requestedPush = Math.max(1, Math.ceil(pushAmount * pushScale));
                 const moved = moveCollectableHorizontally(collectable, horizontalDirection * requestedPush);
                 const remaining = pushAmount - Math.abs(moved);
@@ -3512,7 +6554,7 @@ function resolveAstronautCollectableCollisions(horizontalMovement: number, verti
                 collectable.velocity.x = getDynamicObjectPushedVelocity(
                     horizontalMovement,
                     collectable,
-                    COLLECTABLE_PHYSICS_SETTINGS
+                    physicsSettings
                 );
             } else {
                 gameState.astronaut.position.x -= horizontalDirection * pushAmount;
@@ -3524,10 +6566,11 @@ function resolveAstronautCollectableCollisions(horizontalMovement: number, verti
             gameState.astronaut.isLanded = true;
         } else if (verticalMovement < 0) {
             const impactSpeed = Math.max(Math.abs(verticalMovement), Math.abs(astronaut.velocity.y));
+            const physicsSettings = getCollectablePhysicsSettings(collectable);
             const launchSpeed = getDynamicObjectHeadBounceLaunchSpeed(
                 collectable,
                 impactSpeed,
-                COLLECTABLE_PHYSICS_SETTINGS
+                physicsSettings
             );
             const liftAmount = Math.ceil(overlapY);
             const desiredLift = Math.min(liftAmount, Math.ceil(launchSpeed));
@@ -3551,15 +6594,28 @@ function resolveAstronautCollectableCollisions(horizontalMovement: number, verti
     }
 }
 
-function updateSingleCollectablePhysics(collectable: Collectable) {
-    if (!isLooseCollectable(collectable)) return;
+function updateSingleCollectablePhysics(
+    collectable: Collectable,
+    physicsSettings: DynamicObjectPhysicsSettings = getCollectablePhysicsSettings(collectable),
+    options: {
+        bounceHorizontally?: boolean;
+        groundFrictionStopThreshold?: number;
+    } = {}
+) {
+    if (!isLooseCollectable(collectable)) {
+        return {
+            hitWorld: false,
+            bounced: false,
+            grounded: collectable.isGrounded
+        };
+    }
 
     if (collectable.astronautCollisionIgnoreFrames > 0) {
         collectable.astronautCollisionIgnoreFrames--;
     }
 
     const collisionBounds = getEntityCollisionBounds(collectable);
-    applyDynamicObjectGravity(collectable, COLLECTABLE_PHYSICS_SETTINGS);
+    applyDynamicObjectGravity(collectable, physicsSettings);
 
     const targetX = collectable.x + collectable.velocity.x;
     const targetY = collectable.y + collectable.velocity.y;
@@ -3568,6 +6624,7 @@ function updateSingleCollectablePhysics(collectable: Collectable) {
     let nextY = collectable.y;
     let grounded = false;
     let bounced = false;
+    let hitWorld = false;
 
     for (let step = 0; step < steps; step++) {
         const stepTargetX = collectable.x + ((targetX - collectable.x) * (step + 1)) / steps;
@@ -3578,7 +6635,22 @@ function updateSingleCollectablePhysics(collectable: Collectable) {
             if (!collidesAtSide(stepTargetX, nextY, collisionBounds, horizontalDirection)) {
                 nextX = stepTargetX;
             } else {
-                collectable.velocity.x = 0;
+                hitWorld = true;
+                if (options.bounceHorizontally) {
+                    const bounceRestitution = getDynamicObjectBounceRestitution(
+                        collectable,
+                        Math.abs(collectable.velocity.x),
+                        physicsSettings
+                    );
+                    if (bounceRestitution > 0) {
+                        collectable.velocity.x = -collectable.velocity.x * bounceRestitution;
+                        bounced = true;
+                    } else {
+                        collectable.velocity.x = 0;
+                    }
+                } else {
+                    collectable.velocity.x = 0;
+                }
             }
         }
 
@@ -3587,12 +6659,13 @@ function updateSingleCollectablePhysics(collectable: Collectable) {
             if (!collidesAtSide(nextX, stepTargetY, collisionBounds, verticalDirection)) {
                 nextY = stepTargetY;
             } else {
+                hitWorld = true;
                 if (verticalDirection === 'bottom') {
                     const impactSpeed = collectable.velocity.y;
                     const bounceRestitution = getDynamicObjectBounceRestitution(
                         collectable,
                         impactSpeed,
-                        COLLECTABLE_PHYSICS_SETTINGS
+                        physicsSettings
                     );
                     if (bounceRestitution > 0) {
                         collectable.velocity.y = -impactSpeed * bounceRestitution;
@@ -3613,11 +6686,12 @@ function updateSingleCollectablePhysics(collectable: Collectable) {
     if (!grounded && !bounced && collectable.velocity.y >= 0) {
         const snapAmount = getFloorSnapAmount(nextX, nextY, collisionBounds);
         if (snapAmount > 0) {
-            const snapImpactSpeed = collectable.velocity.y + snapAmount * COLLECTABLE_PHYSICS_SETTINGS.gravity * 2;
+            hitWorld = true;
+            const snapImpactSpeed = collectable.velocity.y + snapAmount * physicsSettings.gravity * 2;
             const bounceRestitution = getDynamicObjectBounceRestitution(
                 collectable,
                 snapImpactSpeed,
-                COLLECTABLE_PHYSICS_SETTINGS
+                physicsSettings
             );
             nextY += snapAmount;
             if (bounceRestitution > 0) {
@@ -3635,13 +6709,29 @@ function updateSingleCollectablePhysics(collectable: Collectable) {
     collectable.isGrounded = grounded;
 
     if (grounded) {
-        applyDynamicObjectGroundFriction(collectable, COLLECTABLE_PHYSICS_SETTINGS);
+        applyDynamicObjectGroundFriction(
+            collectable,
+            physicsSettings,
+            options.groundFrictionStopThreshold
+        );
     }
+
+    return {
+        hitWorld,
+        bounced,
+        grounded
+    };
 }
 
 function updateCollectablePhysics() {
     const now = performance.now();
     for (const collectable of [...collectableEntities]) {
+        if (isCreatureProjectileCollectable(collectable)) {
+            updateCreatureProjectileCollectable(collectable);
+            continue;
+        }
+        syncGrenadeFuseState(collectable, now);
+
         if (typeof collectable.ambientSoundKey === 'string') {
             const nextAmbientSoundAt = typeof collectable.nextAmbientSoundAt === 'number'
                 ? collectable.nextAmbientSoundAt
@@ -3666,8 +6756,19 @@ function updateCollectablePhysics() {
                 continue;
             }
         }
+        if (
+            isGrenadeCollectable(collectable) &&
+            collectable.armed &&
+            typeof collectable.armedAtMs === 'number' &&
+            now - collectable.armedAtMs >= MOVEMENT_SETTINGS.grenadeFuseMs
+        ) {
+            explodeCollectableGrenade(collectable);
+            continue;
+        }
         updateSingleCollectablePhysics(collectable);
     }
+    updateGrenadeArmedLoopSound();
+    updateMushroomAmbientLoopSound();
 }
 
 function updateAndDrawThrowGuide(context: CanvasRenderingContext2D, camera: Position) {

@@ -1,0 +1,342 @@
+{
+  "version": 1,
+  "chunkWorldSize": 2048,
+  "chunks": [
+    {
+      "x": 0,
+      "y": 0,
+      "file": "chunk_0_0.json",
+      "count": 171
+    },
+    {
+      "x": 1,
+      "y": 0,
+      "file": "chunk_1_0.json",
+      "count": 74
+    },
+    {
+      "x": 2,
+      "y": 0,
+      "file": "chunk_2_0.json",
+      "count": 164
+    },
+    {
+      "x": 3,
+      "y": 0,
+      "file": "chunk_3_0.json",
+      "count": 141
+    },
+    {
+      "x": 4,
+      "y": 0,
+      "file": "chunk_4_0.json",
+      "count": 230
+    },
+    {
+      "x": 5,
+      "y": 0,
+      "file": "chunk_5_0.json",
+      "count": 138
+    },
+    {
+      "x": 6,
+      "y": 0,
+      "file": "chunk_6_0.json",
+      "count": 158
+    },
+    {
+      "x": 7,
+      "y": 0,
+      "file": "chunk_7_0.json",
+      "count": 95
+    },
+    {
+      "x": 0,
+      "y": 1,
+      "file": "chunk_0_1.json",
+      "count": 870
+    },
+    {
+      "x": 1,
+      "y": 1,
+      "file": "chunk_1_1.json",
+      "count": 623
+    },
+    {
+      "x": 2,
+      "y": 1,
+      "file": "chunk_2_1.json",
+      "count": 706
+    },
+    {
+      "x": 3,
+      "y": 1,
+      "file": "chunk_3_1.json",
+      "count": 517
+    },
+    {
+      "x": 4,
+      "y": 1,
+      "file": "chunk_4_1.json",
+      "count": 602
+    },
+    {
+      "x": 5,
+      "y": 1,
+      "file": "chunk_5_1.json",
+      "count": 615
+    },
+    {
+      "x": 6,
+      "y": 1,
+      "file": "chunk_6_1.json",
+      "count": 682
+    },
+    {
+      "x": 7,
+      "y": 1,
+      "file": "chunk_7_1.json",
+      "count": 493
+    },
+    {
+      "x": 0,
+      "y": 2,
+      "file": "chunk_0_2.json",
+      "count": 791
+    },
+    {
+      "x": 1,
+      "y": 2,
+      "file": "chunk_1_2.json",
+      "count": 548
+    },
+    {
+      "x": 2,
+      "y": 2,
+      "file": "chunk_2_2.json",
+      "count": 540
+    },
+    {
+      "x": 3,
+      "y": 2,
+      "file": "chunk_3_2.json",
+      "count": 602
+    },
+    {
+      "x": 4,
+      "y": 2,
+      "file": "chunk_4_2.json",
+      "count": 690
+    },
+    {
+      "x": 5,
+      "y": 2,
+      "file": "chunk_5_2.json",
+      "count": 703
+    },
+    {
+      "x": 6,
+      "y": 2,
+      "file": "chunk_6_2.json",
+      "count": 755
+    },
+    {
+      "x": 7,
+      "y": 2,
+      "file": "chunk_7_2.json",
+      "count": 438
+    },
+    {
+      "x": 0,
+      "y": 3,
+      "file": "chunk_0_3.json",
+      "count": 603
+    },
+    {
+      "x": 1,
+      "y": 3,
+      "file": "chunk_1_3.json",
+      "count": 748
+    },
+    {
+      "x": 2,
+      "y": 3,
+      "file": "chunk_2_3.json",
+      "count": 732
+    },
+    {
+      "x": 3,
+      "y": 3,
+      "file": "chunk_3_3.json",
+      "count": 767
+    },
+    {
+      "x": 4,
+      "y": 3,
+      "file": "chunk_4_3.json",
+      "count": 785
+    },
+    {
+      "x": 5,
+      "y": 3,
+      "file": "chunk_5_3.json",
+      "count": 751
+    },
+    {
+      "x": 6,
+      "y": 3,
+      "file": "chunk_6_3.json",
+      "count": 609
+    },
+    {
+      "x": 7,
+      "y": 3,
+      "file": "chunk_7_3.json",
+      "count": 400
+    },
+    {
+      "x": 0,
+      "y": 4,
+      "file": "chunk_0_4.json",
+      "count": 645
+    },
+    {
+      "x": 1,
+      "y": 4,
+      "file": "chunk_1_4.json",
+      "count": 472
+    },
+    {
+      "x": 2,
+      "y": 4,
+      "file": "chunk_2_4.json",
+      "count": 637
+    },
+    {
+      "x": 3,
+      "y": 4,
+      "file": "chunk_3_4.json",
+      "count": 781
+    },
+    {
+      "x": 4,
+      "y": 4,
+      "file": "chunk_4_4.json",
+      "count": 744
+    },
+    {
+      "x": 5,
+      "y": 4,
+      "file": "chunk_5_4.json",
+      "count": 701
+    },
+    {
+      "x": 6,
+      "y": 4,
+      "file": "chunk_6_4.json",
+      "count": 743
+    },
+    {
+      "x": 7,
+      "y": 4,
+      "file": "chunk_7_4.json",
+      "count": 459
+    },
+    {
+      "x": 0,
+      "y": 5,
+      "file": "chunk_0_5.json",
+      "count": 749
+    },
+    {
+      "x": 1,
+      "y": 5,
+      "file": "chunk_1_5.json",
+      "count": 819
+    },
+    {
+      "x": 2,
+      "y": 5,
+      "file": "chunk_2_5.json",
+      "count": 794
+    },
+    {
+      "x": 3,
+      "y": 5,
+      "file": "chunk_3_5.json",
+      "count": 841
+    },
+    {
+      "x": 4,
+      "y": 5,
+      "file": "chunk_4_5.json",
+      "count": 841
+    },
+    {
+      "x": 5,
+      "y": 5,
+      "file": "chunk_5_5.json",
+      "count": 841
+    },
+    {
+      "x": 6,
+      "y": 5,
+      "file": "chunk_6_5.json",
+      "count": 841
+    },
+    {
+      "x": 7,
+      "y": 5,
+      "file": "chunk_7_5.json",
+      "count": 493
+    },
+    {
+      "x": 0,
+      "y": 6,
+      "file": "chunk_0_6.json",
+      "count": 240
+    },
+    {
+      "x": 1,
+      "y": 6,
+      "file": "chunk_1_6.json",
+      "count": 232
+    },
+    {
+      "x": 2,
+      "y": 6,
+      "file": "chunk_2_6.json",
+      "count": 232
+    },
+    {
+      "x": 3,
+      "y": 6,
+      "file": "chunk_3_6.json",
+      "count": 232
+    },
+    {
+      "x": 4,
+      "y": 6,
+      "file": "chunk_4_6.json",
+      "count": 232
+    },
+    {
+      "x": 5,
+      "y": 6,
+      "file": "chunk_5_6.json",
+      "count": 232
+    },
+    {
+      "x": 6,
+      "y": 6,
+      "file": "chunk_6_6.json",
+      "count": 232
+    },
+    {
+      "x": 7,
+      "y": 6,
+      "file": "chunk_7_6.json",
+      "count": 136
+    }
+  ]
+}

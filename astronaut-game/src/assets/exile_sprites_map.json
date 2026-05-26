@@ -16,6 +16,7 @@
     { "name": "bullet6",        		"x": 430,  	"y": 1, 	"w": 32, 	"h": 32, 	"palette": 0 },
     { "name": "wall_plant",     		"x": 463,  	"y": 1, 	"w": 32, 	"h": 32, 	"palette": 0 },
     { "name": "fireball",       		"x": 496,  	"y": 1, 	"w": 32, 	"h": 32, 	"palette": 0 },
+    { "name": "plasma_grenade",		"x": 496,  	"y": 1, 	"w": 32, 	"h": 32, 	"palette": 0 },
     { "name": "monkey1",        		"x": 529,  	"y": 1, 	"w": 32, 	"h": 32, 	"palette": 0 },
     { "name": "monkey2",        		"x": 562,  	"y": 1, 	"w": 32, 	"h": 32, 	"palette": 0 },
     { "name": "monkey3",        		"x": 595,  	"y": 1, 	"w": 32, 	"h": 32, 	"palette": 0 },

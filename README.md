@@ -65,3 +65,7 @@ npm run dev
   - `animation-specialist.md`
   - `tooling-workflow-specialist.md`
   - `architecture-specialist.md`
+  - `bbc-creature-mechanics-specialist.md`
+  - `bbc-physics-mechanics-specialist.md`
+  - `bbc-world-systems-specialist.md`
+  - `bbc-audio-reference-specialist.md`

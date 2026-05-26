@@ -1,5 +1,5 @@
 import { Door } from './door.js';
-import { PaletteCycleSettings } from './types/index.js';
+import { PaletteCycleSettings, TeleporterDestinationMode } from './types/index.js';
 
 type ButtonPart = {
     x: number;
@@ -12,6 +12,15 @@ type ButtonPart = {
     cropRightHalf?: boolean;
 };
 
+function isTeleporterMode(value: unknown): value is TeleporterDestinationMode {
+    return value === 'toggle' ||
+        value === 'destination_a' ||
+        value === 'destination_b' ||
+        value === 'toggle_enabled' ||
+        value === 'enable' ||
+        value === 'disable';
+}
+
 export class Button {
     x: number;
     y: number;
@@ -23,6 +32,8 @@ export class Button {
     active: boolean;
     defaultActive: boolean;
     linkedDoors?: number[]; // Array of doorIDs
+    linkedTeleporters?: string[];
+    teleporterMode: TeleporterDestinationMode;
     collision: boolean;
     pressOffset: number;
     boxOffsetX: number;
@@ -51,6 +62,12 @@ export class Button {
         this.active = data.active ?? false;
         this.defaultActive = data.active ?? false;
         this.linkedDoors = data.linkedDoors ?? [];
+        this.linkedTeleporters = Array.isArray(data.linkedTeleporters)
+            ? data.linkedTeleporters.filter((id: unknown) => typeof id === 'string' && id.trim().length > 0)
+            : [];
+        this.teleporterMode = isTeleporterMode(data.teleporterMode)
+            ? data.teleporterMode
+            : 'toggle';
         this.collision = data.collision !== undefined ? data.collision : true;
         this.pressOffset = data.pressOffset ?? 2;
         this.boxOffsetX = Button.normalizeLegacyBoxOffsetX(data.boxOffsetX);
