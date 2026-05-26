@@ -512,16 +512,15 @@ function drawAstronautSprite(
     drawH: number,
     now: number
 ) {
-    const spriteSource = astronautSpriteSource || spriteSheet;
-    if (!spriteSource) {
+    const frameCanvas = getAstronautSpriteFrameCanvas(spriteRect);
+    if (!frameCanvas) {
         return;
     }
     context.imageSmoothingEnabled = false;
 
     if (!isAstronautDamageFlashVisible(now)) {
         context.drawImage(
-            spriteSource,
-            spriteRect.x, spriteRect.y, spriteRect.w, spriteRect.h,
+            frameCanvas,
             -drawW / 2,
             -drawH / 2,
             drawW, drawH
@@ -535,8 +534,7 @@ function drawAstronautSprite(
     const flashContext = flashCanvas.getContext('2d');
     if (!flashContext) {
         context.drawImage(
-            spriteSource,
-            spriteRect.x, spriteRect.y, spriteRect.w, spriteRect.h,
+            frameCanvas,
             -drawW / 2,
             -drawH / 2,
             drawW, drawH
@@ -546,8 +544,7 @@ function drawAstronautSprite(
 
     flashContext.imageSmoothingEnabled = false;
     flashContext.drawImage(
-        spriteSource,
-        spriteRect.x, spriteRect.y, spriteRect.w, spriteRect.h,
+        frameCanvas,
         0,
         0,
         flashCanvas.width,
@@ -806,6 +803,35 @@ let currentAstronautRenderState = {
     flipSprite: false,
     flipVertical: false
 };
+const astronautSpriteFrameCache = new Map<string, HTMLCanvasElement>();
+
+function getAstronautSpriteFrameCanvas(spriteRect: { x: number; y: number; w: number; h: number }) {
+    const spriteSource = astronautSpriteSource || spriteSheet;
+    if (!spriteSource) {
+        return null;
+    }
+    const cacheKey = `${spriteRect.x},${spriteRect.y},${spriteRect.w},${spriteRect.h}`;
+    const cached = astronautSpriteFrameCache.get(cacheKey);
+    if (cached) {
+        return cached;
+    }
+    const frameCanvas = document.createElement('canvas');
+    frameCanvas.width = Math.max(1, spriteRect.w);
+    frameCanvas.height = Math.max(1, spriteRect.h);
+    const frameContext = frameCanvas.getContext('2d');
+    if (!frameContext) {
+        return null;
+    }
+    frameContext.imageSmoothingEnabled = false;
+    frameContext.clearRect(0, 0, frameCanvas.width, frameCanvas.height);
+    frameContext.drawImage(
+        spriteSource,
+        spriteRect.x, spriteRect.y, spriteRect.w, spriteRect.h,
+        0, 0, frameCanvas.width, frameCanvas.height
+    );
+    astronautSpriteFrameCache.set(cacheKey, frameCanvas);
+    return frameCanvas;
+}
 
 (window as any).__exileDebug = {
     getButtons: () => buttonEntities,
