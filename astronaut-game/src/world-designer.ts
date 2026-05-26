@@ -3321,6 +3321,16 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         return serializeWorldData(rawWorldData);
     }
 
+    function getAuthoredWorldSnapshot() {
+        return serializeWorldData(state.editModeSnapshot.worldData);
+    }
+
+    function getWorldSnapshotForSave() {
+        return state.mode === 'edit'
+            ? getWorldSnapshot()
+            : getAuthoredWorldSnapshot();
+    }
+
     function getSnapshot(): DesignerSnapshot {
         return {
             worldData: getWorldSnapshot(),
@@ -3446,7 +3456,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     refreshSectionAccordions();
 
     function updateDirtyState() {
-        state.dirty = !snapshotsEqual(getWorldSnapshot(), state.lastSavedSnapshot);
+        state.dirty = !snapshotsEqual(getWorldSnapshotForSave(), state.lastSavedSnapshot);
     }
 
     function setStatus(message: string, tone: DesignerState['statusTone'] = 'neutral') {
@@ -7700,7 +7710,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function getSavePreview(): SavePreviewState {
-        const snapshot = getWorldSnapshot();
+        const snapshot = getWorldSnapshotForSave();
         const errors: string[] = [];
         const spriteTypeSet = new Set(spriteTypes);
         const paletteMax = paletteCount - 1;
@@ -7883,7 +7893,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             return;
         }
 
-        const snapshot = getWorldSnapshot();
+        const snapshot = getWorldSnapshotForSave();
         const liveAstronautPosition = host.getFocusWorldPosition();
         const astronautStartChanged =
             snapshot.astronautStart.x !== state.lastSavedSnapshot.astronautStart.x ||
@@ -7901,7 +7911,15 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 await host.saveWorldData(snapshot);
             }
             state.lastSavedSnapshot = snapshot;
-            syncEditModeSnapshot();
+            if (state.mode === 'edit') {
+                syncEditModeSnapshot();
+            } else {
+                state.editModeSnapshot = {
+                    worldData: serializeWorldData(snapshot),
+                    customSpriteDefinitions: deepClone(state.customSpriteDefinitions),
+                    customSpriteInstances: deepClone(state.customSpriteInstances)
+                };
+            }
             if (!astronautStartChanged) {
                 host.resetAstronautToPosition(liveAstronautPosition);
             }
@@ -11173,12 +11191,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             case 'm':
             case 'M':
                 state.mode = state.mode === 'edit' ? 'preview' : 'edit';
-                if (state.mode === 'edit') {
-                    captureLiveResumeSnapshot();
-                }
                 if (state.mode === 'edit' && restoreEditModeSnapshot()) {
                     setStatus('Restored the authored world state for editing.', 'neutral');
                 }
+                state.liveResumeSnapshot = null;
                 refreshPanel();
                 event.preventDefault();
                 return;
@@ -11248,15 +11264,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         state.active = nextActive;
         closeContextMenu();
         if (!state.active) {
-            if (state.mode === 'edit' && restoreLiveResumeSnapshot()) {
-                setStatus('Restored the live game state after leaving edit mode.', 'neutral');
-            }
             closeModal();
+            state.liveResumeSnapshot = null;
             refreshPanel();
             return;
-        }
-        if (state.mode === 'edit') {
-            captureLiveResumeSnapshot();
         }
         if (state.mode === 'edit' && restoreEditModeSnapshot()) {
             setStatus('Restored the authored world state for editing.', 'neutral');
@@ -11453,12 +11464,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
     refs.modeSelect.addEventListener('change', () => {
         state.mode = refs.modeSelect.value as DesignerMode;
-        if (state.mode === 'edit') {
-            captureLiveResumeSnapshot();
-        }
         if (state.mode === 'edit' && restoreEditModeSnapshot()) {
             setStatus('Restored the authored world state for editing.', 'neutral');
         }
+        state.liveResumeSnapshot = null;
         refreshPanel();
     });
     refs.toolSelect.addEventListener('change', () => {

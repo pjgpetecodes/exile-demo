@@ -94,5 +94,29 @@
     "astronautCollisionIgnoreFrames": 0,
     "armed": false,
     "explosionPower": 4
+  },
+  {
+    "x": 7109,
+    "y": 2635,
+    "type": "grenade",
+    "palette": 14,
+    "rotation": 1,
+    "collected": false,
+    "name": "grenade",
+    "weight": 0.2,
+    "pickupEnabled": true,
+    "storable": true,
+    "affectsAstronaut": false,
+    "collision": true,
+    "held": false,
+    "stored": false,
+    "isGrounded": true,
+    "velocity": {
+      "x": 0,
+      "y": 0
+    },
+    "astronautCollisionIgnoreFrames": 0,
+    "armed": false,
+    "explosionPower": 4
   }
 ]
