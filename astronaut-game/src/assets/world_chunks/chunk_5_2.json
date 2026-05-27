@@ -2780,6 +2780,16 @@
     "translation": "center"
   },
   {
+    "x": 12179,
+    "y": 4928,
+    "type": "door_vertical",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 11,
+    "rotation": 6,
+    "translation": "center"
+  },
+  {
     "x": 12249,
     "y": 4928,
     "type": "thruster",
@@ -7017,16 +7027,6 @@
     "maskAstronaut": false,
     "palette": 3,
     "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 12179,
-    "y": 4928,
-    "type": "door_vertical",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 11,
-    "rotation": 6,
     "translation": "center"
   }
 ]

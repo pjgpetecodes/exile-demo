@@ -86,6 +86,54 @@ export const VIEWPORT_SETTINGS = {
     defaultHeight: 675
 } as const;
 
+export const CHUNK_ACTIVITY_SETTINGS = {
+    chunkWorldSize: 2048,
+    radiiChunks: {
+        near: 1,
+        mid: 3
+    },
+    viewportRadiusScale: {
+        near: 1,
+        mid: 1.5
+    },
+    effectiveViewport: {
+        defaultZoom: 1,
+        expandedViewZoom: 1,
+        minZoom: 0.5,
+        maxZoom: 2
+    },
+    chunkResidency: {
+        basePrefetchRadiusChunks: 1,
+        viewportChunkRadiusBaseline: 1,
+        viewportExpansionRadiusScale: 1,
+        expandedViewExtraRadiusChunks: 0,
+        maxPrefetchRadiusChunks: 6
+    },
+    teleportKeepAliveMs: 1400,
+    simulationCadenceFrames: {
+        creatures: {
+            near: 1,
+            mid: 2,
+            far: 0
+        },
+        collectables: {
+            near: 1,
+            mid: 2,
+            far: 0
+        },
+        projectiles: {
+            near: 1,
+            mid: 2,
+            far: 0
+        },
+        teleporters: {
+            near: 1,
+            mid: 2,
+            far: 0
+        }
+    }
+} as const;
+
 export const BULLET_IMPACT_AUDIO_SETTINGS: BulletImpactAudioSettings = {
     primary: 'bulletExplosion',
     alternate: 'bulletExplosion2',

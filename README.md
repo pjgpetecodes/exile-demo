@@ -18,6 +18,19 @@ Move around with:
 - R = Remember Location
 - T = Teleport
 
+Developer toggles:
+
+- D = Debug HUD
+- Ctrl+Shift+H = Performance HUD (rolling avg/worst frame + update/map/entities/total timings)
+- Ctrl+Shift+J = Periodic performance console summary (tagged with browser name)
+
+Chunk activity tuning (devtools):
+
+- `window.__exileDebug.chunkActivity.getTuning()` to inspect activity bands, cadence, and teleport grace window (`teleportKeepAliveMs`).
+- `window.__exileDebug.chunkActivity.setTuning({...})` to tune runtime values while profiling.
+- `window.__exileDebug.chunkActivity.resetTuning()` to restore defaults from `astronaut-game/src/settings.ts`.
+- See [docs/game.md](docs/game.md) for rollout verification steps and tradeoffs.
+
 ## Notes
 
 - Collision logic is almost useless - Please help!
@@ -26,6 +39,16 @@ Move around with:
 - Buttons Unlock Doors
 - Sprites laid out in world_map.json, buttons.json, creatures.json, doors.json
 - Palettes defined in palettes.json
+
+### Performance baseline capture (Edge + Firefox)
+
+1. Start the game (`npm run dev`), open devtools console, then enable `D` + `Ctrl+Shift+J`.
+2. Capture 30-60 seconds in **Edge** for:
+   - idle in spawn
+   - active traversal/jetpack
+   - heavy on-screen entity moments
+3. Repeat in **Firefox** and compare `[perf][Edge]` vs `[perf][Firefox]` summaries.
+4. Use `Ctrl+Shift+H` alongside debug HUD when you need in-frame timing visibility while tuning.
 
 ## Running
 

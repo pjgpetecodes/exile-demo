@@ -24,6 +24,32 @@
     "capOpenOffsetY": 0
   },
   {
+    "x": 9107,
+    "y": 2394,
+    "type": "button",
+    "palette": 9,
+    "boxType": "button_box",
+    "boxPalette": 8,
+    "rotation": 5,
+    "active": true,
+    "linkedDoors": [
+      0
+    ],
+    "linkedTeleporters": [
+      "teleporter_2",
+      "teleporter_3"
+    ],
+    "teleporterMode": "toggle",
+    "collision": true,
+    "pressOffset": 5,
+    "boxOffsetX": 10,
+    "boxOffsetY": 1,
+    "capClosedOffsetX": -5,
+    "capClosedOffsetY": 0,
+    "capOpenOffsetX": 0,
+    "capOpenOffsetY": 0
+  },
+  {
     "x": 9727,
     "y": 3164,
     "type": "button",
@@ -48,21 +74,19 @@
     "capOpenOffsetY": 0
   },
   {
-    "x": 9107,
-    "y": 2394,
+    "x": 9899,
+    "y": 3731,
     "type": "button",
     "palette": 9,
     "boxType": "button_box",
     "boxPalette": 8,
-    "rotation": 5,
+    "rotation": 1,
     "active": true,
     "linkedDoors": [
-      0
+      0,
+      1
     ],
-    "linkedTeleporters": [
-      "teleporter_2",
-      "teleporter_3"
-    ],
+    "linkedTeleporters": [],
     "teleporterMode": "toggle",
     "collision": true,
     "pressOffset": 5,

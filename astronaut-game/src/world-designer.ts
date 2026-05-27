@@ -157,6 +157,7 @@ export type SpriteSheetNormalizationReport = {
 export interface WorldDesignerHost {
     canvas: HTMLCanvasElement;
     getRawWorldData(): RawWorldData;
+    getRawWorldDataForSave?(): Promise<RawWorldData>;
     replaceRawWorldData(data: RawWorldData): void;
     afterWorldDataMutated(): void;
     getFocusWorldPosition(): Position;
@@ -737,7 +738,7 @@ function normalizeRotation(rotation?: number) {
     if (typeof rotation !== 'number' || Number.isNaN(rotation)) {
         return 1;
     }
-    return clamp(Math.round(rotation), 1, 7);
+    return clamp(Math.round(rotation), 1, 9);
 }
 
 function formatSpriteTranslation(translation?: string | null) {
@@ -940,16 +941,74 @@ function toCollectableData(collectable: any): CollectableSaveData {
     };
 }
 
+function compareNumbers(left: number, right: number) {
+    return left - right;
+}
+
+function compareStrings(left: string, right: string) {
+    return left.localeCompare(right);
+}
+
 function serializeWorldData(data: RawWorldData): RawWorldData {
+    const worldMap = data.worldMap
+        .map((block) => toMapBlockData(block))
+        .sort((left, right) =>
+            compareNumbers(left.y, right.y)
+            || compareNumbers(left.x, right.x)
+            || compareStrings(left.type, right.type)
+            || compareStrings(String(left.palette ?? ''), String(right.palette ?? ''))
+            || compareNumbers(left.rotation ?? 0, right.rotation ?? 0)
+        );
+    const buttons = data.buttons
+        .map((button) => toButtonData(button))
+        .sort((left, right) =>
+            compareNumbers(left.y, right.y)
+            || compareNumbers(left.x, right.x)
+            || compareStrings(left.type, right.type)
+            || compareNumbers(left.palette ?? 0, right.palette ?? 0)
+        );
+    const doors = data.doors
+        .map((door) => toDoorData(door))
+        .sort((left, right) =>
+            compareNumbers(left.doorID ?? -1, right.doorID ?? -1)
+            || compareNumbers(left.y, right.y)
+            || compareNumbers(left.x, right.x)
+            || compareStrings(left.type, right.type)
+        );
+    const creatures = data.creatures
+        .map((creature) => toCreatureData(creature))
+        .sort((left, right) =>
+            compareNumbers(left.y, right.y)
+            || compareNumbers(left.x, right.x)
+            || compareStrings(left.type, right.type)
+            || compareNumbers(left.palette ?? 0, right.palette ?? 0)
+            || compareNumbers(left.rotation ?? 0, right.rotation ?? 0)
+        );
+    const collectables = data.collectables
+        .filter((collectable) => !('creatureProjectile' in collectable) || !collectable.creatureProjectile)
+        .map((collectable) => toCollectableData(collectable))
+        .sort((left, right) =>
+            compareNumbers(left.y, right.y)
+            || compareNumbers(left.x, right.x)
+            || compareStrings(left.type, right.type)
+            || compareNumbers(left.palette ?? 0, right.palette ?? 0)
+            || compareNumbers(left.rotation ?? 0, right.rotation ?? 0)
+        );
+    const teleporters = (data.teleporters ?? [])
+        .map((teleporter) => toTeleporterData(teleporter))
+        .sort((left, right) =>
+            compareStrings(left.id, right.id)
+            || compareNumbers(left.baseY, right.baseY)
+            || compareNumbers(left.baseX, right.baseX)
+        );
+
     return {
-        worldMap: data.worldMap.map((block) => toMapBlockData(block)),
-        buttons: data.buttons.map((button) => toButtonData(button)),
-        doors: data.doors.map((door) => toDoorData(door)),
-        creatures: data.creatures.map((creature) => toCreatureData(creature)),
-        collectables: data.collectables
-            .filter((collectable) => !('creatureProjectile' in collectable) || !collectable.creatureProjectile)
-            .map((collectable) => toCollectableData(collectable)),
-        teleporters: (data.teleporters ?? []).map((teleporter) => toTeleporterData(teleporter)),
+        worldMap,
+        buttons,
+        doors,
+        creatures,
+        collectables,
+        teleporters,
         astronautStart: {
             x: Math.round(data.astronautStart.x),
             y: Math.round(data.astronautStart.y)
@@ -1074,6 +1133,12 @@ function invertButtonOffset(offsetX: number, offsetY: number, rotation: number) 
     }
     if (rotation === 7) {
         return { x: -offsetX, y: -offsetY };
+    }
+    if (rotation === 8) {
+        return { x: -offsetY, y: -offsetX };
+    }
+    if (rotation === 9) {
+        return { x: offsetY, y: offsetX };
     }
 
     return { x: offsetX, y: offsetY };
@@ -3354,6 +3419,15 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             : getAuthoredWorldSnapshot();
     }
 
+    async function getWorldSnapshotForValidationAndSave() {
+        if (typeof host.getRawWorldDataForSave === 'function') {
+            const rawWorldData = await host.getRawWorldDataForSave();
+            reconcileTeleporterPairsForSave(rawWorldData);
+            return serializeWorldData(rawWorldData);
+        }
+        return getWorldSnapshotForSave();
+    }
+
     function getSnapshot(): DesignerSnapshot {
         return {
             worldData: getWorldSnapshot(),
@@ -3479,7 +3553,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     refreshSectionAccordions();
 
     function updateDirtyState() {
-        state.dirty = !snapshotsEqual(getWorldSnapshotForSave(), state.lastSavedSnapshot);
+        const snapshotForDirtyCheck = state.mode === 'edit'
+            ? getAuthoredWorldSnapshot()
+            : getWorldSnapshotForSave();
+        state.dirty = !snapshotsEqual(snapshotForDirtyCheck, state.lastSavedSnapshot);
     }
 
     function setStatus(message: string, tone: DesignerState['statusTone'] = 'neutral') {
@@ -3604,7 +3681,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.palettePreviewTypeSelect.innerHTML = spriteTypes
             .map((type) => `<option value="${type}">${type}</option>`)
             .join('');
-        refs.rotationSelect.innerHTML = Array.from({ length: 7 }, (_, index) => {
+        refs.rotationSelect.innerHTML = Array.from({ length: 9 }, (_, index) => {
             const value = index + 1;
             return `<option value="${value}">${value}</option>`;
         }).join('');
@@ -6913,7 +6990,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 return byId;
             }
         }
-        return findTeleporterByPartPosition(block.type, block.x, block.y);
+        return findTeleporterByPartPosition(block.type, block.x, block.y, 0);
     }
 
     function findClosestTeleporterCounterpart(sourceBlock: MapBlock) {
@@ -7258,14 +7335,113 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
     function createPastedSelections(entries: ClipboardEntry[], offsetX: number, offsetY: number) {
         const pastedSelections: Selection[] = [];
+        const groupedTeleporterEntries = new Map<string, { base?: MapBlock; pad?: MapBlock }>();
+
+        const clearTeleporterMetadata = (block: MapBlock) => {
+            delete block.teleporterId;
+            delete block.teleporterEnabled;
+            delete block.teleporterRequiresKey;
+            delete block.teleporterDestinationA;
+            delete block.teleporterDestinationB;
+            delete block.teleporterActiveDestinationIndex;
+        };
+
+        const applyTeleporterRuntimeToBlocks = (teleporter: TeleporterSaveData, base: MapBlock, pad: MapBlock) => {
+            const activeDestinationIndex = teleporter.activeDestinationIndex === 1 ? 1 : 0;
+            const destinationA = {
+                x: Math.round(teleporter.destinationA.x),
+                y: Math.round(teleporter.destinationA.y)
+            };
+            const destinationB = teleporter.destinationB
+                ? {
+                    x: Math.round(teleporter.destinationB.x),
+                    y: Math.round(teleporter.destinationB.y)
+                }
+                : null;
+            const enabled = teleporter.enabled !== false;
+            const requiresKey = teleporter.requiresKey === true;
+
+            for (const block of [base, pad]) {
+                block.teleporterId = teleporter.id;
+                block.teleporterEnabled = enabled;
+                block.teleporterRequiresKey = requiresKey;
+                block.teleporterDestinationA = { ...destinationA };
+                block.teleporterDestinationB = destinationB ? { ...destinationB } : null;
+                block.teleporterActiveDestinationIndex = activeDestinationIndex;
+            }
+        };
+
         for (const entry of entries) {
             const clone = deepClone(entry.data);
             clone.x += offsetX;
             clone.y += offsetY;
+            const worldClone = clone as MapBlock;
+            if (
+                entry.category === 'world' &&
+                (worldClone.type === 'teleporter' || worldClone.type === 'teleporter_pad') &&
+                typeof worldClone.teleporterId === 'string' &&
+                worldClone.teleporterId.trim().length > 0
+            ) {
+                const teleporterId = worldClone.teleporterId.trim();
+                const grouped = groupedTeleporterEntries.get(teleporterId) ?? {};
+                if (worldClone.type === 'teleporter') {
+                    grouped.base = worldClone;
+                } else {
+                    grouped.pad = worldClone;
+                }
+                groupedTeleporterEntries.set(teleporterId, grouped);
+                continue;
+            }
             const entity = createSelectionEntity(entry.category, clone);
             getCategoryArray(entry.category).push(entity);
             pastedSelections.push({ category: entry.category, entity });
         }
+
+        for (const [sourceTeleporterId, grouped] of groupedTeleporterEntries.entries()) {
+            if (!grouped.base || !grouped.pad) {
+                if (grouped.base) {
+                    clearTeleporterMetadata(grouped.base);
+                    getCategoryArray('world').push(grouped.base);
+                    pastedSelections.push({ category: 'world', entity: grouped.base });
+                }
+                if (grouped.pad) {
+                    clearTeleporterMetadata(grouped.pad);
+                    getCategoryArray('world').push(grouped.pad);
+                    pastedSelections.push({ category: 'world', entity: grouped.pad });
+                }
+                continue;
+            }
+
+            const base = grouped.base;
+            const pad = grouped.pad;
+            clearTeleporterMetadata(base);
+            clearTeleporterMetadata(pad);
+            getCategoryArray('world').push(base);
+            getCategoryArray('world').push(pad);
+            convertTeleporterWorldPair(base, pad);
+
+            const pastedTeleporter = findTeleporterForWorldBlock(base);
+            const sourceTeleporter = getTeleporterById(sourceTeleporterId);
+            if (pastedTeleporter && sourceTeleporter) {
+                pastedTeleporter.enabled = sourceTeleporter.enabled !== false;
+                pastedTeleporter.requiresKey = sourceTeleporter.requiresKey === true;
+                pastedTeleporter.destinationA = {
+                    x: Math.round(sourceTeleporter.destinationA.x),
+                    y: Math.round(sourceTeleporter.destinationA.y)
+                };
+                pastedTeleporter.destinationB = sourceTeleporter.destinationB
+                    ? {
+                        x: Math.round(sourceTeleporter.destinationB.x),
+                        y: Math.round(sourceTeleporter.destinationB.y)
+                    }
+                    : null;
+                pastedTeleporter.activeDestinationIndex = sourceTeleporter.activeDestinationIndex === 1 ? 1 : 0;
+                applyTeleporterRuntimeToBlocks(pastedTeleporter, base, pad);
+            }
+
+            pastedSelections.push({ category: 'world', entity: base });
+        }
+
         return pastedSelections;
     }
 
@@ -7636,7 +7812,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function duplicateSelection() {
-        const selections = getSelectedItems();
+        const selections = getSelectionsInDrawOrder(
+            expandSelectionsWithLinkedTeleporters(getSelectedItems())
+        );
         if (selections.length === 0) return;
         runMutation('Duplicated selection.', () => {
             const duplicatedSelections = createPastedSelections(
@@ -7652,7 +7830,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function copySelection() {
-        const selections = getSelectedItems();
+        const selections = getSelectionsInDrawOrder(
+            expandSelectionsWithLinkedTeleporters(getSelectedItems())
+        );
         if (selections.length === 0) {
             setStatus('Nothing selected to copy.', 'neutral');
             return;
@@ -7694,7 +7874,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
         runMutation('Rotated selection.', () => {
             for (const selection of selections) {
-                const nextRotation = ((normalizeRotation(selection.entity.rotation) % 7) + 1);
+                const nextRotation = ((normalizeRotation(selection.entity.rotation) % 9) + 1);
                 applyEntityRotationWithTeleporterSync(selection.entity, nextRotation);
                 if (selection.category === 'creatures') {
                     selection.entity.state = selection.entity.state ?? {};
@@ -7755,9 +7935,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         restoreSnapshot(next, 'Redid change.');
     }
 
-    function getSavePreview(): SavePreviewState {
-        const snapshot = getWorldSnapshotForSave();
+    function buildSavePreview(snapshot: RawWorldData, options?: { strictTeleporterValidation?: boolean }): SavePreviewState {
         const errors: string[] = [];
+        const strictTeleporterValidation = options?.strictTeleporterValidation !== false;
         const spriteTypeSet = new Set(spriteTypes);
         const paletteMax = paletteCount - 1;
         const palettesChanged = !paletteDefinitionsEqual(state.paletteDefinitions, state.lastSavedPaletteDefinitions);
@@ -7811,11 +7991,13 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             errors.push(`Duplicate teleporter IDs: ${[...duplicateTeleporterIds].join(', ')}`);
         }
         snapshot.teleporters.forEach((teleporter, index) => {
-            if (!snapshot.worldMap.some((block) => block.x === teleporter.baseX && block.y === teleporter.baseY && block.type === 'teleporter')) {
-                errors.push(`Teleporter #${index + 1} base sprite is missing at (${teleporter.baseX}, ${teleporter.baseY}).`);
-            }
-            if (!snapshot.worldMap.some((block) => block.x === teleporter.padX && block.y === teleporter.padY && block.type === 'teleporter_pad')) {
-                errors.push(`Teleporter #${index + 1} pad sprite is missing at (${teleporter.padX}, ${teleporter.padY}).`);
+            if (strictTeleporterValidation) {
+                if (!snapshot.worldMap.some((block) => block.x === teleporter.baseX && block.y === teleporter.baseY && block.type === 'teleporter')) {
+                    errors.push(`Teleporter #${index + 1} base sprite is missing at (${teleporter.baseX}, ${teleporter.baseY}).`);
+                }
+                if (!snapshot.worldMap.some((block) => block.x === teleporter.padX && block.y === teleporter.padY && block.type === 'teleporter_pad')) {
+                    errors.push(`Teleporter #${index + 1} pad sprite is missing at (${teleporter.padX}, ${teleporter.padY}).`);
+                }
             }
             if (!Number.isFinite(teleporter.destinationA.x) || !Number.isFinite(teleporter.destinationA.y)) {
                 errors.push(`Teleporter #${index + 1} destination A must have numeric x and y.`);
@@ -7858,8 +8040,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         return { files, errors };
     }
 
-    function renderSavePreview() {
-        const preview = getSavePreview();
+    async function renderSavePreview() {
+        refs.modalConfirm.disabled = true;
+        refs.modalBody.innerHTML = '<p>Preparing save preview…</p>';
+        const snapshot = getAuthoredWorldSnapshot();
+        const preview = buildSavePreview(snapshot, { strictTeleporterValidation: false });
         refs.modalBody.innerHTML = '';
 
         const summary = document.createElement('div');
@@ -7867,6 +8052,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         summary.innerHTML = `
             <p>${changedFiles.length === 0 ? 'No asset files have changed.' : `The following file(s) will be updated: <strong>${changedFiles.map((file) => file.label).join(', ')}</strong>.`}</p>
             <p>Use this dialog as a pre-save review. If the JSON looks right, confirm the save.</p>
+            <p>Full teleporter placement validation runs on save.</p>
         `;
         refs.modalBody.appendChild(summary);
 
@@ -7932,14 +8118,13 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     async function saveFromPreview() {
-        const preview = getSavePreview();
+        const snapshot = await getWorldSnapshotForValidationAndSave();
+        const preview = buildSavePreview(snapshot, { strictTeleporterValidation: true });
         if (preview.errors.length > 0) {
             setStatus('Resolve the validation issues before saving.', 'error');
-            renderSavePreview();
+            await renderSavePreview();
             return;
         }
-
-        const snapshot = getWorldSnapshotForSave();
         const liveAstronautPosition = host.getFocusWorldPosition();
         const astronautStartChanged =
             snapshot.astronautStart.x !== state.lastSavedSnapshot.astronautStart.x ||
@@ -8032,7 +8217,14 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         state.savePreviewOpen = true;
         refs.modalTitle.textContent = 'Preview before save';
         refs.modalConfirm.textContent = 'Save changes';
-        renderSavePreview();
+        void renderSavePreview().catch((error) => {
+            refs.modalBody.innerHTML = '';
+            const message = error instanceof Error ? error.message : 'Failed to prepare save preview.';
+            const summary = document.createElement('div');
+            summary.innerHTML = `<p>${message}</p>`;
+            refs.modalBody.appendChild(summary);
+            refs.modalConfirm.disabled = true;
+        });
         modalConfirmAction = () => saveFromPreview();
         refs.modal.classList.add('open');
     }
@@ -8044,7 +8236,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         const importSnapshot = host.getRawWorldData();
         const pngImportTypeNames = getPngImportTypeNames(importSnapshot);
         const pngImportTypeDefaults = getPngImportTypeDefaults(importSnapshot);
-        const rotationOptionMarkup = Array.from({ length: 7 }, (_, index) => {
+        const rotationOptionMarkup = Array.from({ length: 9 }, (_, index) => {
             const rotation = index + 1;
             return `<option value="${rotation}">${rotation}</option>`;
         }).join('');
