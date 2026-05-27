@@ -204,8 +204,43 @@ function applyPaletteDefinitions(definitions: PaletteDefinition[]) {
     rebuildRemappedSpriteSheets();
 }
 
+function shouldBlockBrowserShortcut(event: KeyboardEvent) {
+    if (!(event.ctrlKey || event.metaKey)) {
+        return false;
+    }
+    const key = event.key.toLowerCase();
+    return key === 'p' || key === 'w' || event.code === 'KeyP' || event.code === 'KeyW';
+}
+
+function blockBrowserShortcut(event: KeyboardEvent) {
+    if (!shouldBlockBrowserShortcut(event)) {
+        return false;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return true;
+}
+
+function getInputKey(event: KeyboardEvent) {
+    if (event.code === 'Space') {
+        return ' ';
+    }
+    if (event.key.length === 1) {
+        return event.key.toLowerCase();
+    }
+    return event.key;
+}
+
+document.addEventListener('keydown', (event) => {
+    blockBrowserShortcut(event);
+}, { capture: true });
+
 window.addEventListener('keydown', (event) => {
-    const key = event.code === 'Space' ? ' ' : event.key;
+    if (blockBrowserShortcut(event)) {
+        event.preventDefault();
+        return;
+    }
+    const key = getInputKey(event);
     if (key === ' ') {
         event.preventDefault();
     }
@@ -214,7 +249,7 @@ window.addEventListener('keydown', (event) => {
 });
 
 window.addEventListener('keyup', (event) => {
-    const key = event.code === 'Space' ? ' ' : event.key;
+    const key = getInputKey(event);
     if (key === ' ') {
         event.preventDefault();
     }
@@ -244,7 +279,13 @@ window.addEventListener('keydown', (e) => {
     if (isDesignerOpen()) return;
     if (e.key === "Tab") {
         e.preventDefault(); // Prevent tab from bubbling to browser
-        flipAstronaut();
+        if (currentAstronautRenderState.flipVertical) {
+            layDownVerticalFlipToggled = !layDownVerticalFlipToggled;
+        } else {
+            flipAstronaut();
+            layDownVerticalFlipToggled = false;
+        }
+        requestImmediateFrame();
     }
 });
 
@@ -361,7 +402,6 @@ function hasPressedKeys() {
 
 function hasMovingCollectables() {
     return collectableEntities.some((collectable) =>
-        !collectable.collected &&
         !collectable.stored &&
         (
             collectable.armed ||
@@ -827,6 +867,17 @@ function getHorizontalTravelDirection(keys: Record<string, boolean>): 'left' | '
     return null;
 }
 
+function getAstronautFacingDirectionForFlyPose(keys: Record<string, boolean>): 'left' | 'right' {
+    const travelDirection = getHorizontalTravelDirection(keys);
+    if (travelDirection) {
+        return travelDirection;
+    }
+    if (Math.abs(astronaut.velocity.x) > 0.01) {
+        return astronaut.velocity.x < 0 ? 'left' : 'right';
+    }
+    return facingLeft ? 'left' : 'right';
+}
+
 // --- Black background block toggles ---
 let showBlackBackgroundBlocks = false; // c key
 let hideBlackBackgroundBlocks = false; // v key
@@ -989,6 +1040,7 @@ let currentAstronautRenderState = {
     flipSprite: false,
     flipVertical: false
 };
+let layDownVerticalFlipToggled = false;
 const chunkActivityManager = new ChunkActivityManager({
     chunkWorldSize: CHUNK_ACTIVITY_SETTINGS.chunkWorldSize,
     radiiChunks: deepClone(CHUNK_ACTIVITY_SETTINGS.radiiChunks),
@@ -1197,6 +1249,8 @@ function getEffectiveViewportState(): EffectiveViewportState {
     };
 }
 let simulationFrameCounter = 0;
+const CHUNK_SYNC_INTERVAL_FRAMES = 2;
+let chunkSyncFrameCounter = 0;
 const astronautSpriteFrameCache = new Map<string, HTMLCanvasElement>();
 
 function getAstronautSpriteFrameCanvas(spriteRect: { x: number; y: number; w: number; h: number }) {
@@ -1605,8 +1659,7 @@ function getRenderableCollectables() {
     return collectableEntities.filter((collectable) =>
         !isCreatureProjectileCollectable(collectable) &&
         !collectable.stored &&
-        !collectable.held &&
-        !collectable.collected
+        !collectable.held
     );
 }
 
@@ -2349,13 +2402,18 @@ async function gameLoop() {
             zoom: effectiveViewport.zoom,
             now: frameNow
         });
-        if (!saveSnapshotInProgress) {
+        chunkSyncFrameCounter += 1;
+        const designerChunkSyncRequired = worldDesigner?.isActive() === true;
+        const shouldSyncChunksThisFrame = designerChunkSyncRequired
+            || (chunkSyncFrameCounter % CHUNK_SYNC_INTERVAL_FRAMES === 0);
+        if (!saveSnapshotInProgress && shouldSyncChunksThisFrame) {
             syncMapChunksForViewport(
                 camera,
                 effectiveViewport.width,
                 effectiveViewport.height,
                 effectiveViewport.prefetchRadiusChunks,
-                effectiveViewport.zoom
+                effectiveViewport.zoom,
+                designerChunkSyncRequired
             );
         }
         currentAstronautChunkActivity = getChunkActivityForWorldPosition(
@@ -3060,7 +3118,8 @@ async function gameLoop() {
     // Show walking animation if landed and walkSpeed > 0 (even if no keys are pressed)
     else if (
         gameState.astronaut.isLanded &&
-        walkSpeed > 0
+        walkSpeed > 0 &&
+        !keys['Shift']
     ) {
         if (gameState.debugMode) {
             //console.log('WALKING: isLanded && walkSpeed > 0');
@@ -3192,6 +3251,22 @@ async function gameLoop() {
         flyHoldTimer = 0;
         flyDir = null;
         resetFlySwitchAnimationState();
+    }
+
+    if (keys['Shift'] && gameState.astronaut.isLanded) {
+        spriteCol = SPRITE_COL_FLY_RIGHT;
+        flipSprite = getAstronautFacingDirectionForFlyPose(keys) === 'left';
+        flipVertical = true;
+        rememberLastFlyPose(spriteCol, flipSprite);
+    }
+
+    const isLayingDownPose = flipVertical;
+    if (isLayingDownPose) {
+        if (layDownVerticalFlipToggled) {
+            flipVertical = !flipVertical;
+        }
+    } else {
+        layDownVerticalFlipToggled = false;
     }
 
     currentAstronautRenderState = {
@@ -6460,23 +6535,29 @@ function updateCreatures(frameNow: number, simulationFrame: number) {
             }
         }
 
+        let birdChasingAstronaut = false;
         if (bird && creature.movementMode === 'fly') {
-            const chasingAstronaut = runtimeState.followingAstronaut === true;
-            if (chasingAstronaut && Math.abs(dy) < BIRD_AVOIDANCE_VERTICAL_THRESHOLD) {
+            birdChasingAstronaut = runtimeState.followingAstronaut === true;
+            if (birdChasingAstronaut && Math.abs(dy) < BIRD_AVOIDANCE_VERTICAL_THRESHOLD) {
                 const avoidanceDirection = typeof runtimeState.birdAvoidanceDirection === 'number'
                     ? Math.sign(Number(runtimeState.birdAvoidanceDirection)) || 1
                     : (Math.sign(dx) || 1);
                 runtimeState.birdAvoidanceDirection = avoidanceDirection;
                 nextY += avoidanceDirection * Math.max(1, speed * 0.8);
-            } else if (!chasingAstronaut) {
+            } else if (!birdChasingAstronaut) {
                 delete runtimeState.birdAvoidanceDirection;
             }
+        }
 
-            const movementResult = moveCreatureWithEnvironmentCollisions(creature, nextX, nextY);
+        let movementResult: AxisMovementResult | null = null;
+        if (creature.collision && !creature.fixed && creature.movementMode !== 'turret') {
+            movementResult = moveCreatureWithEnvironmentCollisions(creature, nextX, nextY);
             nextX = movementResult.x;
             nextY = movementResult.y;
+        }
 
-            if (chasingAstronaut) {
+        if (bird && creature.movementMode === 'fly' && movementResult) {
+            if (birdChasingAstronaut) {
                 if (movementResult.movedY !== 0) {
                     runtimeState.birdAvoidanceDirection = Math.sign(movementResult.movedY) || runtimeState.birdAvoidanceDirection;
                 }
@@ -6779,7 +6860,7 @@ function updateHeldCollectablePosition() {
 }
 
 function isLooseCollectable(collectable: Collectable) {
-    return !collectable.collected && !collectable.held && !collectable.stored;
+    return !collectable.held && !collectable.stored;
 }
 
 function getEntityOverlapBounds(

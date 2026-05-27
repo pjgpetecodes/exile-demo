@@ -15,6 +15,21 @@
     "activeDestinationIndex": 0
   },
   {
+    "id": "teleporter_10",
+    "baseX": 10348,
+    "baseY": 5209,
+    "padX": 10348,
+    "padY": 5209,
+    "enabled": true,
+    "requiresKey": false,
+    "destinationA": {
+      "x": 7556,
+      "y": 3962
+    },
+    "destinationB": null,
+    "activeDestinationIndex": 0
+  },
+  {
     "id": "teleporter_2",
     "baseX": 8870,
     "baseY": 2394,

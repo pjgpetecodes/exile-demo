@@ -59,6 +59,7 @@ export type DoorSaveData = {
     type: string;
     palette?: number;
     rotation?: number;
+    translation?: SpriteTranslation;
     name?: string;
     doorID?: number;
     locked?: boolean;
@@ -747,7 +748,7 @@ function formatSpriteTranslation(translation?: string | null) {
 }
 
 function categorySupportsTranslation(category: DesignerCategory) {
-    return category === 'world' || category === 'creatures';
+    return category === 'world' || category === 'creatures' || category === 'doors';
 }
 
 function toMapBlockData(block: MapBlock): MapBlock {
@@ -878,6 +879,7 @@ function toDoorData(door: any): DoorSaveData {
         type: door.type,
         palette: door.palette ?? 0,
         rotation: normalizeRotation(door.rotation),
+        translation: normalizeSpriteTranslation(door.translation),
         name: door.name ?? '',
         doorID: door.doorID ?? -1,
         locked: door.defaultLocked ?? door.locked ?? false,
@@ -6786,12 +6788,14 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         type?: string;
         palette?: number;
         rotation?: number;
+        translation?: SpriteTranslation;
         collision?: boolean;
         paletteCycle?: PaletteCycleSettings;
     }) {
         const doorId = getNextDoorId();
-        const type = isDoorSpriteType(config.type ?? '')
-            ? (config.type as 'door_horizontal' | 'door_vertical')
+        const configuredType = typeof config.type === 'string' ? config.type.trim() : '';
+        const type = configuredType.length > 0
+            ? configuredType
             : (state.typeByCategory.doors as 'door_horizontal' | 'door_vertical');
         return new Door({
             x: config.x,
@@ -6800,6 +6804,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             type,
             palette: config.palette ?? state.palette,
             rotation: normalizeRotation(config.rotation ?? state.rotation),
+            translation: normalizeSpriteTranslation(config.translation),
             name: `${type}_${doorId}`,
             doorID: doorId,
             locked: false,
@@ -7257,12 +7262,19 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         if (targetCategory === 'doors') {
             const sourceType = typeof selection.entity.type === 'string' ? selection.entity.type : '';
             const resolvedDoorType = getDoorTypeFromSourceType(sourceType);
+            const convertedDoorType = selection.category === 'world'
+                ? sourceType
+                : (resolvedDoorType ?? sourceType);
+            const sourceTranslation = categorySupportsTranslation(selection.category)
+                ? normalizeSpriteTranslation(selection.entity.translation)
+                : 'center';
             const door = createDoorEntity({
                 x: selection.entity.x,
                 y: selection.entity.y,
-                type: resolvedDoorType ?? undefined,
+                type: convertedDoorType || undefined,
                 palette: basePalette,
                 rotation: baseRotation,
+                translation: sourceTranslation,
                 collision: baseCollision,
                 paletteCycle: basePaletteCycle
             });
@@ -7534,6 +7546,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 y,
                 palette: state.palette,
                 rotation: state.rotation,
+                translation: state.translation,
                 collision: true
             });
             getCategoryArray('doors').push(entity);
@@ -9993,7 +10006,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 }
             });
         });
-        if (category === 'world') {
+        if (categorySupportsTranslation(category)) {
             addSelectInspector(
                 container,
                 'Translation',
@@ -11494,8 +11507,14 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         }
     }
 
-    function handleWindowBeforeUnload() {
+    function handleWindowBeforeUnload(event: BeforeUnloadEvent) {
         persistDesignerUiState();
+        if (!state.dirty) {
+            return;
+        }
+        event.preventDefault();
+        // Browsers ignore custom text and show a generic confirmation message.
+        event.returnValue = '';
     }
 
     function setDesignerActive(nextActive: boolean) {
@@ -11508,8 +11527,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             refreshPanel();
             return;
         }
-        if (state.mode === 'edit' && restoreEditModeSnapshot()) {
-            setStatus('Restored the authored world state for editing.', 'neutral');
+        if (state.mode === 'edit') {
+            // When reopening the panel in edit mode, keep the live world as-is.
+            // Restoring an older cached snapshot here can re-apply stale chunk-resident data.
+            syncEditModeSnapshot();
         }
         // Re-sync to the current live view each time the panel is restored so
         // the world does not jump back to an older stored designer camera.

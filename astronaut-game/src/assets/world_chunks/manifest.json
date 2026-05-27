@@ -72,13 +72,13 @@
       "x": 3,
       "y": 1,
       "file": "chunk_3_1.json",
-      "count": 517
+      "count": 1040
     },
     {
       "x": 4,
       "y": 1,
       "file": "chunk_4_1.json",
-      "count": 612
+      "count": 617
     },
     {
       "x": 5,
@@ -120,13 +120,13 @@
       "x": 3,
       "y": 2,
       "file": "chunk_3_2.json",
-      "count": 602
+      "count": 1204
     },
     {
       "x": 4,
       "y": 2,
       "file": "chunk_4_2.json",
-      "count": 690
+      "count": 684
     },
     {
       "x": 5,
@@ -168,7 +168,7 @@
       "x": 3,
       "y": 3,
       "file": "chunk_3_3.json",
-      "count": 767
+      "count": 1534
     },
     {
       "x": 4,

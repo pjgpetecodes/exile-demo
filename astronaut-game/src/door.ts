@@ -13,6 +13,7 @@ export class Door {
     type: string;
     palette: number;
     rotation: number;
+    translation: string;
     name: string;
     doorID: number;
     locked: boolean;
@@ -35,6 +36,7 @@ export class Door {
         this.type = data.type;
         this.palette = data.palette ?? 0;
         this.rotation = data.rotation ?? 1;
+        this.translation = typeof data.translation === 'string' ? data.translation : 'center';
         this.name = data.name ?? "";
         this.doorID = data.doorID ?? -1;
         this.locked = data.locked ?? false;
