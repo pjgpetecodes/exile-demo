@@ -33,6 +33,36 @@ export let downPressed = false;
 export let leftPressed = false;
 export let rightPressed = false;
 let currentCollisionProfile = 'stand';
+const FALLBACK_PRONE_COLLISION_BOUNDS: Record<string, { worldMinX: number; worldMaxX: number; worldMinY: number; worldMaxY: number }> = {
+    prone_down: { worldMinX: 2, worldMaxX: 29, worldMinY: 16, worldMaxY: 31 },
+    prone_up: { worldMinX: 2, worldMaxX: 29, worldMinY: 0, worldMaxY: 15 }
+};
+
+function getDerivedProneCollisionBounds(profile: string) {
+    if (profile !== 'prone_down' && profile !== 'prone_up') {
+        return null;
+    }
+    const astronautWorldBoundingBoxes = (window as any).astronautWorldBoundingBoxes;
+    const proneSource = astronautWorldBoundingBoxes?.fly_right;
+    if (!proneSource) {
+        return FALLBACK_PRONE_COLLISION_BOUNDS[profile];
+    }
+    const minX = Math.max(0, Math.min(31, Math.round(proneSource.worldMinX)));
+    const maxX = Math.max(minX, Math.min(31, Math.round(proneSource.worldMaxX)));
+    const minY = Math.max(0, Math.min(31, Math.round(proneSource.worldMinY)));
+    const maxY = Math.max(minY, Math.min(31, Math.round(proneSource.worldMaxY)));
+
+    if (profile === 'prone_down') {
+        return { worldMinX: minX, worldMaxX: maxX, worldMinY: minY, worldMaxY: maxY };
+    }
+
+    return {
+        worldMinX: minX,
+        worldMaxX: maxX,
+        worldMinY: 31 - maxY,
+        worldMaxY: 31 - minY
+    };
+}
 
 type MovementModifiers = {
     walkSpeedScale?: number;
@@ -107,6 +137,9 @@ export function handleAstronautMovement(
 ) {
     const walkSpeedScale = modifiers.walkSpeedScale ?? 1;
     const flightControlScale = modifiers.flightControlScale ?? 1;
+    if (astronaut.isLanded && !allowWalking) {
+        walkSpeed = 0;
+    }
     // Upward (P or ArrowUp)
     if ((keys['p'] || keys['ArrowUp'])) {
         if (astronaut.isLanded) {
@@ -133,7 +166,7 @@ export function handleAstronautMovement(
     leftPressed = false;
     if (keys['q']) {
         leftPressed = true;
-        if (astronaut.isLanded) {
+        if (astronaut.isLanded && allowWalking) {
             const walkStartSpeed = MOVEMENT_SETTINGS.walkStartSpeed * walkSpeedScale;
             const walkAccel = MOVEMENT_SETTINGS.walkAccel * walkSpeedScale;
             const walkMaxSpeed = MOVEMENT_SETTINGS.walkMaxSpeed * walkSpeedScale;
@@ -141,6 +174,13 @@ export function handleAstronautMovement(
             walkSpeed += walkAccel;
             if (walkSpeed > walkMaxSpeed) walkSpeed = walkMaxSpeed;
             if (allowWalking) astronaut.position.x -= walkSpeed;
+            facingLeft = true;
+        } else if (astronaut.isLanded) {
+            astronaut.velocity.x -= MOVEMENT_SETTINGS.flyAccel * flightControlScale;
+            if (astronaut.velocity.x < -(MOVEMENT_SETTINGS.flyMaxSpeed * flightControlScale)) {
+                astronaut.velocity.x = -(MOVEMENT_SETTINGS.flyMaxSpeed * flightControlScale);
+            }
+            astronaut.position.x += astronaut.velocity.x;
             facingLeft = true;
         } else {
             astronaut.velocity.x -= MOVEMENT_SETTINGS.flyAccel * flightControlScale;
@@ -152,7 +192,7 @@ export function handleAstronautMovement(
     rightPressed = false;
     if (keys['w']) {
         rightPressed = true;
-        if (astronaut.isLanded) {
+        if (astronaut.isLanded && allowWalking) {
             const walkStartSpeed = MOVEMENT_SETTINGS.walkStartSpeed * walkSpeedScale;
             const walkAccel = MOVEMENT_SETTINGS.walkAccel * walkSpeedScale;
             const walkMaxSpeed = MOVEMENT_SETTINGS.walkMaxSpeed * walkSpeedScale;
@@ -160,6 +200,13 @@ export function handleAstronautMovement(
             walkSpeed += walkAccel;
             if (walkSpeed > walkMaxSpeed) walkSpeed = walkMaxSpeed;
             if (allowWalking) astronaut.position.x += walkSpeed;
+            facingLeft = false;
+        } else if (astronaut.isLanded) {
+            astronaut.velocity.x += MOVEMENT_SETTINGS.flyAccel * flightControlScale;
+            if (astronaut.velocity.x > MOVEMENT_SETTINGS.flyMaxSpeed * flightControlScale) {
+                astronaut.velocity.x = MOVEMENT_SETTINGS.flyMaxSpeed * flightControlScale;
+            }
+            astronaut.position.x += astronaut.velocity.x;
             facingLeft = false;
         } else {
             astronaut.velocity.x += MOVEMENT_SETTINGS.flyAccel * flightControlScale;
@@ -192,6 +239,13 @@ export function handleAstronautMovement(
         walkSpeed <= 0
     ) {
         walkSpeed = 0;
+    }
+
+    if (astronaut.isLanded && !allowWalking && !leftPressed && !rightPressed) {
+        astronaut.velocity.x *= 0.75;
+        if (Math.abs(astronaut.velocity.x) < 0.01) {
+            astronaut.velocity.x = 0;
+        }
     }
 
     // Upward/downward acceleration if up or down is held and astronaut is not landed
@@ -260,11 +314,20 @@ type CollisionState = {
     touchedDoor?: Door;
 };
 
-export function getAstronautCollisionOffsets() {
+export function getAstronautCollisionOffsets(profile: string = currentCollisionProfile) {
     const tileW = 32 * SPRITE_SCALE;
     const tileH = 32 * SPRITE_SCALE;
+    const customBounds = getDerivedProneCollisionBounds(profile);
+    if (customBounds) {
+        return {
+            left: -tileW / 2 + customBounds.worldMinX * SPRITE_SCALE,
+            right: -tileW / 2 + (customBounds.worldMaxX + 1) * SPRITE_SCALE - 1,
+            top: -tileH / 2 + customBounds.worldMinY * SPRITE_SCALE,
+            bottom: -tileH / 2 + (customBounds.worldMaxY + 1) * SPRITE_SCALE - 1
+        };
+    }
     const astronautWorldBoundingBoxes = (window as any).astronautWorldBoundingBoxes;
-    const bbox = astronautWorldBoundingBoxes?.[currentCollisionProfile];
+    const bbox = astronautWorldBoundingBoxes?.[profile];
     if (!bbox) {
         return {
             left: -tileW / 2,
@@ -469,7 +532,10 @@ function tryStepUp(
     doorEntities: Door[],
     buttonEntities: Button[]
 ) {
-    for (let stepHeight = 1; stepHeight <= MOVEMENT_SETTINGS.walkStepUpHeight; stepHeight++) {
+    const maxStepUpHeight = currentCollisionProfile.startsWith('prone_')
+        ? MOVEMENT_SETTINGS.proneStepUpHeight
+        : MOVEMENT_SETTINGS.walkStepUpHeight;
+    for (let stepHeight = 1; stepHeight <= maxStepUpHeight; stepHeight++) {
         const candidateY = currentY - stepHeight;
         const sideHit = collidesOnSide(
             targetX,
@@ -489,7 +555,7 @@ function tryStepUp(
         const support = findGroundSupport(
             targetX,
             candidateY,
-            MOVEMENT_SETTINGS.walkStepUpHeight,
+            maxStepUpHeight,
             spriteMap,
             SPRITE_SCALE,
             mapBlocks,
@@ -508,7 +574,8 @@ function tryStepUp(
     return undefined;
 }
 
-function isAstronautOverlappingSolid(
+function isAstronautOverlappingSolidForProfile(
+    profile: string,
     centerX: number,
     centerY: number,
     spriteMap: any,
@@ -517,7 +584,7 @@ function isAstronautOverlappingSolid(
     doorEntities: Door[],
     buttonEntities: Button[]
 ) {
-    const offsets = getAstronautCollisionOffsets();
+    const offsets = getAstronautCollisionOffsets(profile);
     const sampleXs = sampleEdge(centerX + offsets.left + 1, centerX + offsets.right - 1, 6);
     const sampleYs = sampleEdge(centerY + offsets.top + 1, centerY + offsets.bottom - 1, 6);
 
@@ -539,6 +606,49 @@ function isAstronautOverlappingSolid(
     }
 
     return false;
+}
+
+function isAstronautOverlappingSolid(
+    centerX: number,
+    centerY: number,
+    spriteMap: any,
+    SPRITE_SCALE: number,
+    mapBlocks: MapBlock[],
+    doorEntities: Door[],
+    buttonEntities: Button[]
+) {
+    return isAstronautOverlappingSolidForProfile(
+        currentCollisionProfile,
+        centerX,
+        centerY,
+        spriteMap,
+        SPRITE_SCALE,
+        mapBlocks,
+        doorEntities,
+        buttonEntities
+    );
+}
+
+export function canAstronautFitCollisionProfile(
+    profile: string,
+    centerX: number,
+    centerY: number,
+    spriteMap: any,
+    SPRITE_SCALE: number,
+    mapBlocks: MapBlock[],
+    doorEntities: Door[],
+    buttonEntities: Button[]
+) {
+    return !isAstronautOverlappingSolidForProfile(
+        profile,
+        centerX,
+        centerY,
+        spriteMap,
+        SPRITE_SCALE,
+        mapBlocks,
+        doorEntities,
+        buttonEntities
+    );
 }
 
 function resolveAstronautOverlap(

@@ -13,7 +13,7 @@ import {
     TeleporterSaveData
 } from './types/index.js';
 import {
-    astronaut, resetAstronaut, resetAstronautToPosition, flipAstronaut, handleAstronautMovement, applyLandingMomentum, getAstronautCollisionOffsets, setAstronautCollisionProfile,
+    astronaut, resetAstronaut, resetAstronautToPosition, flipAstronaut, handleAstronautMovement, applyLandingMomentum, getAstronautCollisionOffsets, setAstronautCollisionProfile, canAstronautFitCollisionProfile,
     getAstronautStartPosition, setAstronautStartPosition,
     walkSpeed, facingLeft, upPressed, downPressed, leftPressed, rightPressed,
     checkAstronautCollisions
@@ -225,14 +225,39 @@ function getInputKey(event: KeyboardEvent) {
     if (event.code === 'Space') {
         return ' ';
     }
+    if (event.code === 'Quote' && event.shiftKey) {
+        return '@';
+    }
     if (event.key.length === 1) {
         return event.key.toLowerCase();
     }
     return event.key;
 }
 
+function shouldPreventGameplayDefault(event: KeyboardEvent) {
+    if (isDesignerOpen()) {
+        return false;
+    }
+    const key = getInputKey(event);
+    return (
+        key === ' ' ||
+        key === 'Tab' ||
+        key === '@' ||
+        key === "'" ||
+        key === '/' ||
+        key === 'q' ||
+        key === 'w' ||
+        key === 'p' ||
+        key === 'l' ||
+        event.code === 'Quote' ||
+        event.code === 'Slash'
+    );
+}
+
 document.addEventListener('keydown', (event) => {
-    blockBrowserShortcut(event);
+    if (blockBrowserShortcut(event) || shouldPreventGameplayDefault(event)) {
+        event.preventDefault();
+    }
 }, { capture: true });
 
 window.addEventListener('keydown', (event) => {
@@ -241,7 +266,7 @@ window.addEventListener('keydown', (event) => {
         return;
     }
     const key = getInputKey(event);
-    if (key === ' ') {
+    if (shouldPreventGameplayDefault(event)) {
         event.preventDefault();
     }
     keys[key] = true;
@@ -250,7 +275,7 @@ window.addEventListener('keydown', (event) => {
 
 window.addEventListener('keyup', (event) => {
     const key = getInputKey(event);
-    if (key === ' ') {
+    if (shouldPreventGameplayDefault(event)) {
         event.preventDefault();
     }
     keys[key] = false;
@@ -279,7 +304,7 @@ window.addEventListener('keydown', (e) => {
     if (isDesignerOpen()) return;
     if (e.key === "Tab") {
         e.preventDefault(); // Prevent tab from bubbling to browser
-        if (currentAstronautRenderState.flipVertical) {
+        if (pronePoseActive) {
             layDownVerticalFlipToggled = !layDownVerticalFlipToggled;
         } else {
             flipAstronaut();
@@ -901,6 +926,7 @@ let teleporterEntities: TeleporterRuntime[] = [];
 let teleporterTouchCooldownUntilMs = 0;
 let heldCollectable: Collectable | null = null;
 let storedCollectables: Collectable[] = [];
+let collectedCollectableEntityIds = new Set<number>();
 let inventoryCycleIndex = -1;
 let throwAngleDegrees = 20;
 type ThrowGuideDot = {
@@ -1041,6 +1067,9 @@ let currentAstronautRenderState = {
     flipVertical: false
 };
 let layDownVerticalFlipToggled = false;
+let pronePoseActive = false;
+let proneForcedByGeometry = false;
+let activeAstronautCollisionProfile = 'stand';
 const chunkActivityManager = new ChunkActivityManager({
     chunkWorldSize: CHUNK_ACTIVITY_SETTINGS.chunkWorldSize,
     radiiChunks: deepClone(CHUNK_ACTIVITY_SETTINGS.radiiChunks),
@@ -1319,6 +1348,13 @@ window.addEventListener('keydown', (event) => {
 });
 
 function getCurrentAstronautCollisionProfile() {
+    const proneCollisionProfile = layDownVerticalFlipToggled ? 'prone_up' : 'prone_down';
+    if (keys['Shift']) {
+        return proneCollisionProfile;
+    }
+    if (!astronaut.isLanded && proneForcedByGeometry) {
+        return proneCollisionProfile;
+    }
     if (astronaut.isLanded) {
         return 'stand';
     }
@@ -1629,6 +1665,7 @@ async function loadCreatures() {
 async function loadCollectables() {
     const arr = await fetchFreshJson<any[]>('./src/assets/collectables.json');
     collectableEntities = arr.map((data: any) => assignEntityId(new Collectable(data)));
+    collectedCollectableEntityIds.clear();
     syncCollectableRuntimeState();
 }
 
@@ -1638,6 +1675,14 @@ async function loadAstronautStartPosition() {
 }
 
 function syncCollectableRuntimeState() {
+    const currentCollectableIds = new Set(
+        collectableEntities
+            .map((collectable) => collectable.entityId)
+            .filter((entityId): entityId is number => typeof entityId === 'number')
+    );
+    collectedCollectableEntityIds = new Set(
+        [...collectedCollectableEntityIds].filter((entityId) => currentCollectableIds.has(entityId))
+    );
     storedCollectables = collectableEntities.filter(collectable => collectable.stored);
     heldCollectable = collectableEntities.find(collectable => collectable.held) ?? null;
     inventoryCycleIndex = storedCollectables.length > 0 ? storedCollectables.length - 1 : -1;
@@ -1651,6 +1696,16 @@ function isCreatureProjectileCollectable(collectable: Collectable): collectable 
     return !!collectable.creatureProjectile;
 }
 
+function isCollectableCollected(collectable: Collectable) {
+    return typeof collectable.entityId === 'number' && collectedCollectableEntityIds.has(collectable.entityId);
+}
+
+function markCollectableCollected(collectable: Collectable) {
+    if (typeof collectable.entityId === 'number') {
+        collectedCollectableEntityIds.add(collectable.entityId);
+    }
+}
+
 function getCreatureProjectileCollectables() {
     return collectableEntities.filter(isCreatureProjectileCollectable);
 }
@@ -1658,6 +1713,7 @@ function getCreatureProjectileCollectables() {
 function getRenderableCollectables() {
     return collectableEntities.filter((collectable) =>
         !isCreatureProjectileCollectable(collectable) &&
+        !isCollectableCollected(collectable) &&
         !collectable.stored &&
         !collectable.held
     );
@@ -1862,6 +1918,7 @@ async function getRawWorldDataForSave(): Promise<RawWorldData> {
 }
 
 function replaceRawWorldData(data: RawWorldData) {
+    collectedCollectableEntityIds.clear();
     mapBlocks.splice(0, mapBlocks.length, ...data.worldMap.map((block) => assignEntityId({ ...block })));
     doorEntities = data.doors.map((door) => assignEntityId(new Door(door)));
     buttonEntities = data.buttons.map((button) => assignEntityId(new Button(button)));
@@ -2430,6 +2487,7 @@ async function gameLoop() {
     let spriteCol = SPRITE_COL_STAND;
     let flipSprite = facingLeft;
     let flipVertical = false;
+    pronePoseActive = false;
 
     // --- Teleport memory logic ---
     if (!isDesignerOpen() && keys['r'] && !prevKeys['r']) {
@@ -2654,15 +2712,30 @@ async function gameLoop() {
     const movementStartY = gameState.astronaut.position.y;
     const movementModifiers = getHeldMovementModifiers();
     const astronautControlModifiers = getAstronautControlModifiers(frameNow);
-    handleAstronautMovement(keys, true, {
+    const proneIntentActive = !!(keys['Shift'] || (!gameState.astronaut.isLanded && proneForcedByGeometry));
+    const hasThrustInput = !!(keys['q'] || keys['w'] || keys['p'] || keys['ArrowUp'] || keys['l']);
+    const boosterActive = !!(keys['@'] && hasThrustInput && astronaut.energy > 0);
+    const boosterScale = boosterActive ? MOVEMENT_SETTINGS.jetpackBoosterMultiplier : 1;
+    if (boosterActive) {
+        astronaut.energy = Math.max(0, astronaut.energy - MOVEMENT_SETTINGS.jetpackBoosterEnergyCostPerFrame);
+        astronaut.nextEnergyRegenAtMs = frameNow + MOVEMENT_SETTINGS.astronautEnergyRegenIntervalMs;
+    }
+    handleAstronautMovement(keys, !proneIntentActive, {
         walkSpeedScale: movementModifiers.walkSpeedScale * astronautControlModifiers.walkSpeedScale,
-        flightControlScale: movementModifiers.flightControlScale * astronautControlModifiers.flightControlScale
+        flightControlScale: movementModifiers.flightControlScale * astronautControlModifiers.flightControlScale * boosterScale
     });
-    const movementTargetX = astronaut.position.x;
-    const movementTargetY = astronaut.position.y;
+    let movementTargetX = astronaut.position.x;
+    let movementTargetY = astronaut.position.y;
     astronaut.position.x = movementStartX;
     astronaut.position.y = movementStartY;
-    setAstronautCollisionProfile(getCurrentAstronautCollisionProfile());
+    const nextAstronautCollisionProfile = getCurrentAstronautCollisionProfile();
+    if (gameState.astronaut.isLanded && nextAstronautCollisionProfile !== activeAstronautCollisionProfile) {
+        const previousOffsets = getAstronautCollisionOffsets(activeAstronautCollisionProfile);
+        const nextOffsets = getAstronautCollisionOffsets(nextAstronautCollisionProfile);
+        movementTargetY += previousOffsets.bottom - nextOffsets.bottom;
+    }
+    setAstronautCollisionProfile(nextAstronautCollisionProfile);
+    activeAstronautCollisionProfile = nextAstronautCollisionProfile;
 
     // --- Door animation update ---
     for (const door of doorEntities) {
@@ -2672,7 +2745,8 @@ async function gameLoop() {
     // Clear all velocities if landed and not walking
     if (
         gameState.astronaut.isLanded &&
-        walkSpeed === 0
+        walkSpeed === 0 &&
+        !proneIntentActive
     ) {
         astronaut.velocity.x = 0;
         astronaut.velocity.y = 0;
@@ -2724,6 +2798,16 @@ async function gameLoop() {
     astronaut.velocity.y = collisionState.velocityY;
     gameState.astronaut.isLanded = collisionState.isLanded;
     gameState.astronaut.isFlying = !collisionState.isLanded;
+    proneForcedByGeometry = !collisionState.isLanded && !canAstronautFitCollisionProfile(
+        'stand',
+        gameState.astronaut.position.x,
+        gameState.astronaut.position.y,
+        spriteMap,
+        SPRITE_SCALE,
+        mapBlocks,
+        doorEntities,
+        buttonEntities
+    );
     if (!wasLanded && collisionState.isLanded) {
         const carriedHorizontalMotion = collisionState.nextX - movementStartX;
         const landingMomentumSource = Math.abs(carriedHorizontalMotion) > Math.abs(horizontalVelocityBeforeResolution)
@@ -3253,18 +3337,18 @@ async function gameLoop() {
         resetFlySwitchAnimationState();
     }
 
-    if (keys['Shift'] && gameState.astronaut.isLanded) {
+    if (keys['Shift'] || (!gameState.astronaut.isLanded && proneForcedByGeometry)) {
         spriteCol = SPRITE_COL_FLY_RIGHT;
         flipSprite = getAstronautFacingDirectionForFlyPose(keys) === 'left';
-        flipVertical = true;
+        // Default prone orientation is facing down; Tab toggles to the opposite orientation.
+        flipVertical = layDownVerticalFlipToggled;
+        pronePoseActive = true;
         rememberLastFlyPose(spriteCol, flipSprite);
     }
 
-    const isLayingDownPose = flipVertical;
+    const isLayingDownPose = pronePoseActive;
     if (isLayingDownPose) {
-        if (layDownVerticalFlipToggled) {
-            flipVertical = !flipVertical;
-        }
+        // Tab toggles vertical orientation while in prone mode.
     } else {
         layDownVerticalFlipToggled = false;
     }
@@ -4823,7 +4907,7 @@ function isCoroniumExplosionAtCenter(center: Position) {
     const radioactiveBoulderCenters = collectableEntities
         .filter((collectable) =>
             isRadioactiveBoulderCollectable(collectable) &&
-            !collectable.collected &&
+            !isCollectableCollected(collectable) &&
             !collectable.stored
         )
         .map((collectable) => getEntityCenter(
@@ -5481,6 +5565,9 @@ function cleanupCollectableReferences(collectable: Collectable) {
 
 function removeCollectableEntity(collectable: Collectable) {
     cleanupCollectableReferences(collectable);
+    if (typeof collectable.entityId === 'number') {
+        collectedCollectableEntityIds.delete(collectable.entityId);
+    }
     const index = collectableEntities.indexOf(collectable);
     if (index >= 0) {
         collectableEntities.splice(index, 1);
@@ -6860,7 +6947,7 @@ function updateHeldCollectablePosition() {
 }
 
 function isLooseCollectable(collectable: Collectable) {
-    return !collectable.held && !collectable.stored;
+    return !isCollectableCollected(collectable) && !collectable.held && !collectable.stored;
 }
 
 function getEntityOverlapBounds(
@@ -6983,8 +7070,13 @@ function handleCollectableInteractions() {
     if (keys[','] && !prevKeys[','] && !heldCollectable) {
         const pickupTarget = getNearestPickupCollectable();
         if (pickupTarget) {
-            pickupTarget.hold(facingLeft);
-            heldCollectable = pickupTarget;
+            if (pickupTarget.collected) {
+                markCollectableCollected(pickupTarget);
+                try { getSound.currentTime = 0; getSound.play(); } catch {}
+            } else {
+                pickupTarget.hold(facingLeft);
+                heldCollectable = pickupTarget;
+            }
         } else {
             const pickupCreature = getNearestPickupCreature();
             if (pickupCreature) {

@@ -818,7 +818,15 @@ export async function calculateSpriteCollisionBoundingBoxes(
     // Helper to check if a pixel is transparent in the sprite sheet
     function isPixelTransparent(imgData: Uint8ClampedArray, imgW: number, x: number, y: number): boolean {
         const idx = (y * imgW + x) * 4;
-        return imgData[idx + 3] === 0;
+        const alpha = imgData[idx + 3];
+        if (alpha === 0) {
+            return true;
+        }
+        // Astronaut sprites use black as transparency in the runtime pipeline.
+        const red = imgData[idx];
+        const green = imgData[idx + 1];
+        const blue = imgData[idx + 2];
+        return red === 0 && green === 0 && blue === 0;
     }
 
     // Get image data once for efficiency

@@ -320,16 +320,6 @@
     "translation": "center"
   },
   {
-    "x": 9052,
-    "y": 4292,
-    "type": "whistle",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 5,
-    "rotation": 1,
-    "translation": "bottom"
-  },
-  {
     "x": 8659,
     "y": 4294,
     "type": "wall_full",

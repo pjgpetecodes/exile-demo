@@ -2780,46 +2780,6 @@
     "translation": "center"
   },
   {
-    "x": 6195,
-    "y": 6617,
-    "type": "wall_half",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 13,
-    "rotation": 3,
-    "translation": "center"
-  },
-  {
-    "x": 6195,
-    "y": 6617,
-    "type": "wall_half",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 13,
-    "rotation": 3,
-    "translation": "center"
-  },
-  {
-    "x": 6406,
-    "y": 6617,
-    "type": "teleporter_pad",
-    "collision": false,
-    "maskAstronaut": true,
-    "palette": 1,
-    "rotation": 1,
-    "translation": "bottom"
-  },
-  {
-    "x": 6406,
-    "y": 6617,
-    "type": "teleporter_pad",
-    "collision": false,
-    "maskAstronaut": true,
-    "palette": 1,
-    "rotation": 1,
-    "translation": "bottom"
-  },
-  {
     "x": 6477,
     "y": 6617,
     "type": "wall_full",
@@ -3317,6 +3277,16 @@
     "maskAstronaut": false,
     "palette": 3,
     "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 6195,
+    "y": 6618,
+    "type": "wall_thirds",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 13,
+    "rotation": 3,
     "translation": "center"
   },
   {

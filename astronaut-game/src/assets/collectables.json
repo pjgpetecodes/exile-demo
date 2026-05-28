@@ -49,7 +49,7 @@
   },
   {
     "x": 6213,
-    "y": 2147,
+    "y": 3265,
     "type": "tree",
     "palette": 20,
     "rotation": 1,
@@ -71,53 +71,7 @@
   },
   {
     "x": 9005,
-    "y": 2168,
-    "type": "grenade",
-    "palette": 14,
-    "rotation": 1,
-    "collected": false,
-    "name": "grenade",
-    "weight": 0.2,
-    "pickupEnabled": true,
-    "storable": true,
-    "affectsAstronaut": false,
-    "collision": true,
-    "held": false,
-    "stored": false,
-    "isGrounded": true,
-    "velocity": {
-      "x": 0,
-      "y": 0
-    },
-    "astronautCollisionIgnoreFrames": 0,
-    "armed": false,
-    "explosionPower": 4
-  },
-  {
-    "x": 7277,
-    "y": 2443,
-    "type": "key1",
-    "palette": 27,
-    "rotation": 3,
-    "collected": true,
-    "name": "key1",
-    "weight": 0.2,
-    "pickupEnabled": true,
-    "storable": true,
-    "affectsAstronaut": false,
-    "collision": true,
-    "held": false,
-    "stored": false,
-    "isGrounded": true,
-    "velocity": {
-      "x": 0,
-      "y": 0
-    },
-    "astronautCollisionIgnoreFrames": 0
-  },
-  {
-    "x": 7109,
-    "y": 2636,
+    "y": 3398,
     "type": "grenade",
     "palette": 14,
     "rotation": 1,
@@ -141,7 +95,7 @@
   },
   {
     "x": 9269,
-    "y": 2788,
+    "y": 3489,
     "type": "chest",
     "palette": 1,
     "rotation": 5,
@@ -160,6 +114,30 @@
       "y": 0
     },
     "astronautCollisionIgnoreFrames": 0
+  },
+  {
+    "x": 7109,
+    "y": 3861,
+    "type": "grenade",
+    "palette": 14,
+    "rotation": 1,
+    "collected": false,
+    "name": "grenade",
+    "weight": 0.2,
+    "pickupEnabled": true,
+    "storable": true,
+    "affectsAstronaut": false,
+    "collision": true,
+    "held": false,
+    "stored": false,
+    "isGrounded": true,
+    "velocity": {
+      "x": 0,
+      "y": 0
+    },
+    "astronautCollisionIgnoreFrames": 0,
+    "armed": false,
+    "explosionPower": 4
   },
   {
     "x": 7529,
@@ -195,6 +173,50 @@
     "pickupEnabled": true,
     "storable": true,
     "affectsAstronaut": true,
+    "collision": true,
+    "held": false,
+    "stored": false,
+    "isGrounded": true,
+    "velocity": {
+      "x": 0,
+      "y": 0
+    },
+    "astronautCollisionIgnoreFrames": 0
+  },
+  {
+    "x": 9053,
+    "y": 4352,
+    "type": "whistle",
+    "palette": 5,
+    "rotation": 1,
+    "collected": true,
+    "name": "whistle",
+    "weight": 0.2,
+    "pickupEnabled": true,
+    "storable": false,
+    "affectsAstronaut": false,
+    "collision": true,
+    "held": false,
+    "stored": false,
+    "isGrounded": false,
+    "velocity": {
+      "x": 0,
+      "y": 0
+    },
+    "astronautCollisionIgnoreFrames": 0
+  },
+  {
+    "x": 7277,
+    "y": 4370,
+    "type": "key1",
+    "palette": 27,
+    "rotation": 3,
+    "collected": true,
+    "name": "key1",
+    "weight": 0.2,
+    "pickupEnabled": true,
+    "storable": true,
+    "affectsAstronaut": false,
     "collision": true,
     "held": false,
     "stored": false,
@@ -295,7 +317,7 @@
   },
   {
     "x": 11351,
-    "y": 16385,
+    "y": 18581,
     "type": "grenade",
     "palette": 14,
     "rotation": 1,

@@ -5000,7 +5000,7 @@
     "translation": "bottom"
   },
   {
-    "x": 5069,
+    "x": 5070,
     "y": 6054,
     "type": "floor_full",
     "collision": true,
@@ -5010,7 +5010,7 @@
     "translation": "center"
   },
   {
-    "x": 5139,
+    "x": 5140,
     "y": 6054,
     "type": "floor_full",
     "collision": true,
@@ -5020,7 +5020,7 @@
     "translation": "center"
   },
   {
-    "x": 5209,
+    "x": 5210,
     "y": 6054,
     "type": "floor_full",
     "collision": true,
@@ -5030,7 +5030,7 @@
     "translation": "center"
   },
   {
-    "x": 5280,
+    "x": 5281,
     "y": 6054,
     "type": "floor_full",
     "collision": true,
@@ -5040,7 +5040,7 @@
     "translation": "center"
   },
   {
-    "x": 5350,
+    "x": 5351,
     "y": 6054,
     "type": "floor_full",
     "collision": true,
@@ -5130,6 +5130,86 @@
     "translation": "bottom"
   },
   {
+    "x": 4858,
+    "y": 6124,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 3,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 4929,
+    "y": 6124,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 3,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 4999,
+    "y": 6124,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 3,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 5070,
+    "y": 6124,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 3,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 5140,
+    "y": 6124,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 3,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 5210,
+    "y": 6124,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 3,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 5281,
+    "y": 6124,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 3,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 5351,
+    "y": 6124,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 3,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
     "x": 4153,
     "y": 6125,
     "type": "floor_full",
@@ -5211,86 +5291,6 @@
   },
   {
     "x": 4787,
-    "y": 6125,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 3,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 4857,
-    "y": 6125,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 3,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 4928,
-    "y": 6125,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 3,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 4998,
-    "y": 6125,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 3,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 5069,
-    "y": 6125,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 3,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 5139,
-    "y": 6125,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 3,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 5209,
-    "y": 6125,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 3,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 5280,
-    "y": 6125,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 3,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 5350,
     "y": 6125,
     "type": "floor_full",
     "collision": true,
