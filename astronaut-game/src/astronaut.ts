@@ -33,35 +33,17 @@ export let downPressed = false;
 export let leftPressed = false;
 export let rightPressed = false;
 let currentCollisionProfile = 'stand';
-const FALLBACK_PRONE_COLLISION_BOUNDS: Record<string, { worldMinX: number; worldMaxX: number; worldMinY: number; worldMaxY: number }> = {
-    prone_down: { worldMinX: 2, worldMaxX: 29, worldMinY: 16, worldMaxY: 31 },
-    prone_up: { worldMinX: 2, worldMaxX: 29, worldMinY: 0, worldMaxY: 15 }
+const PRONE_COLLISION_BOUNDS: Record<string, { worldMinX: number; worldMaxX: number; worldMinY: number; worldMaxY: number }> = {
+    // Tuned for floor-flush prone contact and narrow-gap crawling.
+    prone_down: { worldMinX: 4, worldMaxX: 27, worldMinY: 18, worldMaxY: 31 },
+    prone_up: { worldMinX: 4, worldMaxX: 27, worldMinY: 18, worldMaxY: 31 }
 };
 
 function getDerivedProneCollisionBounds(profile: string) {
     if (profile !== 'prone_down' && profile !== 'prone_up') {
         return null;
     }
-    const astronautWorldBoundingBoxes = (window as any).astronautWorldBoundingBoxes;
-    const proneSource = astronautWorldBoundingBoxes?.fly_right;
-    if (!proneSource) {
-        return FALLBACK_PRONE_COLLISION_BOUNDS[profile];
-    }
-    const minX = Math.max(0, Math.min(31, Math.round(proneSource.worldMinX)));
-    const maxX = Math.max(minX, Math.min(31, Math.round(proneSource.worldMaxX)));
-    const minY = Math.max(0, Math.min(31, Math.round(proneSource.worldMinY)));
-    const maxY = Math.max(minY, Math.min(31, Math.round(proneSource.worldMaxY)));
-
-    if (profile === 'prone_down') {
-        return { worldMinX: minX, worldMaxX: maxX, worldMinY: minY, worldMaxY: maxY };
-    }
-
-    return {
-        worldMinX: minX,
-        worldMaxX: maxX,
-        worldMinY: 31 - maxY,
-        worldMaxY: 31 - minY
-    };
+    return PRONE_COLLISION_BOUNDS[profile];
 }
 
 type MovementModifiers = {

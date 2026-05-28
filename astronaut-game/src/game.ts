@@ -791,6 +791,30 @@ function drawAstronautSprite(
     );
 }
 
+function getProneRenderAnchorOffset(
+    spriteRect: { x: number; y: number; w: number; h: number },
+    flipVertical: boolean
+) {
+    if (!pronePoseActive) {
+        return 0;
+    }
+    const frameCanvas = getAstronautSpriteFrameCanvas(spriteRect);
+    if (!frameCanvas) {
+        return 0;
+    }
+    const visibleBounds = getSpriteVisibleBounds(frameCanvas);
+    if (!visibleBounds) {
+        return 0;
+    }
+
+    const visibleBottomPixel = flipVertical
+        ? (spriteRect.h - 1 - visibleBounds.minY)
+        : visibleBounds.maxY;
+    const visibleBottomOffset = -16 * SPRITE_SCALE + (visibleBottomPixel + 1) * SPRITE_SCALE - 1;
+    const collisionBottomOffset = getAstronautCollisionOffsets(activeAstronautCollisionProfile).bottom;
+    return collisionBottomOffset - visibleBottomOffset;
+}
+
 function updateAstronautEnergyRecovery(now: number) {
     if (teleporting || astronaut.energy >= astronaut.maxEnergy) {
         return;
@@ -2411,9 +2435,10 @@ function drawAstronautInWorld(
     const renderNow = performance.now();
 
     context.save();
+    const proneRenderYOffset = getProneRenderAnchorOffset(spriteRect, flipVertical);
     context.translate(
         Math.round(astronaut.position.x - camera.x),
-        Math.round(astronaut.position.y - camera.y)
+        Math.round(astronaut.position.y - camera.y + proneRenderYOffset)
     );
     if (flipSprite) context.scale(-1, 1);
     if (flipVertical) context.scale(1, -1);
@@ -3469,8 +3494,9 @@ async function gameLoop() {
         const drawW = 32 * SPRITE_SCALE;
         const drawH = 32 * SPRITE_SCALE;
         const renderNow = performance.now();
+        const proneRenderYOffset = getProneRenderAnchorOffset(spriteRect, flipVertical);
         ctx!.save();
-        ctx!.translate(Math.round(canvas.width / 2), Math.round(canvas.height / 2));
+        ctx!.translate(Math.round(canvas.width / 2), Math.round(canvas.height / 2 + proneRenderYOffset));
         if (flipSprite) ctx!.scale(-1, 1);
         if (flipVertical) ctx!.scale(1, -1);
         drawAstronautSprite(ctx!, spriteRect, drawW, drawH, renderNow);
