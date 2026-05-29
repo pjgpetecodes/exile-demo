@@ -35,8 +35,8 @@ export let rightPressed = false;
 let currentCollisionProfile = 'stand';
 const PRONE_COLLISION_BOUNDS: Record<string, { worldMinX: number; worldMaxX: number; worldMinY: number; worldMaxY: number }> = {
     // Tuned for floor-flush prone contact and narrow-gap crawling.
-    prone_down: { worldMinX: 4, worldMaxX: 27, worldMinY: 18, worldMaxY: 31 },
-    prone_up: { worldMinX: 4, worldMaxX: 27, worldMinY: 18, worldMaxY: 31 }
+    prone_down: { worldMinX: 5, worldMaxX: 26, worldMinY: 19, worldMaxY: 31 },
+    prone_up: { worldMinX: 5, worldMaxX: 26, worldMinY: 19, worldMaxY: 31 }
 };
 
 function getDerivedProneCollisionBounds(profile: string) {
@@ -377,6 +377,105 @@ function collidesOnSide(
     return collision?.hit;
 }
 
+type SideCollisionSummary = {
+    totalProbes: number;
+    hitProbes: number;
+    firstCollision?: {
+        hit: unknown;
+        point: { x: number; y: number };
+    };
+};
+
+function summarizeSideCollisions(
+    centerX: number,
+    centerY: number,
+    side: 'down' | 'up' | 'left' | 'right',
+    spriteMap: any,
+    SPRITE_SCALE: number,
+    mapBlocks: MapBlock[],
+    doorEntities: Door[],
+    buttonEntities: Button[]
+): SideCollisionSummary {
+    const probeOffset = side === 'right' || side === 'down' ? 1 : -1;
+    let totalProbes = 0;
+    let hitProbes = 0;
+    let firstCollision: SideCollisionSummary['firstCollision'];
+
+    for (const point of getSideProbePoints(centerX, centerY, side)) {
+        totalProbes += 1;
+        const probeX = point.x + (side === 'left' || side === 'right' ? probeOffset : 0);
+        const probeY = point.y + (side === 'up' || side === 'down' ? probeOffset : 0);
+        const hit = getSolidBlockAtWorld(
+            probeX,
+            probeY,
+            spriteMap,
+            SPRITE_SCALE,
+            mapBlocks,
+            doorEntities,
+            buttonEntities
+        );
+        if (hit) {
+            hitProbes += 1;
+            if (!firstCollision) {
+                firstCollision = {
+                    hit,
+                    point: { x: probeX, y: probeY }
+                };
+            }
+        }
+    }
+
+    return { totalProbes, hitProbes, firstCollision };
+}
+
+function summarizeProneSqueezeSideCollisions(
+    centerX: number,
+    centerY: number,
+    side: 'left' | 'right',
+    spriteMap: any,
+    SPRITE_SCALE: number,
+    mapBlocks: MapBlock[],
+    doorEntities: Door[],
+    buttonEntities: Button[]
+): SideCollisionSummary {
+    const probeOffset = side === 'right' ? 1 : -1;
+    const points = getSideProbePoints(centerX, centerY, side);
+    let totalProbes = 0;
+    let hitProbes = 0;
+    let firstCollision: SideCollisionSummary['firstCollision'];
+
+    for (let i = 0; i < points.length; i++) {
+        // Ignore extreme top/bottom edge probes for prone squeeze so floor/ceiling lips
+        // don't instantly hard-block the horizontal ratchet.
+        if (i === 0 || i === points.length - 1) {
+            continue;
+        }
+        totalProbes += 1;
+        const probeX = points[i].x + probeOffset;
+        const probeY = points[i].y;
+        const hit = getSolidBlockAtWorld(
+            probeX,
+            probeY,
+            spriteMap,
+            SPRITE_SCALE,
+            mapBlocks,
+            doorEntities,
+            buttonEntities
+        );
+        if (hit) {
+            hitProbes += 1;
+            if (!firstCollision) {
+                firstCollision = {
+                    hit,
+                    point: { x: probeX, y: probeY }
+                };
+            }
+        }
+    }
+
+    return { totalProbes, hitProbes, firstCollision };
+}
+
 function findCollisionOnSide(
     centerX: number,
     centerY: number,
@@ -387,30 +486,16 @@ function findCollisionOnSide(
     doorEntities: Door[],
     buttonEntities: Button[]
 ) {
-    const probeOffset = side === 'right' || side === 'down' ? 1 : -1;
-
-    for (const point of getSideProbePoints(centerX, centerY, side)) {
-        const hit = getSolidBlockAtWorld(
-            point.x + (side === 'left' || side === 'right' ? probeOffset : 0),
-            point.y + (side === 'up' || side === 'down' ? probeOffset : 0),
-            spriteMap,
-            SPRITE_SCALE,
-            mapBlocks,
-            doorEntities,
-            buttonEntities
-        );
-        if (hit) {
-            return {
-                hit,
-                point: {
-                    x: point.x + (side === 'left' || side === 'right' ? probeOffset : 0),
-                    y: point.y + (side === 'up' || side === 'down' ? probeOffset : 0)
-                }
-            };
-        }
-    }
-
-    return undefined;
+    return summarizeSideCollisions(
+        centerX,
+        centerY,
+        side,
+        spriteMap,
+        SPRITE_SCALE,
+        mapBlocks,
+        doorEntities,
+        buttonEntities
+    ).firstCollision;
 }
 
 function estimateCeilingSlope(
@@ -549,6 +634,114 @@ function tryStepUp(
             return {
                 snappedY: support.snappedY,
                 supportHit: support.hit
+            };
+        }
+    }
+
+    return undefined;
+}
+
+function getSolidOverlapRatioForProfile(
+    profile: string,
+    centerX: number,
+    centerY: number,
+    spriteMap: any,
+    SPRITE_SCALE: number,
+    mapBlocks: MapBlock[],
+    doorEntities: Door[],
+    buttonEntities: Button[]
+) {
+    const offsets = getAstronautCollisionOffsets(profile);
+    const sampleXs = sampleEdge(centerX + offsets.left + 1, centerX + offsets.right - 1, 8);
+    const sampleYs = sampleEdge(centerY + offsets.top + 1, centerY + offsets.bottom - 1, 8);
+    let solidHits = 0;
+    let sampleCount = 0;
+
+    for (const sampleY of sampleYs) {
+        for (const sampleX of sampleXs) {
+            sampleCount += 1;
+            const hit = getSolidBlockAtWorld(
+                sampleX,
+                sampleY,
+                spriteMap,
+                SPRITE_SCALE,
+                mapBlocks,
+                doorEntities,
+                buttonEntities
+            );
+            if (hit) {
+                solidHits += 1;
+            }
+        }
+    }
+
+    return sampleCount === 0 ? 0 : solidHits / sampleCount;
+}
+
+function tryProneSqueezeMove(
+    targetX: number,
+    currentY: number,
+    side: 'left' | 'right',
+    spriteMap: any,
+    SPRITE_SCALE: number,
+    mapBlocks: MapBlock[],
+    doorEntities: Door[],
+    buttonEntities: Button[]
+): { snappedY: number; supportHit: unknown; isGrounded: boolean } | undefined {
+    if (!currentCollisionProfile.startsWith('prone_')) {
+        return undefined;
+    }
+
+    const maxSideProbeHitRatio = 0.55;
+    const maxInteriorOverlapRatio = 0.3;
+    const verticalOffsets = [0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5, -6, 6];
+    const maxSnapDistance = Math.max(3, MOVEMENT_SETTINGS.proneStepUpHeight + 3);
+    for (const verticalOffset of verticalOffsets) {
+        const candidateY = currentY + verticalOffset;
+        const sideSummary = summarizeProneSqueezeSideCollisions(
+            targetX,
+            candidateY,
+            side,
+            spriteMap,
+            SPRITE_SCALE,
+            mapBlocks,
+            doorEntities,
+            buttonEntities
+        );
+        const sideHitRatio = sideSummary.totalProbes === 0 ? 0 : sideSummary.hitProbes / sideSummary.totalProbes;
+        if (sideHitRatio > maxSideProbeHitRatio) {
+            continue;
+        }
+        const overlapRatio = getSolidOverlapRatioForProfile(
+            currentCollisionProfile,
+            targetX,
+            candidateY,
+            spriteMap,
+            SPRITE_SCALE,
+            mapBlocks,
+            doorEntities,
+            buttonEntities
+        );
+        if (overlapRatio > maxInteriorOverlapRatio) {
+            continue;
+        }
+
+        const support = findGroundSupport(
+            targetX,
+            candidateY,
+            maxSnapDistance,
+            spriteMap,
+            SPRITE_SCALE,
+            mapBlocks,
+            doorEntities,
+            buttonEntities
+        );
+        if (support) {
+            const resolvedY = verticalOffset < 0 ? candidateY : support.snappedY;
+            return {
+                snappedY: resolvedY,
+                supportHit: support.hit,
+                isGrounded: Math.abs(support.snappedY - resolvedY) <= 1
             };
         }
     }
@@ -753,49 +946,6 @@ export function checkAstronautCollisions(buttonEntities: Button[],
     const stepY = deltaY / steps;
 
     for (let i = 0; i < steps; i++) {
-        if (stepX !== 0) {
-            const attemptX = resolvedX + stepX;
-            const side = stepX > 0 ? 'right' : 'left';
-            const sideHit = collidesOnSide(
-                attemptX,
-                resolvedY,
-                side,
-                spriteMap,
-                SPRITE_SCALE,
-                mapBlocks,
-                doorEntities,
-                buttonEntities
-            );
-
-            if (sideHit) {
-                const canStepUp = (gameState.astronaut.isLanded || isLanded) && stepY === 0;
-                const stepUp = canStepUp
-                    ? tryStepUp(
-                        attemptX,
-                        resolvedY,
-                        side,
-                        spriteMap,
-                        SPRITE_SCALE,
-                        mapBlocks,
-                        doorEntities,
-                        buttonEntities
-                    )
-                    : undefined;
-
-                if (stepUp) {
-                    resolvedX = attemptX;
-                    resolvedY = stepUp.snappedY;
-                    isLanded = true;
-                    recordTriggerEntity(stepUp.supportHit);
-                } else {
-                    recordTriggerEntity(sideHit);
-                    velocityX = 0;
-                }
-            } else {
-                resolvedX = attemptX;
-            }
-        }
-
         if (stepY !== 0) {
             const attemptY = resolvedY + stepY;
             const side = stepY > 0 ? 'down' : 'up';
@@ -857,6 +1007,68 @@ export function checkAstronautCollisions(buttonEntities: Button[],
                 if (stepY < 0) {
                     isLanded = false;
                 }
+            }
+        }
+
+        if (stepX !== 0) {
+            const attemptX = resolvedX + stepX;
+            const side = stepX > 0 ? 'right' : 'left';
+            const sideHit = collidesOnSide(
+                attemptX,
+                resolvedY,
+                side,
+                spriteMap,
+                SPRITE_SCALE,
+                mapBlocks,
+                doorEntities,
+                buttonEntities
+            );
+
+            if (sideHit) {
+                const canStepUp = (gameState.astronaut.isLanded || isLanded) && stepY === 0;
+                const canAttemptProneSqueeze: boolean = currentCollisionProfile.startsWith('prone_')
+                    && (gameState.astronaut.isLanded || isLanded || Math.abs(stepY) <= 1);
+                const proneSqueezeMove: { snappedY: number; supportHit: unknown; isGrounded: boolean } | undefined = canAttemptProneSqueeze
+                    ? tryProneSqueezeMove(
+                        attemptX,
+                        resolvedY,
+                        side,
+                        spriteMap,
+                        SPRITE_SCALE,
+                        mapBlocks,
+                        doorEntities,
+                        buttonEntities
+                    )
+                    : undefined;
+                const stepUp = canStepUp
+                    ? tryStepUp(
+                        attemptX,
+                        resolvedY,
+                        side,
+                        spriteMap,
+                        SPRITE_SCALE,
+                        mapBlocks,
+                        doorEntities,
+                        buttonEntities
+                    )
+                    : undefined;
+
+                if (proneSqueezeMove) {
+                    resolvedX = attemptX;
+                    resolvedY = proneSqueezeMove.snappedY;
+                    isLanded = proneSqueezeMove.isGrounded;
+                    recordTriggerEntity(proneSqueezeMove.supportHit);
+                } else if (stepUp) {
+                    resolvedX = attemptX;
+                    resolvedY = stepUp.snappedY;
+                    isLanded = true;
+                    recordTriggerEntity(stepUp.supportHit);
+                } else {
+                    recordTriggerEntity(sideHit);
+                    velocityX = 0;
+                }
+            } else {
+                resolvedX = attemptX;
             }
         }
     }

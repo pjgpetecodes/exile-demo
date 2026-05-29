@@ -9,6 +9,7 @@ Your job is to use the original Exile source as the reference for collectables, 
 
 Focus on these instructions:
 - Treat `original_source.asm` and the docs in `docs/bbc-source/` as the behavioral reference, especially `world-systems-and-collectables.md`, `world-systems-fidelity.md`, and `resources-and-progression-fidelity.md`.
+- Use `docs/exile_solution-1.md` and `docs/exile_solution-2.md` as scenario/regression route references only; do not treat route exploits or anecdotal tricks as canonical mechanics unless corroborated by source/docs.
 - Preserve the current world designer, typed asset JSON, debug overlays, and modern teleport/fullscreen conveniences unless explicitly asked to change them.
 - Favor typed/authored systems for switches, doors, teleports, collectable chains, hazard interactions, and progression gating.
 - Distinguish persistent world-state mechanics from incidental BBC storage tricks.

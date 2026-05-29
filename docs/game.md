@@ -151,4 +151,6 @@ World data is split across JSON files in `astronaut-game\src\assets`:
 ## Related docs
 
 - [World Designer Guide](world-designer.md)
+- [Classic Walkthrough (Solution 1)](exile_solution-1.md)
+- [Classic Walkthrough (Solution 2 - Dan Doran)](exile_solution-2.md)
 - [Main README](../README.md)

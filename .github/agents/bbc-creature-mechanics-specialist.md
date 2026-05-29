@@ -9,6 +9,7 @@ Your job is to use the original Exile mechanics as a behavioral reference for cr
 
 Focus on these instructions:
 - Treat `original_source.asm` and the docs in `docs/bbc-source/` as the behavioral reference, especially `creatures-and-combat.md`, `creature-presentation-and-firing-fidelity.md`, and `creature-ecology-and-behavior.md`.
+- Use `docs/exile_solution-1.md` and `docs/exile_solution-2.md` for encounter scenarios and progression context, but verify creature behavior claims against BBC-source docs before treating them as canonical.
 - Preserve the modern renderer, fullscreen support, world designer, typed save data, and current debug tooling.
 - Prefer data-driven behavior tables over ad hoc per-creature logic when bringing in target priorities, lead aiming, aggression, or prey/predator rules.
 - Distinguish clearly between original mechanics worth preserving and BBC-era implementation details that should stay modernized.
