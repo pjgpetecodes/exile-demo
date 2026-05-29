@@ -3470,6 +3470,16 @@
     "translation": "center"
   },
   {
+    "x": 2323,
+    "y": 5139,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 26,
+    "rotation": 5,
+    "translation": "center"
+  },
+  {
     "x": 2394,
     "y": 5139,
     "type": "floor_full",
@@ -5468,15 +5478,5 @@
     "palette": 18,
     "rotation": 5,
     "translation": "bottom"
-  },
-  {
-    "x": 2323,
-    "y": 5139,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 26,
-    "rotation": 5,
-    "translation": "center"
   }
 ]

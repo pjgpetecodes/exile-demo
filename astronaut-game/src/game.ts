@@ -1,6 +1,8 @@
 // Main entry point for the astronaut game
 import {
     Astronaut,
+    ChunkActivityBand,
+    ChunkActivityRadii,
     CreatureFireMode,
     CreatureProjectileKind,
     CreatureProjectileRuntimeData,
@@ -11,7 +13,7 @@ import {
     TeleporterSaveData
 } from './types/index.js';
 import {
-    astronaut, resetAstronaut, resetAstronautToPosition, flipAstronaut, handleAstronautMovement, applyLandingMomentum, getAstronautCollisionOffsets, setAstronautCollisionProfile,
+    astronaut, resetAstronaut, resetAstronautToPosition, flipAstronaut, handleAstronautMovement, applyLandingMomentum, getAstronautCollisionOffsets, setAstronautCollisionProfile, canAstronautFitCollisionProfile,
     getAstronautStartPosition, setAstronautStartPosition,
     walkSpeed, facingLeft, upPressed, downPressed, leftPressed, rightPressed,
     checkAstronautCollisions
@@ -33,13 +35,17 @@ import {
     mapLoaded,
     loadMapBlocks,
     drawMap,
+    ensureMapChunksAroundWorldPosition,
     getBlockAtWorld,
     getBlackBackgroundBlocks,
     getMapBlocksBehindAstronaut,
     getMapBlocksMaskAstronaut,
     getMushroomBlocks,
     getRenderableMapBlocks,
-    rebuildMapBlockRenderCache
+    rebuildMapBlockRenderCache,
+    materializeAllMapChunksForSave,
+    prefetchMapChunksAroundWorldPosition,
+    syncMapChunksForViewport
 } from './map.js';
 import { initStars, updateAndDrawStars } from './stars.js';
 import { emitJetpackDots, updateAndDrawJetpackDots, resetJetpackDotEmitTimer, hasActiveJetpackDots } from './jetpack.js';
@@ -59,12 +65,14 @@ drawEntities, getSpriteTranslationOffset, getSpriteVisibleBounds, getTransformed
 getVisibleCenterRotationOffset, getRenderedEntitySpriteCanvas, normalizeSpriteTranslation, SpriteTranslation
 } from './utilities.js';
 import {
+    CHUNK_ACTIVITY_SETTINGS,
     BULLET_IMPACT_AUDIO_SETTINGS,
     type BulletImpactAudioSettings,
     CREATURE_PROJECTILE_SETTINGS,
     MOVEMENT_SETTINGS,
     VIEWPORT_SETTINGS
 } from './settings.js';
+import { ChunkActivityManager } from './chunk-activity-manager.js';
 import {
     SPRITE_ROW, SPRITE_COL_STAND, SPRITE_COL_FLY_RIGHT, SPRITE_COL_FLY_DIAGONAL,
     SPRITE_COL_FLY_FLOAT, SPRITE_COL_FLY_DOWN, SPRITE_COL_WALK_START, SPRITE_COL_WALK_RIGHT1,
@@ -196,9 +204,69 @@ function applyPaletteDefinitions(definitions: PaletteDefinition[]) {
     rebuildRemappedSpriteSheets();
 }
 
+function shouldBlockBrowserShortcut(event: KeyboardEvent) {
+    if (!(event.ctrlKey || event.metaKey)) {
+        return false;
+    }
+    const key = event.key.toLowerCase();
+    return key === 'p' || key === 'w' || event.code === 'KeyP' || event.code === 'KeyW';
+}
+
+function blockBrowserShortcut(event: KeyboardEvent) {
+    if (!shouldBlockBrowserShortcut(event)) {
+        return false;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return true;
+}
+
+function getInputKey(event: KeyboardEvent) {
+    if (event.code === 'Space') {
+        return ' ';
+    }
+    if (event.code === 'Quote' && event.shiftKey) {
+        return '@';
+    }
+    if (event.key.length === 1) {
+        return event.key.toLowerCase();
+    }
+    return event.key;
+}
+
+function shouldPreventGameplayDefault(event: KeyboardEvent) {
+    if (isDesignerOpen()) {
+        return false;
+    }
+    const key = getInputKey(event);
+    return (
+        key === ' ' ||
+        key === 'Tab' ||
+        key === '@' ||
+        key === "'" ||
+        key === '/' ||
+        key === 'q' ||
+        key === 'w' ||
+        key === 'p' ||
+        key === 'l' ||
+        event.code === 'Quote' ||
+        event.code === 'Slash'
+    );
+}
+
+document.addEventListener('keydown', (event) => {
+    if (blockBrowserShortcut(event) || shouldPreventGameplayDefault(event)) {
+        event.preventDefault();
+    }
+}, { capture: true });
+
 window.addEventListener('keydown', (event) => {
-    const key = event.code === 'Space' ? ' ' : event.key;
-    if (key === ' ') {
+    if (blockBrowserShortcut(event)) {
+        event.preventDefault();
+        return;
+    }
+    const key = getInputKey(event);
+    if (shouldPreventGameplayDefault(event)) {
         event.preventDefault();
     }
     keys[key] = true;
@@ -206,8 +274,8 @@ window.addEventListener('keydown', (event) => {
 });
 
 window.addEventListener('keyup', (event) => {
-    const key = event.code === 'Space' ? ' ' : event.key;
-    if (key === ' ') {
+    const key = getInputKey(event);
+    if (shouldPreventGameplayDefault(event)) {
         event.preventDefault();
     }
     keys[key] = false;
@@ -236,7 +304,13 @@ window.addEventListener('keydown', (e) => {
     if (isDesignerOpen()) return;
     if (e.key === "Tab") {
         e.preventDefault(); // Prevent tab from bubbling to browser
-        flipAstronaut();
+        if (pronePoseActive) {
+            layDownVerticalFlipToggled = !layDownVerticalFlipToggled;
+        } else {
+            flipAstronaut();
+            layDownVerticalFlipToggled = false;
+        }
+        requestImmediateFrame();
     }
 });
 
@@ -279,6 +353,29 @@ type ScheduledFrameMode = 'raf' | 'timeout' | null;
 let scheduledFrameMode: ScheduledFrameMode = null;
 let scheduledFrameHandle: number | null = null;
 let isGameLoopRunning = false;
+const PERF_WINDOW_SIZE = 180;
+const PERF_CONSOLE_SUMMARY_INTERVAL_MS = 5000;
+let showPerformanceHud = false;
+let showPerformanceConsoleSummary = false;
+let lastPerformanceConsoleSummaryAt = 0;
+let perfSampleCount = 0;
+let perfSampleIndex = 0;
+let lastFrameTimestamp: number | null = null;
+const perfFrameTimes = new Float32Array(PERF_WINDOW_SIZE);
+const perfUpdateTimes = new Float32Array(PERF_WINDOW_SIZE);
+const perfMapDrawTimes = new Float32Array(PERF_WINDOW_SIZE);
+const perfEntityDrawTimes = new Float32Array(PERF_WINDOW_SIZE);
+const perfTotalFrameTimes = new Float32Array(PERF_WINDOW_SIZE);
+let perfFrameTimeSum = 0;
+let perfUpdateTimeSum = 0;
+let perfMapDrawTimeSum = 0;
+let perfEntityDrawTimeSum = 0;
+let perfTotalFrameTimeSum = 0;
+let perfWorstFrameTime = 0;
+let perfWorstUpdateTime = 0;
+let perfWorstMapDrawTime = 0;
+let perfWorstEntityDrawTime = 0;
+let perfWorstTotalFrameTime = 0;
 
 let spriteSheet: HTMLImageElement;
 let astronautSpriteSource: CanvasImageSource; // Use this for astronaut rendering
@@ -330,7 +427,6 @@ function hasPressedKeys() {
 
 function hasMovingCollectables() {
     return collectableEntities.some((collectable) =>
-        !collectable.collected &&
         !collectable.stored &&
         (
             collectable.armed ||
@@ -420,6 +516,127 @@ function scheduleNextFrame() {
     }, delayMs);
 }
 
+function isPerformanceInstrumentationEnabled() {
+    return showPerformanceHud || showPerformanceConsoleSummary;
+}
+
+function recomputeWorstPerformanceSample(buffer: Float32Array) {
+    let worst = 0;
+    for (let index = 0; index < perfSampleCount; index++) {
+        if (buffer[index] > worst) {
+            worst = buffer[index];
+        }
+    }
+    return worst;
+}
+
+function formatPerfSummaryLine(label: string, averageMs: number, worstMs: number) {
+    return `${label} ${averageMs.toFixed(2)}ms avg / ${worstMs.toFixed(2)}ms worst`;
+}
+
+function recordPerformanceFrameSample(
+    frameTimeMs: number,
+    updateWorkMs: number,
+    mapDrawMs: number,
+    entityEffectsDrawMs: number,
+    totalFrameMs: number,
+    frameNow: number
+) {
+    const replacingExistingSample = perfSampleCount === PERF_WINDOW_SIZE;
+    const replaceIndex = perfSampleIndex;
+    const replacedFrameTime = perfFrameTimes[replaceIndex];
+    const replacedUpdateTime = perfUpdateTimes[replaceIndex];
+    const replacedMapDrawTime = perfMapDrawTimes[replaceIndex];
+    const replacedEntityDrawTime = perfEntityDrawTimes[replaceIndex];
+    const replacedTotalFrameTime = perfTotalFrameTimes[replaceIndex];
+
+    if (replacingExistingSample) {
+        perfFrameTimeSum -= replacedFrameTime;
+        perfUpdateTimeSum -= replacedUpdateTime;
+        perfMapDrawTimeSum -= replacedMapDrawTime;
+        perfEntityDrawTimeSum -= replacedEntityDrawTime;
+        perfTotalFrameTimeSum -= replacedTotalFrameTime;
+    } else {
+        perfSampleCount++;
+    }
+
+    perfFrameTimes[replaceIndex] = frameTimeMs;
+    perfUpdateTimes[replaceIndex] = updateWorkMs;
+    perfMapDrawTimes[replaceIndex] = mapDrawMs;
+    perfEntityDrawTimes[replaceIndex] = entityEffectsDrawMs;
+    perfTotalFrameTimes[replaceIndex] = totalFrameMs;
+    perfFrameTimeSum += frameTimeMs;
+    perfUpdateTimeSum += updateWorkMs;
+    perfMapDrawTimeSum += mapDrawMs;
+    perfEntityDrawTimeSum += entityEffectsDrawMs;
+    perfTotalFrameTimeSum += totalFrameMs;
+
+    if (frameTimeMs >= perfWorstFrameTime) {
+        perfWorstFrameTime = frameTimeMs;
+    } else if (replacingExistingSample && replacedFrameTime >= perfWorstFrameTime) {
+        perfWorstFrameTime = recomputeWorstPerformanceSample(perfFrameTimes);
+    }
+
+    if (updateWorkMs >= perfWorstUpdateTime) {
+        perfWorstUpdateTime = updateWorkMs;
+    } else if (replacingExistingSample && replacedUpdateTime >= perfWorstUpdateTime) {
+        perfWorstUpdateTime = recomputeWorstPerformanceSample(perfUpdateTimes);
+    }
+
+    if (mapDrawMs >= perfWorstMapDrawTime) {
+        perfWorstMapDrawTime = mapDrawMs;
+    } else if (replacingExistingSample && replacedMapDrawTime >= perfWorstMapDrawTime) {
+        perfWorstMapDrawTime = recomputeWorstPerformanceSample(perfMapDrawTimes);
+    }
+
+    if (entityEffectsDrawMs >= perfWorstEntityDrawTime) {
+        perfWorstEntityDrawTime = entityEffectsDrawMs;
+    } else if (replacingExistingSample && replacedEntityDrawTime >= perfWorstEntityDrawTime) {
+        perfWorstEntityDrawTime = recomputeWorstPerformanceSample(perfEntityDrawTimes);
+    }
+
+    if (totalFrameMs >= perfWorstTotalFrameTime) {
+        perfWorstTotalFrameTime = totalFrameMs;
+    } else if (replacingExistingSample && replacedTotalFrameTime >= perfWorstTotalFrameTime) {
+        perfWorstTotalFrameTime = recomputeWorstPerformanceSample(perfTotalFrameTimes);
+    }
+
+    perfSampleIndex = (perfSampleIndex + 1) % PERF_WINDOW_SIZE;
+
+    if (
+        showPerformanceConsoleSummary &&
+        frameNow - lastPerformanceConsoleSummaryAt >= PERF_CONSOLE_SUMMARY_INTERVAL_MS
+    ) {
+        const sampleCount = Math.max(perfSampleCount, 1);
+        console.info(
+            `[perf][${navigator.userAgent.includes('Firefox') ? 'Firefox' : (navigator.userAgent.includes('Edg') ? 'Edge' : 'Other')}] ` +
+            `${formatPerfSummaryLine('frame', perfFrameTimeSum / sampleCount, perfWorstFrameTime)} | ` +
+            `${formatPerfSummaryLine('update', perfUpdateTimeSum / sampleCount, perfWorstUpdateTime)} | ` +
+            `${formatPerfSummaryLine('map', perfMapDrawTimeSum / sampleCount, perfWorstMapDrawTime)} | ` +
+            `${formatPerfSummaryLine('entities', perfEntityDrawTimeSum / sampleCount, perfWorstEntityDrawTime)} | ` +
+            `${formatPerfSummaryLine('total', perfTotalFrameTimeSum / sampleCount, perfWorstTotalFrameTime)}`
+        );
+        lastPerformanceConsoleSummaryAt = frameNow;
+    }
+}
+
+function finalizePerformanceInstrumentationFrame(
+    frameNow: number,
+    frameStartMs: number,
+    frameTimeMs: number,
+    updateWorkMs: number,
+    mapDrawMs: number,
+    drawPhaseMs: number
+) {
+    if (!isPerformanceInstrumentationEnabled()) {
+        return;
+    }
+
+    const entityEffectsDrawMs = Math.max(0, drawPhaseMs - mapDrawMs);
+    const totalFrameMs = performance.now() - frameStartMs;
+    recordPerformanceFrameSample(frameTimeMs, updateWorkMs, mapDrawMs, entityEffectsDrawMs, totalFrameMs, frameNow);
+}
+
 function resetFlySwitchAnimationState() {
     flySwitching = false;
     flySwitchStep = 0;
@@ -462,6 +679,13 @@ function startTeleportToLocation(location: TeleportLocation) {
         return false;
     }
 
+    prefetchMapChunksAroundWorldPosition(astronaut.position, 1);
+    prefetchMapChunksAroundWorldPosition(location, 2);
+    chunkActivityManager.markTeleportKeepAlive(
+        astronaut.position,
+        location,
+        performance.now()
+    );
     teleporting = true;
     teleportPhase = 'out';
     teleportAnimFrame = 0;
@@ -567,6 +791,30 @@ function drawAstronautSprite(
     );
 }
 
+function getProneRenderAnchorOffset(
+    spriteRect: { x: number; y: number; w: number; h: number },
+    flipVertical: boolean
+) {
+    if (!pronePoseActive) {
+        return 0;
+    }
+    const frameCanvas = getAstronautSpriteFrameCanvas(spriteRect);
+    if (!frameCanvas) {
+        return 0;
+    }
+    const visibleBounds = getSpriteVisibleBounds(frameCanvas);
+    if (!visibleBounds) {
+        return 0;
+    }
+
+    const visibleBottomPixel = flipVertical
+        ? (spriteRect.h - 1 - visibleBounds.minY)
+        : visibleBounds.maxY;
+    const visibleBottomOffset = -16 * SPRITE_SCALE + (visibleBottomPixel + 1) * SPRITE_SCALE - 1;
+    const collisionBottomOffset = getAstronautCollisionOffsets(activeAstronautCollisionProfile).bottom;
+    return collisionBottomOffset - visibleBottomOffset;
+}
+
 function updateAstronautEnergyRecovery(now: number) {
     if (teleporting || astronaut.energy >= astronaut.maxEnergy) {
         return;
@@ -668,6 +916,17 @@ function getHorizontalTravelDirection(keys: Record<string, boolean>): 'left' | '
     return null;
 }
 
+function getAstronautFacingDirectionForFlyPose(keys: Record<string, boolean>): 'left' | 'right' {
+    const travelDirection = getHorizontalTravelDirection(keys);
+    if (travelDirection) {
+        return travelDirection;
+    }
+    if (Math.abs(astronaut.velocity.x) > 0.01) {
+        return astronaut.velocity.x < 0 ? 'left' : 'right';
+    }
+    return facingLeft ? 'left' : 'right';
+}
+
 // --- Black background block toggles ---
 let showBlackBackgroundBlocks = false; // c key
 let hideBlackBackgroundBlocks = false; // v key
@@ -691,6 +950,7 @@ let teleporterEntities: TeleporterRuntime[] = [];
 let teleporterTouchCooldownUntilMs = 0;
 let heldCollectable: Collectable | null = null;
 let storedCollectables: Collectable[] = [];
+let collectedCollectableEntityIds = new Set<number>();
 let inventoryCycleIndex = -1;
 let throwAngleDegrees = 20;
 type ThrowGuideDot = {
@@ -768,8 +1028,28 @@ const TELEPORTER_PAD_SWEEP_FRAME_MS = 90;
 const TELEPORTER_TILE_SIZE = 32 * SPRITE_SCALE;
 const TELEPORTER_PAD_SWEEP_CACHE_LIMIT = 4096;
 const teleporterPadSweepPositionCache = new Map<string, Position>();
-let teleporterPadKeyCache: { signature: string; keys: Set<string> } = { signature: '', keys: new Set<string>() };
-const teleporterPadFilteredMapCache = new WeakMap<MapBlock[], { signature: string; filtered: MapBlock[] }>();
+let teleporterPadCacheVersion = 0;
+let teleporterPadKeyCache: { version: number; keys: Set<string> } = { version: -1, keys: new Set<string>() };
+const teleporterPadFilteredMapCache = new WeakMap<MapBlock[], { version: number; filtered: MapBlock[] }>();
+let teleporterBlockIndexCache:
+    | {
+        version: number;
+        baseBlocksById: Map<string, MapBlock>;
+        padBlocksById: Map<string, MapBlock>;
+        baseBlocksByPosition: Map<string, MapBlock>;
+        padBlocksByPosition: Map<string, MapBlock>;
+    }
+    | null = null;
+const teleporterPadDrawEntities: Array<{
+    x: number;
+    y: number;
+    type: 'teleporter_pad';
+    palette: number;
+    rotation: number;
+    translation: SpriteTranslation;
+    paletteCycle?: PaletteCycleSettings;
+    collision: false;
+}> = [];
 type BulletImpactParticle = {
     x: number;
     y: number;
@@ -799,6 +1079,7 @@ let bulletImpactAudioSettings: BulletImpactAudioSettings = { ...BULLET_IMPACT_AU
 let grenadeArmedLoopActive = false;
 let nextMushroomAmbientAt = 0;
 let worldDesigner: WorldDesigner | null = null;
+let saveSnapshotInProgress = false;
 const STARFIELD_HEIGHT = Math.min(MAP_HEIGHT, 2000);
 const BULLET_IMPACT_PARTICLE_COLORS = ['#ffffff', '#ffff00', '#ff00ff', '#00ffff', '#0000ff', '#ff0000'];
 const BULLET_DAZE_DURATION_MS = 380;
@@ -809,6 +1090,220 @@ let currentAstronautRenderState = {
     flipSprite: false,
     flipVertical: false
 };
+let layDownVerticalFlipToggled = false;
+let pronePoseActive = false;
+let proneForcedByGeometry = false;
+let activeAstronautCollisionProfile = 'stand';
+const chunkActivityManager = new ChunkActivityManager({
+    chunkWorldSize: CHUNK_ACTIVITY_SETTINGS.chunkWorldSize,
+    radiiChunks: deepClone(CHUNK_ACTIVITY_SETTINGS.radiiChunks),
+    viewportRadiusScale: deepClone(CHUNK_ACTIVITY_SETTINGS.viewportRadiusScale),
+    teleportKeepAliveMs: CHUNK_ACTIVITY_SETTINGS.teleportKeepAliveMs
+});
+let currentAstronautChunkActivity: ChunkActivityBand = 'near';
+type ChunkSimulationCadencePolicy = Record<ChunkActivityBand, number>;
+type ChunkActivityCadenceGroup = {
+    creatures: ChunkSimulationCadencePolicy;
+    collectables: ChunkSimulationCadencePolicy;
+    projectiles: ChunkSimulationCadencePolicy;
+    teleporters: ChunkSimulationCadencePolicy;
+};
+type ChunkActivityTuningSnapshot = {
+    radiiChunks: ChunkActivityRadii;
+    viewportRadiusScale: ChunkActivityRadii;
+    teleportKeepAliveMs: number;
+    simulationCadenceFrames: ChunkActivityCadenceGroup;
+};
+type ChunkActivityCadenceUpdate = Partial<Record<ChunkActivityBand, number>>;
+type ChunkActivityTuningUpdate = {
+    radiiChunks?: Partial<ChunkActivityRadii>;
+    viewportRadiusScale?: Partial<ChunkActivityRadii>;
+    teleportKeepAliveMs?: number;
+    simulationCadenceFrames?: {
+        creatures?: ChunkActivityCadenceUpdate;
+        collectables?: ChunkActivityCadenceUpdate;
+        projectiles?: ChunkActivityCadenceUpdate;
+        teleporters?: ChunkActivityCadenceUpdate;
+    };
+};
+const DEFAULT_CHUNK_ACTIVITY_TUNING: ChunkActivityTuningSnapshot = {
+    radiiChunks: deepClone(CHUNK_ACTIVITY_SETTINGS.radiiChunks),
+    viewportRadiusScale: deepClone(CHUNK_ACTIVITY_SETTINGS.viewportRadiusScale),
+    teleportKeepAliveMs: CHUNK_ACTIVITY_SETTINGS.teleportKeepAliveMs,
+    simulationCadenceFrames: {
+        creatures: deepClone(CHUNK_ACTIVITY_SETTINGS.simulationCadenceFrames.creatures),
+        collectables: deepClone(CHUNK_ACTIVITY_SETTINGS.simulationCadenceFrames.collectables),
+        projectiles: deepClone(CHUNK_ACTIVITY_SETTINGS.simulationCadenceFrames.projectiles),
+        teleporters: deepClone(CHUNK_ACTIVITY_SETTINGS.simulationCadenceFrames.teleporters)
+    }
+};
+const chunkActivityTuning: ChunkActivityTuningSnapshot = deepClone(DEFAULT_CHUNK_ACTIVITY_TUNING);
+const CREATURE_CHUNK_CADENCE: ChunkSimulationCadencePolicy = {
+    near: chunkActivityTuning.simulationCadenceFrames.creatures.near,
+    mid: chunkActivityTuning.simulationCadenceFrames.creatures.mid,
+    far: chunkActivityTuning.simulationCadenceFrames.creatures.far
+};
+const COLLECTABLE_CHUNK_CADENCE: ChunkSimulationCadencePolicy = {
+    near: chunkActivityTuning.simulationCadenceFrames.collectables.near,
+    mid: chunkActivityTuning.simulationCadenceFrames.collectables.mid,
+    far: chunkActivityTuning.simulationCadenceFrames.collectables.far
+};
+const PROJECTILE_CHUNK_CADENCE: ChunkSimulationCadencePolicy = {
+    near: chunkActivityTuning.simulationCadenceFrames.projectiles.near,
+    mid: chunkActivityTuning.simulationCadenceFrames.projectiles.mid,
+    far: chunkActivityTuning.simulationCadenceFrames.projectiles.far
+};
+const TELEPORTER_CHUNK_CADENCE: ChunkSimulationCadencePolicy = {
+    near: chunkActivityTuning.simulationCadenceFrames.teleporters.near,
+    mid: chunkActivityTuning.simulationCadenceFrames.teleporters.mid,
+    far: chunkActivityTuning.simulationCadenceFrames.teleporters.far
+};
+
+function sanitizeChunkBandRadius(value: number, fallback: number) {
+    return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : fallback;
+}
+
+function sanitizeViewportRadiusScale(value: number, fallback: number) {
+    return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function sanitizeCadenceFrames(value: number, fallback: number) {
+    return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : fallback;
+}
+
+function applyCadenceUpdate(
+    targetCadence: ChunkSimulationCadencePolicy,
+    updateCadence: ChunkActivityCadenceUpdate | undefined
+) {
+    if (!updateCadence) {
+        return;
+    }
+    targetCadence.near = sanitizeCadenceFrames(updateCadence.near ?? targetCadence.near, targetCadence.near);
+    targetCadence.mid = sanitizeCadenceFrames(updateCadence.mid ?? targetCadence.mid, targetCadence.mid);
+    targetCadence.far = sanitizeCadenceFrames(updateCadence.far ?? targetCadence.far, targetCadence.far);
+}
+
+function applyChunkActivityTuning(update: ChunkActivityTuningUpdate) {
+    if (update.radiiChunks) {
+        const near = sanitizeChunkBandRadius(
+            update.radiiChunks.near ?? chunkActivityTuning.radiiChunks.near,
+            chunkActivityTuning.radiiChunks.near
+        );
+        const mid = Math.max(
+            near,
+            sanitizeChunkBandRadius(
+                update.radiiChunks.mid ?? chunkActivityTuning.radiiChunks.mid,
+                chunkActivityTuning.radiiChunks.mid
+            )
+        );
+        chunkActivityTuning.radiiChunks = { near, mid };
+    }
+    if (update.viewportRadiusScale) {
+        chunkActivityTuning.viewportRadiusScale = {
+            near: sanitizeViewportRadiusScale(
+                update.viewportRadiusScale.near ?? chunkActivityTuning.viewportRadiusScale.near,
+                chunkActivityTuning.viewportRadiusScale.near
+            ),
+            mid: sanitizeViewportRadiusScale(
+                update.viewportRadiusScale.mid ?? chunkActivityTuning.viewportRadiusScale.mid,
+                chunkActivityTuning.viewportRadiusScale.mid
+            )
+        };
+    }
+    if (typeof update.teleportKeepAliveMs === 'number') {
+        chunkActivityTuning.teleportKeepAliveMs = Math.max(0, Math.floor(update.teleportKeepAliveMs));
+    }
+    if (update.simulationCadenceFrames) {
+        applyCadenceUpdate(chunkActivityTuning.simulationCadenceFrames.creatures, update.simulationCadenceFrames.creatures);
+        applyCadenceUpdate(chunkActivityTuning.simulationCadenceFrames.collectables, update.simulationCadenceFrames.collectables);
+        applyCadenceUpdate(chunkActivityTuning.simulationCadenceFrames.projectiles, update.simulationCadenceFrames.projectiles);
+        applyCadenceUpdate(chunkActivityTuning.simulationCadenceFrames.teleporters, update.simulationCadenceFrames.teleporters);
+    }
+
+    chunkActivityManager.updateConfig({
+        radiiChunks: chunkActivityTuning.radiiChunks,
+        viewportRadiusScale: chunkActivityTuning.viewportRadiusScale,
+        teleportKeepAliveMs: chunkActivityTuning.teleportKeepAliveMs
+    });
+    Object.assign(CREATURE_CHUNK_CADENCE, chunkActivityTuning.simulationCadenceFrames.creatures);
+    Object.assign(COLLECTABLE_CHUNK_CADENCE, chunkActivityTuning.simulationCadenceFrames.collectables);
+    Object.assign(PROJECTILE_CHUNK_CADENCE, chunkActivityTuning.simulationCadenceFrames.projectiles);
+    Object.assign(TELEPORTER_CHUNK_CADENCE, chunkActivityTuning.simulationCadenceFrames.teleporters);
+}
+
+function resetChunkActivityTuning() {
+    chunkActivityTuning.radiiChunks = deepClone(DEFAULT_CHUNK_ACTIVITY_TUNING.radiiChunks);
+    chunkActivityTuning.viewportRadiusScale = deepClone(DEFAULT_CHUNK_ACTIVITY_TUNING.viewportRadiusScale);
+    chunkActivityTuning.teleportKeepAliveMs = DEFAULT_CHUNK_ACTIVITY_TUNING.teleportKeepAliveMs;
+    chunkActivityTuning.simulationCadenceFrames = deepClone(DEFAULT_CHUNK_ACTIVITY_TUNING.simulationCadenceFrames);
+    applyChunkActivityTuning({});
+}
+
+function getChunkActivityTuningSnapshot() {
+    return {
+        ...deepClone(chunkActivityTuning),
+        manager: chunkActivityManager.getConfigSnapshot()
+    };
+}
+type EffectiveViewportState = {
+    width: number;
+    height: number;
+    zoom: number;
+    prefetchRadiusChunks: number;
+};
+
+function clampViewportZoom(value: number) {
+    const minZoom = CHUNK_ACTIVITY_SETTINGS.effectiveViewport.minZoom;
+    const maxZoom = CHUNK_ACTIVITY_SETTINGS.effectiveViewport.maxZoom;
+    return Math.min(maxZoom, Math.max(minZoom, value));
+}
+
+function getEffectiveViewportState(): EffectiveViewportState {
+    const width = Math.max(1, canvas.width);
+    const height = Math.max(1, canvas.height);
+    const expandedViewActive = worldDesigner?.isActive() === true && worldDesigner.isViewportExpanded();
+    const configuredZoom = expandedViewActive
+        ? CHUNK_ACTIVITY_SETTINGS.effectiveViewport.expandedViewZoom
+        : CHUNK_ACTIVITY_SETTINGS.effectiveViewport.defaultZoom;
+    const zoom = clampViewportZoom(configuredZoom);
+    const viewportWidthWorld = Math.max(1, width / zoom);
+    const viewportHeightWorld = Math.max(1, height / zoom);
+    const viewportChunkRadius = Math.max(
+        0,
+        Math.ceil(
+            Math.max(viewportWidthWorld, viewportHeightWorld)
+            / CHUNK_ACTIVITY_SETTINGS.chunkWorldSize
+            / 2
+        )
+    );
+    const residencySettings = CHUNK_ACTIVITY_SETTINGS.chunkResidency;
+    const viewportExpansionChunks = Math.max(
+        0,
+        viewportChunkRadius - residencySettings.viewportChunkRadiusBaseline
+    );
+    const expandedViewExtraChunks = expandedViewActive
+        ? residencySettings.expandedViewExtraRadiusChunks
+        : 0;
+    const prefetchRadiusChunks = Math.min(
+        residencySettings.maxPrefetchRadiusChunks,
+        Math.max(
+            0,
+            residencySettings.basePrefetchRadiusChunks
+            + Math.ceil(viewportExpansionChunks * residencySettings.viewportExpansionRadiusScale)
+            + expandedViewExtraChunks
+        )
+    );
+
+    return {
+        width,
+        height,
+        zoom,
+        prefetchRadiusChunks
+    };
+}
+let simulationFrameCounter = 0;
+const CHUNK_SYNC_INTERVAL_FRAMES = 2;
+let chunkSyncFrameCounter = 0;
 const astronautSpriteFrameCache = new Map<string, HTMLCanvasElement>();
 
 function getAstronautSpriteFrameCanvas(spriteRect: { x: number; y: number; w: number; h: number }) {
@@ -845,6 +1340,17 @@ function getAstronautSpriteFrameCanvas(spriteRect: { x: number; y: number; w: nu
     getSelectedDesignerButton: () => {
         const selection = worldDesigner?.getDebugSelection() ?? null;
         return selection?.category === 'buttons' ? selection.entity : null;
+    },
+    chunkActivity: {
+        getTuning: () => getChunkActivityTuningSnapshot(),
+        setTuning: (update: ChunkActivityTuningUpdate) => {
+            applyChunkActivityTuning(update ?? {});
+            return getChunkActivityTuningSnapshot();
+        },
+        resetTuning: () => {
+            resetChunkActivityTuning();
+            return getChunkActivityTuningSnapshot();
+        }
     }
 };
 
@@ -866,6 +1372,13 @@ window.addEventListener('keydown', (event) => {
 });
 
 function getCurrentAstronautCollisionProfile() {
+    const proneCollisionProfile = layDownVerticalFlipToggled ? 'prone_up' : 'prone_down';
+    if (keys['Shift']) {
+        return proneCollisionProfile;
+    }
+    if (!astronaut.isLanded && proneForcedByGeometry) {
+        return proneCollisionProfile;
+    }
     if (astronaut.isLanded) {
         return 'stand';
     }
@@ -1098,6 +1611,7 @@ async function loadTeleporters() {
         ? arr.map(normalizeTeleporter)
         : buildTeleportersFromMapMetadata();
     reconcileTeleporterRuntimePositions(teleporterEntities);
+    invalidateTeleporterPadCaches();
 }
 
 async function loadButtons() {
@@ -1175,6 +1689,7 @@ async function loadCreatures() {
 async function loadCollectables() {
     const arr = await fetchFreshJson<any[]>('./src/assets/collectables.json');
     collectableEntities = arr.map((data: any) => assignEntityId(new Collectable(data)));
+    collectedCollectableEntityIds.clear();
     syncCollectableRuntimeState();
 }
 
@@ -1184,6 +1699,14 @@ async function loadAstronautStartPosition() {
 }
 
 function syncCollectableRuntimeState() {
+    const currentCollectableIds = new Set(
+        collectableEntities
+            .map((collectable) => collectable.entityId)
+            .filter((entityId): entityId is number => typeof entityId === 'number')
+    );
+    collectedCollectableEntityIds = new Set(
+        [...collectedCollectableEntityIds].filter((entityId) => currentCollectableIds.has(entityId))
+    );
     storedCollectables = collectableEntities.filter(collectable => collectable.stored);
     heldCollectable = collectableEntities.find(collectable => collectable.held) ?? null;
     inventoryCycleIndex = storedCollectables.length > 0 ? storedCollectables.length - 1 : -1;
@@ -1197,6 +1720,16 @@ function isCreatureProjectileCollectable(collectable: Collectable): collectable 
     return !!collectable.creatureProjectile;
 }
 
+function isCollectableCollected(collectable: Collectable) {
+    return typeof collectable.entityId === 'number' && collectedCollectableEntityIds.has(collectable.entityId);
+}
+
+function markCollectableCollected(collectable: Collectable) {
+    if (typeof collectable.entityId === 'number') {
+        collectedCollectableEntityIds.add(collectable.entityId);
+    }
+}
+
 function getCreatureProjectileCollectables() {
     return collectableEntities.filter(isCreatureProjectileCollectable);
 }
@@ -1204,9 +1737,9 @@ function getCreatureProjectileCollectables() {
 function getRenderableCollectables() {
     return collectableEntities.filter((collectable) =>
         !isCreatureProjectileCollectable(collectable) &&
+        !isCollectableCollected(collectable) &&
         !collectable.stored &&
-        !collectable.held &&
-        !collectable.collected
+        !collectable.held
     );
 }
 
@@ -1328,6 +1861,7 @@ function afterWorldDataMutated() {
     rebuildBlockInstanceBoundingBoxes();
     syncRuntimeMapBounds();
     initStars(MAP_WIDTH, Math.min(MAP_HEIGHT, 2000));
+    invalidateTeleporterPadCaches();
 }
 
 function clampCamera(camera: Position) {
@@ -1397,7 +1931,18 @@ function getRawWorldData(): RawWorldData {
     };
 }
 
+async function getRawWorldDataForSave(): Promise<RawWorldData> {
+    saveSnapshotInProgress = true;
+    try {
+        await materializeAllMapChunksForSave();
+        return getRawWorldData();
+    } finally {
+        saveSnapshotInProgress = false;
+    }
+}
+
 function replaceRawWorldData(data: RawWorldData) {
+    collectedCollectableEntityIds.clear();
     mapBlocks.splice(0, mapBlocks.length, ...data.worldMap.map((block) => assignEntityId({ ...block })));
     doorEntities = data.doors.map((door) => assignEntityId(new Door(door)));
     buttonEntities = data.buttons.map((button) => assignEntityId(new Button(button)));
@@ -1703,6 +2248,7 @@ async function init() {
     await loadCollectables();
     await loadTeleporters();
     await loadAstronautStartPosition();
+    await ensureMapChunksAroundWorldPosition(getAstronautStartPosition(), 1, true);
     initStars(MAP_WIDTH, STARFIELD_HEIGHT);
     const img = new Image();
     img.src = './src/assets/sprite_sheet.png';
@@ -1818,6 +2364,7 @@ async function init() {
                 worldDesigner = createWorldDesigner({
                     canvas,
                     getRawWorldData,
+                    getRawWorldDataForSave,
                     replaceRawWorldData,
                     afterWorldDataMutated,
                     getFocusWorldPosition: () => ({
@@ -1888,9 +2435,10 @@ function drawAstronautInWorld(
     const renderNow = performance.now();
 
     context.save();
+    const proneRenderYOffset = getProneRenderAnchorOffset(spriteRect, flipVertical);
     context.translate(
         Math.round(astronaut.position.x - camera.x),
-        Math.round(astronaut.position.y - camera.y)
+        Math.round(astronaut.position.y - camera.y + proneRenderYOffset)
     );
     if (flipSprite) context.scale(-1, 1);
     if (flipVertical) context.scale(1, -1);
@@ -1910,11 +2458,50 @@ async function gameLoop() {
         if (!gameState.isRunning || !mapLoaded) return;
 
         const frameNow = performance.now();
+        const performanceInstrumentationEnabled = isPerformanceInstrumentationEnabled();
+        const frameStartMs = frameNow;
+        const frameTimeMs = (
+            performanceInstrumentationEnabled && lastFrameTimestamp !== null
+                ? frameNow - lastFrameTimestamp
+                : 0
+        );
+        let updateWorkMs = 0;
+        let mapDrawMs = 0;
+        let drawPhaseMs = 0;
+        if (performanceInstrumentationEnabled) {
+            lastFrameTimestamp = frameNow;
+        }
 
         ctx!.imageSmoothingEnabled = false;
         ctx!.clearRect(0, 0, canvas.width, canvas.height);
 
         const camera = getCameraOffset();
+        const effectiveViewport = getEffectiveViewportState();
+        chunkActivityManager.updateFrame({
+            camera,
+            viewportWidth: effectiveViewport.width,
+            viewportHeight: effectiveViewport.height,
+            zoom: effectiveViewport.zoom,
+            now: frameNow
+        });
+        chunkSyncFrameCounter += 1;
+        const designerChunkSyncRequired = worldDesigner?.isActive() === true;
+        const shouldSyncChunksThisFrame = designerChunkSyncRequired
+            || (chunkSyncFrameCounter % CHUNK_SYNC_INTERVAL_FRAMES === 0);
+        if (!saveSnapshotInProgress && shouldSyncChunksThisFrame) {
+            syncMapChunksForViewport(
+                camera,
+                effectiveViewport.width,
+                effectiveViewport.height,
+                effectiveViewport.prefetchRadiusChunks,
+                effectiveViewport.zoom,
+                designerChunkSyncRequired
+            );
+        }
+        currentAstronautChunkActivity = getChunkActivityForWorldPosition(
+            astronaut.position,
+            frameNow
+        );
 
         // Update mouse world position
         mouseWorld.x = Math.round(mouseScreen.x + camera.x);
@@ -1925,6 +2512,7 @@ async function gameLoop() {
     let spriteCol = SPRITE_COL_STAND;
     let flipSprite = facingLeft;
     let flipVertical = false;
+    pronePoseActive = false;
 
     // --- Teleport memory logic ---
     if (!isDesignerOpen() && keys['r'] && !prevKeys['r']) {
@@ -1945,6 +2533,7 @@ async function gameLoop() {
     updateAstronautEnergyRecovery(frameNow);
 
     // --- Draw twinkling stars ---
+        const drawPhaseStartMs = performanceInstrumentationEnabled ? performance.now() : 0;
         updateAndDrawStars(
             ctx!,
             camera,
@@ -1965,6 +2554,17 @@ async function gameLoop() {
             collectables: true
         };
     const designerActive = worldDesigner?.isActive() === true;
+    const creatureProjectileDrawables = layerVisibility.creatures
+        ? getCreatureProjectileCollectables()
+        : [];
+    const collectablesToDraw = layerVisibility.collectables
+        ? (
+            worldDesigner?.isActive() && !worldDesigner.isPreviewMode()
+                ? getDesignerRenderableCollectables()
+                : getRenderableCollectables()
+        )
+        : [];
+    const heldCollectableDrawables = heldCollectable ? [heldCollectable] : [];
     const mapBlocksToDraw = !layerVisibility.world
         ? []
         : getRenderableMapBlocks(hideBlackBackgroundBlocks);
@@ -1974,18 +2574,15 @@ async function gameLoop() {
     let mapBlocksMaskAstronaut = !layerVisibility.world
         ? []
         : getMapBlocksMaskAstronaut();
-    const teleporterPadSignature = getTeleporterPadSignature();
-    const teleporterPadKeys = getTeleporterPadKeySet(teleporterPadSignature);
+    const teleporterPadKeys = getTeleporterPadKeySet();
     if (teleporterPadKeys.size > 0) {
         mapBlocksBehindAstronaut = filterTeleporterPadsFromBlocks(
             mapBlocksBehindAstronaut,
-            teleporterPadKeys,
-            teleporterPadSignature
+            teleporterPadKeys
         );
         mapBlocksMaskAstronaut = filterTeleporterPadsFromBlocks(
             mapBlocksMaskAstronaut,
-            teleporterPadKeys,
-            teleporterPadSignature
+            teleporterPadKeys
         );
     }
     const blackBackgroundBlocksToHighlight = showBlackBackgroundBlocks && !hideBlackBackgroundBlocks
@@ -2025,6 +2622,12 @@ async function gameLoop() {
                         ctx!.scale(1, -1);
                     } else if (block.rotation === 7) {
                         ctx!.scale(-1, -1);
+                    } else if (block.rotation === 8) {
+                        ctx!.rotate(Math.PI / 2);
+                        ctx!.scale(-1, 1);
+                    } else if (block.rotation === 9) {
+                        ctx!.rotate((3 * Math.PI) / 2);
+                        ctx!.scale(-1, 1);
                     }
                 }
                 // Draw bbox relative to sprite center
@@ -2044,7 +2647,13 @@ async function gameLoop() {
         }
         // Draw map blocks (drawMap uses global mapBlocks, so black_background blocks will be hidden only if not present in mapBlocks)
         // To hide, we need to patch drawMap to accept a blocks array, or temporarily monkey-patch global. For now, just draw overlays using mapBlocksToDraw.
-        drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksBehindAstronaut, frameNow);
+        if (performanceInstrumentationEnabled) {
+            const mapDrawStart = performance.now();
+            drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksBehindAstronaut, frameNow);
+            mapDrawMs += performance.now() - mapDrawStart;
+        } else {
+            drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksBehindAstronaut, frameNow);
+        }
         if (layerVisibility.world && !designerActive) {
             drawTeleporterPads(ctx!, camera, frameNow, {
                 ignoreKeyRequirement: designerActive
@@ -2060,9 +2669,6 @@ async function gameLoop() {
             }
         }
         if (layerVisibility.collectables) {
-            const collectablesToDraw = worldDesigner?.isActive() && !worldDesigner.isPreviewMode()
-                ? getDesignerRenderableCollectables()
-                : getRenderableCollectables();
             drawEntities(
                 ctx!,
                 camera,
@@ -2081,14 +2687,19 @@ async function gameLoop() {
     if (worldDesigner?.isActive()) {
         drawAstronautInWorld(ctx!, camera, spriteCol, flipSprite, flipVertical);
         if (mapBlocksMaskAstronaut.length > 0) {
-            drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
+            if (performanceInstrumentationEnabled) {
+                const mapDrawStart = performance.now();
+                drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
+                mapDrawMs += performance.now() - mapDrawStart;
+            } else {
+                drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
+            }
         }
         if (layerVisibility.world) {
             drawTeleporterPads(ctx!, camera, frameNow, {
                 ignoreKeyRequirement: designerActive
             });
         }
-        const creatureProjectileDrawables = getCreatureProjectileCollectables();
         if (layerVisibility.creatures && creatureProjectileDrawables.length > 0) {
             drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureProjectileDrawables, frameNow);
         }
@@ -2098,31 +2709,58 @@ async function gameLoop() {
         if (bulletImpactParticles.length > 0) {
             updateAndDrawBulletImpactParticles(layerVisibility.creatures ? ctx! : null, camera);
         }
-        if (heldCollectable) {
-            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, [heldCollectable], frameNow);
+        if (heldCollectableDrawables.length > 0) {
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, heldCollectableDrawables, frameNow);
         }
         if (layerVisibility.doors && doorDestructionEffects.length > 0) {
             drawDoorDestructionEffects(ctx!, camera);
         }
         worldDesigner.render(ctx!);
+        if (performanceInstrumentationEnabled) {
+            drawPhaseMs = performance.now() - drawPhaseStartMs;
+        }
+        finalizePerformanceInstrumentationFrame(
+            frameNow,
+            frameStartMs,
+            frameTimeMs,
+            updateWorkMs,
+            mapDrawMs,
+            drawPhaseMs
+        );
         prevKeys = { ...keys };
         return;
     }
 
     // --- Controls: Upward and horizontal movement ---
+    const updatePhaseStartMs = performanceInstrumentationEnabled ? performance.now() : 0;
     const movementStartX = gameState.astronaut.position.x;
     const movementStartY = gameState.astronaut.position.y;
     const movementModifiers = getHeldMovementModifiers();
     const astronautControlModifiers = getAstronautControlModifiers(frameNow);
-    handleAstronautMovement(keys, true, {
+    const proneIntentActive = !!(keys['Shift'] || (!gameState.astronaut.isLanded && proneForcedByGeometry));
+    const hasThrustInput = !!(keys['q'] || keys['w'] || keys['p'] || keys['ArrowUp'] || keys['l']);
+    const boosterActive = !!(keys['@'] && hasThrustInput && astronaut.energy > 0);
+    const boosterScale = boosterActive ? MOVEMENT_SETTINGS.jetpackBoosterMultiplier : 1;
+    if (boosterActive) {
+        astronaut.energy = Math.max(0, astronaut.energy - MOVEMENT_SETTINGS.jetpackBoosterEnergyCostPerFrame);
+        astronaut.nextEnergyRegenAtMs = frameNow + MOVEMENT_SETTINGS.astronautEnergyRegenIntervalMs;
+    }
+    handleAstronautMovement(keys, !proneIntentActive, {
         walkSpeedScale: movementModifiers.walkSpeedScale * astronautControlModifiers.walkSpeedScale,
-        flightControlScale: movementModifiers.flightControlScale * astronautControlModifiers.flightControlScale
+        flightControlScale: movementModifiers.flightControlScale * astronautControlModifiers.flightControlScale * boosterScale
     });
-    const movementTargetX = astronaut.position.x;
-    const movementTargetY = astronaut.position.y;
+    let movementTargetX = astronaut.position.x;
+    let movementTargetY = astronaut.position.y;
     astronaut.position.x = movementStartX;
     astronaut.position.y = movementStartY;
-    setAstronautCollisionProfile(getCurrentAstronautCollisionProfile());
+    const nextAstronautCollisionProfile = getCurrentAstronautCollisionProfile();
+    if (gameState.astronaut.isLanded && nextAstronautCollisionProfile !== activeAstronautCollisionProfile) {
+        const previousOffsets = getAstronautCollisionOffsets(activeAstronautCollisionProfile);
+        const nextOffsets = getAstronautCollisionOffsets(nextAstronautCollisionProfile);
+        movementTargetY += previousOffsets.bottom - nextOffsets.bottom;
+    }
+    setAstronautCollisionProfile(nextAstronautCollisionProfile);
+    activeAstronautCollisionProfile = nextAstronautCollisionProfile;
 
     // --- Door animation update ---
     for (const door of doorEntities) {
@@ -2132,7 +2770,8 @@ async function gameLoop() {
     // Clear all velocities if landed and not walking
     if (
         gameState.astronaut.isLanded &&
-        walkSpeed === 0
+        walkSpeed === 0 &&
+        !proneIntentActive
     ) {
         astronaut.velocity.x = 0;
         astronaut.velocity.y = 0;
@@ -2184,6 +2823,16 @@ async function gameLoop() {
     astronaut.velocity.y = collisionState.velocityY;
     gameState.astronaut.isLanded = collisionState.isLanded;
     gameState.astronaut.isFlying = !collisionState.isLanded;
+    proneForcedByGeometry = !collisionState.isLanded && !canAstronautFitCollisionProfile(
+        'stand',
+        gameState.astronaut.position.x,
+        gameState.astronaut.position.y,
+        spriteMap,
+        SPRITE_SCALE,
+        mapBlocks,
+        doorEntities,
+        buttonEntities
+    );
     if (!wasLanded && collisionState.isLanded) {
         const carriedHorizontalMotion = collisionState.nextX - movementStartX;
         const landingMomentumSource = Math.abs(carriedHorizontalMotion) > Math.abs(horizontalVelocityBeforeResolution)
@@ -2235,7 +2884,8 @@ async function gameLoop() {
         (doorCollision as any)._closeDelay = 0;
     }
 
-    updateCreatures(frameNow);
+    simulationFrameCounter++;
+    updateCreatures(frameNow, simulationFrameCounter);
     updateCreatureSounds(frameNow);
     updateProjectileImpactEffects();
     updateDoorDestructionEffects();
@@ -2243,13 +2893,16 @@ async function gameLoop() {
     updateThrowAngle();
     handleCollectableInteractions();
     updateHeldCollectablePosition();
-    updateTeleporterPadTeleporting(frameNow);
+    updateTeleporterPadTeleporting(frameNow, simulationFrameCounter);
     resolveAstronautCollectableCollisions(
         gameState.astronaut.position.x - movementStartX,
         gameState.astronaut.position.y - movementStartY
     );
-    updateCollectablePhysics();
+    updateCollectablePhysics(frameNow, simulationFrameCounter);
     updateHeldCollectablePosition();
+    if (performanceInstrumentationEnabled) {
+        updateWorkMs = performance.now() - updatePhaseStartMs;
+    }
 
     // Ensure astronaut position is always integer pixels
     gameState.astronaut.position.x = Math.round(gameState.astronaut.position.x);
@@ -2310,6 +2963,20 @@ async function gameLoop() {
         debugY += 16;
         ctx!.fillText(
             `flyDir: ${flyDir} | flySwitching: ${flySwitching} | flySwitchStep: ${flySwitchStep}`,
+            10, debugY
+        );
+        debugY += 16;
+        const astronautChunk = chunkActivityManager.worldToChunkCoordinates(gameState.astronaut.position);
+        const mouseChunk = chunkActivityManager.worldToChunkCoordinates(mouseWorld);
+        const mouseChunkActivity = getChunkActivityForEntityPosition(mouseWorld, frameNow);
+        const chunkActivitySnapshot = chunkActivityManager.getDebugSnapshot(frameNow);
+        ctx!.fillText(
+            `Chunk activity: astronaut=${currentAstronautChunkActivity} @ (${astronautChunk.x},${astronautChunk.y}) | mouse=${mouseChunkActivity} @ (${mouseChunk.x},${mouseChunk.y})`,
+            10, debugY
+        );
+        debugY += 16;
+        ctx!.fillText(
+            `Chunk radii near=${chunkActivitySnapshot.nearRadiusChunks} mid=${chunkActivitySnapshot.midRadiusChunks} keepAlive=${chunkActivitySnapshot.activeTeleportKeepAliveCount}`,
             10, debugY
         );
         debugY += 16;
@@ -2408,6 +3075,34 @@ async function gameLoop() {
             `Mouse world: (${mouseWorld.x.toFixed(1)}, ${mouseWorld.y.toFixed(1)})`,
             10, debugY
         );
+        if (showPerformanceHud && perfSampleCount > 0) {
+            const sampleCount = Math.max(perfSampleCount, 1);
+            debugY += 16;
+            ctx!.fillText(
+                formatPerfSummaryLine('Frame', perfFrameTimeSum / sampleCount, perfWorstFrameTime),
+                10, debugY
+            );
+            debugY += 16;
+            ctx!.fillText(
+                formatPerfSummaryLine('Update', perfUpdateTimeSum / sampleCount, perfWorstUpdateTime),
+                10, debugY
+            );
+            debugY += 16;
+            ctx!.fillText(
+                formatPerfSummaryLine('Map', perfMapDrawTimeSum / sampleCount, perfWorstMapDrawTime),
+                10, debugY
+            );
+            debugY += 16;
+            ctx!.fillText(
+                formatPerfSummaryLine('Entities', perfEntityDrawTimeSum / sampleCount, perfWorstEntityDrawTime),
+                10, debugY
+            );
+            debugY += 16;
+            ctx!.fillText(
+                formatPerfSummaryLine('Total', perfTotalFrameTimeSum / sampleCount, perfWorstTotalFrameTime),
+                10, debugY
+            );
+        }
         ctx!.restore();
     }
     // --- Draw world coordinate bounding boxes for each block in green if enabled ---
@@ -2441,6 +3136,12 @@ async function gameLoop() {
                         ctx!.scale(1, -1);
                     } else if (block.rotation === 7) {
                         ctx!.scale(-1, -1);
+                    } else if (block.rotation === 8) {
+                        ctx!.rotate(Math.PI / 2);
+                        ctx!.scale(-1, 1);
+                    } else if (block.rotation === 9) {
+                        ctx!.rotate((3 * Math.PI) / 2);
+                        ctx!.scale(-1, 1);
                     }
                 }
                 // Draw bbox relative to sprite center
@@ -2526,7 +3227,8 @@ async function gameLoop() {
     // Show walking animation if landed and walkSpeed > 0 (even if no keys are pressed)
     else if (
         gameState.astronaut.isLanded &&
-        walkSpeed > 0
+        walkSpeed > 0 &&
+        !keys['Shift']
     ) {
         if (gameState.debugMode) {
             //console.log('WALKING: isLanded && walkSpeed > 0');
@@ -2660,6 +3362,22 @@ async function gameLoop() {
         resetFlySwitchAnimationState();
     }
 
+    if (keys['Shift'] || (!gameState.astronaut.isLanded && proneForcedByGeometry)) {
+        spriteCol = SPRITE_COL_FLY_RIGHT;
+        flipSprite = getAstronautFacingDirectionForFlyPose(keys) === 'left';
+        // Default prone orientation is facing down; Tab toggles to the opposite orientation.
+        flipVertical = layDownVerticalFlipToggled;
+        pronePoseActive = true;
+        rememberLastFlyPose(spriteCol, flipSprite);
+    }
+
+    const isLayingDownPose = pronePoseActive;
+    if (isLayingDownPose) {
+        // Tab toggles vertical orientation while in prone mode.
+    } else {
+        layDownVerticalFlipToggled = false;
+    }
+
     currentAstronautRenderState = {
         spriteCol,
         flipSprite,
@@ -2702,11 +3420,16 @@ async function gameLoop() {
         }
         ctx!.restore();
         if (mapBlocksMaskAstronaut.length > 0) {
-            drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
+            if (performanceInstrumentationEnabled) {
+                const mapDrawStart = performance.now();
+                drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
+                mapDrawMs += performance.now() - mapDrawStart;
+            } else {
+                drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
+            }
         }
-        const creatureProjectileOverlayDrawables = getCreatureProjectileCollectables();
-        if (layerVisibility.creatures && creatureProjectileOverlayDrawables.length > 0) {
-            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureProjectileOverlayDrawables, frameNow);
+        if (layerVisibility.creatures && creatureProjectileDrawables.length > 0) {
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureProjectileDrawables, frameNow);
         }
         teleportAnimFrame++;
 
@@ -2747,6 +3470,17 @@ async function gameLoop() {
             teleportTarget = null;
         }
 
+        if (performanceInstrumentationEnabled) {
+            drawPhaseMs = performance.now() - drawPhaseStartMs;
+        }
+        finalizePerformanceInstrumentationFrame(
+            frameNow,
+            frameStartMs,
+            frameTimeMs,
+            updateWorkMs,
+            mapDrawMs,
+            drawPhaseMs
+        );
         prevKeys = { ...keys };
         return;
     }
@@ -2760,8 +3494,9 @@ async function gameLoop() {
         const drawW = 32 * SPRITE_SCALE;
         const drawH = 32 * SPRITE_SCALE;
         const renderNow = performance.now();
+        const proneRenderYOffset = getProneRenderAnchorOffset(spriteRect, flipVertical);
         ctx!.save();
-        ctx!.translate(Math.round(canvas.width / 2), Math.round(canvas.height / 2));
+        ctx!.translate(Math.round(canvas.width / 2), Math.round(canvas.height / 2 + proneRenderYOffset));
         if (flipSprite) ctx!.scale(-1, 1);
         if (flipVertical) ctx!.scale(1, -1);
         drawAstronautSprite(ctx!, spriteRect, drawW, drawH, renderNow);
@@ -2800,11 +3535,16 @@ async function gameLoop() {
         ctx!.restore();
 
         if (mapBlocksMaskAstronaut.length > 0) {
-            drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
+            if (performanceInstrumentationEnabled) {
+                const mapDrawStart = performance.now();
+                drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
+                mapDrawMs += performance.now() - mapDrawStart;
+            } else {
+                drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
+            }
         }
-        const creatureProjectileDebugDrawables = getCreatureProjectileCollectables();
-        if (layerVisibility.creatures && creatureProjectileDebugDrawables.length > 0) {
-            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureProjectileDebugDrawables, frameNow);
+        if (layerVisibility.creatures && creatureProjectileDrawables.length > 0) {
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureProjectileDrawables, frameNow);
         }
 
         // --- Draw tight bounding boxes for world map sprites with collision ---
@@ -2841,6 +3581,12 @@ async function gameLoop() {
                         ctx!.scale(1, -1);
                     } else if (entity.rotation === 7) {
                         ctx!.scale(-1, -1);
+                    } else if (entity.rotation === 8) {
+                        ctx!.rotate(Math.PI / 2);
+                        ctx!.scale(-1, 1);
+                    } else if (entity.rotation === 9) {
+                        ctx!.rotate((3 * Math.PI) / 2);
+                        ctx!.scale(-1, 1);
                     }
                 }
                 const rect = findSpriteRectByType(entity.type);
@@ -2872,13 +3618,12 @@ async function gameLoop() {
             buttonEntities.forEach(drawBBox);
         }
 
-        if (heldCollectable) {
-            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, [heldCollectable], frameNow);
+        if (heldCollectableDrawables.length > 0) {
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, heldCollectableDrawables, frameNow);
         }
 
-        const creatureProjectileHudDrawables = getCreatureProjectileCollectables();
-        if (layerVisibility.creatures && creatureProjectileHudDrawables.length > 0) {
-            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureProjectileHudDrawables, frameNow);
+        if (layerVisibility.creatures && creatureProjectileDrawables.length > 0) {
+            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureProjectileDrawables, frameNow);
         }
         if (layerVisibility.creatures && projectileImpactEffects.length > 0) {
             drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, projectileImpactEffects, frameNow);
@@ -2919,6 +3664,17 @@ async function gameLoop() {
         }
     }
 
+    if (performanceInstrumentationEnabled) {
+        drawPhaseMs = performance.now() - drawPhaseStartMs;
+    }
+    finalizePerformanceInstrumentationFrame(
+        frameNow,
+        frameStartMs,
+        frameTimeMs,
+        updateWorkMs,
+        mapDrawMs,
+        drawPhaseMs
+    );
     prevKeys = { ...keys };
     } finally {
         isGameLoopRunning = false;
@@ -3165,6 +3921,29 @@ function getEntityPositionFromCenter(
     };
 }
 
+function getChunkActivityForWorldPosition(position: Position, now: number): ChunkActivityBand {
+    return chunkActivityManager.getChunkActivityForWorldPosition(position, now);
+}
+
+function getChunkActivityForEntityPosition(entity: Pick<Position, 'x' | 'y'>, now: number): ChunkActivityBand {
+    return getChunkActivityForWorldPosition({ x: entity.x, y: entity.y }, now);
+}
+
+function shouldRunChunkBandUpdate(
+    chunkActivity: ChunkActivityBand,
+    cadencePolicy: ChunkSimulationCadencePolicy,
+    frameCounter: number
+) {
+    const cadenceFrames = Math.max(0, Math.floor(cadencePolicy[chunkActivity]));
+    if (cadenceFrames <= 0) {
+        return false;
+    }
+    if (cadenceFrames <= 1) {
+        return true;
+    }
+    return frameCounter % cadenceFrames === 0;
+}
+
 function getRenderedEntityWorldSprite(entity: {
     x: number;
     y: number;
@@ -3215,6 +3994,59 @@ function getRenderedEntityWorldSprite(entity: {
     };
 }
 
+function makeTeleporterPositionKey(x: number, y: number) {
+    return `${x},${y}`;
+}
+
+function invalidateTeleporterPadCaches() {
+    teleporterPadCacheVersion += 1;
+    teleporterPadSweepPositionCache.clear();
+    teleporterPadKeyCache = { version: -1, keys: new Set<string>() };
+    teleporterBlockIndexCache = null;
+}
+
+function getTeleporterBlockIndex() {
+    if (teleporterBlockIndexCache && teleporterBlockIndexCache.version === teleporterPadCacheVersion) {
+        return teleporterBlockIndexCache;
+    }
+
+    const baseBlocksById = new Map<string, MapBlock>();
+    const padBlocksById = new Map<string, MapBlock>();
+    const baseBlocksByPosition = new Map<string, MapBlock>();
+    const padBlocksByPosition = new Map<string, MapBlock>();
+    for (const block of mapBlocks) {
+        if (block.type === 'teleporter') {
+            baseBlocksByPosition.set(makeTeleporterPositionKey(block.x, block.y), block);
+        } else if (block.type === 'teleporter_pad') {
+            padBlocksByPosition.set(makeTeleporterPositionKey(block.x, block.y), block);
+        } else {
+            continue;
+        }
+
+        if (!block.teleporterId) {
+            continue;
+        }
+        const id = String(block.teleporterId).trim();
+        if (!id) {
+            continue;
+        }
+        if (block.type === 'teleporter') {
+            baseBlocksById.set(id, block);
+        } else {
+            padBlocksById.set(id, block);
+        }
+    }
+
+    teleporterBlockIndexCache = {
+        version: teleporterPadCacheVersion,
+        baseBlocksById,
+        padBlocksById,
+        baseBlocksByPosition,
+        padBlocksByPosition
+    };
+    return teleporterBlockIndexCache;
+}
+
 function canUseKeyLockedTeleporter(_teleporter: TeleporterRuntime) {
     // Hook for future RCD+key progression checks.
     return false;
@@ -3238,19 +4070,17 @@ function getTeleporterActiveDestination(teleporter: TeleporterRuntime) {
 }
 
 function getTeleporterBaseBlock(teleporter: TeleporterRuntime) {
-    return mapBlocks.find((block) =>
-        block.type === 'teleporter' &&
-        block.x === teleporter.baseX &&
-        block.y === teleporter.baseY
-    ) ?? null;
+    const block = getTeleporterBlockIndex()
+        .baseBlocksByPosition
+        .get(makeTeleporterPositionKey(teleporter.baseX, teleporter.baseY));
+    return block ?? null;
 }
 
 function getTeleporterPadBlock(teleporter: TeleporterRuntime) {
-    return mapBlocks.find((block) =>
-        block.type === 'teleporter_pad' &&
-        block.x === teleporter.padX &&
-        block.y === teleporter.padY
-    ) ?? null;
+    const block = getTeleporterBlockIndex()
+        .padBlocksByPosition
+        .get(makeTeleporterPositionKey(teleporter.padX, teleporter.padY));
+    return block ?? null;
 }
 
 function getTeleporterPadSweepPosition(
@@ -3448,23 +4278,7 @@ function getTeleporterRenderPads(
             const frameIndex = Math.floor(now / TELEPORTER_PAD_SWEEP_FRAME_MS) % TELEPORTER_PAD_SWEEP_PHASES.length;
             return TELEPORTER_PAD_SWEEP_PHASES[frameIndex];
         })();
-    const progressBucket = Math.round(sweepProgress * 1000);
-    const baseBlocksById = new Map<string, MapBlock>();
-    const padBlocksById = new Map<string, MapBlock>();
-    for (const block of mapBlocks) {
-        if ((block.type !== 'teleporter' && block.type !== 'teleporter_pad') || !block.teleporterId) {
-            continue;
-        }
-        const id = String(block.teleporterId).trim();
-        if (!id) {
-            continue;
-        }
-        if (block.type === 'teleporter') {
-            baseBlocksById.set(id, block);
-        } else {
-            padBlocksById.set(id, block);
-        }
-    }
+    const { baseBlocksById, padBlocksById } = getTeleporterBlockIndex();
     for (const teleporter of teleporterEntities) {
         if (options?.viewport && !isTeleporterInViewport(teleporter, options.viewport)) {
             continue;
@@ -3543,39 +4357,30 @@ function getTeleporterRenderPads(
     return renderPads;
 }
 
-function getTeleporterPadSignature() {
-    if (teleporterEntities.length === 0) {
-        return '';
-    }
-    return teleporterEntities.map((teleporter) =>
-        `${teleporter.id}:${teleporter.padX},${teleporter.padY}`
-    ).join('|');
-}
-
-function getTeleporterPadKeySet(signature: string) {
-    if (teleporterPadKeyCache.signature === signature) {
+function getTeleporterPadKeySet() {
+    if (teleporterPadKeyCache.version === teleporterPadCacheVersion) {
         return teleporterPadKeyCache.keys;
     }
     const keys = new Set<string>();
     for (const teleporter of teleporterEntities) {
-        keys.add(`${teleporter.padX},${teleporter.padY}`);
+        keys.add(makeTeleporterPositionKey(teleporter.padX, teleporter.padY));
     }
-    teleporterPadKeyCache = { signature, keys };
+    teleporterPadKeyCache = { version: teleporterPadCacheVersion, keys };
     return keys;
 }
 
-function filterTeleporterPadsFromBlocks(blocks: MapBlock[], teleporterPadKeys: Set<string>, signature: string) {
+function filterTeleporterPadsFromBlocks(blocks: MapBlock[], teleporterPadKeys: Set<string>) {
     if (teleporterPadKeys.size === 0 || blocks.length === 0) {
         return blocks;
     }
     const cached = teleporterPadFilteredMapCache.get(blocks);
-    if (cached && cached.signature === signature) {
+    if (cached && cached.version === teleporterPadCacheVersion) {
         return cached.filtered;
     }
     const filtered = blocks.filter((block) =>
-        block.type !== 'teleporter_pad' || !teleporterPadKeys.has(`${block.x},${block.y}`)
+        block.type !== 'teleporter_pad' || !teleporterPadKeys.has(makeTeleporterPositionKey(block.x, block.y))
     );
-    teleporterPadFilteredMapCache.set(blocks, { signature, filtered });
+    teleporterPadFilteredMapCache.set(blocks, { version: teleporterPadCacheVersion, filtered });
     return filtered;
 }
 
@@ -3592,30 +4397,58 @@ function drawTeleporterPads(
         height: canvas.height,
         margin: TELEPORTER_TILE_SIZE * 2
     };
-    const pads = getTeleporterRenderPads(now, { ...options, viewport });
+    const pads = getTeleporterRenderPads(now, {
+        ignoreKeyRequirement: options?.ignoreKeyRequirement,
+        viewport
+    });
     if (pads.length === 0) {
         return;
     }
-    const padsToDraw = [
-        ...pads.filter((pad) => !pad.active),
-        ...pads.filter((pad) => pad.active)
-    ];
-    context.save();
-    context.globalAlpha = 0.82;
-    drawEntities(context, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, padsToDraw.map((pad) => ({
-        x: pad.x,
-        y: pad.y,
-        type: 'teleporter_pad',
-        palette: pad.palette,
-        rotation: pad.rotation,
-        translation: pad.translation,
-        paletteCycle: pad.paletteCycle,
-        collision: false
-    })), now);
-    context.restore();
+    teleporterPadDrawEntities.length = 0;
+    const pushPad = (pad: TeleporterRenderPad) => {
+        const nextIndex = teleporterPadDrawEntities.length;
+        const entity = teleporterPadDrawEntities[nextIndex] ?? {
+            x: 0,
+            y: 0,
+            type: 'teleporter_pad' as const,
+            palette: 0,
+            rotation: 1,
+            translation: 'center' as SpriteTranslation,
+            collision: false as const
+        };
+        entity.x = pad.x;
+        entity.y = pad.y;
+        entity.palette = pad.palette;
+        entity.rotation = pad.rotation;
+        entity.translation = pad.translation;
+        entity.paletteCycle = pad.paletteCycle;
+        teleporterPadDrawEntities[nextIndex] = entity;
+    };
+    for (const pad of pads) {
+        if (!pad.active) {
+            pushPad(pad);
+        }
+    }
+    for (const pad of pads) {
+        if (pad.active) {
+            pushPad(pad);
+        }
+    }
+    const previousAlpha = context.globalAlpha;
+    context.globalAlpha = previousAlpha * 0.82;
+    drawEntities(
+        context,
+        camera,
+        spriteMap,
+        remappedSpriteSheets,
+        SPRITE_SCALE,
+        teleporterPadDrawEntities,
+        now
+    );
+    context.globalAlpha = previousAlpha;
 }
 
-function updateTeleporterPadTeleporting(now: number) {
+function updateTeleporterPadTeleporting(now: number, simulationFrame: number) {
     if (isDesignerOpen() || teleporting || now < teleporterTouchCooldownUntilMs) {
         return;
     }
@@ -3628,6 +4461,13 @@ function updateTeleporterPadTeleporting(now: number) {
             radius: TELEPORTER_TILE_SIZE * 8
         }
     })) {
+        const teleporterChunkActivity = getChunkActivityForWorldPosition(
+            { x: activePad.x, y: activePad.y },
+            now
+        );
+        if (!shouldRunChunkBandUpdate(teleporterChunkActivity, TELEPORTER_CHUNK_CADENCE, simulationFrame)) {
+            continue;
+        }
         const padLeft = activePad.x;
         const padTop = activePad.y;
         const padRight = padLeft + TELEPORTER_TILE_SIZE;
@@ -4093,7 +4933,7 @@ function isCoroniumExplosionAtCenter(center: Position) {
     const radioactiveBoulderCenters = collectableEntities
         .filter((collectable) =>
             isRadioactiveBoulderCollectable(collectable) &&
-            !collectable.collected &&
+            !isCollectableCollected(collectable) &&
             !collectable.stored
         )
         .map((collectable) => getEntityCenter(
@@ -4751,6 +5591,9 @@ function cleanupCollectableReferences(collectable: Collectable) {
 
 function removeCollectableEntity(collectable: Collectable) {
     cleanupCollectableReferences(collectable);
+    if (typeof collectable.entityId === 'number') {
+        collectedCollectableEntityIds.delete(collectable.entityId);
+    }
     const index = collectableEntities.indexOf(collectable);
     if (index >= 0) {
         collectableEntities.splice(index, 1);
@@ -5593,7 +6436,7 @@ function updateCreatureProjectileCollectable(projectile: CreatureProjectileColle
     }
 }
 
-function updateCreatures(frameNow: number) {
+function updateCreatures(frameNow: number, simulationFrame: number) {
     const astronautRect = getAstronautRect();
     const astronautCenter = {
         x: (astronautRect.left + astronautRect.right) / 2,
@@ -5604,6 +6447,10 @@ function updateCreatures(frameNow: number) {
     for (const creature of creatureEntities) {
         creature.previousX = creature.x;
         creature.previousY = creature.y;
+        const creatureChunkActivity = getChunkActivityForEntityPosition(creature, frameNow);
+        if (!shouldRunChunkBandUpdate(creatureChunkActivity, CREATURE_CHUNK_CADENCE, simulationFrame)) {
+            continue;
+        }
 
         const runtimeState = creature.state ?? {};
         const authoredType = getCreatureAuthoredType(creature.type, runtimeState);
@@ -5801,23 +6648,29 @@ function updateCreatures(frameNow: number) {
             }
         }
 
+        let birdChasingAstronaut = false;
         if (bird && creature.movementMode === 'fly') {
-            const chasingAstronaut = runtimeState.followingAstronaut === true;
-            if (chasingAstronaut && Math.abs(dy) < BIRD_AVOIDANCE_VERTICAL_THRESHOLD) {
+            birdChasingAstronaut = runtimeState.followingAstronaut === true;
+            if (birdChasingAstronaut && Math.abs(dy) < BIRD_AVOIDANCE_VERTICAL_THRESHOLD) {
                 const avoidanceDirection = typeof runtimeState.birdAvoidanceDirection === 'number'
                     ? Math.sign(Number(runtimeState.birdAvoidanceDirection)) || 1
                     : (Math.sign(dx) || 1);
                 runtimeState.birdAvoidanceDirection = avoidanceDirection;
                 nextY += avoidanceDirection * Math.max(1, speed * 0.8);
-            } else if (!chasingAstronaut) {
+            } else if (!birdChasingAstronaut) {
                 delete runtimeState.birdAvoidanceDirection;
             }
+        }
 
-            const movementResult = moveCreatureWithEnvironmentCollisions(creature, nextX, nextY);
+        let movementResult: AxisMovementResult | null = null;
+        if (creature.collision && !creature.fixed && creature.movementMode !== 'turret') {
+            movementResult = moveCreatureWithEnvironmentCollisions(creature, nextX, nextY);
             nextX = movementResult.x;
             nextY = movementResult.y;
+        }
 
-            if (chasingAstronaut) {
+        if (bird && creature.movementMode === 'fly' && movementResult) {
+            if (birdChasingAstronaut) {
                 if (movementResult.movedY !== 0) {
                     runtimeState.birdAvoidanceDirection = Math.sign(movementResult.movedY) || runtimeState.birdAvoidanceDirection;
                 }
@@ -5874,6 +6727,10 @@ function updateCreatures(frameNow: number) {
 
     for (const predator of [...creatureEntities]) {
         if (!predator.canEatWasps) {
+            continue;
+        }
+        const predatorChunkActivity = getChunkActivityForEntityPosition(predator, frameNow);
+        if (!shouldRunChunkBandUpdate(predatorChunkActivity, CREATURE_CHUNK_CADENCE, simulationFrame)) {
             continue;
         }
         const predatorBounds = getEntityCollisionBounds(predator);
@@ -6116,7 +6973,7 @@ function updateHeldCollectablePosition() {
 }
 
 function isLooseCollectable(collectable: Collectable) {
-    return !collectable.collected && !collectable.held && !collectable.stored;
+    return !isCollectableCollected(collectable) && !collectable.held && !collectable.stored;
 }
 
 function getEntityOverlapBounds(
@@ -6239,8 +7096,13 @@ function handleCollectableInteractions() {
     if (keys[','] && !prevKeys[','] && !heldCollectable) {
         const pickupTarget = getNearestPickupCollectable();
         if (pickupTarget) {
-            pickupTarget.hold(facingLeft);
-            heldCollectable = pickupTarget;
+            if (pickupTarget.collected) {
+                markCollectableCollected(pickupTarget);
+                try { getSound.currentTime = 0; getSound.play(); } catch {}
+            } else {
+                pickupTarget.hold(facingLeft);
+                heldCollectable = pickupTarget;
+            }
         } else {
             const pickupCreature = getNearestPickupCreature();
             if (pickupCreature) {
@@ -6723,11 +7585,17 @@ function updateSingleCollectablePhysics(
     };
 }
 
-function updateCollectablePhysics() {
-    const now = performance.now();
+function updateCollectablePhysics(now: number, simulationFrame: number) {
     for (const collectable of [...collectableEntities]) {
+        const collectableChunkActivity = getChunkActivityForEntityPosition(collectable, now);
         if (isCreatureProjectileCollectable(collectable)) {
+            if (!shouldRunChunkBandUpdate(collectableChunkActivity, PROJECTILE_CHUNK_CADENCE, simulationFrame)) {
+                continue;
+            }
             updateCreatureProjectileCollectable(collectable);
+            continue;
+        }
+        if (!shouldRunChunkBandUpdate(collectableChunkActivity, COLLECTABLE_CHUNK_CADENCE, simulationFrame)) {
             continue;
         }
         syncGrenadeFuseState(collectable, now);
@@ -6831,4 +7699,22 @@ window.addEventListener('keydown', (e) => {
     if (e.key === 'b') showTightBoundingBoxes = !showTightBoundingBoxes;
     if (e.key === 'f') showWorldBoundingBoxes = !showWorldBoundingBoxes;
     if (e.key === 'd') gameState.debugMode = !gameState.debugMode;
+    if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'h') {
+        e.preventDefault();
+        showPerformanceHud = !showPerformanceHud;
+        if (!isPerformanceInstrumentationEnabled()) {
+            lastFrameTimestamp = null;
+        }
+        requestImmediateFrame();
+    }
+    if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'j') {
+        e.preventDefault();
+        showPerformanceConsoleSummary = !showPerformanceConsoleSummary;
+        if (showPerformanceConsoleSummary) {
+            lastPerformanceConsoleSummaryAt = 0;
+        } else if (!isPerformanceInstrumentationEnabled()) {
+            lastFrameTimestamp = null;
+        }
+        requestImmediateFrame();
+    }
 });

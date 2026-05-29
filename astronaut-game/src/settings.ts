@@ -24,9 +24,12 @@ export const MOVEMENT_SETTINGS = {
     walkStartSpeed: 1,
     flyAccel: 0.28,
     flyMaxSpeed: 5.6,
+    jetpackBoosterMultiplier: 1.85,
+    jetpackBoosterEnergyCostPerFrame: 0.22,
     landingMomentumFactor: 0.65,
     landingMomentumMinSpeed: 0.35,
     walkStepUpHeight: 6,
+    proneStepUpHeight: 2,
     collectablePushStepUpHeight: 10,
     heldWeightIgnoreThreshold: 0.3,
     heldWeightWalkPenaltyPerUnit: 0.12,
@@ -84,6 +87,54 @@ export const MOVEMENT_SETTINGS = {
 export const VIEWPORT_SETTINGS = {
     defaultWidth: 1000,
     defaultHeight: 675
+} as const;
+
+export const CHUNK_ACTIVITY_SETTINGS = {
+    chunkWorldSize: 2048,
+    radiiChunks: {
+        near: 1,
+        mid: 3
+    },
+    viewportRadiusScale: {
+        near: 1,
+        mid: 1.5
+    },
+    effectiveViewport: {
+        defaultZoom: 1,
+        expandedViewZoom: 1,
+        minZoom: 0.5,
+        maxZoom: 2
+    },
+    chunkResidency: {
+        basePrefetchRadiusChunks: 1,
+        viewportChunkRadiusBaseline: 1,
+        viewportExpansionRadiusScale: 1,
+        expandedViewExtraRadiusChunks: 0,
+        maxPrefetchRadiusChunks: 6
+    },
+    teleportKeepAliveMs: 1400,
+    simulationCadenceFrames: {
+        creatures: {
+            near: 1,
+            mid: 2,
+            far: 0
+        },
+        collectables: {
+            near: 1,
+            mid: 2,
+            far: 0
+        },
+        projectiles: {
+            near: 1,
+            mid: 2,
+            far: 0
+        },
+        teleporters: {
+            near: 1,
+            mid: 2,
+            far: 0
+        }
+    }
 } as const;
 
 export const BULLET_IMPACT_AUDIO_SETTINGS: BulletImpactAudioSettings = {

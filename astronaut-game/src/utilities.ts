@@ -127,6 +127,12 @@ function applySpriteRotationTransform(ctx: CanvasRenderingContext2D, rotation: n
         ctx.scale(1, -1);
     } else if (rotation === 7) {
         ctx.scale(-1, -1);
+    } else if (rotation === 8) {
+        ctx.rotate(Math.PI / 2);
+        ctx.scale(-1, 1);
+    } else if (rotation === 9) {
+        ctx.rotate((3 * Math.PI) / 2);
+        ctx.scale(-1, 1);
     }
 }
 
@@ -154,7 +160,11 @@ export function getTransformedSpriteCanvas(
         return cached;
     }
 
-    const swapDimensions = normalizedRotation === 2 || normalizedRotation === 4;
+    const swapDimensions =
+        normalizedRotation === 2 ||
+        normalizedRotation === 4 ||
+        normalizedRotation === 8 ||
+        normalizedRotation === 9;
     const canvas = document.createElement('canvas');
     canvas.width = swapDimensions ? rect.h : rect.w;
     canvas.height = swapDimensions ? rect.w : rect.h;
@@ -551,6 +561,14 @@ function isSolidSpritePixelAtWorld(
     } else if (rotation === 7) {
         localX = -localX;
         localY = -localY;
+    } else if (rotation === 8 || rotation === 9) {
+        const angle = rotation === 8 ? -(Math.PI / 2) : -((3 * Math.PI) / 2);
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        const rotatedX = localX * cos - localY * sin;
+        const rotatedY = localX * sin + localY * cos;
+        localX = -rotatedX;
+        localY = rotatedY;
     }
 
     const drawX = localX + geometry.drawW / 2;
@@ -800,7 +818,15 @@ export async function calculateSpriteCollisionBoundingBoxes(
     // Helper to check if a pixel is transparent in the sprite sheet
     function isPixelTransparent(imgData: Uint8ClampedArray, imgW: number, x: number, y: number): boolean {
         const idx = (y * imgW + x) * 4;
-        return imgData[idx + 3] === 0;
+        const alpha = imgData[idx + 3];
+        if (alpha === 0) {
+            return true;
+        }
+        // Astronaut sprites use black as transparency in the runtime pipeline.
+        const red = imgData[idx];
+        const green = imgData[idx + 1];
+        const blue = imgData[idx + 2];
+        return red === 0 && green === 0 && blue === 0;
     }
 
     // Get image data once for efficiency

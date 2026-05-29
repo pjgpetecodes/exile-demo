@@ -148,3 +148,15 @@ export interface TeleporterSaveData {
     destinationB?: Position | null;
     activeDestinationIndex?: 0 | 1;
 }
+
+export type ChunkActivityBand = 'near' | 'mid' | 'far';
+
+export interface ChunkCoordinates {
+    x: number;
+    y: number;
+}
+
+export interface ChunkActivityRadii {
+    near: number;
+    mid: number;
+}

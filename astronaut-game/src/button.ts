@@ -99,6 +99,12 @@ export class Button {
         if (this.rotation === 7) {
             return { x: -offsetX, y: -offsetY };
         }
+        if (this.rotation === 8) {
+            return { x: -offsetY, y: -offsetX };
+        }
+        if (this.rotation === 9) {
+            return { x: offsetY, y: offsetX };
+        }
 
         return { x: offsetX, y: offsetY };
     }

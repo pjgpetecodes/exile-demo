@@ -1,7 +1,7 @@
 [
   {
-    "x": 9005,
-    "y": 1379,
+    "x": 8526,
+    "y": 2101,
     "type": "grenade",
     "palette": 14,
     "rotation": 1,
@@ -25,7 +25,7 @@
   },
   {
     "x": 8562,
-    "y": 1644,
+    "y": 2101,
     "type": "grenade",
     "palette": 14,
     "rotation": 1,
@@ -46,104 +46,10 @@
     "astronautCollisionIgnoreFrames": 0,
     "armed": false,
     "explosionPower": 4
-  },
-  {
-    "x": 8526,
-    "y": 1644,
-    "type": "grenade",
-    "palette": 14,
-    "rotation": 1,
-    "collected": false,
-    "name": "grenade",
-    "weight": 0.2,
-    "pickupEnabled": true,
-    "storable": true,
-    "affectsAstronaut": false,
-    "collision": true,
-    "held": false,
-    "stored": false,
-    "isGrounded": true,
-    "velocity": {
-      "x": 0,
-      "y": 0
-    },
-    "astronautCollisionIgnoreFrames": 0,
-    "armed": false,
-    "explosionPower": 4
-  },
-  {
-    "x": 11351,
-    "y": 1742,
-    "type": "grenade",
-    "palette": 14,
-    "rotation": 1,
-    "collected": false,
-    "name": "grenade",
-    "weight": 0.2,
-    "pickupEnabled": true,
-    "storable": true,
-    "affectsAstronaut": true,
-    "collision": true,
-    "held": false,
-    "stored": false,
-    "isGrounded": false,
-    "velocity": {
-      "x": 0,
-      "y": 0
-    },
-    "astronautCollisionIgnoreFrames": 0,
-    "armed": false,
-    "explosionPower": 4
-  },
-  {
-    "x": 7109,
-    "y": 2635,
-    "type": "grenade",
-    "palette": 14,
-    "rotation": 1,
-    "collected": false,
-    "name": "grenade",
-    "weight": 0.2,
-    "pickupEnabled": true,
-    "storable": true,
-    "affectsAstronaut": false,
-    "collision": true,
-    "held": false,
-    "stored": false,
-    "isGrounded": true,
-    "velocity": {
-      "x": 0,
-      "y": 0
-    },
-    "astronautCollisionIgnoreFrames": 0,
-    "armed": false,
-    "explosionPower": 4
-  },
-  {
-    "x": 7277,
-    "y": 2442,
-    "type": "key1",
-    "palette": 27,
-    "rotation": 3,
-    "collected": true,
-    "name": "key1",
-    "weight": 0.2,
-    "pickupEnabled": true,
-    "storable": true,
-    "affectsAstronaut": false,
-    "collision": true,
-    "held": false,
-    "stored": false,
-    "isGrounded": false,
-    "velocity": {
-      "x": 0,
-      "y": 0
-    },
-    "astronautCollisionIgnoreFrames": 0
   },
   {
     "x": 6213,
-    "y": 2130,
+    "y": 3265,
     "type": "tree",
     "palette": 20,
     "rotation": 1,
@@ -156,7 +62,7 @@
     "collision": true,
     "held": false,
     "stored": false,
-    "isGrounded": false,
+    "isGrounded": true,
     "velocity": {
       "x": 0,
       "y": 0
@@ -164,43 +70,45 @@
     "astronautCollisionIgnoreFrames": 0
   },
   {
-    "x": 7744,
-    "y": 3802,
-    "type": "wall_diagnonal_thirds",
-    "palette": 13,
-    "rotation": 3,
+    "x": 9005,
+    "y": 3398,
+    "type": "grenade",
+    "palette": 14,
+    "rotation": 1,
     "collected": false,
-    "name": "wall_diagnonal_thirds",
+    "name": "grenade",
     "weight": 0.2,
     "pickupEnabled": true,
     "storable": true,
-    "affectsAstronaut": true,
+    "affectsAstronaut": false,
     "collision": true,
     "held": false,
     "stored": false,
-    "isGrounded": false,
+    "isGrounded": true,
     "velocity": {
       "x": 0,
       "y": 0
     },
-    "astronautCollisionIgnoreFrames": 0
+    "astronautCollisionIgnoreFrames": 0,
+    "armed": false,
+    "explosionPower": 4
   },
   {
-    "x": 7180,
-    "y": 3802,
-    "type": "wall_diag_full",
-    "palette": 13,
+    "x": 9269,
+    "y": 3489,
+    "type": "chest",
+    "palette": 1,
     "rotation": 5,
     "collected": false,
-    "name": "wall_diag_full",
+    "name": "chest",
     "weight": 0.2,
-    "pickupEnabled": true,
-    "storable": true,
-    "affectsAstronaut": true,
+    "pickupEnabled": false,
+    "storable": false,
+    "affectsAstronaut": false,
     "collision": true,
     "held": false,
     "stored": false,
-    "isGrounded": false,
+    "isGrounded": true,
     "velocity": {
       "x": 0,
       "y": 0
@@ -208,21 +116,45 @@
     "astronautCollisionIgnoreFrames": 0
   },
   {
-    "x": 7181,
-    "y": 4084,
-    "type": "wall_quarter",
-    "palette": 13,
-    "rotation": 3,
+    "x": 7109,
+    "y": 3861,
+    "type": "grenade",
+    "palette": 14,
+    "rotation": 1,
     "collected": false,
-    "name": "wall_quarter",
+    "name": "grenade",
     "weight": 0.2,
     "pickupEnabled": true,
     "storable": true,
-    "affectsAstronaut": true,
+    "affectsAstronaut": false,
     "collision": true,
     "held": false,
     "stored": false,
-    "isGrounded": false,
+    "isGrounded": true,
+    "velocity": {
+      "x": 0,
+      "y": 0
+    },
+    "astronautCollisionIgnoreFrames": 0,
+    "armed": false,
+    "explosionPower": 4
+  },
+  {
+    "x": 7529,
+    "y": 4203,
+    "type": "gun",
+    "palette": 28,
+    "rotation": 1,
+    "collected": true,
+    "name": "gun",
+    "weight": 0.2,
+    "pickupEnabled": true,
+    "storable": true,
+    "affectsAstronaut": false,
+    "collision": true,
+    "held": false,
+    "stored": false,
+    "isGrounded": true,
     "velocity": {
       "x": 0,
       "y": 0
@@ -244,6 +176,28 @@
     "collision": true,
     "held": false,
     "stored": false,
+    "isGrounded": true,
+    "velocity": {
+      "x": 0,
+      "y": 0
+    },
+    "astronautCollisionIgnoreFrames": 0
+  },
+  {
+    "x": 9053,
+    "y": 4352,
+    "type": "whistle",
+    "palette": 5,
+    "rotation": 1,
+    "collected": true,
+    "name": "whistle",
+    "weight": 0.2,
+    "pickupEnabled": true,
+    "storable": false,
+    "affectsAstronaut": false,
+    "collision": true,
+    "held": false,
+    "stored": false,
     "isGrounded": false,
     "velocity": {
       "x": 0,
@@ -252,8 +206,30 @@
     "astronautCollisionIgnoreFrames": 0
   },
   {
+    "x": 7277,
+    "y": 4370,
+    "type": "key1",
+    "palette": 27,
+    "rotation": 3,
+    "collected": true,
+    "name": "key1",
+    "weight": 0.2,
+    "pickupEnabled": true,
+    "storable": true,
+    "affectsAstronaut": false,
+    "collision": true,
+    "held": false,
+    "stored": false,
+    "isGrounded": true,
+    "velocity": {
+      "x": 0,
+      "y": 0
+    },
+    "astronautCollisionIgnoreFrames": 0
+  },
+  {
     "x": 6969,
-    "y": 4576,
+    "y": 4578,
     "type": "wall_diagnonal_thirds",
     "palette": 12,
     "rotation": 6,
@@ -266,7 +242,7 @@
     "collision": true,
     "held": false,
     "stored": false,
-    "isGrounded": false,
+    "isGrounded": true,
     "velocity": {
       "x": 0,
       "y": 0
@@ -274,13 +250,13 @@
     "astronautCollisionIgnoreFrames": 0
   },
   {
-    "x": 7111,
-    "y": 4365,
-    "type": "wall_diagnonal_thirds",
-    "palette": 12,
-    "rotation": 5,
+    "x": 7038,
+    "y": 4593,
+    "type": "rcd",
+    "palette": 29,
+    "rotation": 6,
     "collected": false,
-    "name": "wall_diagnonal_thirds",
+    "name": "rcd",
     "weight": 0.2,
     "pickupEnabled": true,
     "storable": true,
@@ -288,51 +264,7 @@
     "collision": true,
     "held": false,
     "stored": false,
-    "isGrounded": false,
-    "velocity": {
-      "x": 0,
-      "y": 0
-    },
-    "astronautCollisionIgnoreFrames": 0
-  },
-  {
-    "x": 7111,
-    "y": 4576,
-    "type": "wall_diagnonal_thirds",
-    "palette": 12,
-    "rotation": 7,
-    "collected": false,
-    "name": "wall_diagnonal_thirds",
-    "weight": 0.2,
-    "pickupEnabled": true,
-    "storable": true,
-    "affectsAstronaut": true,
-    "collision": true,
-    "held": false,
-    "stored": false,
-    "isGrounded": false,
-    "velocity": {
-      "x": 0,
-      "y": 0
-    },
-    "astronautCollisionIgnoreFrames": 0
-  },
-  {
-    "x": 6971,
-    "y": 4365,
-    "type": "wall_diagnonal_thirds",
-    "palette": 12,
-    "rotation": 1,
-    "collected": false,
-    "name": "wall_diagnonal_thirds",
-    "weight": 0.2,
-    "pickupEnabled": true,
-    "storable": true,
-    "affectsAstronaut": true,
-    "collision": true,
-    "held": false,
-    "stored": false,
-    "isGrounded": false,
+    "isGrounded": true,
     "velocity": {
       "x": 0,
       "y": 0
@@ -341,7 +273,7 @@
   },
   {
     "x": 6547,
-    "y": 4608,
+    "y": 4625,
     "type": "pipe_down_half",
     "palette": 30,
     "rotation": 1,
@@ -354,7 +286,7 @@
     "collision": true,
     "held": false,
     "stored": false,
-    "isGrounded": false,
+    "isGrounded": true,
     "velocity": {
       "x": 0,
       "y": 0
@@ -363,7 +295,7 @@
   },
   {
     "x": 7463,
-    "y": 4679,
+    "y": 4682,
     "type": "wall_diag_half",
     "palette": 12,
     "rotation": 1,
@@ -376,7 +308,7 @@
     "collision": true,
     "held": false,
     "stored": false,
-    "isGrounded": false,
+    "isGrounded": true,
     "velocity": {
       "x": 0,
       "y": 0
@@ -384,25 +316,27 @@
     "astronautCollisionIgnoreFrames": 0
   },
   {
-    "x": 7534,
-    "y": 4208,
-    "type": "gun",
-    "palette": 28,
+    "x": 11351,
+    "y": 18581,
+    "type": "grenade",
+    "palette": 14,
     "rotation": 1,
-    "collected": true,
-    "name": "gun",
+    "collected": false,
+    "name": "grenade",
     "weight": 0.2,
     "pickupEnabled": true,
     "storable": true,
-    "affectsAstronaut": false,
+    "affectsAstronaut": true,
     "collision": true,
     "held": false,
     "stored": false,
     "isGrounded": false,
     "velocity": {
       "x": 0,
-      "y": 0
+      "y": 6
     },
-    "astronautCollisionIgnoreFrames": 0
+    "astronautCollisionIgnoreFrames": 0,
+    "armed": false,
+    "explosionPower": 4
   }
 ]

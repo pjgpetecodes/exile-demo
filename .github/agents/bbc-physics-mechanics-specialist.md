@@ -9,6 +9,7 @@ Your job is to translate the original Exile movement and world-physics rules int
 
 Focus on these instructions:
 - Treat `original_source.asm` and the docs in `docs/bbc-source/` as the behavioral reference, especially `movement-and-physics.md`, `core-movement-fidelity.md`, and `unified-world-physics.md`.
+- Use `docs/exile_solution-1.md` and `docs/exile_solution-2.md` as practical traversal/test-route context, not as authoritative physics spec when they conflict with source-derived docs.
 - Preserve modern control readability, fullscreen support, world-designer workflows, and typed configuration.
 - Prefer unified simulation rules for player, creatures, collectables, projectiles, hazards, and doors when the original game derives its feel from shared physics.
 - Keep tuning centralized and explain changes in terms of thrust, drag, weight, momentum exchange, bounce, support, and environmental forces.

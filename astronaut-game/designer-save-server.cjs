@@ -21,6 +21,48 @@ const PALETTES_FILE = path.join(ROOT, 'src', 'assets', 'palettes.json');
 const COLORS_FILE = path.join(ROOT, 'src', 'assets', 'colors.json');
 const SPRITE_MAP_FILE = path.join(ROOT, 'src', 'assets', 'exile_sprites_map.json');
 const SPRITE_SHEET_FILE = path.join(ROOT, 'src', 'assets', 'sprite_sheet.png');
+const ATOMIC_WRITE_RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY']);
+const ATOMIC_WRITE_RETRY_ATTEMPTS = 8;
+
+function delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetriableAtomicWriteError(error) {
+    return !!error && typeof error === 'object' && ATOMIC_WRITE_RETRY_CODES.has(error.code);
+}
+
+function createTempFilePath(filePath) {
+    return `${filePath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+}
+
+async function replaceFileAtomically(tempPath, filePath) {
+    let lastError = null;
+    for (let attempt = 0; attempt < ATOMIC_WRITE_RETRY_ATTEMPTS; attempt += 1) {
+        try {
+            await fs.rename(tempPath, filePath);
+            return;
+        } catch (error) {
+            lastError = error;
+            if (!isRetriableAtomicWriteError(error) || attempt === ATOMIC_WRITE_RETRY_ATTEMPTS - 1) {
+                break;
+            }
+            await delay(15 * (attempt + 1));
+        }
+    }
+
+    if (isRetriableAtomicWriteError(lastError)) {
+        try {
+            await fs.copyFile(tempPath, filePath);
+            await fs.unlink(tempPath).catch(() => {});
+            return;
+        } catch (copyError) {
+            throw copyError;
+        }
+    }
+
+    throw lastError;
+}
 
 function sendJson(res, statusCode, payload) {
     res.writeHead(statusCode, {
@@ -134,16 +176,24 @@ function validatePalettesPayload(payload) {
 }
 
 async function writeJsonFile(filePath, value) {
-    const tempPath = `${filePath}.tmp`;
+    const tempPath = createTempFilePath(filePath);
     const json = `${JSON.stringify(value, null, 2)}\n`;
-    await fs.writeFile(tempPath, json, 'utf8');
-    await fs.rename(tempPath, filePath);
+    try {
+        await fs.writeFile(tempPath, json, 'utf8');
+        await replaceFileAtomically(tempPath, filePath);
+    } finally {
+        await fs.unlink(tempPath).catch(() => {});
+    }
 }
 
 async function writeBinaryFile(filePath, value) {
-    const tempPath = `${filePath}.tmp`;
-    await fs.writeFile(tempPath, value);
-    await fs.rename(tempPath, filePath);
+    const tempPath = createTempFilePath(filePath);
+    try {
+        await fs.writeFile(tempPath, value);
+        await replaceFileAtomically(tempPath, filePath);
+    } finally {
+        await fs.unlink(tempPath).catch(() => {});
+    }
 }
 
 async function readJsonFile(filePath) {

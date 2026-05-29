@@ -52,6 +52,7 @@ The repository includes VS Code launch/task settings.
 
 - **`** = show or hide the world designer
 - **F** = toggle sprite outline overlays
+- **D** = toggle debug HUD (shows chunk activity bands/radii + teleport keep-alive count)
 
 ## Gameplay notes
 
@@ -60,6 +61,50 @@ The repository includes VS Code launch/task settings.
 - Collectables can be placed in the world and configured in the designer.
 - Loose objects now use a shared weight-and-speed-driven physics model for falling, bouncing, throwing, pushing, and astronaut impacts.
 - The astronaut start position is stored separately in `astronaut_start.json`.
+
+## Chunk activity rollout tuning (operator quick guide)
+
+Chunk activity settings live in `astronaut-game/src/settings.ts` (`CHUNK_ACTIVITY_SETTINGS`) and can also be tuned live in devtools:
+
+```js
+// Inspect current runtime tuning + manager snapshot
+window.__exileDebug.chunkActivity.getTuning()
+
+// Example: widen activity bands and keep source/destination chunks alive longer after teleport
+window.__exileDebug.chunkActivity.setTuning({
+  radiiChunks: { near: 2, mid: 4 },
+  teleportKeepAliveMs: 1800
+})
+
+// Example: change cadence (1 = every frame, 2 = every other frame, 0 = paused for that band)
+window.__exileDebug.chunkActivity.setTuning({
+  simulationCadenceFrames: {
+    creatures: { near: 1, mid: 2, far: 0 },
+    projectiles: { near: 1, mid: 2, far: 0 }
+  }
+})
+
+// Restore defaults from settings.ts
+window.__exileDebug.chunkActivity.resetTuning()
+```
+
+Tradeoffs:
+
+- larger near/mid bands improve offscreen continuity but increase CPU work.
+- lower cadence values (closer to 1) improve fidelity but increase per-frame simulation cost.
+- larger `teleportKeepAliveMs` improves teleport source continuity but keeps more chunks in near state for longer.
+
+### Practical rollout verification notes
+
+1. **Teleport continuity / source keep-alive**
+   - Enable `D`, remember a location (`R`), move several chunks away, then teleport (`T`).
+   - Confirm no visible pop/cold-start around source/destination and HUD `keepAlive` rises briefly then decays.
+2. **Projectile + creature behavior under chunk gating**
+   - Trigger hostile creatures at the edge of view and fire/exchange projectiles while moving in/out of near/mid range.
+   - Confirm near feels full-rate, mid remains coherent, and far entities pause per cadence policy without corruption.
+3. **Zoomed-out expanded viewport chunk behavior**
+   - Open world designer and switch expanded viewport on/off.
+   - Confirm chunk radii/prefetch visibly expand in debug HUD and traversal stays smooth without missing nearby chunk content.
 
 ## Astronaut injury, energy, and rescue teleport
 
@@ -106,4 +151,6 @@ World data is split across JSON files in `astronaut-game\src\assets`:
 ## Related docs
 
 - [World Designer Guide](world-designer.md)
+- [Classic Walkthrough (Solution 1)](exile_solution-1.md)
+- [Classic Walkthrough (Solution 2 - Dan Doran)](exile_solution-2.md)
 - [Main README](../README.md)

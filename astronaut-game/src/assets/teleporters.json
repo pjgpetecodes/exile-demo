@@ -15,6 +15,21 @@
     "activeDestinationIndex": 0
   },
   {
+    "id": "teleporter_10",
+    "baseX": 10348,
+    "baseY": 5209,
+    "padX": 10348,
+    "padY": 5209,
+    "enabled": true,
+    "requiresKey": false,
+    "destinationA": {
+      "x": 7556,
+      "y": 3962
+    },
+    "destinationB": null,
+    "activeDestinationIndex": 0
+  },
+  {
     "id": "teleporter_2",
     "baseX": 8870,
     "baseY": 2394,
@@ -118,6 +133,21 @@
     "destinationA": {
       "x": 8773,
       "y": 380
+    },
+    "destinationB": null,
+    "activeDestinationIndex": 0
+  },
+  {
+    "id": "teleporter_9",
+    "baseX": 9856,
+    "baseY": 3590,
+    "padX": 9856,
+    "padY": 3590,
+    "enabled": true,
+    "requiresKey": false,
+    "destinationA": {
+      "x": 8736,
+      "y": 372
     },
     "destinationB": null,
     "activeDestinationIndex": 0

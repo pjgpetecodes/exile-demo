@@ -10,16 +10,6 @@
     "translation": "bottom"
   },
   {
-    "x": 9011,
-    "y": 4154,
-    "type": "pipe_down",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 13,
-    "rotation": 3,
-    "translation": "left"
-  },
-  {
     "x": 9504,
     "y": 4154,
     "type": "wall_diagnonal_half",
@@ -190,14 +180,14 @@
     "translation": "center"
   },
   {
-    "x": 9222,
+    "x": 9223,
     "y": 4224,
-    "type": "wall_half",
+    "type": "wall_diag_full",
     "collision": true,
     "maskAstronaut": false,
     "palette": 13,
     "rotation": 3,
-    "translation": "center"
+    "translation": "left"
   },
   {
     "x": 9293,
@@ -372,22 +362,12 @@
   {
     "x": 8941,
     "y": 4294,
-    "type": "wall_full",
+    "type": "wall_thirds",
     "collision": true,
     "maskAstronaut": false,
     "palette": 13,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 9011,
-    "y": 4294,
-    "type": "destinator",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 12,
     "rotation": 5,
-    "translation": "bottom"
+    "translation": "center"
   },
   {
     "x": 9081,
@@ -3150,36 +3130,6 @@
     "translation": "center"
   },
   {
-    "x": 8659,
-    "y": 5210,
-    "type": "turret",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 19,
-    "rotation": 6,
-    "translation": "top"
-  },
-  {
-    "x": 8729,
-    "y": 5210,
-    "type": "pipe_down",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 13,
-    "rotation": 3,
-    "translation": "center"
-  },
-  {
-    "x": 9433,
-    "y": 5210,
-    "type": "pipe_down",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 12,
-    "rotation": 3,
-    "translation": "left"
-  },
-  {
     "x": 9504,
     "y": 5210,
     "type": "tree",
@@ -3190,16 +3140,6 @@
     "translation": "bottom"
   },
   {
-    "x": 9574,
-    "y": 5210,
-    "type": "turret",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 19,
-    "rotation": 3,
-    "translation": "top"
-  },
-  {
     "x": 9715,
     "y": 5210,
     "type": "wall_full",
@@ -3208,16 +3148,6 @@
     "palette": 12,
     "rotation": 1,
     "translation": "center"
-  },
-  {
-    "x": 9856,
-    "y": 5210,
-    "type": "turret",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 19,
-    "rotation": 5,
-    "translation": "bottom"
   },
   {
     "x": 9926,
