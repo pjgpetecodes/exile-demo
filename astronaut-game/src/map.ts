@@ -37,6 +37,7 @@ export type MapBlock = {
     windVariabilityHz?: number;
     windVariabilityAmount?: number;
     windAffectsAstronaut?: boolean;
+    windAffectsLooseObjects?: boolean;
     windShowParticles?: boolean;
 };
 

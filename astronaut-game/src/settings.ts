@@ -89,11 +89,18 @@ export const MOVEMENT_SETTINGS = {
     windMaxAccelerationPerFrame: 0.28,
     windWeightResistancePerUnit: 0.75,
     windParticlePerEmitterMaxPerFrame: 2,
-    surfaceWindDefaultEnabled: false,
-    surfaceWindDefaultMaxY: 3600,
+    surfaceWindDefaultEnabled: true,
+    surfaceWindDefaultMaxY: 1765,
     surfaceWindDefaultCenterX: 5200,
     surfaceWindDefaultDeadzone: 240,
-    surfaceWindDefaultStrength: 0.09
+    surfaceWindDefaultStrength: 0.24,
+    surfaceWindDefaultEdgeBand: 2400,
+    surfaceWindDefaultBuffetHz: 1.4,
+    surfaceWindDefaultBuffetStrength: 0.65,
+    surfaceWindDefaultLeftStartX: 6850,
+    surfaceWindDefaultLeftLimitX: 5300,
+    surfaceWindDefaultRightStartX: 11360,
+    surfaceWindDefaultRightLimitX: 12400
 } as const;
 
 export const VIEWPORT_SETTINGS = {

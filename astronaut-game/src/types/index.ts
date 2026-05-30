@@ -17,6 +17,7 @@ export interface WindEmitterSaveData {
     variabilityHz?: number;
     variabilityAmount?: number;
     affectsAstronaut?: boolean;
+    affectsLooseObjects?: boolean;
     showParticles?: boolean;
 }
 
@@ -29,6 +30,13 @@ export interface WindGlobalSettings {
     surfaceWindCenterX?: number;
     surfaceWindDeadzone?: number;
     surfaceWindStrength?: number;
+    surfaceWindEdgeBand?: number;
+    surfaceWindBuffetHz?: number;
+    surfaceWindBuffetStrength?: number;
+    surfaceWindLeftStartX?: number;
+    surfaceWindLeftLimitX?: number;
+    surfaceWindRightStartX?: number;
+    surfaceWindRightLimitX?: number;
 }
 
 export type TeleporterDestinationMode =

@@ -786,6 +786,7 @@ function toMapBlockData(block: MapBlock): MapBlock {
         || typeof block.windVariabilityHz === 'number'
         || typeof block.windVariabilityAmount === 'number'
         || typeof block.windAffectsAstronaut === 'boolean'
+        || typeof block.windAffectsLooseObjects === 'boolean'
         || typeof block.windShowParticles === 'boolean';
     return {
         x: block.x,
@@ -857,6 +858,7 @@ function toMapBlockData(block: MapBlock): MapBlock {
                     ? clamp(Number(block.windVariabilityAmount), 0, 1)
                     : 0.45,
                 windAffectsAstronaut: block.windAffectsAstronaut !== false,
+                windAffectsLooseObjects: block.windAffectsLooseObjects !== false,
                 windShowParticles: block.windShowParticles !== false
             }
             : {}),
@@ -10485,6 +10487,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                         ? entity.windVariabilityAmount
                         : 0.45;
                     entity.windAffectsAstronaut = entity.windAffectsAstronaut !== false;
+                    entity.windAffectsLooseObjects = entity.windAffectsLooseObjects !== false;
                     entity.windShowParticles = entity.windShowParticles !== false;
                 });
             });
@@ -10534,6 +10537,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                 addCheckboxInspector(container, 'Affects astronaut', entity.windAffectsAstronaut !== false, (checked) => {
                     runMutation('Updated wind astronaut-affect flag.', () => {
                         entity.windAffectsAstronaut = checked;
+                    });
+                });
+                addCheckboxInspector(container, 'Affects loose objects', entity.windAffectsLooseObjects !== false, (checked) => {
+                    runMutation('Updated wind loose-object-affect flag.', () => {
+                        entity.windAffectsLooseObjects = checked;
                     });
                 });
                 addCheckboxInspector(container, 'Show wind particles', entity.windShowParticles !== false, (checked) => {
