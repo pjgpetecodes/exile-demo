@@ -38,6 +38,7 @@ export const saveSound = new Audio('./src/assets/save.wav');
 export const bulletExplosionSound = new Audio('./src/assets/BulletExplosion.wav');
 export const bulletExplosion2Sound = new Audio('./src/assets/BulletExplosion2.wav');
 export const grenadeArmedSound = new Audio('./src/assets/GrenadeArmed.wav');
+export const plasmaGrenadeImpactSound = new Audio('./src/assets/plasmagrenade.wav');
 export const mushroomsSound = new Audio('./src/assets/Mushrooms.wav');
 export const ouchSounds = [
     new Audio('./src/assets/ouch_1.wav'),
@@ -59,6 +60,7 @@ const SOUND_EFFECTS = [
     bulletExplosionSound,
     bulletExplosion2Sound,
     grenadeArmedSound,
+    plasmaGrenadeImpactSound,
     mushroomsSound,
     ...ouchSounds,
     ...Object.values(creatureManifestSounds)

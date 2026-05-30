@@ -77,7 +77,7 @@ import {
     SPRITE_ROW, SPRITE_COL_STAND, SPRITE_COL_FLY_RIGHT, SPRITE_COL_FLY_DIAGONAL,
     SPRITE_COL_FLY_FLOAT, SPRITE_COL_FLY_DOWN, SPRITE_COL_WALK_START, SPRITE_COL_WALK_RIGHT1,
     SPRITE_COL_WALK_RIGHT2, SPRITE_COL_WALK_END, TELEPORT_ANIM_FRAMES, MAP_WIDTH, MAP_HEIGHT,
-    SPRITE_SCALE, rememberSound, teleportSound, buttonOnSound, doorOpenSound, doorCloseSound, getSound, saveSound, bulletExplosionSound, bulletExplosion2Sound, grenadeArmedSound, mushroomsSound, ouchSounds, creatureManifestSounds,
+    SPRITE_SCALE, rememberSound, teleportSound, buttonOnSound, doorOpenSound, doorCloseSound, getSound, saveSound, bulletExplosionSound, bulletExplosion2Sound, grenadeArmedSound, plasmaGrenadeImpactSound, mushroomsSound, ouchSounds, creatureManifestSounds,
     setMapBounds,
     getSoundEnabled, setSoundEnabled, toggleSoundEnabled
 } from './constants.js';
@@ -5487,6 +5487,10 @@ function playAstronautImpactSound() {
     playRuntimeSound(ouchSounds[Math.floor(Math.random() * ouchSounds.length)], 0.8);
 }
 
+function playPlasmaGrenadeImpactSound() {
+    playRuntimeSound(plasmaGrenadeImpactSound, 0.95);
+}
+
 function updateGrenadeArmedLoopSound() {
     const shouldPlay = getSoundEnabled() && collectableEntities.some(
         (collectable) => isGrenadeCollectable(collectable) && collectable.armed
@@ -5874,15 +5878,17 @@ function explodeCollectableGrenade(collectable: Collectable) {
     };
     const astronautDistance = Math.hypot(astronautCenter.x - center.x, astronautCenter.y - center.y);
     if (astronautDistance <= radius) {
-        applyAstronautDamage(
-            Math.max(10, power * 4 * (1 - astronautDistance / radius))
-        );
+        const scaledBlast = 1 - astronautDistance / radius;
+        applyAstronautDamage(Math.max(10, power * 4 * scaledBlast));
         applyAstronautImpact(
             center.x,
             center.y,
-            Math.max(1, power * (1 - astronautDistance / radius)),
+            Math.max(1, power * scaledBlast),
             true
         );
+        if (grenadeType === 'plasma_grenade') {
+            triggerAstronautEmergencyTeleport();
+        }
     }
 
     removeCollectableEntity(collectable);
@@ -5906,8 +5912,8 @@ function spawnCreatureGrenadeCollectable(
         name: kind,
         weight: Math.max(0.1, creature.projectileWeight ?? 0.2),
         bounciness: Math.max(0, creature.projectileBounciness ?? CREATURE_PROJECTILE_SETTINGS[kind].defaultBounciness),
-        pickupEnabled: true,
-        storable: true,
+        pickupEnabled: kind !== 'plasma_grenade',
+        storable: kind !== 'plasma_grenade',
         affectsAstronaut: false,
         collision: true,
         velocity,
@@ -7002,12 +7008,24 @@ function isCollectableNearAstronaut(collectable: Collectable) {
     return Math.hypot(dx, dy) <= MOVEMENT_SETTINGS.collectablePickupRange;
 }
 
+function isCollectableOverlappingAstronaut(collectable: Collectable) {
+    const collectableRect = getEntityRect(collectable.x, collectable.y, getEntityCollisionBounds(collectable));
+    const astronautRect = getAstronautRect();
+    return (
+        collectableRect.right >= astronautRect.left &&
+        collectableRect.left <= astronautRect.right &&
+        collectableRect.bottom >= astronautRect.top &&
+        collectableRect.top <= astronautRect.bottom
+    );
+}
+
 function getNearestPickupCollectable() {
     let bestCollectable: Collectable | null = null;
     let bestDistance = Number.POSITIVE_INFINITY;
 
     for (const collectable of collectableEntities) {
         if (!isLooseCollectable(collectable)) continue;
+        if (collectable.type === 'plasma_grenade') continue;
         if (collectable.pickupEnabled === false) continue;
         if (!isCollectableNearAstronaut(collectable)) continue;
         const bounds = getEntityCollisionBounds(collectable);
@@ -7633,7 +7651,15 @@ function updateCollectablePhysics(now: number, simulationFrame: number) {
             explodeCollectableGrenade(collectable);
             continue;
         }
-        updateSingleCollectablePhysics(collectable);
+        const surfaceResult = updateSingleCollectablePhysics(collectable);
+        if (
+            collectable.type === 'plasma_grenade' &&
+            (surfaceResult.hitWorld || isCollectableOverlappingAstronaut(collectable))
+        ) {
+            playPlasmaGrenadeImpactSound();
+            explodeCollectableGrenade(collectable);
+            continue;
+        }
     }
     updateGrenadeArmedLoopSound();
     updateMushroomAmbientLoopSound();
