@@ -511,6 +511,14 @@ type WorldChunkManifest = {
     chunkWorldSize?: number;
     chunks?: WorldChunkManifestEntry[];
 };
+export type ChunkedWorldOverview = {
+    chunkWorldSize: number;
+    chunks: Array<{
+        x: number;
+        y: number;
+        count?: number;
+    }>;
+};
 type ChunkCacheEntry = {
     manifestEntry: WorldChunkManifestEntry;
     blocks: MapBlock[] | null;
@@ -895,6 +903,20 @@ export async function materializeAllMapChunksForSave() {
     lastViewportSyncedChunkKeys = new Set();
     desiredActiveChunkKeys = allChunkKeys;
     await ensureChunksLoaded(allChunkKeys, true);
+}
+
+export function getChunkedWorldOverview(): ChunkedWorldOverview | null {
+    if (!chunkedWorldMapEnabled || chunkManifestEntriesByKey.size === 0) {
+        return null;
+    }
+    return {
+        chunkWorldSize,
+        chunks: [...chunkManifestEntriesByKey.values()].map((entry) => ({
+            x: entry.x,
+            y: entry.y,
+            count: Number.isFinite(entry.count) ? Math.max(0, Math.floor(entry.count!)) : undefined
+        }))
+    };
 }
 
 // Collision detection with blocks

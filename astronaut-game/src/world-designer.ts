@@ -7,7 +7,7 @@ import {
     getDefaultDestructionSource,
     type DestructionSourceRequirement
 } from './destructibles.js';
-import { MapBlock, shouldMaskAstronaut } from './map.js';
+import { getChunkedWorldOverview, MapBlock, shouldMaskAstronaut } from './map.js';
 import { Button } from './button.js';
 import { Door } from './door.js';
 import { Creature, toCreatureSaveData } from './creature.js';
@@ -3149,6 +3149,35 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     let pendingInspectorFocusKey: string | null = null;
     const overviewBaseCanvas = document.createElement('canvas');
     let overviewBaseDirty = true;
+    let lastOverviewWorldCount = -1;
+    let lastOverviewMapWidth = -1;
+    let lastOverviewMapHeight = -1;
+    let overviewWorldTiles: Array<{ x: number; y: number }> | null = null;
+    let overviewWorldTilesLoading = false;
+
+    function ensureOverviewWorldTilesLoaded() {
+        if (overviewWorldTiles || overviewWorldTilesLoading || !getChunkedWorldOverview()) {
+            return;
+        }
+        overviewWorldTilesLoading = true;
+        const snapshotPromise = host.getRawWorldDataForSave
+            ? host.getRawWorldDataForSave()
+            : Promise.resolve(host.getRawWorldData());
+        void snapshotPromise
+            .then((data) => {
+                overviewWorldTiles = data.worldMap.map((block) => ({
+                    x: Number(block.x),
+                    y: Number(block.y)
+                }));
+                invalidateOverviewBase();
+            })
+            .catch(() => {
+                // Keep the overview usable with currently loaded world data if full snapshot fails.
+            })
+            .finally(() => {
+                overviewWorldTilesLoading = false;
+            });
+    }
 
     function clearPngImportObjectUrl() {
         if (pngImportObjectUrl) {
@@ -11581,10 +11610,14 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
     function updateOverviewHover(event: MouseEvent) {
         const rect = refs.overviewCanvas.getBoundingClientRect();
-        const x = event.clientX - rect.left;
-        const y = event.clientY - rect.top;
-        const worldX = clamp(x / refs.overviewCanvas.width * MAP_WIDTH, 0, MAP_WIDTH);
-        const worldY = clamp(y / refs.overviewCanvas.height * MAP_HEIGHT, 0, MAP_HEIGHT);
+        const cssWidth = rect.width > 0 ? rect.width : refs.overviewCanvas.width;
+        const cssHeight = rect.height > 0 ? rect.height : refs.overviewCanvas.height;
+        const x = clamp(event.clientX - rect.left, 0, cssWidth);
+        const y = clamp(event.clientY - rect.top, 0, cssHeight);
+        const normalizedX = cssWidth > 0 ? x / cssWidth : 0;
+        const normalizedY = cssHeight > 0 ? y / cssHeight : 0;
+        const worldX = clamp(normalizedX * MAP_WIDTH, 0, MAP_WIDTH);
+        const worldY = clamp(normalizedY * MAP_HEIGHT, 0, MAP_HEIGHT);
         state.overviewHoverWorld = { x: worldX, y: worldY };
     }
 
@@ -11805,11 +11838,26 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             collectables: '#a855f7',
             custom: '#facc15'
         };
+        const chunkedOverview = getChunkedWorldOverview();
 
         for (const [category, visible] of Object.entries(state.layerVisibility) as Array<[DesignerCategory, boolean]>) {
             if (!visible) continue;
             const entities = getCategoryArray(category);
             ctx.fillStyle = colors[category];
+            if (category === 'world') {
+                const worldTiles = chunkedOverview && overviewWorldTiles
+                    ? overviewWorldTiles
+                    : entities;
+                for (const tile of worldTiles) {
+                    ctx.fillRect(
+                        Number(tile.x) * scaleX,
+                        Number(tile.y) * scaleY,
+                        Math.max(2, TILE_SIZE * scaleX),
+                        Math.max(2, TILE_SIZE * scaleY)
+                    );
+                }
+                continue;
+            }
             for (const entity of entities) {
                 const rect = getEntityRect(entity, category);
                 ctx.fillRect(
@@ -11840,6 +11888,18 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     function drawOverview() {
         const ctx = refs.overviewCanvas.getContext('2d');
         if (!ctx) return;
+        ensureOverviewWorldTilesLoaded();
+        const worldCount = getCategoryArray('world').length;
+        if (
+            worldCount !== lastOverviewWorldCount ||
+            MAP_WIDTH !== lastOverviewMapWidth ||
+            MAP_HEIGHT !== lastOverviewMapHeight
+        ) {
+            overviewBaseDirty = true;
+            lastOverviewWorldCount = worldCount;
+            lastOverviewMapWidth = MAP_WIDTH;
+            lastOverviewMapHeight = MAP_HEIGHT;
+        }
 
         if (
             overviewBaseDirty ||
