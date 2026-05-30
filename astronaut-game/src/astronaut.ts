@@ -983,8 +983,10 @@ export function checkAstronautCollisions(buttonEntities: Button[],
                         )
                         : undefined;
 
+                    const hasHorizontalTravel = Math.abs(stepX) > 0.001;
                     if (
                         reboundSpeed > 0 &&
+                        hasHorizontalTravel &&
                         ceilingSlope !== undefined &&
                         Math.abs(ceilingSlope) >= MOVEMENT_SETTINGS.headBounceSlopeThreshold
                     ) {
