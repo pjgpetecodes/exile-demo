@@ -185,7 +185,7 @@
   },
   {
     "x": 9053,
-    "y": 4352,
+    "y": 4354,
     "type": "whistle",
     "palette": 5,
     "rotation": 1,
@@ -198,7 +198,7 @@
     "collision": true,
     "held": false,
     "stored": false,
-    "isGrounded": false,
+    "isGrounded": true,
     "velocity": {
       "x": 0,
       "y": 0

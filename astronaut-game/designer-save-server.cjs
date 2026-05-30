@@ -15,6 +15,8 @@ const NON_WORLD_ASSET_FILES = {
     creatures: path.join(ROOT, 'src', 'assets', 'creatures.json'),
     collectables: path.join(ROOT, 'src', 'assets', 'collectables.json'),
     teleporters: path.join(ROOT, 'src', 'assets', 'teleporters.json'),
+    windEmitters: path.join(ROOT, 'src', 'assets', 'wind_emitters.json'),
+    windSettings: path.join(ROOT, 'src', 'assets', 'wind_settings.json'),
     astronautStart: path.join(ROOT, 'src', 'assets', 'astronaut_start.json')
 };
 const PALETTES_FILE = path.join(ROOT, 'src', 'assets', 'palettes.json');
@@ -79,10 +81,13 @@ function validatePayload(payload) {
         throw new Error('Request body must be a JSON object.');
     }
 
-    for (const key of ['worldMap', 'buttons', 'doors', 'creatures', 'collectables', 'teleporters']) {
+    for (const key of ['worldMap', 'buttons', 'doors', 'creatures', 'collectables', 'teleporters', 'windEmitters']) {
         if (!Array.isArray(payload[key])) {
             throw new Error(`Payload field "${key}" must be an array.`);
         }
+    }
+    if (payload.windSettings !== undefined && (typeof payload.windSettings !== 'object' || payload.windSettings === null || Array.isArray(payload.windSettings))) {
+        throw new Error('Payload field "windSettings" must be an object when provided.');
     }
 
     if (

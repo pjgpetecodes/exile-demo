@@ -10,7 +10,8 @@ import {
     PaletteCycleSettings,
     Position,
     TeleporterDestinationMode,
-    TeleporterSaveData
+    TeleporterSaveData,
+    WindGlobalSettings
 } from './types/index.js';
 import {
     astronaut, resetAstronaut, resetAstronautToPosition, flipAstronaut, handleAstronautMovement, applyLandingMomentum, getAstronautCollisionOffsets, setAstronautCollisionProfile, canAstronautFitCollisionProfile,
@@ -38,6 +39,7 @@ import {
     ensureMapChunksAroundWorldPosition,
     getBlockAtWorld,
     getBlackBackgroundBlocks,
+    getMapBlocksNearWorldPoint,
     getMapBlocksBehindAstronaut,
     getMapBlocksMaskAstronaut,
     getMushroomBlocks,
@@ -534,6 +536,13 @@ function formatPerfSummaryLine(label: string, averageMs: number, worstMs: number
     return `${label} ${averageMs.toFixed(2)}ms avg / ${worstMs.toFixed(2)}ms worst`;
 }
 
+function formatFpsFromFrameTime(frameTimeMs: number) {
+    if (!Number.isFinite(frameTimeMs) || frameTimeMs <= 0) {
+        return 'n/a';
+    }
+    return (1000 / frameTimeMs).toFixed(1);
+}
+
 function recordPerformanceFrameSample(
     frameTimeMs: number,
     updateWorkMs: number,
@@ -861,6 +870,24 @@ function applyAstronautDamage(amount: number, now: number = performance.now()) {
     }
 }
 
+function computeLandingImpactDamage(
+    verticalSpeed: number,
+    horizontalSpeed: number,
+    windExposure: number
+) {
+    if (verticalSpeed < 4.2 && horizontalSpeed < 5.0) {
+        return 0;
+    }
+    const verticalComponent = Math.max(0, verticalSpeed - 4.35);
+    const horizontalComponent = Math.max(0, horizontalSpeed - 5.2) * 0.1;
+    const windComponent = Math.max(0, windExposure - 1.8) * 0.28;
+    const severity = verticalComponent + horizontalComponent + windComponent;
+    if (severity <= 0) {
+        return 0;
+    }
+    return Math.min(5, Math.pow(severity, 1.35) * 0.45);
+}
+
 function rememberLastFlyPose(col: number, flip: boolean) {
     lastFlySpriteCol = col;
     lastFlyFlipSprite = flip;
@@ -947,11 +974,18 @@ let doorEntities: Door[] = [];
 let creatureEntities: Creature[] = [];
 let collectableEntities: Collectable[] = [];
 let teleporterEntities: TeleporterRuntime[] = [];
+let windEmitters: WindEmitterRuntime[] = [];
+let windSettings: WindGlobalSettings = {};
+let cachedWindEmittersForFrame: WindEmitterRuntime[] = [];
+let cachedWindEmittersFrameKey = -1;
+let cachedNearbyBlockWindEmitters: WindEmitterRuntime[] = [];
+let cachedNearbyBlockWindSample = { x: Number.NaN, y: Number.NaN, timeMs: Number.NEGATIVE_INFINITY };
 let teleporterTouchCooldownUntilMs = 0;
 let heldCollectable: Collectable | null = null;
 let storedCollectables: Collectable[] = [];
 let collectedCollectableEntityIds = new Set<number>();
 let inventoryCycleIndex = -1;
+let windDebugToggles: Partial<WindRuntimeToggles> = {};
 let throwAngleDegrees = 20;
 type ThrowGuideDot = {
     x: number;
@@ -1023,6 +1057,29 @@ type TeleporterPadProximityFilter = {
     radius: number;
 };
 
+type WindEmitterRuntime = {
+    id: string;
+    x: number;
+    y: number;
+    enabled: boolean;
+    directionDegrees: number;
+    strength: number;
+    radius: number;
+    mode: 'constant' | 'variable';
+    variabilityHz: number;
+    variabilityAmount: number;
+    affectsAstronaut: boolean;
+    affectsLooseObjects: boolean;
+    showParticles: boolean;
+};
+
+type WindRuntimeToggles = {
+    windEnabled: boolean;
+    emittersEnabled: boolean;
+    surfaceWindEnabled: boolean;
+    windVfxEnabled: boolean;
+};
+
 const TELEPORTER_PAD_SWEEP_PHASES = [0, 0.28, 0.56, 0.82, 1] as const;
 const TELEPORTER_PAD_SWEEP_FRAME_MS = 90;
 const TELEPORTER_TILE_SIZE = 32 * SPRITE_SCALE;
@@ -1060,6 +1117,17 @@ type BulletImpactParticle = {
     life: number;
     maxLife: number;
 };
+type WindParticle = {
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    life: number;
+    maxLife: number;
+    size: number;
+    hue: number;
+    color?: string;
+};
 type DestructibleRuntimeEntity = {
     x: number;
     y: number;
@@ -1074,6 +1142,7 @@ let throwGuideDotEmitTimer = 0;
 let projectileImpactEffects: ProjectileImpactEffect[] = [];
 let doorDestructionEffects: DoorDestructionEffect[] = [];
 let bulletImpactParticles: BulletImpactParticle[] = [];
+let windParticles: WindParticle[] = [];
 let destructibleDamageByEntity = new WeakMap<object, number>();
 let bulletImpactAudioSettings: BulletImpactAudioSettings = { ...BULLET_IMPACT_AUDIO_SETTINGS };
 let grenadeArmedLoopActive = false;
@@ -1085,11 +1154,14 @@ const BULLET_IMPACT_PARTICLE_COLORS = ['#ffffff', '#ffff00', '#ff00ff', '#00ffff
 const BULLET_DAZE_DURATION_MS = 380;
 const BULLET_DAZE_WALK_SCALE = 0.45;
 const BULLET_DAZE_FLIGHT_SCALE = 0.35;
+const WIND_BLOCK_SAMPLE_INTERVAL_MS = 120;
+const WIND_BLOCK_SAMPLE_DISTANCE_PX = 96;
 let currentAstronautRenderState = {
     spriteCol: SPRITE_COL_STAND,
     flipSprite: false,
     flipVertical: false
 };
+let lastAstronautWindAcceleration = { x: 0, y: 0, activeEmitterCount: 0 };
 let layDownVerticalFlipToggled = false;
 let pronePoseActive = false;
 let proneForcedByGeometry = false;
@@ -1602,6 +1674,7 @@ function reconcileTeleporterRuntimePositions(teleporters: TeleporterRuntime[]) {
                 correctedPad.teleporterId = teleporter.id;
             }
         }
+
     }
 }
 
@@ -1612,6 +1685,128 @@ async function loadTeleporters() {
         : buildTeleportersFromMapMetadata();
     reconcileTeleporterRuntimePositions(teleporterEntities);
     invalidateTeleporterPadCaches();
+}
+
+function normalizeWindEmitter(data: any): WindEmitterRuntime {
+    const numericIdFallback = Math.round(Number(data?.x) || 0);
+    return {
+        id: typeof data?.id === 'string' && data.id.trim().length > 0
+            ? data.id.trim()
+            : `wind_${numericIdFallback}_${Math.round(Number(data?.y) || 0)}`,
+        x: Math.round(Number(data?.x) || 0),
+        y: Math.round(Number(data?.y) || 0),
+        enabled: data?.enabled !== false,
+        directionDegrees: Number.isFinite(Number(data?.directionDegrees))
+            ? ((Number(data.directionDegrees) % 360) + 360) % 360
+            : 270,
+        strength: Math.max(0, Number(data?.strength ?? MOVEMENT_SETTINGS.windEmitterDefaultStrength)),
+        radius: Math.max(1, Number(data?.radius ?? MOVEMENT_SETTINGS.windEmitterDefaultRadius)),
+        mode: data?.mode === 'variable' ? 'variable' : 'constant',
+        variabilityHz: Math.max(0, Number(data?.variabilityHz ?? MOVEMENT_SETTINGS.windEmitterVariableDefaultHz)),
+        variabilityAmount: clampToRange(
+            Number(data?.variabilityAmount ?? MOVEMENT_SETTINGS.windEmitterVariableDefaultAmount),
+            0,
+            1
+        ),
+        affectsAstronaut: data?.affectsAstronaut !== false,
+        affectsLooseObjects: data?.affectsLooseObjects !== false,
+        showParticles: data?.showParticles !== false
+    };
+}
+
+function normalizeWindSettings(data: any): WindGlobalSettings {
+    const leftStartX = Number.isFinite(Number(data?.surfaceWindLeftStartX))
+        ? Number(data.surfaceWindLeftStartX)
+        : MOVEMENT_SETTINGS.surfaceWindDefaultLeftStartX;
+    const leftLimitX = Number.isFinite(Number(data?.surfaceWindLeftLimitX))
+        ? Number(data.surfaceWindLeftLimitX)
+        : MOVEMENT_SETTINGS.surfaceWindDefaultLeftLimitX;
+    const rightStartX = Number.isFinite(Number(data?.surfaceWindRightStartX))
+        ? Number(data.surfaceWindRightStartX)
+        : MOVEMENT_SETTINGS.surfaceWindDefaultRightStartX;
+    const rightLimitX = Number.isFinite(Number(data?.surfaceWindRightLimitX))
+        ? Number(data.surfaceWindRightLimitX)
+        : MOVEMENT_SETTINGS.surfaceWindDefaultRightLimitX;
+    return {
+        windEnabled: data?.windEnabled !== false,
+        emittersEnabled: data?.emittersEnabled !== false,
+        surfaceWindEnabled: data?.surfaceWindEnabled === true
+            ? true
+            : MOVEMENT_SETTINGS.surfaceWindDefaultEnabled,
+        windVfxEnabled: data?.windVfxEnabled !== false,
+        surfaceWindMaxY: Number.isFinite(Number(data?.surfaceWindMaxY))
+            ? Math.max(0, Number(data.surfaceWindMaxY))
+            : MOVEMENT_SETTINGS.surfaceWindDefaultMaxY,
+        surfaceWindCenterX: Number.isFinite(Number(data?.surfaceWindCenterX))
+            ? Number(data.surfaceWindCenterX)
+            : MOVEMENT_SETTINGS.surfaceWindDefaultCenterX,
+        surfaceWindDeadzone: Number.isFinite(Number(data?.surfaceWindDeadzone))
+            ? Math.max(0, Number(data.surfaceWindDeadzone))
+            : MOVEMENT_SETTINGS.surfaceWindDefaultDeadzone,
+        surfaceWindStrength: Number.isFinite(Number(data?.surfaceWindStrength))
+            ? Math.max(0, Number(data.surfaceWindStrength))
+            : MOVEMENT_SETTINGS.surfaceWindDefaultStrength,
+        surfaceWindEdgeBand: Number.isFinite(Number(data?.surfaceWindEdgeBand))
+            ? Math.max(1, Number(data.surfaceWindEdgeBand))
+            : MOVEMENT_SETTINGS.surfaceWindDefaultEdgeBand,
+        surfaceWindBuffetHz: Number.isFinite(Number(data?.surfaceWindBuffetHz))
+            ? Math.max(0, Number(data.surfaceWindBuffetHz))
+            : MOVEMENT_SETTINGS.surfaceWindDefaultBuffetHz,
+        surfaceWindBuffetStrength: Number.isFinite(Number(data?.surfaceWindBuffetStrength))
+            ? clampToRange(Number(data.surfaceWindBuffetStrength), 0, 1)
+            : MOVEMENT_SETTINGS.surfaceWindDefaultBuffetStrength,
+        surfaceWindLeftStartX: Math.max(leftStartX, leftLimitX + 1),
+        surfaceWindLeftLimitX: Math.min(leftLimitX, leftStartX - 1),
+        surfaceWindRightStartX: Math.min(rightStartX, rightLimitX - 1),
+        surfaceWindRightLimitX: Math.max(rightLimitX, rightStartX + 1)
+    };
+}
+
+function setWindDebugToggle(
+    key: keyof WindRuntimeToggles,
+    enabled: boolean | null
+) {
+    if (enabled === null) {
+        delete windDebugToggles[key];
+        return;
+    }
+    windDebugToggles[key] = enabled;
+}
+
+function getEffectiveWindToggles(): WindRuntimeToggles {
+    const normalizedSettings = normalizeWindSettings(windSettings);
+    return {
+        windEnabled: windDebugToggles.windEnabled ?? (normalizedSettings.windEnabled !== false),
+        emittersEnabled: windDebugToggles.emittersEnabled ?? (normalizedSettings.emittersEnabled !== false),
+        surfaceWindEnabled: windDebugToggles.surfaceWindEnabled ?? (normalizedSettings.surfaceWindEnabled === true),
+        windVfxEnabled: windDebugToggles.windVfxEnabled ?? (normalizedSettings.windVfxEnabled !== false)
+    };
+}
+
+async function loadWindData() {
+    let emitterPayload: any[] = [];
+    try {
+        emitterPayload = await fetchFreshJson<any[]>('./src/assets/wind_emitters.json');
+    } catch (error) {
+        if (!(error instanceof Error) || !error.message.includes('wind_emitters.json: 404')) {
+            throw error;
+        }
+    }
+    windEmitters = Array.isArray(emitterPayload) ? emitterPayload.map(normalizeWindEmitter) : [];
+
+    let settingsPayload: any = {};
+    try {
+        settingsPayload = await fetchFreshJson<Record<string, unknown>>('./src/assets/wind_settings.json');
+    } catch (error) {
+        if (!(error instanceof Error) || !error.message.includes('wind_settings.json: 404')) {
+            throw error;
+        }
+    }
+    windSettings = normalizeWindSettings(settingsPayload);
+    cachedWindEmittersFrameKey = -1;
+    cachedWindEmittersForFrame = [];
+    cachedNearbyBlockWindEmitters = [];
+    cachedNearbyBlockWindSample = { x: Number.NaN, y: Number.NaN, timeMs: Number.NEGATIVE_INFINITY };
 }
 
 async function loadButtons() {
@@ -1855,6 +2050,10 @@ function ensureWorldBounds(width: number, height: number) {
 }
 
 function afterWorldDataMutated() {
+    cachedWindEmittersFrameKey = -1;
+    cachedWindEmittersForFrame = [];
+    cachedNearbyBlockWindEmitters = [];
+    cachedNearbyBlockWindSample = { x: Number.NaN, y: Number.NaN, timeMs: Number.NEGATIVE_INFINITY };
     syncButtonStatesToDoors();
     syncCollectableRuntimeState();
     rebuildMapBlockRenderCache();
@@ -1927,6 +2126,8 @@ function getRawWorldData(): RawWorldData {
         creatures: creatureEntities as RawWorldData['creatures'],
         collectables: collectableEntities as RawWorldData['collectables'],
         teleporters: teleporterEntities as RawWorldData['teleporters'],
+        windEmitters: windEmitters as RawWorldData['windEmitters'],
+        windSettings: windSettings as RawWorldData['windSettings'],
         astronautStart: getAstronautStartPosition()
     };
 }
@@ -1951,6 +2152,8 @@ function replaceRawWorldData(data: RawWorldData) {
     teleporterEntities = (data.teleporters ?? []).length > 0
         ? (data.teleporters ?? []).map(normalizeTeleporter)
         : buildTeleportersFromMapMetadata();
+    windEmitters = (data.windEmitters ?? []).map(normalizeWindEmitter);
+    windSettings = normalizeWindSettings(data.windSettings);
     reconcileTeleporterRuntimePositions(teleporterEntities);
     updateAstronautStartPosition(data.astronautStart, true);
     afterWorldDataMutated();
@@ -2156,8 +2359,14 @@ async function saveWorldData(data: RawWorldData) {
         if (!files.includes('teleporters.json')) {
             throw new Error('The local designer save server is out of date and did not save teleporters.json. Restart the save server on port 3001 and try again.');
         }
+        if (!files.includes('wind_emitters.json') || !files.includes('wind_settings.json')) {
+            throw new Error('The local designer save server is out of date and did not save wind_emitters.json / wind_settings.json. Restart the save server on port 3001 and try again.');
+        }
     } catch (error) {
-        if (error instanceof Error && error.message.includes('teleporters.json')) {
+        if (
+            error instanceof Error &&
+            (error.message.includes('teleporters.json') || error.message.includes('wind_emitters.json'))
+        ) {
             throw error;
         }
     }
@@ -2247,6 +2456,7 @@ async function init() {
     await loadCreatures();
     await loadCollectables();
     await loadTeleporters();
+    await loadWindData();
     await loadAstronautStartPosition();
     await ensureMapChunksAroundWorldPosition(getAstronautStartPosition(), 1, true);
     initStars(MAP_WIDTH, STARFIELD_HEIGHT);
@@ -2383,9 +2593,26 @@ async function init() {
                     setShowCreatureOverlays: (value: boolean) => {
                         showCreatureOverlays = value;
                     },
+                    getPerformanceHudEnabled: () => showPerformanceHud,
+                    setPerformanceHudEnabled: (enabled: boolean) => {
+                        showPerformanceHud = enabled;
+                        if (!isPerformanceInstrumentationEnabled()) {
+                            lastFrameTimestamp = null;
+                        }
+                        requestImmediateFrame();
+                    },
                     getBulletImpactAudioSettings: () => ({ ...bulletImpactAudioSettings }),
                     setBulletImpactAudioSettings: (value: BulletImpactAudioSettings) => {
                         bulletImpactAudioSettings = normalizeBulletImpactAudioSettings(value);
+                    },
+                    getWindRuntimeToggles: () => ({ ...getEffectiveWindToggles() }),
+                    setWindRuntimeToggle: (
+                        key: 'windEnabled' | 'emittersEnabled' | 'surfaceWindEnabled' | 'windVfxEnabled',
+                        enabled: boolean
+                    ) => {
+                        setWindDebugToggle(key, enabled);
+                        cachedWindEmittersFrameKey = -1;
+                        requestImmediateFrame();
                     },
                     drawSpriteOutlineOverlay: drawWorldBoundingBoxOverlay,
                     getSpriteTypes,
@@ -2709,6 +2936,9 @@ async function gameLoop() {
         if (bulletImpactParticles.length > 0) {
             updateAndDrawBulletImpactParticles(layerVisibility.creatures ? ctx! : null, camera);
         }
+        if (windParticles.length > 0) {
+            updateAndDrawWindParticles(layerVisibility.world ? ctx! : null, camera);
+        }
         if (heldCollectableDrawables.length > 0) {
             drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, heldCollectableDrawables, frameNow);
         }
@@ -2793,8 +3023,14 @@ async function gameLoop() {
         gameState.gravity * movementModifiers.gravityScale,
         (downPressed ? MOVEMENT_SETTINGS.flyDownTerminalVelocity : MOVEMENT_SETTINGS.fallTerminalVelocity) * movementModifiers.terminalVelocityScale
     );
+    const windAcceleration = computeAstronautWindAcceleration(frameNow, movementModifiers.effectiveWeight);
+    astronaut.velocity.x += windAcceleration.x;
+    astronaut.velocity.y += windAcceleration.y;
+    applySurfaceWindCarryToAstronaut(frameNow);
+    lastAstronautWindAcceleration = windAcceleration;
     const wasLanded = gameState.astronaut.isLanded;
     const horizontalVelocityBeforeResolution = astronaut.velocity.x;
+    const verticalVelocityBeforeResolution = astronaut.velocity.y;
 
     // --- Move astronaut by velocity with collision detection ---
     let nextX = movementTargetX;
@@ -2823,7 +3059,7 @@ async function gameLoop() {
     astronaut.velocity.y = collisionState.velocityY;
     gameState.astronaut.isLanded = collisionState.isLanded;
     gameState.astronaut.isFlying = !collisionState.isLanded;
-    proneForcedByGeometry = !collisionState.isLanded && !canAstronautFitCollisionProfile(
+    const canFitStandProfile = canAstronautFitCollisionProfile(
         'stand',
         gameState.astronaut.position.x,
         gameState.astronaut.position.y,
@@ -2833,11 +3069,46 @@ async function gameLoop() {
         doorEntities,
         buttonEntities
     );
+    const proneCollisionProfile = layDownVerticalFlipToggled ? 'prone_up' : 'prone_down';
+    const canFitProneProfile = canFitStandProfile
+        ? false
+        : canAstronautFitCollisionProfile(
+            proneCollisionProfile,
+            gameState.astronaut.position.x,
+            gameState.astronaut.position.y,
+            spriteMap,
+            SPRITE_SCALE,
+            mapBlocks,
+            doorEntities,
+            buttonEntities
+        );
+    const horizontalSqueezeIntent = !!(keys['q'] || keys['w'] || Math.abs(collisionState.velocityX) > 0.05);
+    const upwardHeadBumpIntent = !!(keys['p'] || keys['ArrowUp'] || astronaut.velocity.y < -0.05);
+    proneForcedByGeometry = !collisionState.isLanded
+        && !canFitStandProfile
+        && canFitProneProfile
+        && horizontalSqueezeIntent
+        && !upwardHeadBumpIntent;
     if (!wasLanded && collisionState.isLanded) {
         const carriedHorizontalMotion = collisionState.nextX - movementStartX;
         const landingMomentumSource = Math.abs(carriedHorizontalMotion) > Math.abs(horizontalVelocityBeforeResolution)
             ? carriedHorizontalMotion
             : horizontalVelocityBeforeResolution;
+        const landedOnFeet =
+            activeAstronautCollisionProfile === 'stand' &&
+            !proneIntentActive &&
+            !proneForcedByGeometry;
+        const landingImpactDamage = landedOnFeet
+            ? 0
+            : computeLandingImpactDamage(
+                Math.max(0, verticalVelocityBeforeResolution),
+                Math.abs(landingMomentumSource),
+                Math.hypot(windAcceleration.x, windAcceleration.y)
+            );
+        if (landingImpactDamage > 0) {
+            applyAstronautDamage(landingImpactDamage, frameNow);
+            playAstronautImpactSound();
+        }
         applyLandingMomentum(landingMomentumSource);
         astronaut.velocity.x = 0;
         astronaut.velocity.y = 0;
@@ -2899,6 +3170,7 @@ async function gameLoop() {
         gameState.astronaut.position.y - movementStartY
     );
     updateCollectablePhysics(frameNow, simulationFrameCounter);
+    spawnWindParticlesNearAstronaut(frameNow);
     updateHeldCollectablePosition();
     if (performanceInstrumentationEnabled) {
         updateWorkMs = performance.now() - updatePhaseStartMs;
@@ -2980,26 +3252,25 @@ async function gameLoop() {
             10, debugY
         );
         debugY += 16;
+        const windToggleState = getEffectiveWindToggles();
+        ctx!.fillText(
+            `Wind: enabled=${windToggleState.windEnabled} emitters=${windToggleState.emittersEnabled} surface=${windToggleState.surfaceWindEnabled} vfx=${windToggleState.windVfxEnabled} accel=(${lastAstronautWindAcceleration.x.toFixed(3)}, ${lastAstronautWindAcceleration.y.toFixed(3)}) sources=${lastAstronautWindAcceleration.activeEmitterCount}`,
+            10, debugY
+        );
+        debugY += 16;
         // --- Show block under mouse cursor with palette and rotation ---
-        let block: any = null;
-        if (hideBlackBackgroundBlocks) {
-            // Find the topmost non-black_background block under the mouse
-            const blocksUnderMouse = mapBlocks.filter(b => {
-                const tileW = 32 * SPRITE_SCALE;
-                const tileH = 32 * SPRITE_SCALE;
-                return (
-                    mouseWorld.x >= b.x && mouseWorld.x < b.x + tileW &&
-                    mouseWorld.y >= b.y && mouseWorld.y < b.y + tileH
-                );
-            });
-            block = blocksUnderMouse.find(b => b.type !== 'black_background');
-            // If not found, fall back to doors/buttons/creatures
-            if (!block) {
-                block = getAnyBlockAtWorld(mouseWorld.x, mouseWorld.y, SPRITE_SCALE, [], doorEntities, buttonEntities, creatureEntities);
-            }
-        } else {
-            block = getAnyBlockAtWorld(mouseWorld.x, mouseWorld.y, SPRITE_SCALE, mapBlocks, doorEntities, buttonEntities, creatureEntities);
-        }
+        const inspectableMapBlocks = hideBlackBackgroundBlocks
+            ? getRenderableMapBlocks(true)
+            : mapBlocks;
+        const block = getAnyBlockAtWorld(
+            mouseWorld.x,
+            mouseWorld.y,
+            SPRITE_SCALE,
+            inspectableMapBlocks,
+            doorEntities,
+            buttonEntities,
+            creatureEntities
+        );
         if (block) {
             ctx!.fillText(
                 `Block under cursor: ${block.type} (${block.x},${block.y}) id: ${block.entityId ?? 'n/a'} palette: ${block.palette ?? 0} rotation: ${block.rotation ?? 0}` +
@@ -3103,6 +3374,20 @@ async function gameLoop() {
                 10, debugY
             );
         }
+        ctx!.restore();
+    }
+    if (!gameState.debugMode && showPerformanceHud && perfSampleCount > 0) {
+        const sampleCount = Math.max(perfSampleCount, 1);
+        const averageFrameTime = perfFrameTimeSum / sampleCount;
+        ctx!.save();
+        ctx!.font = '12px monospace';
+        ctx!.fillStyle = '#ff0';
+        ctx!.fillText(`FPS ${formatFpsFromFrameTime(averageFrameTime)}`, 10, 16);
+        ctx!.fillText(
+            formatPerfSummaryLine('Frame', averageFrameTime, perfWorstFrameTime),
+            10,
+            32
+        );
         ctx!.restore();
     }
     // --- Draw world coordinate bounding boxes for each block in green if enabled ---
@@ -3505,17 +3790,34 @@ async function gameLoop() {
         if (showTightBoundingBoxes) {
             let spriteName = spriteRect.name;
             if (!astronautBoundingBoxes[spriteName]) {
-                const colToName: Record<number, string> = {
-                    [SPRITE_COL_FLY_RIGHT]: "fly_right",
-                    [SPRITE_COL_FLY_DIAGONAL]: "fly_diagonal",
-                    [SPRITE_COL_FLY_FLOAT]: "fly_float",
-                    [SPRITE_COL_FLY_DOWN]: "fly_down",
-                    [SPRITE_COL_STAND]: "stand",
-                    [SPRITE_COL_WALK_START]: "walk_right1",
-                    [SPRITE_COL_WALK_RIGHT1]: "walk_right2",
-                    [SPRITE_COL_WALK_RIGHT2]: "walk_right3"
-                };
-                spriteName = colToName[spriteCol];
+                switch (spriteCol) {
+                    case SPRITE_COL_FLY_RIGHT:
+                        spriteName = "fly_right";
+                        break;
+                    case SPRITE_COL_FLY_DIAGONAL:
+                        spriteName = "fly_diagonal";
+                        break;
+                    case SPRITE_COL_FLY_FLOAT:
+                        spriteName = "fly_float";
+                        break;
+                    case SPRITE_COL_FLY_DOWN:
+                        spriteName = "fly_down";
+                        break;
+                    case SPRITE_COL_STAND:
+                        spriteName = "stand";
+                        break;
+                    case SPRITE_COL_WALK_START:
+                        spriteName = "walk_right1";
+                        break;
+                    case SPRITE_COL_WALK_RIGHT1:
+                        spriteName = "walk_right2";
+                        break;
+                    case SPRITE_COL_WALK_RIGHT2:
+                        spriteName = "walk_right3";
+                        break;
+                    default:
+                        break;
+                }
             }
             const bbox = astronautBoundingBoxes[spriteName];
             if (bbox) {
@@ -3630,6 +3932,9 @@ async function gameLoop() {
         }
         if (bulletImpactParticles.length > 0) {
             updateAndDrawBulletImpactParticles(layerVisibility.creatures ? ctx! : null, camera);
+        }
+        if (windParticles.length > 0) {
+            updateAndDrawWindParticles(layerVisibility.world ? ctx! : null, camera);
         }
 
         if (!getSoundEnabled()) {
@@ -3800,6 +4105,292 @@ function getEntityCollisionBounds(entity: {
         top: 0,
         bottom: tileSize - 1
     };
+}
+
+function hashWindSourceSeed(id: string, x: number, y: number) {
+    let hash = 2166136261;
+    const input = `${id}:${x}:${y}`;
+    for (let index = 0; index < input.length; index++) {
+        hash ^= input.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+}
+
+function toWindEmitterFromBlock(block: MapBlock): WindEmitterRuntime | null {
+    if (block.windEnabled !== true) {
+        return null;
+    }
+    const blockWithId = block as MapBlock & { entityId?: number };
+    return {
+        id: `block_${blockWithId.entityId ?? `${Math.round(block.x)}_${Math.round(block.y)}`}`,
+        x: Math.round(block.x),
+        y: Math.round(block.y),
+        enabled: true,
+        directionDegrees: ((Number(block.windDirectionDegrees ?? 270) % 360) + 360) % 360,
+        strength: Math.max(0, Number(block.windStrength ?? MOVEMENT_SETTINGS.windEmitterDefaultStrength)),
+        radius: Math.max(1, Number(block.windRadius ?? MOVEMENT_SETTINGS.windEmitterDefaultRadius)),
+        mode: block.windMode === 'variable' ? 'variable' : 'constant',
+        variabilityHz: Math.max(0, Number(block.windVariabilityHz ?? MOVEMENT_SETTINGS.windEmitterVariableDefaultHz)),
+        variabilityAmount: clampToRange(
+            Number(block.windVariabilityAmount ?? MOVEMENT_SETTINGS.windEmitterVariableDefaultAmount),
+            0,
+            1
+        ),
+        affectsAstronaut: block.windAffectsAstronaut !== false,
+        affectsLooseObjects: block.windAffectsLooseObjects !== false,
+        showParticles: block.windShowParticles !== false
+    };
+}
+
+function resolveEmitterMagnitude(emitter: WindEmitterRuntime, now: number) {
+    if (emitter.mode !== 'variable') {
+        return emitter.strength;
+    }
+    const seed = hashWindSourceSeed(emitter.id, emitter.x, emitter.y);
+    const seedPhase = (seed % 360) * (Math.PI / 180);
+    const oscillation = Math.sin(now * 0.001 * Math.PI * 2 * emitter.variabilityHz + seedPhase);
+    const variability = clampToRange(emitter.variabilityAmount, 0, 1);
+    const scale = 1 - variability + ((oscillation + 1) * 0.5) * variability;
+    return emitter.strength * scale;
+}
+
+function computeEmitterWindAccelerationAtPoint(
+    worldX: number,
+    worldY: number,
+    now: number,
+    emitters: WindEmitterRuntime[],
+    target: 'astronaut' | 'looseObject'
+) {
+    let totalX = 0;
+    let totalY = 0;
+    let activeEmitterCount = 0;
+    for (const emitter of emitters) {
+        if (target === 'astronaut' && !emitter.affectsAstronaut) {
+            continue;
+        }
+        if (target === 'looseObject' && !emitter.affectsLooseObjects) {
+            continue;
+        }
+        const dx = worldX - emitter.x;
+        const dy = worldY - emitter.y;
+        const distance = Math.hypot(dx, dy);
+        if (distance > emitter.radius) {
+            continue;
+        }
+        const radialFalloff = 1 - distance / emitter.radius;
+        const magnitude = resolveEmitterMagnitude(emitter, now) * radialFalloff;
+        const directionRadians = (emitter.directionDegrees * Math.PI) / 180;
+        totalX += Math.cos(directionRadians) * magnitude;
+        totalY += Math.sin(directionRadians) * magnitude;
+        activeEmitterCount++;
+    }
+    return {
+        x: totalX,
+        y: totalY,
+        activeEmitterCount
+    };
+}
+
+function getActiveWindEmittersNearAstronaut(now: number, toggles: WindRuntimeToggles) {
+    const frameKey = Math.floor(now);
+    if (frameKey === cachedWindEmittersFrameKey) {
+        return cachedWindEmittersForFrame;
+    }
+    if (!toggles.windEnabled || !toggles.emittersEnabled) {
+        cachedWindEmittersFrameKey = frameKey;
+        cachedWindEmittersForFrame = [];
+        return cachedWindEmittersForFrame;
+    }
+
+    const dxSinceSample = Math.abs(astronaut.position.x - cachedNearbyBlockWindSample.x);
+    const dySinceSample = Math.abs(astronaut.position.y - cachedNearbyBlockWindSample.y);
+    if (
+        !Number.isFinite(cachedNearbyBlockWindSample.x) ||
+        !Number.isFinite(cachedNearbyBlockWindSample.y) ||
+        now - cachedNearbyBlockWindSample.timeMs >= WIND_BLOCK_SAMPLE_INTERVAL_MS ||
+        dxSinceSample >= WIND_BLOCK_SAMPLE_DISTANCE_PX ||
+        dySinceSample >= WIND_BLOCK_SAMPLE_DISTANCE_PX
+    ) {
+        cachedNearbyBlockWindEmitters = getMapBlocksNearWorldPoint(
+            astronaut.position.x,
+            astronaut.position.y,
+            SPRITE_SCALE
+        )
+            .map(toWindEmitterFromBlock)
+            .filter((emitter): emitter is WindEmitterRuntime => !!emitter);
+        cachedNearbyBlockWindSample = {
+            x: astronaut.position.x,
+            y: astronaut.position.y,
+            timeMs: now
+        };
+    }
+
+    cachedWindEmittersForFrame = [
+        ...windEmitters.filter((entry) => entry.enabled),
+        ...cachedNearbyBlockWindEmitters
+    ];
+    cachedWindEmittersFrameKey = frameKey;
+    return cachedWindEmittersForFrame;
+}
+
+function getSurfaceWindBounds(settings: WindGlobalSettings) {
+    const leftStartX = Number(settings.surfaceWindLeftStartX ?? MOVEMENT_SETTINGS.surfaceWindDefaultLeftStartX);
+    const leftLimitX = Number(settings.surfaceWindLeftLimitX ?? MOVEMENT_SETTINGS.surfaceWindDefaultLeftLimitX);
+    const rightStartX = Number(settings.surfaceWindRightStartX ?? MOVEMENT_SETTINGS.surfaceWindDefaultRightStartX);
+    const rightLimitX = Number(settings.surfaceWindRightLimitX ?? MOVEMENT_SETTINGS.surfaceWindDefaultRightLimitX);
+    return {
+        leftStartX: Math.max(leftStartX, leftLimitX + 1),
+        leftLimitX: Math.min(leftLimitX, leftStartX - 1),
+        rightStartX: Math.min(rightStartX, rightLimitX - 1),
+        rightLimitX: Math.max(rightLimitX, rightStartX + 1)
+    };
+}
+
+function getSurfaceWindEdgeProximity(worldX: number, settings: WindGlobalSettings) {
+    const { leftStartX, leftLimitX, rightStartX, rightLimitX } = getSurfaceWindBounds(settings);
+    const leftProximity = worldX < leftStartX
+        ? clampToRange((leftStartX - worldX) / Math.max(1, leftStartX - leftLimitX), 0, 1)
+        : 0;
+    const rightProximity = worldX > rightStartX
+        ? clampToRange((worldX - rightStartX) / Math.max(1, rightLimitX - rightStartX), 0, 1)
+        : 0;
+    return {
+        leftProximity,
+        rightProximity,
+        edgeProximity: Math.max(leftProximity, rightProximity)
+    };
+}
+
+function getSurfaceWindBoundaryOvershoot(worldX: number, settings: WindGlobalSettings) {
+    const { leftLimitX, rightLimitX } = getSurfaceWindBounds(settings);
+    const leftOvershoot = Math.max(0, leftLimitX - worldX);
+    const rightOvershoot = Math.max(0, worldX - rightLimitX);
+    return {
+        leftOvershoot,
+        rightOvershoot,
+        maxOvershoot: Math.max(leftOvershoot, rightOvershoot)
+    };
+}
+
+function applySurfaceWindField(worldX: number, worldY: number, now: number) {
+    const normalizedSettings = normalizeWindSettings(windSettings);
+    const maxY = Number(normalizedSettings.surfaceWindMaxY ?? MOVEMENT_SETTINGS.surfaceWindDefaultMaxY);
+    if (worldY > maxY) {
+        return { x: 0, y: 0 };
+    }
+    const strength = Math.max(0, Number(normalizedSettings.surfaceWindStrength ?? MOVEMENT_SETTINGS.surfaceWindDefaultStrength));
+    const { leftProximity, rightProximity, edgeProximity } = getSurfaceWindEdgeProximity(worldX, normalizedSettings);
+    const { leftOvershoot, rightOvershoot, maxOvershoot } = getSurfaceWindBoundaryOvershoot(worldX, normalizedSettings);
+    if (edgeProximity <= 0 && maxOvershoot <= 0) {
+        return { x: 0, y: 0 };
+    }
+    const buffetHz = Math.max(0, Number(normalizedSettings.surfaceWindBuffetHz ?? MOVEMENT_SETTINGS.surfaceWindDefaultBuffetHz));
+    const buffetStrength = clampToRange(
+        Number(normalizedSettings.surfaceWindBuffetStrength ?? MOVEMENT_SETTINGS.surfaceWindDefaultBuffetStrength),
+        0,
+        1
+    );
+    let baseLeft = Math.pow(leftProximity, 1.35) + Math.pow(leftProximity, 4.2) * 2.8;
+    let baseRight = Math.pow(rightProximity, 1.35) + Math.pow(rightProximity, 4.2) * 2.8;
+    if (leftOvershoot > 0) {
+        const overshootRamp = leftOvershoot / (leftOvershoot + 900);
+        baseLeft = Math.max(1, baseLeft) * (1 + overshootRamp * 0.12);
+    }
+    if (rightOvershoot > 0) {
+        const overshootRamp = rightOvershoot / (rightOvershoot + 900);
+        baseRight = Math.max(1, baseRight) * (1 + overshootRamp * 0.12);
+    }
+    const edgeBuffetScale = 0.18 + edgeProximity * 0.22;
+    const baseX = strength * (baseLeft - baseRight);
+    const phase = now * 0.001 * Math.PI * 2 * buffetHz + worldX * 0.0021 + worldY * 0.0013;
+    const gustScale = clampToRange(1 + Math.sin(phase) * buffetStrength * edgeBuffetScale, 0.78, 1.34);
+    const crosswindY = Math.cos(phase * 1.7) * strength * 0.45 * buffetStrength * (0.2 + edgeProximity * 0.8);
+    return {
+        x: baseX * gustScale,
+        y: crosswindY
+    };
+}
+
+function computeAstronautWindAcceleration(
+    now: number,
+    effectiveWeight: number
+) {
+    const toggles = getEffectiveWindToggles();
+    if (!toggles.windEnabled) {
+        return { x: 0, y: 0, activeEmitterCount: 0 };
+    }
+
+    const allEmitters = getActiveWindEmittersNearAstronaut(now, toggles);
+
+    const emitterWind = computeEmitterWindAccelerationAtPoint(
+        astronaut.position.x,
+        astronaut.position.y,
+        now,
+        allEmitters,
+        'astronaut'
+    );
+    let totalX = emitterWind.x;
+    let totalY = emitterWind.y;
+
+    if (toggles.surfaceWindEnabled) {
+        const surfaceWind = applySurfaceWindField(astronaut.position.x, astronaut.position.y, now);
+        totalX += surfaceWind.x;
+        totalY += surfaceWind.y;
+    }
+
+    const normalizedSettings = normalizeWindSettings(windSettings);
+    const surfaceEdgeProximity = toggles.surfaceWindEnabled
+        ? getSurfaceWindEdgeProximity(astronaut.position.x, normalizedSettings).edgeProximity
+        : 0;
+    const surfaceOvershoot = toggles.surfaceWindEnabled
+        ? getSurfaceWindBoundaryOvershoot(astronaut.position.x, normalizedSettings).maxOvershoot
+        : 0;
+    const maxWindAcceleration = MOVEMENT_SETTINGS.windMaxAccelerationPerFrame
+        * (1 + Math.pow(surfaceEdgeProximity, 1.8) * 1.9 + Math.min(0.25, surfaceOvershoot / 1200) * 0.6);
+    const weightResistance = 1 / (1 + Math.max(0, effectiveWeight) * MOVEMENT_SETTINGS.windWeightResistancePerUnit);
+    const clampedX = clampToRange(
+        totalX * weightResistance,
+        -maxWindAcceleration,
+        maxWindAcceleration
+    );
+    const clampedY = clampToRange(
+        totalY * weightResistance,
+        -maxWindAcceleration,
+        maxWindAcceleration
+    );
+
+    return {
+        x: clampedX,
+        y: clampedY,
+        activeEmitterCount: emitterWind.activeEmitterCount
+    };
+}
+
+function applySurfaceWindCarryToAstronaut(now: number) {
+    const toggles = getEffectiveWindToggles();
+    if (!toggles.windEnabled || !toggles.surfaceWindEnabled) {
+        return;
+    }
+    const normalizedSettings = normalizeWindSettings(windSettings);
+    const { edgeProximity } = getSurfaceWindEdgeProximity(astronaut.position.x, normalizedSettings);
+    const surfaceOvershoot = getSurfaceWindBoundaryOvershoot(astronaut.position.x, normalizedSettings).maxOvershoot;
+    if (edgeProximity <= 0 && surfaceOvershoot <= 0) {
+        return;
+    }
+
+    const surfaceWind = applySurfaceWindField(astronaut.position.x, astronaut.position.y, now);
+    const targetCarryVelocityX = clampToRange(
+        surfaceWind.x * 6.6,
+        -MOVEMENT_SETTINGS.flyMaxSpeed * 1.25,
+        MOVEMENT_SETTINGS.flyMaxSpeed * 1.25
+    );
+    const carryBlend = clampToRange(
+        0.012 + edgeProximity * 0.06 + Math.min(0.015, surfaceOvershoot / 2200),
+        0.012,
+        0.085
+    );
+    astronaut.velocity.x += (targetCarryVelocityX - astronaut.velocity.x) * carryBlend;
 }
 
 function getHeldMovementModifiers() {
@@ -5433,6 +6024,104 @@ function updateAndDrawBulletImpactParticles(context: CanvasRenderingContext2D | 
     }
 
     bulletImpactParticles = nextParticles;
+}
+
+function spawnWindParticlesNearAstronaut(now: number) {
+    const toggles = getEffectiveWindToggles();
+    if (!toggles.windEnabled || !toggles.windVfxEnabled || !toggles.emittersEnabled) {
+        return;
+    }
+    const activeEmitters = getActiveWindEmittersNearAstronaut(now, toggles)
+        .filter((entry) => entry.affectsAstronaut && entry.showParticles);
+    for (const emitter of activeEmitters) {
+        const distance = Math.hypot(astronaut.position.x - emitter.x, astronaut.position.y - emitter.y);
+        if (distance > emitter.radius) {
+            continue;
+        }
+        const falloff = 1 - distance / emitter.radius;
+        const spawnCount = Math.min(
+            MOVEMENT_SETTINGS.windParticlePerEmitterMaxPerFrame,
+            Math.max(0, Math.round(falloff * 2))
+        );
+        if (spawnCount <= 0) {
+            continue;
+        }
+        const directionRadians = (emitter.directionDegrees * Math.PI) / 180;
+        const magnitude = resolveEmitterMagnitude(emitter, now);
+        const speed = Math.max(0.3, magnitude * 24);
+        for (let index = 0; index < spawnCount; index++) {
+            const jitterAngle = (Math.random() - 0.5) * 0.7;
+            const angle = directionRadians + jitterAngle;
+            windParticles.push({
+                x: astronaut.position.x + (Math.random() - 0.5) * 90,
+                y: astronaut.position.y + (Math.random() - 0.5) * 70,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                life: 10 + Math.floor(Math.random() * 7),
+                maxLife: 16,
+                size: Math.random() < 0.5 ? 2 : 1.5,
+                hue: 170 + Math.random() * 35
+            });
+        }
+    }
+
+    if (toggles.surfaceWindEnabled) {
+        const surfaceWind = applySurfaceWindField(astronaut.position.x, astronaut.position.y, now);
+        const magnitude = Math.hypot(surfaceWind.x, surfaceWind.y);
+        if (magnitude > 0.01) {
+            const directionRadians = Math.atan2(surfaceWind.y, surfaceWind.x);
+            const spawnCount = Math.min(8, Math.max(2, Math.round(magnitude * 30)));
+            const chunkColors = ['#ffffff', '#e0f2fe', '#7dd3fc', '#60a5fa'];
+            for (let index = 0; index < spawnCount; index++) {
+                const angle = directionRadians + (Math.random() - 0.5) * 0.24;
+                const speed = (2.8 + magnitude * 56) * (0.85 + Math.random() * 0.35);
+                windParticles.push({
+                    x: astronaut.position.x + (Math.random() - 0.5) * 10,
+                    y: astronaut.position.y + (Math.random() - 0.5) * 16,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    life: 8 + Math.floor(Math.random() * 7),
+                    maxLife: 16,
+                    size: Math.random() < 0.6 ? 3 : 2,
+                    hue: 190 + Math.random() * 25,
+                    color: chunkColors[Math.floor(Math.random() * chunkColors.length)]
+                });
+            }
+        }
+    }
+}
+
+function updateAndDrawWindParticles(context: CanvasRenderingContext2D | null, camera: Position) {
+    const nextParticles: WindParticle[] = [];
+    for (const particle of windParticles) {
+        particle.x += particle.vx;
+        particle.y += particle.vy;
+        particle.vx *= 0.95;
+        particle.vy *= 0.95;
+        particle.life--;
+        if (particle.life <= 0) {
+            continue;
+        }
+        const screenX = particle.x - camera.x;
+        const screenY = particle.y - camera.y;
+        if (
+            screenX < -4 ||
+            screenX > canvas.width + 4 ||
+            screenY < -4 ||
+            screenY > canvas.height + 4
+        ) {
+            continue;
+        }
+        nextParticles.push(particle);
+        if (context) {
+            context.save();
+            context.globalAlpha = clampToRange(particle.life / particle.maxLife, 0.15, 0.7);
+            context.fillStyle = particle.color ?? `hsl(${particle.hue}, 100%, 70%)`;
+            context.fillRect(screenX, screenY, particle.size, particle.size);
+            context.restore();
+        }
+    }
+    windParticles = nextParticles;
 }
 
 function getProjectileAngleDegrees(velocity: Position) {
@@ -7480,7 +8169,8 @@ function updateSingleCollectablePhysics(
     options: {
         bounceHorizontally?: boolean;
         groundFrictionStopThreshold?: number;
-    } = {}
+    } = {},
+    now: number = performance.now()
 ) {
     if (!isLooseCollectable(collectable)) {
         return {
@@ -7495,6 +8185,48 @@ function updateSingleCollectablePhysics(
     }
 
     const collisionBounds = getEntityCollisionBounds(collectable);
+    const windToggles = getEffectiveWindToggles();
+    if (
+        windToggles.windEnabled &&
+        !collectable.creatureProjectile
+    ) {
+        const allEmitters = getActiveWindEmittersNearAstronaut(now, windToggles);
+        const emitterWind = windToggles.emittersEnabled
+            ? computeEmitterWindAccelerationAtPoint(
+                collectable.x,
+                collectable.y,
+                now,
+                allEmitters,
+                'looseObject'
+            )
+            : { x: 0, y: 0, activeEmitterCount: 0 };
+        const surfaceWind = windToggles.surfaceWindEnabled
+            ? applySurfaceWindField(collectable.x, collectable.y, now)
+            : { x: 0, y: 0 };
+        const totalWindX = emitterWind.x + surfaceWind.x;
+        const totalWindY = emitterWind.y + surfaceWind.y;
+        const normalizedSettings = normalizeWindSettings(windSettings);
+        const surfaceEdgeProximity = windToggles.surfaceWindEnabled
+            ? getSurfaceWindEdgeProximity(collectable.x, normalizedSettings).edgeProximity
+            : 0;
+        const surfaceOvershoot = windToggles.surfaceWindEnabled
+            ? getSurfaceWindBoundaryOvershoot(collectable.x, normalizedSettings).maxOvershoot
+            : 0;
+        const maxWindAcceleration = MOVEMENT_SETTINGS.windMaxAccelerationPerFrame
+            * (1 + Math.pow(surfaceEdgeProximity, 1.8) * 1.5 + Math.min(0.2, surfaceOvershoot / 1200) * 0.5);
+        const effectiveWeight = Math.max(0, Number(collectable.weight) || 0);
+        const weightResistance = 1 / (1 + effectiveWeight * MOVEMENT_SETTINGS.windWeightResistancePerUnit);
+        collectable.velocity.x += clampToRange(
+            totalWindX * weightResistance,
+            -maxWindAcceleration,
+            maxWindAcceleration
+        );
+        collectable.velocity.y += clampToRange(
+            totalWindY * weightResistance,
+            -maxWindAcceleration,
+            maxWindAcceleration
+        );
+    }
     applyDynamicObjectGravity(collectable, physicsSettings);
 
     const targetX = collectable.x + collectable.velocity.x;
@@ -7651,7 +8383,7 @@ function updateCollectablePhysics(now: number, simulationFrame: number) {
             explodeCollectableGrenade(collectable);
             continue;
         }
-        const surfaceResult = updateSingleCollectablePhysics(collectable);
+        const surfaceResult = updateSingleCollectablePhysics(collectable, getCollectablePhysicsSettings(collectable), {}, now);
         if (
             collectable.type === 'plasma_grenade' &&
             (surfaceResult.hitWorld || isCollectableOverlappingAstronaut(collectable))

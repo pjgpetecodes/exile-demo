@@ -740,6 +740,22 @@ export function getAnyBlockAtWorld(
     return undefined;
 }
 
+function pointWithinExpandedTileBounds(
+    x: number,
+    y: number,
+    entityX: number,
+    entityY: number,
+    tileW: number,
+    tileH: number
+) {
+    // Broad-phase culling for expensive pixel-perfect checks. We keep a 1-tile margin
+    // to remain safe for translated/cropped sprites while skipping far-away entities.
+    return x >= entityX - tileW &&
+        x < entityX + tileW * 2 &&
+        y >= entityY - tileH &&
+        y < entityY + tileH * 2;
+}
+
 // Utility: Get any solid block (map, door, button) at world position
 export function getSolidBlockAtWorld(
     x: number,
@@ -752,6 +768,8 @@ export function getSolidBlockAtWorld(
 ): any {
     x = Math.round(x);
     y = Math.round(y);
+    const tileW = 32 * SPRITE_SCALE;
+    const tileH = 32 * SPRITE_SCALE;
     const spriteSheetCtx = (window as any)._spriteSheetCtx as CanvasRenderingContext2D | undefined;
     const mapBlockCandidates = getMapBlocksNearWorldPoint(x, y, SPRITE_SCALE, mapBlocks);
     // Check map blocks
@@ -769,6 +787,9 @@ export function getSolidBlockAtWorld(
         if (!isEntitySolid(d)) {
             continue;
         }
+        if (!pointWithinExpandedTileBounds(x, y, d.x, d.y, tileW, tileH)) {
+            continue;
+        }
         const rect = getSpriteRectByType(spriteMap, d.type);
         if (rect && isSolidSpritePixelAtWorld(x, y, d, rect, SPRITE_SCALE, spriteSheetCtx)) {
             return d;
@@ -782,6 +803,9 @@ export function getSolidBlockAtWorld(
         const parts = btn instanceof Button ? btn.getCollisionParts() : [btn];
         for (const part of parts) {
             if (!isEntitySolid(part)) {
+                continue;
+            }
+            if (!pointWithinExpandedTileBounds(x, y, part.x, part.y, tileW, tileH)) {
                 continue;
             }
             const rect = getSpriteRectByType(spriteMap, part.type);
@@ -1077,6 +1101,17 @@ export function drawEntities(
                 : renderPart;
             const rect = rectMap[renderPart.type];
             if (!rect) continue;
+
+            // Coarse viewport culling before expensive sprite/palette work.
+            // Use a generous margin so rotation/translation offsets remain safe.
+            const coarseWidth = Math.max(tileW, (Number(rect.w) || 32) * SPRITE_SCALE);
+            const coarseHeight = Math.max(tileH, (Number(rect.h) || 32) * SPRITE_SCALE);
+            if (
+                renderPart.x + coarseWidth < minX || renderPart.x - coarseWidth > maxX ||
+                renderPart.y + coarseHeight < minY || renderPart.y - coarseHeight > maxY
+            ) {
+                continue;
+            }
 
             let paletteIdx = 0;
             let paletteDebug = "";

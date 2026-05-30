@@ -1,0 +1,17 @@
+{
+  "windEnabled": true,
+  "emittersEnabled": true,
+  "surfaceWindEnabled": true,
+  "windVfxEnabled": true,
+  "surfaceWindMaxY": 1765,
+  "surfaceWindCenterX": 5200,
+  "surfaceWindDeadzone": 240,
+  "surfaceWindStrength": 0.24,
+  "surfaceWindEdgeBand": 2400,
+  "surfaceWindBuffetHz": 1.4,
+  "surfaceWindBuffetStrength": 0.65,
+  "surfaceWindLeftStartX": 6850,
+  "surfaceWindLeftLimitX": 5300,
+  "surfaceWindRightStartX": 11360,
+  "surfaceWindRightLimitX": 12400
+}
