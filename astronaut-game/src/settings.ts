@@ -81,7 +81,19 @@ export const MOVEMENT_SETTINGS = {
     astronautDamageFlashMinIntervalMs: 55,
     astronautDamageFlashMaxIntervalMs: 210,
     astronautExplosionSpinChance: 0.08,
-    astronautExplosionSpinMinForce: 1.2
+    astronautExplosionSpinMinForce: 1.2,
+    windEmitterDefaultStrength: 0.18,
+    windEmitterDefaultRadius: 220,
+    windEmitterVariableDefaultHz: 1.2,
+    windEmitterVariableDefaultAmount: 0.45,
+    windMaxAccelerationPerFrame: 0.28,
+    windWeightResistancePerUnit: 0.75,
+    windParticlePerEmitterMaxPerFrame: 2,
+    surfaceWindDefaultEnabled: false,
+    surfaceWindDefaultMaxY: 3600,
+    surfaceWindDefaultCenterX: 5200,
+    surfaceWindDefaultDeadzone: 240,
+    surfaceWindDefaultStrength: 0.09
 } as const;
 
 export const VIEWPORT_SETTINGS = {

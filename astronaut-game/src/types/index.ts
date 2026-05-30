@@ -3,6 +3,34 @@ export interface Position {
     y: number;
 }
 
+export type WindEmitterMode = 'constant' | 'variable';
+
+export interface WindEmitterSaveData {
+    id: string;
+    x: number;
+    y: number;
+    enabled?: boolean;
+    directionDegrees?: number;
+    strength?: number;
+    radius?: number;
+    mode?: WindEmitterMode;
+    variabilityHz?: number;
+    variabilityAmount?: number;
+    affectsAstronaut?: boolean;
+    showParticles?: boolean;
+}
+
+export interface WindGlobalSettings {
+    windEnabled?: boolean;
+    emittersEnabled?: boolean;
+    surfaceWindEnabled?: boolean;
+    windVfxEnabled?: boolean;
+    surfaceWindMaxY?: number;
+    surfaceWindCenterX?: number;
+    surfaceWindDeadzone?: number;
+    surfaceWindStrength?: number;
+}
+
 export type TeleporterDestinationMode =
     | 'toggle'
     | 'destination_a'

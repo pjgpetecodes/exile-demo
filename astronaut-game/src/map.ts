@@ -1,8 +1,13 @@
 import { assignEntityId } from './game.js';
-import { SPRITE_SCALE as DEFAULT_SPRITE_SCALE } from './constants.js';
+import {
+    DEFAULT_MAP_HEIGHT,
+    DEFAULT_MAP_WIDTH,
+    SPRITE_SCALE as DEFAULT_SPRITE_SCALE,
+    setMapBounds
+} from './constants.js';
 import type { DestructionSourceRequirement } from './destructibles.js';
 import { resolveAnimatedPaletteIndex } from './palette-cycle.js';
-import { PaletteCycleSettings, Position } from './types/index.js';
+import { PaletteCycleSettings, Position, WindEmitterMode } from './types/index.js';
 import { getSpriteTranslationOffset, getTransformedSpriteCanvas, normalizeSpriteTranslation, SpriteTranslation } from './utilities.js';
 
 export type MapBlock = {
@@ -24,6 +29,15 @@ export type MapBlock = {
     destructible?: boolean;
     destructionHealth?: number;
     destructionSource?: DestructionSourceRequirement;
+    windEnabled?: boolean;
+    windDirectionDegrees?: number;
+    windStrength?: number;
+    windRadius?: number;
+    windMode?: WindEmitterMode;
+    windVariabilityHz?: number;
+    windVariabilityAmount?: number;
+    windAffectsAstronaut?: boolean;
+    windShowParticles?: boolean;
 };
 
 export let mapBlocks: MapBlock[] = [];
@@ -754,6 +768,29 @@ async function loadChunkedWorldMapBlocks() {
     return chunkEntries;
 }
 
+function setMapBoundsFromChunkManifestEntries(chunkEntries: WorldChunkManifestEntry[]) {
+    if (chunkEntries.length === 0) {
+        setMapBounds(DEFAULT_MAP_WIDTH, DEFAULT_MAP_HEIGHT);
+        return;
+    }
+
+    let maxChunkX = 0;
+    let maxChunkY = 0;
+    for (const entry of chunkEntries) {
+        if (entry.x > maxChunkX) {
+            maxChunkX = entry.x;
+        }
+        if (entry.y > maxChunkY) {
+            maxChunkY = entry.y;
+        }
+    }
+
+    setMapBounds(
+        Math.max(DEFAULT_MAP_WIDTH, (maxChunkX + 1) * chunkWorldSize),
+        Math.max(DEFAULT_MAP_HEIGHT, (maxChunkY + 1) * chunkWorldSize)
+    );
+}
+
 // Utility: Resolve color alias or return RGB array
 function resolveColor(color: string | [number, number, number]): [number, number, number] {
     if (typeof color === "string") {
@@ -767,6 +804,7 @@ export async function loadMapBlocks() {
     const chunkEntries = await loadChunkedWorldMapBlocks();
     if (chunkEntries) {
         chunkedWorldMapEnabled = chunkEntries.length > 0;
+        setMapBoundsFromChunkManifestEntries(chunkEntries);
         setMapBlocks([]);
         lastViewportSyncedChunkKeys = new Set();
     } else {

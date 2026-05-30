@@ -17,7 +17,9 @@ import {
     PaletteCycleSettings,
     Position,
     TeleporterDestinationMode,
-    TeleporterSaveData
+    TeleporterSaveData,
+    WindEmitterSaveData,
+    WindGlobalSettings
 } from './types/index.js';
 import { buildDefaultPaletteCycle, getEffectivePaletteCycle } from './palette-cycle.js';
 import { MOVEMENT_SETTINGS, type BulletImpactAudioSettings } from './settings.js';
@@ -105,6 +107,8 @@ export type RawWorldData = {
     creatures: CreatureSaveData[];
     collectables: CollectableSaveData[];
     teleporters: TeleporterSaveData[];
+    windEmitters?: WindEmitterSaveData[];
+    windSettings?: WindGlobalSettings;
     astronautStart: Position;
 };
 
@@ -170,8 +174,20 @@ export interface WorldDesignerHost {
     setShowSpriteOutlines(value: boolean): void;
     getShowCreatureOverlays(): boolean;
     setShowCreatureOverlays(value: boolean): void;
+    getPerformanceHudEnabled(): boolean;
+    setPerformanceHudEnabled(enabled: boolean): void;
     getBulletImpactAudioSettings(): BulletImpactAudioSettings;
     setBulletImpactAudioSettings(settings: BulletImpactAudioSettings): void;
+    getWindRuntimeToggles(): {
+        windEnabled: boolean;
+        emittersEnabled: boolean;
+        surfaceWindEnabled: boolean;
+        windVfxEnabled: boolean;
+    };
+    setWindRuntimeToggle(
+        key: 'windEnabled' | 'emittersEnabled' | 'surfaceWindEnabled' | 'windVfxEnabled',
+        enabled: boolean
+    ): void;
     drawSpriteOutlineOverlay(ctx: CanvasRenderingContext2D, camera: Position, layerVisibility: LayerVisibility): void;
     getSpriteTypes(): string[];
     getSpriteCatalog(): SpriteCatalogEntry[];
@@ -638,11 +654,16 @@ type ControlRefs = {
     bulletImpactAlternateSelect: HTMLSelectElement;
     bulletImpactAlternateChanceInput: HTMLInputElement;
     bulletImpactVolumeInput: HTMLInputElement;
+    windEnabledCheckbox: HTMLInputElement;
+    windEmittersEnabledCheckbox: HTMLInputElement;
+    windSurfaceEnabledCheckbox: HTMLInputElement;
+    windVfxEnabledCheckbox: HTMLInputElement;
     addAtCenterButton: HTMLButtonElement;
     setAstronautStartButton: HTMLButtonElement;
     showCollisionCheckbox: HTMLInputElement;
     showCreatureOverlaysCheckbox: HTMLInputElement;
     showSpriteOutlineCheckbox: HTMLInputElement;
+    showPerformanceHudCheckbox: HTMLInputElement;
     magnifierCheckbox: HTMLInputElement;
     disablePreviewCollisionCheckbox: HTMLInputElement;
     layerCheckboxes: Record<DesignerCategory, HTMLInputElement>;
@@ -717,6 +738,8 @@ const SAVE_FILE_LABELS: Record<keyof RawWorldData, string> = {
     creatures: 'creatures.json',
     collectables: 'collectables.json',
     teleporters: 'teleporters.json',
+    windEmitters: 'wind_emitters.json',
+    windSettings: 'wind_settings.json',
     astronautStart: 'astronaut_start.json'
 };
 const PALETTE_FILE_LABEL = 'palettes.json';
@@ -755,6 +778,15 @@ function toMapBlockData(block: MapBlock): MapBlock {
     const hasDestructibleMetadata = typeof block.destructible === 'boolean'
         || typeof block.destructionHealth === 'number'
         || typeof block.destructionSource === 'string';
+    const hasWindMetadata = block.windEnabled === true
+        || typeof block.windDirectionDegrees === 'number'
+        || typeof block.windStrength === 'number'
+        || typeof block.windRadius === 'number'
+        || typeof block.windMode === 'string'
+        || typeof block.windVariabilityHz === 'number'
+        || typeof block.windVariabilityAmount === 'number'
+        || typeof block.windAffectsAstronaut === 'boolean'
+        || typeof block.windShowParticles === 'boolean';
     return {
         x: block.x,
         y: block.y,
@@ -803,6 +835,29 @@ function toMapBlockData(block: MapBlock): MapBlock {
                 destructionSource: typeof block.destructionSource === 'string'
                     ? block.destructionSource
                     : getDefaultDestructionSource('world', block.type)
+            }
+            : {}),
+        ...(hasWindMetadata
+            ? {
+                windEnabled: block.windEnabled === true,
+                windDirectionDegrees: typeof block.windDirectionDegrees === 'number'
+                    ? Number(block.windDirectionDegrees)
+                    : 270,
+                windStrength: typeof block.windStrength === 'number'
+                    ? Math.max(0, Number(block.windStrength))
+                    : 0.18,
+                windRadius: typeof block.windRadius === 'number'
+                    ? Math.max(1, Number(block.windRadius))
+                    : 220,
+                windMode: block.windMode === 'variable' ? 'variable' : 'constant',
+                windVariabilityHz: typeof block.windVariabilityHz === 'number'
+                    ? Math.max(0, Number(block.windVariabilityHz))
+                    : 1.2,
+                windVariabilityAmount: typeof block.windVariabilityAmount === 'number'
+                    ? clamp(Number(block.windVariabilityAmount), 0, 1)
+                    : 0.45,
+                windAffectsAstronaut: block.windAffectsAstronaut !== false,
+                windShowParticles: block.windShowParticles !== false
             }
             : {}),
         ...(block.paletteCycle ? { paletteCycle: deepClone(block.paletteCycle) } : {})
@@ -1011,6 +1066,8 @@ function serializeWorldData(data: RawWorldData): RawWorldData {
         creatures,
         collectables,
         teleporters,
+        windEmitters: (data.windEmitters ?? []).map((emitter) => ({ ...emitter })),
+        windSettings: data.windSettings ? deepClone(data.windSettings) : {},
         astronautStart: {
             x: Math.round(data.astronautStart.x),
             y: Math.round(data.astronautStart.y)
@@ -1934,7 +1991,7 @@ function createDesignerStyles() {
             border: 1px solid rgba(148, 163, 184, 0.4);
             border-radius: 10px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
-            font: 12px/1.4 system-ui, sans-serif;
+            font: 14px/1.4 system-ui, sans-serif;
             padding: 12px;
             backdrop-filter: blur(10px);
         }
@@ -2511,7 +2568,7 @@ function createDesignerStyles() {
             position: fixed;
             top: 8px;
             right: 384px;
-            width: 360px;
+            width: 420px;
             max-height: calc(100vh - 16px);
             overflow: auto;
             z-index: 9998;
@@ -2898,10 +2955,15 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
                     <input type="number" min="0" max="1" step="0.05" data-role="bullet-impact-volume" />
                 </label>
             </div>
+            <label class="world-designer-checkbox"><input type="checkbox" data-role="wind-enabled" /> Wind enabled</label>
+            <label class="world-designer-checkbox"><input type="checkbox" data-role="wind-emitters-enabled" /> Wind emitters enabled</label>
+            <label class="world-designer-checkbox"><input type="checkbox" data-role="wind-surface-enabled" /> Surface wind enabled</label>
+            <label class="world-designer-checkbox"><input type="checkbox" data-role="wind-vfx-enabled" /> Wind VFX enabled</label>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="expand-viewport" /> Expand viewport to window</label>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="show-collision" /> Show collision outlines</label>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="show-creature-overlays" /> Show creature overlays</label>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="show-sprite-outlines" /> Show sprite outlines (F)</label>
+            <label class="world-designer-checkbox"><input type="checkbox" data-role="show-performance-hud" /> Show FPS / perf overlay</label>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="magnifier-enabled" /> Show magnifier</label>
             <label class="world-designer-checkbox"><input type="checkbox" data-role="disable-preview-collision" /> Disable collision during preview</label>
             <div class="world-designer-grid">
@@ -3036,11 +3098,16 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         bulletImpactAlternateSelect: root.querySelector('[data-role="bullet-impact-alternate"]') as HTMLSelectElement,
         bulletImpactAlternateChanceInput: root.querySelector('[data-role="bullet-impact-alternate-chance"]') as HTMLInputElement,
         bulletImpactVolumeInput: root.querySelector('[data-role="bullet-impact-volume"]') as HTMLInputElement,
+        windEnabledCheckbox: root.querySelector('[data-role="wind-enabled"]') as HTMLInputElement,
+        windEmittersEnabledCheckbox: root.querySelector('[data-role="wind-emitters-enabled"]') as HTMLInputElement,
+        windSurfaceEnabledCheckbox: root.querySelector('[data-role="wind-surface-enabled"]') as HTMLInputElement,
+        windVfxEnabledCheckbox: root.querySelector('[data-role="wind-vfx-enabled"]') as HTMLInputElement,
         addAtCenterButton: root.querySelector('[data-role="add-center"]') as HTMLButtonElement,
         setAstronautStartButton: root.querySelector('[data-role="set-start"]') as HTMLButtonElement,
         showCollisionCheckbox: root.querySelector('[data-role="show-collision"]') as HTMLInputElement,
         showCreatureOverlaysCheckbox: root.querySelector('[data-role="show-creature-overlays"]') as HTMLInputElement,
         showSpriteOutlineCheckbox: root.querySelector('[data-role="show-sprite-outlines"]') as HTMLInputElement,
+        showPerformanceHudCheckbox: root.querySelector('[data-role="show-performance-hud"]') as HTMLInputElement,
         magnifierCheckbox: root.querySelector('[data-role="magnifier-enabled"]') as HTMLInputElement,
         disablePreviewCollisionCheckbox: root.querySelector('[data-role="disable-preview-collision"]') as HTMLInputElement,
         layerCheckboxes: {
@@ -3111,14 +3178,97 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         zIndex: host.canvas.style.zIndex
     };
     const initialBodyOverflow = document.body.style.overflow;
+    const initialDevicePixelRatio = Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0
+        ? window.devicePixelRatio
+        : 1;
+
+    function getOverlayViewportBounds() {
+        const viewport = window.visualViewport;
+        if (
+            viewport &&
+            Number.isFinite(viewport.width) &&
+            Number.isFinite(viewport.height) &&
+            viewport.width > 0 &&
+            viewport.height > 0
+        ) {
+            return {
+                left: Number.isFinite(viewport.offsetLeft) ? viewport.offsetLeft : 0,
+                top: Number.isFinite(viewport.offsetTop) ? viewport.offsetTop : 0,
+                width: viewport.width,
+                height: viewport.height
+            };
+        }
+        return {
+            left: 0,
+            top: 0,
+            width: window.innerWidth,
+            height: window.innerHeight
+        };
+    }
 
     function clampOverlayPosition(element: HTMLElement, left: number, top: number) {
-        const maxLeft = Math.max(8, window.innerWidth - element.offsetWidth - 8);
-        const maxTop = Math.max(8, window.innerHeight - element.offsetHeight - 8);
+        const rect = element.getBoundingClientRect();
+        const viewport = getOverlayViewportBounds();
+        const minLeft = viewport.left + 8;
+        const minTop = viewport.top + 8;
+        const maxLeft = Math.max(minLeft, viewport.left + viewport.width - rect.width - 8);
+        const maxTop = Math.max(minTop, viewport.top + viewport.height - rect.height - 8);
         return {
-            left: clamp(left, 8, maxLeft),
-            top: clamp(top, 8, maxTop)
+            left: clamp(left, minLeft, maxLeft),
+            top: clamp(top, minTop, maxTop)
         };
+    }
+
+    function getBrowserZoomScale() {
+        const currentDevicePixelRatio = Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0
+            ? window.devicePixelRatio
+            : initialDevicePixelRatio;
+        const devicePixelRatioScale = currentDevicePixelRatio / initialDevicePixelRatio;
+        const visualViewportScale = window.visualViewport && Number.isFinite(window.visualViewport.scale) && window.visualViewport.scale > 0
+            ? window.visualViewport.scale
+            : 1;
+        const zoomScale = devicePixelRatioScale * visualViewportScale;
+        if (!Number.isFinite(zoomScale) || zoomScale <= 0) {
+            return 1;
+        }
+        return zoomScale;
+    }
+
+    function applyDesignerOverlayZoomCompensation() {
+        const zoomScale = getBrowserZoomScale();
+        const inverseScale = 1 / zoomScale;
+        const transformValue = Math.abs(inverseScale - 1) < 0.001
+            ? ''
+            : `scale(${inverseScale})`;
+        const viewport = getOverlayViewportBounds();
+        const maxHeight = `${Math.max(120, viewport.height - 16)}px`;
+
+        root.style.transformOrigin = 'top right';
+        root.style.transform = transformValue;
+        root.style.maxHeight = maxHeight;
+
+        paletteFlyout.style.transformOrigin = 'top right';
+        paletteFlyout.style.transform = transformValue;
+        paletteFlyout.style.maxHeight = maxHeight;
+
+        const clampDraggedOverlay = (element: HTMLElement) => {
+            if (!element.style.left && !element.style.top) {
+                return;
+            }
+            const rect = element.getBoundingClientRect();
+            const currentLeft = Number.parseFloat(element.style.left);
+            const currentTop = Number.parseFloat(element.style.top);
+            const next = clampOverlayPosition(
+                element,
+                Number.isFinite(currentLeft) ? currentLeft : rect.left,
+                Number.isFinite(currentTop) ? currentTop : rect.top
+            );
+            element.style.left = `${next.left}px`;
+            element.style.top = `${next.top}px`;
+            element.style.right = 'auto';
+        };
+        clampDraggedOverlay(root);
+        clampDraggedOverlay(paletteFlyout);
     }
 
     function attachDraggableSurface(element: HTMLElement, handle: HTMLElement) {
@@ -3165,6 +3315,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
     attachDraggableSurface(root, panelDragHandle);
     attachDraggableSurface(paletteFlyout, paletteFlyoutDragHandle);
+    applyDesignerOverlayZoomCompensation();
 
     function findNearestWorldBlockByType(
         worldMap: MapBlock[],
@@ -10280,6 +10431,90 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             }
         }
 
+        if (category === 'world') {
+            const windEnabled = entity.windEnabled === true;
+            addCheckboxInspector(container, 'Wind source', windEnabled, (checked) => {
+                runMutation('Updated wind source flag.', () => {
+                    entity.windEnabled = checked;
+                    if (!checked) {
+                        return;
+                    }
+                    entity.windDirectionDegrees = typeof entity.windDirectionDegrees === 'number'
+                        ? entity.windDirectionDegrees
+                        : 270;
+                    entity.windStrength = typeof entity.windStrength === 'number'
+                        ? entity.windStrength
+                        : 0.18;
+                    entity.windRadius = typeof entity.windRadius === 'number'
+                        ? entity.windRadius
+                        : 220;
+                    entity.windMode = entity.windMode === 'variable' ? 'variable' : 'constant';
+                    entity.windVariabilityHz = typeof entity.windVariabilityHz === 'number'
+                        ? entity.windVariabilityHz
+                        : 1.2;
+                    entity.windVariabilityAmount = typeof entity.windVariabilityAmount === 'number'
+                        ? entity.windVariabilityAmount
+                        : 0.45;
+                    entity.windAffectsAstronaut = entity.windAffectsAstronaut !== false;
+                    entity.windShowParticles = entity.windShowParticles !== false;
+                });
+            });
+            if (windEnabled) {
+                addOptionSelectInspector(
+                    container,
+                    'Wind mode',
+                    entity.windMode === 'variable' ? 'variable' : 'constant',
+                    [
+                        { value: 'constant', label: 'Constant' },
+                        { value: 'variable', label: 'Variable' }
+                    ],
+                    (value) => {
+                        runMutation('Updated wind mode.', () => {
+                            entity.windMode = value === 'variable' ? 'variable' : 'constant';
+                        });
+                    }
+                );
+                addNumberInspector(container, 'Wind direction (degrees)', entity.windDirectionDegrees ?? 270, (value) => {
+                    runMutation('Updated wind direction.', () => {
+                        const normalized = ((value % 360) + 360) % 360;
+                        entity.windDirectionDegrees = normalized;
+                    });
+                }, 1);
+                addNumberInspector(container, 'Wind strength', entity.windStrength ?? 0.18, (value) => {
+                    runMutation('Updated wind strength.', () => {
+                        entity.windStrength = Math.max(0, value);
+                    });
+                }, 0.01);
+                addNumberInspector(container, 'Wind radius', entity.windRadius ?? 220, (value) => {
+                    runMutation('Updated wind radius.', () => {
+                        entity.windRadius = Math.max(1, value);
+                    });
+                }, 1);
+                if ((entity.windMode ?? 'constant') === 'variable') {
+                    addNumberInspector(container, 'Wind variability (Hz)', entity.windVariabilityHz ?? 1.2, (value) => {
+                        runMutation('Updated wind variability frequency.', () => {
+                            entity.windVariabilityHz = Math.max(0, value);
+                        });
+                    }, 0.05);
+                    addNumberInspector(container, 'Wind variability amount', entity.windVariabilityAmount ?? 0.45, (value) => {
+                        runMutation('Updated wind variability amount.', () => {
+                            entity.windVariabilityAmount = clamp(value, 0, 1);
+                        });
+                    }, 0.05);
+                }
+                addCheckboxInspector(container, 'Affects astronaut', entity.windAffectsAstronaut !== false, (checked) => {
+                    runMutation('Updated wind astronaut-affect flag.', () => {
+                        entity.windAffectsAstronaut = checked;
+                    });
+                });
+                addCheckboxInspector(container, 'Show wind particles', entity.windShowParticles !== false, (checked) => {
+                    runMutation('Updated wind particle flag.', () => {
+                        entity.windShowParticles = checked;
+                    });
+                });
+            }
+        }
+
         if (category === 'buttons') {
             addCheckboxInspector(container, 'Active by default', entity.defaultActive ?? entity.active ?? false, (checked) => {
                 runMutation('Updated button default state.', () => {
@@ -10880,6 +11115,11 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.bulletImpactAlternateSelect.value = bulletImpactAudioSettings.alternate;
         refs.bulletImpactAlternateChanceInput.value = bulletImpactAudioSettings.alternateChance.toFixed(2);
         refs.bulletImpactVolumeInput.value = bulletImpactAudioSettings.volume.toFixed(2);
+        const windToggles = host.getWindRuntimeToggles();
+        refs.windEnabledCheckbox.checked = windToggles.windEnabled;
+        refs.windEmittersEnabledCheckbox.checked = windToggles.emittersEnabled;
+        refs.windSurfaceEnabledCheckbox.checked = windToggles.surfaceWindEnabled;
+        refs.windVfxEnabledCheckbox.checked = windToggles.windVfxEnabled;
         refs.modeSelect.value = state.mode;
         refs.toolSelect.value = state.tool;
         refs.categorySelect.value = state.category;
@@ -10897,6 +11137,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.showCollisionCheckbox.checked = state.showCollisionOverlay;
         refs.showCreatureOverlaysCheckbox.checked = host.getShowCreatureOverlays();
         refs.showSpriteOutlineCheckbox.checked = host.getShowSpriteOutlines();
+        refs.showPerformanceHudCheckbox.checked = host.getPerformanceHudEnabled();
         refs.magnifierCheckbox.checked = state.magnifierEnabled;
         refs.disablePreviewCollisionCheckbox.checked = state.disableCollisionInPreview;
         refs.disablePreviewCollisionCheckbox.disabled = state.mode !== 'preview';
@@ -11911,6 +12152,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     refs.showSpriteOutlineCheckbox.addEventListener('change', () => {
         host.setShowSpriteOutlines(refs.showSpriteOutlineCheckbox.checked);
     });
+    refs.showPerformanceHudCheckbox.addEventListener('change', () => {
+        host.setPerformanceHudEnabled(refs.showPerformanceHudCheckbox.checked);
+    });
     const applyBulletImpactAudioSettingsFromControls = () => {
         const current = host.getBulletImpactAudioSettings();
         const alternateChance = clamp(Number(refs.bulletImpactAlternateChanceInput.value) || 0, 0, 1);
@@ -11939,6 +12183,22 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     refs.bulletImpactAlternateSelect.addEventListener('change', applyBulletImpactAudioSettingsFromControls);
     refs.bulletImpactAlternateChanceInput.addEventListener('change', applyBulletImpactAudioSettingsFromControls);
     refs.bulletImpactVolumeInput.addEventListener('change', applyBulletImpactAudioSettingsFromControls);
+    refs.windEnabledCheckbox.addEventListener('change', () => {
+        host.setWindRuntimeToggle('windEnabled', refs.windEnabledCheckbox.checked);
+        persistDesignerUiState();
+    });
+    refs.windEmittersEnabledCheckbox.addEventListener('change', () => {
+        host.setWindRuntimeToggle('emittersEnabled', refs.windEmittersEnabledCheckbox.checked);
+        persistDesignerUiState();
+    });
+    refs.windSurfaceEnabledCheckbox.addEventListener('change', () => {
+        host.setWindRuntimeToggle('surfaceWindEnabled', refs.windSurfaceEnabledCheckbox.checked);
+        persistDesignerUiState();
+    });
+    refs.windVfxEnabledCheckbox.addEventListener('change', () => {
+        host.setWindRuntimeToggle('windVfxEnabled', refs.windVfxEnabledCheckbox.checked);
+        persistDesignerUiState();
+    });
     refs.magnifierCheckbox.addEventListener('change', () => {
         state.magnifierEnabled = refs.magnifierCheckbox.checked;
         if (!state.magnifierEnabled) {
@@ -12043,6 +12303,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('mousedown', handleWindowMouseDown);
     window.addEventListener('resize', resizeExpandedViewport);
+    window.addEventListener('resize', applyDesignerOverlayZoomCompensation);
+    window.visualViewport?.addEventListener('resize', applyDesignerOverlayZoomCompensation);
+    window.visualViewport?.addEventListener('scroll', applyDesignerOverlayZoomCompensation);
     window.addEventListener('beforeunload', handleWindowBeforeUnload);
 
     refreshSelectOptions();
@@ -12271,6 +12534,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             window.removeEventListener('keyup', handleKeyUp);
             window.removeEventListener('mousedown', handleWindowMouseDown);
             window.removeEventListener('resize', resizeExpandedViewport);
+            window.removeEventListener('resize', applyDesignerOverlayZoomCompensation);
+            window.visualViewport?.removeEventListener('resize', applyDesignerOverlayZoomCompensation);
+            window.visualViewport?.removeEventListener('scroll', applyDesignerOverlayZoomCompensation);
             window.removeEventListener('beforeunload', handleWindowBeforeUnload);
             root.remove();
             modal.remove();

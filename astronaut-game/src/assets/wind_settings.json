@@ -1,0 +1,10 @@
+{
+  "windEnabled": true,
+  "emittersEnabled": true,
+  "surfaceWindEnabled": false,
+  "windVfxEnabled": true,
+  "surfaceWindMaxY": 3600,
+  "surfaceWindCenterX": 5200,
+  "surfaceWindDeadzone": 240,
+  "surfaceWindStrength": 0.09
+}
