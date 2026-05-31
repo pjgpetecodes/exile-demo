@@ -105,8 +105,6 @@ export function drawOverview(options: {
     hostCanvas: HTMLCanvasElement;
     mapWidth: number;
     mapHeight: number;
-    ensureOverviewWorldTilesLoaded: () => void;
-    redrawOverviewBase: () => void;
     getSelectionVisuals: (selections: any[]) => Array<{ isPrimary: boolean; rect: Rect }>;
     getSelectedItems: () => any[];
 }) {
@@ -117,15 +115,11 @@ export function drawOverview(options: {
         hostCanvas,
         mapWidth,
         mapHeight,
-        ensureOverviewWorldTilesLoaded,
-        redrawOverviewBase,
         getSelectionVisuals,
         getSelectedItems
     } = options;
     const ctx = overviewCanvas.getContext('2d');
     if (!ctx) return;
-    ensureOverviewWorldTilesLoaded();
-    redrawOverviewBase();
 
     ctx.clearRect(0, 0, overviewCanvas.width, overviewCanvas.height);
     ctx.drawImage(overviewBaseCanvas, 0, 0);

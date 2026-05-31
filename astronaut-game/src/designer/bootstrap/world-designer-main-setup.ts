@@ -28,9 +28,17 @@ export function createOverviewWorldTileLoader({
 }: CreateOverviewWorldTileLoaderContext) {
     let overviewWorldTiles: OverviewWorldTile[] | null = null;
     let overviewWorldTilesLoading = false;
+    let nextOverviewWorldTilesRetryAtMs = 0;
 
     function ensureOverviewWorldTilesLoaded() {
-        if (overviewWorldTiles || overviewWorldTilesLoading || !getChunkedWorldOverview()) {
+        const chunkedOverview = getChunkedWorldOverview();
+        if (!chunkedOverview || overviewWorldTilesLoading) {
+            return;
+        }
+        if (overviewWorldTiles && overviewWorldTiles.length > 0) {
+            return;
+        }
+        if (Date.now() < nextOverviewWorldTilesRetryAtMs) {
             return;
         }
         overviewWorldTilesLoading = true;
@@ -39,14 +47,22 @@ export function createOverviewWorldTileLoader({
             : Promise.resolve(host.getRawWorldData());
         void snapshotPromise
             .then((data) => {
-                overviewWorldTiles = data.worldMap.map((block) => ({
+                const worldTiles = data.worldMap.map((block) => ({
                     x: Number(block.x),
                     y: Number(block.y)
                 }));
+                if (worldTiles.length === 0) {
+                    // In chunked mode, avoid caching an empty snapshot during early init.
+                    // Keep retrying until the full materialized world map is available.
+                    nextOverviewWorldTilesRetryAtMs = Date.now() + 1000;
+                    return;
+                }
+                overviewWorldTiles = worldTiles;
                 invalidateOverviewBase();
             })
             .catch(() => {
                 // Keep the overview usable with currently loaded world data if full snapshot fails.
+                nextOverviewWorldTilesRetryAtMs = Date.now() + 1000;
             })
             .finally(() => {
                 overviewWorldTilesLoading = false;

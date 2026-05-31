@@ -203,8 +203,6 @@ export function createWorldDesignerRenderLifecycle(deps: WorldDesignerRenderLife
             hostCanvas: host.canvas,
             mapWidth,
             mapHeight,
-            ensureOverviewWorldTilesLoaded,
-            redrawOverviewBase,
             getSelectionVisuals,
             getSelectedItems
         });
