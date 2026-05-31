@@ -1,2 +1,2 @@
-// Thin facade keeps stable imports while the implementation lives in game-runtime.ts.
-export * from './game-runtime.js';
+// Thin facade keeps stable imports while the implementation lives in game-main.ts.
+export * from './game-main.js';

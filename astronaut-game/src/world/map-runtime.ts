@@ -1,4 +1,4 @@
-import { assignEntityId } from '../game/game.js';
+import { assignEntityId } from '../game/runtime/game-entity-id.js';
 import {
     DEFAULT_MAP_HEIGHT,
     DEFAULT_MAP_WIDTH,
