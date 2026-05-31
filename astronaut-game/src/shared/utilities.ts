@@ -1,8 +1,8 @@
-import { Button } from './button.js';
-import { Collectable, isGrenadeCollectableType } from './collectable.js';
-import { Door } from './door.js';
-import { getMapBlocksNearWorldPoint } from './map.js';
-import { buildDefaultPaletteCycle, resolveAnimatedPaletteIndex } from './palette-cycle.js';
+import { Button } from '../entities/button.js';
+import { Collectable, isGrenadeCollectableType } from '../entities/collectable.js';
+import { Door } from '../entities/door.js';
+import { getMapBlocksNearWorldPoint } from '../world/map.js';
+import { buildDefaultPaletteCycle, resolveAnimatedPaletteIndex } from '../world/palette-cycle.js';
 
 const spriteRectMapCache = new WeakMap<object, Record<string, any>>();
 const transformedSpriteCanvasCache = new WeakMap<object, Map<string, HTMLCanvasElement>>();
@@ -23,6 +23,7 @@ type SpriteVisibleBounds = {
 
 export const SPRITE_TRANSLATION_OPTIONS: SpriteTranslation[] = ['center', 'top', 'right', 'bottom', 'left'];
 
+// --- Sprite transform / bounds helpers ---
 function getSourceSpriteVisibleBounds(
     sheet: CanvasImageSource,
     rect: { x: number; y: number; w: number; h: number }
@@ -521,6 +522,8 @@ function isSolidSpritePixelAtWorld(
     SPRITE_SCALE: number,
     spriteSheetCtx?: CanvasRenderingContext2D
 ): boolean {
+    // Convert world coordinate -> local sprite pixel, accounting for crop/rotation
+    // so collision probing can stay pixel-accurate across entity variants.
     const geometry = getEntitySpriteGeometry(entity, rect, SPRITE_SCALE);
     const transformedSprite = spriteSheetCtx
         ? getTransformedSpriteCanvas(
@@ -740,6 +743,7 @@ export function getAnyBlockAtWorld(
     return undefined;
 }
 
+// --- Runtime solid collision queries ---
 function pointWithinExpandedTileBounds(
     x: number,
     y: number,
@@ -795,7 +799,8 @@ export function getSolidBlockAtWorld(
             return d;
         }
     }
-    // Check buttons (treat as solid)
+    // Check buttons (treat as solid). If any part collides, return the owning
+    // button entity so higher-level trigger logic only handles one object.
     for (const btn of buttonEntities) {
         if (!isEntitySolid(btn)) {
             continue;
@@ -903,7 +908,7 @@ export async function calculateSpriteCollisionBoundingBoxes(
 
     // --- Calculate and store world coordinate bounding boxes ---
     // Use SPRITE_SCALE for all world bounding box calculations
-    const { SPRITE_SCALE } = await import('./constants.js');
+    const { SPRITE_SCALE } = await import('../config/constants.js');
     const worldBoundingBoxes: Record<string, any[]> = {};
     for (const entity of allEntities) {
         const type = entity.type;

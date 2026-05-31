@@ -1,4 +1,4 @@
-import { Position } from './types/index.js';
+import { Position } from '../types/index.js';
 
 export interface DynamicPhysicsBody {
     weight: number;

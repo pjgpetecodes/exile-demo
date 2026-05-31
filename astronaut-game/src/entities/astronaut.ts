@@ -1,14 +1,15 @@
-import { Astronaut, Position } from './types/index.js';
-import { getSolidBlockAtWorld } from './utilities.js';
-import { MapBlock } from './map.js';
+import { Astronaut, Position } from '../types/index.js';
+import { getSolidBlockAtWorld } from '../shared/utilities.js';
+import { MapBlock } from '../world/map.js';
 import { Button } from './button.js';
 import { Door } from './door.js';
-import { SPRITE_SCALE, SPRITE_COL_STAND, SPRITE_ROW } from './constants.js';
-import { MOVEMENT_SETTINGS } from './settings.js';
+import { SPRITE_SCALE, SPRITE_COL_STAND, SPRITE_ROW } from '../config/constants.js';
+import { MOVEMENT_SETTINGS } from '../config/settings.js';
 
 const DEFAULT_ASTRONAUT_START_POSITION: Position = { x: 400, y: 778 };
 let astronautStartPosition: Position = { ...DEFAULT_ASTRONAUT_START_POSITION };
 
+// --- Mutable astronaut runtime state ---
 export let astronaut: Astronaut = {
     position: { ...DEFAULT_ASTRONAUT_START_POSITION },
     velocity: { x: 0, y: 0 },
@@ -51,7 +52,7 @@ type MovementModifiers = {
     flightControlScale?: number;
 };
 
-// Reset astronaut state
+// --- Spawn/reset helpers ---
 export function resetAstronaut() {
     astronaut.position = { ...astronautStartPosition };
     astronaut.velocity = { x: 0, y: 0 };
@@ -111,6 +112,7 @@ export function applyLandingMomentum(horizontalVelocity: number) {
     facingLeft = horizontalVelocity < 0;
 }
 
+// --- Input-driven movement integration ---
 // Main movement handler (call this from game.ts)
 export function handleAstronautMovement(
     keys: Record<string, boolean>,
@@ -270,7 +272,7 @@ export function handleAstronautMovement(
     }
 }
 
-// --- Button collision detection and logging ---
+// --- Collision probes and summaries ---
 function checkButtonCollision(x: number, y: number, SPRITE_SCALE: number, 
     buttonEntities: Button[]): Button | undefined {
     for (const btn of buttonEntities) {
@@ -344,6 +346,8 @@ function getSideProbePoints(
     centerY: number,
     side: 'down' | 'up' | 'left' | 'right'
 ) {
+    // Probe from corners + evenly distributed interior samples so slope edges are
+    // less likely to tunnel through when movement is sub-stepped.
     const offsets = getAstronautCollisionOffsets();
     if (side === 'down' || side === 'up') {
         const y = centerY + (side === 'down' ? offsets.bottom : offsets.top);
@@ -396,6 +400,8 @@ function summarizeSideCollisions(
     doorEntities: Door[],
     buttonEntities: Button[]
 ): SideCollisionSummary {
+    // Probe slightly outside the collision bounds to detect impending contact
+    // before the astronaut rectangle fully enters a solid pixel.
     const probeOffset = side === 'right' || side === 'down' ? 1 : -1;
     let totalProbes = 0;
     let hitProbes = 0;
@@ -507,6 +513,8 @@ function estimateCeilingSlope(
     doorEntities: Door[],
     buttonEntities: Button[]
 ) {
+    // Linear regression over nearby hit points gives us a slope estimate that
+    // makes head-bounce deflection feel stable on angled ceilings.
     const samples: { x: number; y: number }[] = [];
     const horizontalRadius = 8;
     const verticalRadius = 8;
@@ -599,6 +607,8 @@ function tryStepUp(
     doorEntities: Door[],
     buttonEntities: Button[]
 ) {
+    // Step-up tries progressively higher Y offsets, then looks for ground support
+    // so walking over small ledges does not require a jump input.
     const maxStepUpHeight = currentCollisionProfile.startsWith('prone_')
         ? MOVEMENT_SETTINGS.proneStepUpHeight
         : MOVEMENT_SETTINGS.walkStepUpHeight;
@@ -692,6 +702,8 @@ function tryProneSqueezeMove(
         return undefined;
     }
 
+    // "Squeeze" keeps some tolerance for wall contact while rejecting candidates
+    // that would embed too deeply into solids.
     const maxSideProbeHitRatio = 0.55;
     const maxInteriorOverlapRatio = 0.3;
     const verticalOffsets = [0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5, -6, 6];
@@ -854,6 +866,8 @@ function resolveAstronautOverlap(
         directions.findIndex(other => other.x === direction.x && other.y === direction.y) === index
     );
 
+    // Radial search pushes the astronaut to the nearest free point when map edits,
+    // teleports, or precision edge-cases leave us slightly interpenetrating.
     for (let distance = 1; distance <= 24; distance++) {
         const candidates: { x: number; y: number; score: number }[] = [];
 
@@ -945,6 +959,8 @@ export function checkAstronautCollisions(buttonEntities: Button[],
     const stepX = deltaX / steps;
     const stepY = deltaY / steps;
 
+    // Sweep in small increments so fast movement still resolves against thin
+    // geometry and trigger entities (buttons/doors) reliably.
     for (let i = 0; i < steps; i++) {
         if (stepY !== 0) {
             const attemptY = resolvedY + stepY;

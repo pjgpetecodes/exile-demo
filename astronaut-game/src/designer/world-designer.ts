@@ -1,17 +1,17 @@
-import { MAP_HEIGHT, MAP_WIDTH, SPRITE_SCALE, mushroomsSound, getSoundEnabled } from './constants.js';
-import { CREATURE_SOUND_MANIFEST } from './assets/creature-sound-manifest.js';
+import { MAP_HEIGHT, MAP_WIDTH, SPRITE_SCALE, mushroomsSound, getSoundEnabled } from '../config/constants.js';
+import { CREATURE_SOUND_MANIFEST } from '../assets/creature-sound-manifest.js';
 import {
     DESTRUCTION_SOURCE_OPTIONS,
     getDefaultDestructibleEnabled,
     getDefaultDestructibleHealth,
     getDefaultDestructionSource,
     type DestructionSourceRequirement
-} from './destructibles.js';
-import { getChunkedWorldOverview, MapBlock, shouldMaskAstronaut } from './map.js';
-import { Button } from './button.js';
-import { Door } from './door.js';
-import { Creature, toCreatureSaveData } from './creature.js';
-import { Collectable, getDefaultGrenadeExplosionPower, isGrenadeCollectableType } from './collectable.js';
+} from '../entities/destructibles.js';
+import { getChunkedWorldOverview, MapBlock, shouldMaskAstronaut } from '../world/map.js';
+import { Button } from '../entities/button.js';
+import { Door } from '../entities/door.js';
+import { Creature, toCreatureSaveData } from '../entities/creature.js';
+import { Collectable, getDefaultGrenadeExplosionPower, isGrenadeCollectableType } from '../entities/collectable.js';
 import {
     CreatureSaveData,
     PaletteCycleSettings,
@@ -20,678 +20,113 @@ import {
     TeleporterSaveData,
     WindEmitterSaveData,
     WindGlobalSettings
-} from './types/index.js';
-import { buildDefaultPaletteCycle, getEffectivePaletteCycle } from './palette-cycle.js';
-import { MOVEMENT_SETTINGS, type BulletImpactAudioSettings } from './settings.js';
-import { getSpriteVisibleBounds, normalizeSpriteTranslation, SPRITE_TRANSLATION_OPTIONS, SpriteTranslation } from './utilities.js';
+} from '../types/index.js';
+import { buildDefaultPaletteCycle, getEffectivePaletteCycle } from '../world/palette-cycle.js';
+import { MOVEMENT_SETTINGS, type BulletImpactAudioSettings } from '../config/settings.js';
+import { getSpriteVisibleBounds, normalizeSpriteTranslation, SPRITE_TRANSLATION_OPTIONS, SpriteTranslation } from '../shared/utilities.js';
+import {
+    composePngChunkFolderSource,
+    exportPngChunksToDirectory,
+    getDirectoryPicker,
+    getPngChunkSelectionEntries,
+    readPngChunkFolderSelection
+} from './io/world-designer-png-chunks.js';
+import {
+    designerSnapshotsEqual,
+    serializeWorldData,
+    stableStringify,
+    snapshotsEqual,
+    toButtonData,
+    toCollectableData,
+    toCreatureData,
+    toDoorData,
+    toMapBlockData
+} from './core/world-designer-serialization.js';
+import {
+    createDesignerStyles,
+    isFormTarget,
+    parseDoorIds,
+    parsePaletteCyclePalettes,
+    parseStringIds
+} from './core/world-designer-ui.js';
+import { createWorldDesignerDom } from './dom/world-designer-dom.js';
+import {
+    applyDesignerOverlayZoomCompensation as applyOverlayZoomCompensation,
+    attachDraggableSurface
+} from './overlay/world-designer-overlay.js';
+import { reconcileTeleporterPairsForSave } from './teleporters/world-designer-teleporters.js';
+import {
+    addCheckboxInspector as addCheckboxInspectorControl,
+    addInspectorAction as addInspectorActionControl,
+    addNumberInspector as addNumberInspectorControl,
+    addOptionSelectInspector as addOptionSelectInspectorControl,
+    addSelectInspector as addSelectInspectorControl,
+    addTextInspector as addTextInspectorControl,
+    restorePendingInspectorFocus as restorePendingInspectorFocusControl
+} from './inspector/world-designer-inspector-controls.js';
 
-export type DesignerCategory = 'world' | 'buttons' | 'doors' | 'creatures' | 'collectables' | 'custom';
-export type DesignerMode = 'edit' | 'preview';
-export type DesignerTool = 'select' | 'place';
-type RuntimeDesignerCategory = Exclude<DesignerCategory, 'custom'>;
-type SpritePickerCategoryFilter = 'all' | DesignerCategory;
+import type {
+    BrowserDirectoryHandle,
+    BrowserFileHandle,
+    BrowserFileSystemWriteChunk,
+    BrowserWindowWithDirectoryPicker,
+    BrowserWritableFileStream,
+    ButtonSaveData,
+    ButtonDefaultOverrides,
+    ClipboardEntry,
+    CollectableSaveData,
+    CustomSpriteDefinition,
+    CustomSpriteInstance,
+    DesignerCategory,
+    DesignerMode,
+    DesignerSectionId,
+    DesignerSnapshot,
+    DesignerState,
+    DesignerTool,
+    DragItem,
+    DoorSaveData,
+    LayerVisibility,
+    LiveResumeSnapshot,
+    ObjectSnapGuide,
+    ObjectSnapMatch,
+    ObjectSnapMode,
+    ObjectSnapResolution,
+    PersistedDesignerUiState,
+    PickerDrag,
+    PlacementTypeOption,
+    PaletteDefinition,
+    PngChunkComposedSource,
+    PngChunkEntry,
+    PngChunkFolderSelection,
+    PngChunkManifest,
+    PngChunkSelectionRange,
+    PngImportCandidate,
+    PngImportDraft,
+    PngImportProgress,
+    PngImportSampleSignature,
+    PngImportSourceMode,
+    PngImportTileMatch,
+    PngImportWorkTab,
+    RawWorldData,
+    Rect,
+    RuntimeDesignerCategory,
+    SavePreviewState,
+    SavePreviewFile,
+    Selection,
+    SpriteCatalogEntry,
+    SpritePickerCategoryFilter,
+    SpriteSheetNormalizationReport,
+    TeleporterDestinationPickState,
+    WorldDesigner,
+    WorldDesignerHost
+} from './core/world-designer-types.js';
 
-export type ButtonSaveData = {
-    x: number;
-    y: number;
-    type: string;
-    palette: number;
-    boxType?: string;
-    boxPalette?: number;
-    rotation?: number;
-    active?: boolean;
-    linkedDoors?: number[];
-    linkedTeleporters?: string[];
-    teleporterMode?: TeleporterDestinationMode;
-    collision?: boolean;
-    pressOffset?: number;
-    boxOffsetX?: number;
-    boxOffsetY?: number;
-    capClosedOffsetX?: number;
-    capClosedOffsetY?: number;
-    capOpenOffsetX?: number;
-    capOpenOffsetY?: number;
-    paletteCycle?: PaletteCycleSettings;
-};
-
-export type DoorSaveData = {
-    x: number;
-    y: number;
-    z?: number;
-    type: string;
-    palette?: number;
-    rotation?: number;
-    translation?: SpriteTranslation;
-    name?: string;
-    doorID?: number;
-    locked?: boolean;
-    open?: boolean;
-    palette_locked?: number | null;
-    palette_unlocked?: number | null;
-    collision?: boolean;
-    paletteCycle?: PaletteCycleSettings;
-    destructible?: boolean;
-    destructionHealth?: number;
-    destructionSource?: DestructionSourceRequirement;
-};
-
-export type CollectableSaveData = {
-    x: number;
-    y: number;
-    type: string;
-    palette?: number;
-    rotation?: number;
-    collected?: boolean;
-    name?: string;
-    weight?: number;
-    pickupEnabled?: boolean;
-    storable?: boolean;
-    affectsAstronaut?: boolean;
-    collision?: boolean;
-    held?: boolean;
-    stored?: boolean;
-    isGrounded?: boolean;
-    velocity?: Position;
-    astronautCollisionIgnoreFrames?: number;
-    paletteCycle?: PaletteCycleSettings;
-    radioactive?: boolean;
-    armed?: boolean;
-    explosionPower?: number;
-    explosionRadius?: number;
-};
-
-export type RawWorldData = {
-    worldMap: MapBlock[];
-    buttons: ButtonSaveData[];
-    doors: DoorSaveData[];
-    creatures: CreatureSaveData[];
-    collectables: CollectableSaveData[];
-    teleporters: TeleporterSaveData[];
-    windEmitters?: WindEmitterSaveData[];
-    windSettings?: WindGlobalSettings;
-    astronautStart: Position;
-};
-
-export type LayerVisibility = Record<DesignerCategory, boolean>;
-export type SpriteCatalogEntry = {
-    name: string;
-    palette: number;
-};
-
-export type CustomSpriteInstance = {
-    x: number;
-    y: number;
-    type: string;
-    customSpriteId: string;
-};
-
-export type CustomSpriteMember = {
-    category: RuntimeDesignerCategory;
-    offsetX: number;
-    offsetY: number;
-    data: MapBlock | ButtonSaveData | DoorSaveData | CreatureSaveData | CollectableSaveData;
-};
-
-export type CustomSpriteDefinition = {
-    id: string;
-    name: string;
-    members: CustomSpriteMember[];
-};
-
-export type PaletteRemapEntry = {
-    from: string;
-    to: string;
-};
-
-export type PaletteDefinition = PaletteRemapEntry[];
-export type SpriteSheetNormalizationReplacement = {
-    from: [number, number, number];
-    toAlias: string;
-    to: [number, number, number];
-    count: number;
-};
-
-export type SpriteSheetNormalizationReport = {
-    spriteCount: number;
-    scannedPixels: number;
-    changedPixels: number;
-    changedSourceColors: number;
-    replacements: SpriteSheetNormalizationReplacement[];
-};
-
-export interface WorldDesignerHost {
-    canvas: HTMLCanvasElement;
-    getRawWorldData(): RawWorldData;
-    getRawWorldDataForSave?(): Promise<RawWorldData>;
-    replaceRawWorldData(data: RawWorldData): void;
-    afterWorldDataMutated(): void;
-    getFocusWorldPosition(): Position;
-    resetAstronautToPosition(position: Position): void;
-    setAstronautStartPosition(position: Position, applyToAstronaut?: boolean): void;
-    getSoundEnabled(): boolean;
-    setSoundEnabled(enabled: boolean): void;
-    getShowSpriteOutlines(): boolean;
-    setShowSpriteOutlines(value: boolean): void;
-    getShowCreatureOverlays(): boolean;
-    setShowCreatureOverlays(value: boolean): void;
-    getPerformanceHudEnabled(): boolean;
-    setPerformanceHudEnabled(enabled: boolean): void;
-    getBulletImpactAudioSettings(): BulletImpactAudioSettings;
-    setBulletImpactAudioSettings(settings: BulletImpactAudioSettings): void;
-    getWindRuntimeToggles(): {
-        windEnabled: boolean;
-        emittersEnabled: boolean;
-        surfaceWindEnabled: boolean;
-        windVfxEnabled: boolean;
-    };
-    setWindRuntimeToggle(
-        key: 'windEnabled' | 'emittersEnabled' | 'surfaceWindEnabled' | 'windVfxEnabled',
-        enabled: boolean
-    ): void;
-    drawSpriteOutlineOverlay(ctx: CanvasRenderingContext2D, camera: Position, layerVisibility: LayerVisibility): void;
-    getSpriteTypes(): string[];
-    getSpriteCatalog(): SpriteCatalogEntry[];
-    drawSpritePreview(
-        ctx: CanvasRenderingContext2D,
-        type: string,
-        palette: number,
-        rotation?: number,
-        clearFirst?: boolean,
-        targetSize?: number,
-        translation?: SpriteTranslation
-    ): boolean;
-    drawSpriteSample(
-        ctx: CanvasRenderingContext2D,
-        type: string,
-        palette: number,
-        rotation?: number,
-        clearFirst?: boolean,
-        targetSize?: number,
-        translation?: SpriteTranslation
-    ): boolean;
-    drawCustomPalettePreview(
-        ctx: CanvasRenderingContext2D,
-        type: string,
-        paletteDefinition: PaletteDefinition,
-        rotation?: number,
-        clearFirst?: boolean,
-        targetSize?: number
-    ): boolean;
-    getPaletteDefinitions(): PaletteDefinition[];
-    getColorAliases(): Record<string, [number, number, number]>;
-    getPaletteCount(): number;
-    clampCamera(camera: Position): Position;
-    ensureWorldBounds(width: number, height: number): void;
-    saveWorldData(data: RawWorldData): Promise<void>;
-    savePaletteDefinitions(palettes: PaletteDefinition[], worldData?: RawWorldData): Promise<void>;
-    previewSpriteSheetNormalization(): Promise<SpriteSheetNormalizationReport>;
-    normalizeSpriteSheetColors(): Promise<SpriteSheetNormalizationReport>;
-}
-
-export interface WorldDesigner {
-    isActive(): boolean;
-    isPreviewMode(): boolean;
-    isViewportExpanded(): boolean;
-    setViewportExpanded(expanded: boolean): void;
-    getCamera(): Position;
-    getLayerVisibility(): LayerVisibility;
-    getDebugSelection(): Selection | null;
-    shouldShowCollisionOverlay(): boolean;
-    shouldDisableCollisionInPreview(): boolean;
-    render(ctx: CanvasRenderingContext2D): void;
-    destroy(): void;
-}
-
-type Selection = {
-    category: DesignerCategory;
-    entity: any;
-};
-
-type DragItem = {
-    selection: Selection;
-    startX: number;
-    startY: number;
-};
-
-type PickerDrag = {
-    category: DesignerCategory;
-    type: string;
-    palette: number;
-    rotation: number;
-    translation: SpriteTranslation;
-};
-
-type ClipboardEntry = {
-    category: DesignerCategory;
-    data: MapBlock | ButtonSaveData | DoorSaveData | CreatureSaveData | CollectableSaveData | CustomSpriteInstance;
-};
-
-type DesignerSnapshot = {
-    worldData: RawWorldData;
-    customSpriteDefinitions: CustomSpriteDefinition[];
-    customSpriteInstances: CustomSpriteInstance[];
-};
-
-type LiveResumeSnapshot = {
-    snapshot: DesignerSnapshot;
-    astronautPosition: Position;
-};
-
-type SavePreviewFile = {
-    key: keyof RawWorldData | 'palettes';
-    label: string;
-    changed: boolean;
-    json: string;
-};
-
-type SavePreviewState = {
-    files: SavePreviewFile[];
-    errors: string[];
-};
-
-type PngImportCandidate = {
-    type: string;
-    palette: number;
-    rotation: number;
-    collision: boolean;
-    maskAstronaut: boolean;
-    signature: PngImportSampleSignature;
-};
-
-type PngImportSampleSignature = {
-    normalizedSample: Uint8ClampedArray;
-    normalizedLabels: Uint16Array;
-    foregroundPixelCount: number;
-    matchKey: string;
-    foregroundBounds: {
-        minX: number;
-        minY: number;
-        width: number;
-        height: number;
-    } | null;
-};
-
-type PngImportTileMatch = {
-    bestCandidate: PngImportCandidate;
-    bestScore: number;
-    sourceSignature: PngImportSampleSignature;
-    inferredTranslation: SpriteTranslation;
-    column: number;
-    row: number;
-};
-
-type PngImportDraft = {
-    blocks: Array<MapBlock | null>;
-    columns: number;
-    rows: number;
-    worldX: number;
-    worldY: number;
-    worldWidth: number;
-    worldHeight: number;
-    uncertainTiles: number;
-    lowConfidenceTileIndexes: number[];
-    sourceGridOffsetX: number;
-    sourceGridOffsetY: number;
-};
-
-type PngImportProgress = {
-    phase: string;
-    completed: number;
-    total: number;
-    detail: string;
-};
-
-type PngImportSourceMode = 'single' | 'folder';
-type PngImportWorkTab = 'import' | 'export';
-
-type PngChunkEntry = {
-    fileName: string;
-    chunkColumn: number;
-    chunkRow: number;
-    sourceTileX: number;
-    sourceTileY: number;
-    tileWidth: number;
-    tileHeight: number;
-    pixelX: number;
-    pixelY: number;
-    pixelWidth: number;
-    pixelHeight: number;
-};
-
-type PngChunkManifest = {
-    version: 1;
-    sourceName: string;
-    tileSize: number;
-    crop: {
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-    };
-    chunkTileWidth: number;
-    chunkTileHeight: number;
-    totalSourceColumns: number;
-    totalSourceRows: number;
-    totalChunkColumns: number;
-    totalChunkRows: number;
-    chunks: PngChunkEntry[];
-};
-
-type PngChunkFolderSelection = {
-    directoryName: string;
-    manifest: PngChunkManifest;
-    files: Map<string, File>;
-    emptyChunkFileNames: Set<string>;
-};
-
-type PngChunkSelectionRange = {
-    minChunkColumn: number;
-    maxChunkColumn: number;
-    minChunkRow: number;
-    maxChunkRow: number;
-    maxChunks: number;
-};
-
-type PngChunkComposedSource = {
-    image: HTMLImageElement;
-    manifest: PngChunkManifest;
-    selectedChunks: PngChunkEntry[];
-    chunkCount: number;
-    totalSelectedChunks: number;
-    sourceWidth: number;
-    sourceHeight: number;
-    columns: number;
-    rows: number;
-    activeTileIndexes: Set<number>;
-};
-
-type BrowserFileSystemWriteChunk =
-    | Blob
-    | BufferSource
-    | string
-    | { type: 'write'; position?: number; data: Blob | BufferSource | string }
-    | { type: 'seek'; position: number }
-    | { type: 'truncate'; size: number };
-
-interface BrowserWritableFileStream {
-    write(data: BrowserFileSystemWriteChunk): Promise<void>;
-    close(): Promise<void>;
-}
-
-interface BrowserFileHandle {
-    kind: 'file';
-    name: string;
-    getFile(): Promise<File>;
-    createWritable(): Promise<BrowserWritableFileStream>;
-}
-
-interface BrowserDirectoryHandle {
-    kind: 'directory';
-    name: string;
-    getFileHandle(name: string, options?: { create?: boolean }): Promise<BrowserFileHandle>;
-    values(): AsyncIterable<BrowserFileHandle | BrowserDirectoryHandle>;
-}
-
-interface BrowserWindowWithDirectoryPicker extends Window {
-    showDirectoryPicker?: () => Promise<BrowserDirectoryHandle>;
-}
-
-type Rect = {
-    left: number;
-    top: number;
-    right: number;
-    bottom: number;
-    width: number;
-    height: number;
-};
-
-type ObjectSnapGuide = {
-    axis: 'x' | 'y';
-    mode: 'dock' | 'align';
-    targetRect: Rect;
-    line: {
-        start: Position;
-        end: Position;
-    };
-};
-
-type ObjectSnapMode = 'none' | 'dock' | 'align' | 'both';
-
-type ObjectSnapMatch = {
-    axis: 'x' | 'y';
-    mode: 'dock' | 'align';
-    delta: number;
-    distance: number;
-    alignmentGap: number;
-    guide: ObjectSnapGuide;
-};
-
-type ObjectSnapResolution = {
-    x: ObjectSnapMatch | null;
-    y: ObjectSnapMatch | null;
-    guides: ObjectSnapGuide[];
-};
-
-type DesignerSectionId =
-    | 'overview'
-    | 'mode-placement'
-    | 'mode-and-sprite'
-    | 'placement-actions'
-    | 'selection'
-    | 'preview-toggles'
-    | 'keyboard-shortcuts'
-    | 'palette-remaps';
-
-type PersistedDesignerUiState = {
-    active: boolean;
-    mode: DesignerMode;
-    tool: DesignerTool;
-    category: DesignerCategory;
-    rotation: number;
-    translation: SpriteTranslation;
-    palette: number;
-    typeByCategory: Record<DesignerCategory, string>;
-    snapToGrid: boolean;
-    objectSnapEnabled: boolean;
-    snapOffsetX: number;
-    snapOffsetY: number;
-    nudgeAmount: number;
-    showCollisionOverlay: boolean;
-    showCreatureOverlays: boolean;
-    disableCollisionInPreview: boolean;
-    layerVisibility: LayerVisibility;
-    camera: Position;
-    viewportWidth?: number;
-    viewportHeight?: number;
-    hasOpenedOnce: boolean;
-    spritePickerOpen: boolean;
-    spritePickerFilter: string;
-    spritePickerCategoryFilter: SpritePickerCategoryFilter;
-    magnifierEnabled: boolean;
-    viewportExpanded: boolean;
-    soundEnabled: boolean;
-    bulletImpactAudioSettings?: BulletImpactAudioSettings;
-    paletteDesignerOpen: boolean;
-    selectedPaletteIndex: number;
-    palettePreviewType: string;
-    buttonDefaults?: ButtonDefaultOverrides;
-    customSpriteDefinitions?: CustomSpriteDefinition[];
-    customSpriteInstances?: CustomSpriteInstance[];
-    sectionOpenState?: Partial<Record<DesignerSectionId, boolean>>;
-};
-
-type ButtonDefaultOverrides = {
-    capPalette?: number | null;
-    boxPalette?: number | null;
-    capClosedOffsetX?: number | null;
-    capClosedOffsetY?: number | null;
-    capOpenOffsetX?: number | null;
-    capOpenOffsetY?: number | null;
-};
-
-type ContextMenuState = {
-    screen: Position | null;
-    world: Position | null;
-    primarySelection: Selection | null;
-};
-
-type TeleporterDestinationPickState = {
-    teleporterId: string;
-    slot: 'a' | 'b';
-};
-
-type DesignerState = {
-    active: boolean;
-    mode: DesignerMode;
-    tool: DesignerTool;
-    category: DesignerCategory;
-    rotation: number;
-    translation: SpriteTranslation;
-    palette: number;
-    typeByCategory: Record<DesignerCategory, string>;
-    snapToGrid: boolean;
-    objectSnapEnabled: boolean;
-    snapOffsetX: number;
-    snapOffsetY: number;
-    nudgeAmount: number;
-    showCollisionOverlay: boolean;
-    showCreatureOverlays: boolean;
-    disableCollisionInPreview: boolean;
-    layerVisibility: LayerVisibility;
-    camera: Position;
-    dirty: boolean;
-    status: string;
-    statusTone: 'neutral' | 'success' | 'error';
-    selection: Selection | null;
-    selectedItems: Selection[];
-    dragging: boolean;
-    dragItems: DragItem[];
-    dragAnchorWorld: Position | null;
-    objectSnapGuides: ObjectSnapGuide[];
-    activeObjectSnapMode: ObjectSnapMode;
-    lastPointerCanvas: Position | null;
-    dragStartSnapshot: DesignerSnapshot | null;
-    panningView: boolean;
-    pendingRightPan: boolean;
-    panStartCanvas: Position | null;
-    panStartCamera: Position | null;
-    marqueeSelecting: boolean;
-    marqueeStartWorld: Position | null;
-    marqueeCurrentWorld: Position | null;
-    marqueeAdditive: boolean;
-    overviewDragging: boolean;
-    overviewHoverWorld: Position | null;
-    hasOpenedOnce: boolean;
-    spritePickerOpen: boolean;
-    spritePickerFilter: string;
-    spritePickerCategoryFilter: SpritePickerCategoryFilter;
-    magnifierEnabled: boolean;
-    pickerDrag: PickerDrag | null;
-    pickerDragCanvas: Position | null;
-    savePreviewOpen: boolean;
-    viewportExpanded: boolean;
-    paletteDesignerOpen: boolean;
-    selectedPaletteIndex: number;
-    palettePreviewType: string;
-    buttonDefaults: ButtonDefaultOverrides;
-    paletteDefinitions: PaletteDefinition[];
-    lastSavedPaletteDefinitions: PaletteDefinition[];
-    customSpriteDefinitions: CustomSpriteDefinition[];
-    customSpriteInstances: CustomSpriteInstance[];
-    sectionOpenState: Partial<Record<DesignerSectionId, boolean>>;
-    contextMenu: ContextMenuState;
-    teleporterDestinationPick: TeleporterDestinationPickState | null;
-    suppressContextMenuOnce: boolean;
-    undoStack: DesignerSnapshot[];
-    redoStack: DesignerSnapshot[];
-    editModeSnapshot: DesignerSnapshot;
-    liveResumeSnapshot: LiveResumeSnapshot | null;
-    lastSavedSnapshot: RawWorldData;
-};
-
-type ControlRefs = {
-    root: HTMLDivElement;
-    modeSelect: HTMLSelectElement;
-    toolSelect: HTMLSelectElement;
-    categorySelect: HTMLSelectElement;
-    typeSelect: HTMLSelectElement;
-    spritePreviewCanvas: HTMLCanvasElement;
-    spritePreviewMeta: HTMLDivElement;
-    spritePicker: HTMLDetailsElement;
-    spritePickerFilter: HTMLInputElement;
-    spritePickerCategoryFilter: HTMLSelectElement;
-    spritePickerGrid: HTMLDivElement;
-    rotationSelect: HTMLSelectElement;
-    translationSelect: HTMLSelectElement;
-    paletteSelect: HTMLSelectElement;
-    snapCheckbox: HTMLInputElement;
-    objectSnapCheckbox: HTMLInputElement;
-    snapOffsetXInput: HTMLInputElement;
-    snapOffsetYInput: HTMLInputElement;
-    snapOffsetCaptureButton: HTMLButtonElement;
-    nudgeInput: HTMLInputElement;
-    status: HTMLDivElement;
-    selectionSummary: HTMLDivElement;
-    inspector: HTMLDivElement;
-    overviewCanvas: HTMLCanvasElement;
-    activeToggle: HTMLButtonElement;
-    paletteDesignerToggle: HTMLButtonElement;
-    pngImportButton: HTMLButtonElement;
-    savePreviewButton: HTMLButtonElement;
-    normalizeSpriteSheetButton: HTMLButtonElement;
-    deleteButton: HTMLButtonElement;
-    duplicateButton: HTMLButtonElement;
-    sendToBackButton: HTMLButtonElement;
-    bringToFrontButton: HTMLButtonElement;
-    focusButton: HTMLButtonElement;
-    convertTargetSelect: HTMLSelectElement;
-    convertButton: HTMLButtonElement;
-    focusAstronautButton: HTMLButtonElement;
-    moveAstronautButton: HTMLButtonElement;
-    expandViewportCheckbox: HTMLInputElement;
-    soundEnabledCheckbox: HTMLInputElement;
-    bulletImpactPrimarySelect: HTMLSelectElement;
-    bulletImpactAlternateSelect: HTMLSelectElement;
-    bulletImpactAlternateChanceInput: HTMLInputElement;
-    bulletImpactVolumeInput: HTMLInputElement;
-    windEnabledCheckbox: HTMLInputElement;
-    windEmittersEnabledCheckbox: HTMLInputElement;
-    windSurfaceEnabledCheckbox: HTMLInputElement;
-    windVfxEnabledCheckbox: HTMLInputElement;
-    addAtCenterButton: HTMLButtonElement;
-    setAstronautStartButton: HTMLButtonElement;
-    showCollisionCheckbox: HTMLInputElement;
-    showCreatureOverlaysCheckbox: HTMLInputElement;
-    showSpriteOutlineCheckbox: HTMLInputElement;
-    showPerformanceHudCheckbox: HTMLInputElement;
-    magnifierCheckbox: HTMLInputElement;
-    disablePreviewCollisionCheckbox: HTMLInputElement;
-    layerCheckboxes: Record<DesignerCategory, HTMLInputElement>;
-    modal: HTMLDivElement;
-    modalTitle: HTMLHeadingElement;
-    modalBody: HTMLDivElement;
-    modalClose: HTMLButtonElement;
-    modalConfirm: HTMLButtonElement;
-    contextMenu: HTMLDivElement;
-    contextMenuBody: HTMLDivElement;
-    paletteFlyout: HTMLDivElement;
-    paletteFlyoutClose: HTMLButtonElement;
-    paletteList: HTMLSelectElement;
-    paletteUsage: HTMLDivElement;
-    palettePreviewCanvas: HTMLCanvasElement;
-    palettePreviewTypeSelect: HTMLSelectElement;
-    paletteMappings: HTMLDivElement;
-    paletteNewButton: HTMLButtonElement;
-    paletteCloneButton: HTMLButtonElement;
-    paletteDeleteButton: HTMLButtonElement;
-    paletteAddMappingButton: HTMLButtonElement;
-    paletteSaveButton: HTMLButtonElement;
-};
-
+// Keep high-churn editor constants local so world-designer.ts remains self-contained while helpers stay modular.
 const HISTORY_LIMIT = 100;
 const TILE_SIZE = 32 * SPRITE_SCALE;
 const DESIGNER_STATE_STORAGE_KEY = 'exile.world-designer-state.v1';
-const PNG_IMPORT_DEFAULT_URL = './src/assets/MAP-Exile-BC.png';
+const PNG_IMPORT_DEFAULT_URL = './src/assets/images/maps/MAP-Exile-BC.png';
+const PNG_IMPORT_MODAL_TEMPLATE_URL = './src/designer/io/world-designer-png-import-modal.html';
 const PNG_IMPORT_SOURCE_TILE_SIZE = 32;
 const PNG_IMPORT_SAMPLE_SIZE = 32;
 const PNG_IMPORT_WARNING_SCORE = 58;
@@ -730,7 +165,6 @@ let visibleSpriteRectResolver: ((
     rotation: number,
     translation?: SpriteTranslation
 ) => { left: number; top: number; width: number; height: number } | null) | null = null;
-
 const SAVE_FILE_LABELS: Record<keyof RawWorldData, string> = {
     worldMap: 'world_chunks/manifest.json (+ chunk files)',
     buttons: 'buttons.json',
@@ -743,12 +177,27 @@ const SAVE_FILE_LABELS: Record<keyof RawWorldData, string> = {
     astronautStart: 'astronaut_start.json'
 };
 const PALETTE_FILE_LABEL = 'palettes.json';
+let pngImportModalTemplateCache: string | null = null;
 
-type PlacementTypeOption = {
-    value: string;
-    label: string;
-    previewType?: string;
-};
+export type {
+    ButtonSaveData,
+    CollectableSaveData,
+    CustomSpriteDefinition,
+    CustomSpriteInstance,
+    DesignerCategory,
+    DesignerMode,
+    DesignerTool,
+    DoorSaveData,
+    LayerVisibility,
+    PaletteDefinition,
+    PaletteRemapEntry,
+    RawWorldData,
+    SpriteCatalogEntry,
+    SpriteSheetNormalizationReplacement,
+    SpriteSheetNormalizationReport,
+    WorldDesigner,
+    WorldDesignerHost
+} from './core/world-designer-types.js';
 
 function clamp(value: number, min: number, max: number) {
     return Math.min(Math.max(value, min), max);
@@ -772,321 +221,6 @@ function formatSpriteTranslation(translation?: string | null) {
 
 function categorySupportsTranslation(category: DesignerCategory) {
     return category === 'world' || category === 'creatures' || category === 'doors';
-}
-
-function toMapBlockData(block: MapBlock): MapBlock {
-    const hasDestructibleMetadata = typeof block.destructible === 'boolean'
-        || typeof block.destructionHealth === 'number'
-        || typeof block.destructionSource === 'string';
-    const hasWindMetadata = block.windEnabled === true
-        || typeof block.windDirectionDegrees === 'number'
-        || typeof block.windStrength === 'number'
-        || typeof block.windRadius === 'number'
-        || typeof block.windMode === 'string'
-        || typeof block.windVariabilityHz === 'number'
-        || typeof block.windVariabilityAmount === 'number'
-        || typeof block.windAffectsAstronaut === 'boolean'
-        || typeof block.windAffectsLooseObjects === 'boolean'
-        || typeof block.windShowParticles === 'boolean';
-    return {
-        x: block.x,
-        y: block.y,
-        type: block.type,
-        collision: block.collision !== false,
-        maskAstronaut: shouldMaskAstronaut(block),
-        palette: typeof block.palette === 'number' ? block.palette : 0,
-        rotation: normalizeRotation(block.rotation) as MapBlock['rotation'],
-        translation: normalizeSpriteTranslation(block.translation),
-        ...(typeof block.teleporterId === 'string' && block.teleporterId.trim().length > 0
-            ? { teleporterId: block.teleporterId.trim() }
-            : {}),
-        ...(typeof block.teleporterEnabled === 'boolean'
-            ? { teleporterEnabled: block.teleporterEnabled }
-            : {}),
-        ...(typeof block.teleporterRequiresKey === 'boolean'
-            ? { teleporterRequiresKey: block.teleporterRequiresKey }
-            : {}),
-        ...(block.teleporterDestinationA
-            ? {
-                teleporterDestinationA: {
-                    x: Math.round(Number(block.teleporterDestinationA.x) || 0),
-                    y: Math.round(Number(block.teleporterDestinationA.y) || 0)
-                }
-            }
-            : {}),
-        ...(block.teleporterDestinationB
-            ? {
-                teleporterDestinationB: {
-                    x: Math.round(Number(block.teleporterDestinationB.x) || 0),
-                    y: Math.round(Number(block.teleporterDestinationB.y) || 0)
-                }
-            }
-            : {}),
-        ...(typeof block.teleporterActiveDestinationIndex === 'number'
-            ? { teleporterActiveDestinationIndex: block.teleporterActiveDestinationIndex === 1 ? 1 : 0 }
-            : {}),
-        ...(hasDestructibleMetadata
-            ? {
-                destructible: typeof block.destructible === 'boolean'
-                    ? block.destructible
-                    : getDefaultDestructibleEnabled('world', block.type),
-                destructionHealth: typeof block.destructionHealth === 'number'
-                    ? Math.max(0.1, block.destructionHealth)
-                    : getDefaultDestructibleHealth('world', block.type),
-                destructionSource: typeof block.destructionSource === 'string'
-                    ? block.destructionSource
-                    : getDefaultDestructionSource('world', block.type)
-            }
-            : {}),
-        ...(hasWindMetadata
-            ? {
-                windEnabled: block.windEnabled === true,
-                windDirectionDegrees: typeof block.windDirectionDegrees === 'number'
-                    ? Number(block.windDirectionDegrees)
-                    : 270,
-                windStrength: typeof block.windStrength === 'number'
-                    ? Math.max(0, Number(block.windStrength))
-                    : 0.18,
-                windRadius: typeof block.windRadius === 'number'
-                    ? Math.max(1, Number(block.windRadius))
-                    : 220,
-                windMode: block.windMode === 'variable' ? 'variable' : 'constant',
-                windVariabilityHz: typeof block.windVariabilityHz === 'number'
-                    ? Math.max(0, Number(block.windVariabilityHz))
-                    : 1.2,
-                windVariabilityAmount: typeof block.windVariabilityAmount === 'number'
-                    ? clamp(Number(block.windVariabilityAmount), 0, 1)
-                    : 0.45,
-                windAffectsAstronaut: block.windAffectsAstronaut !== false,
-                windAffectsLooseObjects: block.windAffectsLooseObjects !== false,
-                windShowParticles: block.windShowParticles !== false
-            }
-            : {}),
-        ...(block.paletteCycle ? { paletteCycle: deepClone(block.paletteCycle) } : {})
-    };
-}
-
-function toButtonData(button: any): ButtonSaveData {
-    const normalizedBoxOffsetX = [8, 4, -8, -12].includes(button.boxOffsetX)
-        ? 12
-        : (button.boxOffsetX ?? 12);
-    const capClosedOffsetX = button.capClosedOffsetX ?? 0;
-    const capClosedOffsetY = button.capClosedOffsetY ?? 0;
-    const capOpenOffsetX = button.capOpenOffsetX ?? (button.pressOffset ?? 2);
-    const capOpenOffsetY = button.capOpenOffsetY ?? 0;
-    return {
-        x: button.x,
-        y: button.y,
-        type: button.type,
-        palette: button.palette ?? 0,
-        boxType: button.boxType,
-        boxPalette: button.boxPalette ?? 0,
-        rotation: normalizeRotation(button.rotation),
-        active: button.defaultActive ?? button.active ?? false,
-        linkedDoors: Array.isArray(button.linkedDoors) ? [...button.linkedDoors] : [],
-        linkedTeleporters: Array.isArray(button.linkedTeleporters)
-            ? button.linkedTeleporters.filter((id: unknown) => typeof id === 'string' && id.trim().length > 0)
-            : [],
-        teleporterMode: isTeleporterMode(button.teleporterMode)
-            ? button.teleporterMode
-            : 'toggle',
-        collision: button.collision !== false,
-        pressOffset: capOpenOffsetX - capClosedOffsetX,
-        boxOffsetX: normalizedBoxOffsetX,
-        boxOffsetY: button.boxOffsetY ?? 0,
-        capClosedOffsetX,
-        capClosedOffsetY,
-        capOpenOffsetX,
-        capOpenOffsetY,
-        ...(button.paletteCycle ? { paletteCycle: deepClone(button.paletteCycle) } : {})
-    };
-}
-
-function toTeleporterData(teleporter: any): TeleporterSaveData {
-    const activeDestinationIndex = teleporter.activeDestinationIndex === 1 ? 1 : 0;
-    return {
-        id: typeof teleporter.id === 'string' && teleporter.id.trim().length > 0
-            ? teleporter.id.trim()
-            : `teleporter_${Math.round(Number(teleporter.padX) || 0)}_${Math.round(Number(teleporter.padY) || 0)}`,
-        baseX: Math.round(Number(teleporter.baseX) || 0),
-        baseY: Math.round(Number(teleporter.baseY) || 0),
-        padX: Math.round(Number(teleporter.padX) || 0),
-        padY: Math.round(Number(teleporter.padY) || 0),
-        enabled: teleporter.enabled !== false,
-        requiresKey: teleporter.requiresKey === true,
-        destinationA: {
-            x: Math.round(Number(teleporter.destinationA?.x) || 0),
-            y: Math.round(Number(teleporter.destinationA?.y) || 0)
-        },
-        destinationB: teleporter.destinationB
-            ? {
-                x: Math.round(Number(teleporter.destinationB.x) || 0),
-                y: Math.round(Number(teleporter.destinationB.y) || 0)
-            }
-            : null,
-        activeDestinationIndex
-    };
-}
-
-function toDoorData(door: any): DoorSaveData {
-    return {
-        x: door.x,
-        y: door.y,
-        z: door.z ?? 0,
-        type: door.type,
-        palette: door.palette ?? 0,
-        rotation: normalizeRotation(door.rotation),
-        translation: normalizeSpriteTranslation(door.translation),
-        name: door.name ?? '',
-        doorID: door.doorID ?? -1,
-        locked: door.defaultLocked ?? door.locked ?? false,
-        open: door.defaultOpen ?? door.open ?? false,
-        palette_locked: typeof door.palette_locked === 'number' ? door.palette_locked : null,
-        palette_unlocked: typeof door.palette_unlocked === 'number' ? door.palette_unlocked : null,
-        collision: door.collision !== false,
-        destructible: typeof door.destructible === 'boolean'
-            ? door.destructible
-            : getDefaultDestructibleEnabled('doors', door.type),
-        destructionHealth: typeof door.destructionHealth === 'number'
-            ? Math.max(0.1, door.destructionHealth)
-            : getDefaultDestructibleHealth('doors', door.type),
-        destructionSource: typeof door.destructionSource === 'string'
-            ? door.destructionSource
-            : getDefaultDestructionSource('doors', door.type),
-        ...(door.paletteCycle ? { paletteCycle: deepClone(door.paletteCycle) } : {})
-    };
-}
-
-function toCreatureData(creature: any): CreatureSaveData {
-    return toCreatureSaveData({
-        ...creature,
-        rotation: normalizeRotation(creature.rotation)
-    });
-}
-
-function toCollectableData(collectable: any): CollectableSaveData {
-    const grenadeDefaults = isGrenadeCollectableType(collectable.type)
-        ? {
-            armed: collectable.armed === true,
-            explosionPower: typeof collectable.explosionPower === 'number'
-                ? collectable.explosionPower
-                : getDefaultGrenadeExplosionPower(collectable.type),
-            ...(typeof collectable.explosionRadius === 'number'
-                ? { explosionRadius: Math.max(1, collectable.explosionRadius) }
-                : {})
-        }
-        : {};
-    return {
-        x: collectable.x,
-        y: collectable.y,
-        type: collectable.type,
-        palette: collectable.palette ?? 0,
-        rotation: normalizeRotation(collectable.defaultRotation ?? collectable.rotation),
-        collected: collectable.collected ?? false,
-        name: collectable.name ?? '',
-        weight: typeof collectable.weight === 'number' ? collectable.weight : 0,
-        pickupEnabled: collectable.pickupEnabled ?? true,
-        storable: collectable.storable ?? false,
-        affectsAstronaut: collectable.affectsAstronaut ?? true,
-        collision: collectable.collision !== false,
-        held: collectable.held ?? false,
-        stored: collectable.stored ?? false,
-        isGrounded: collectable.isGrounded ?? false,
-        velocity: deepClone(collectable.velocity ?? { x: 0, y: 0 }),
-        astronautCollisionIgnoreFrames: collectable.astronautCollisionIgnoreFrames ?? 0,
-        ...(collectable.radioactive ? { radioactive: true } : {}),
-        ...(collectable.paletteCycle ? { paletteCycle: deepClone(collectable.paletteCycle) } : {}),
-        ...grenadeDefaults
-    };
-}
-
-function compareNumbers(left: number, right: number) {
-    return left - right;
-}
-
-function compareStrings(left: string, right: string) {
-    return left.localeCompare(right);
-}
-
-function serializeWorldData(data: RawWorldData): RawWorldData {
-    const worldMap = data.worldMap
-        .map((block) => toMapBlockData(block))
-        .sort((left, right) =>
-            compareNumbers(left.y, right.y)
-            || compareNumbers(left.x, right.x)
-            || compareStrings(left.type, right.type)
-            || compareStrings(String(left.palette ?? ''), String(right.palette ?? ''))
-            || compareNumbers(left.rotation ?? 0, right.rotation ?? 0)
-        );
-    const buttons = data.buttons
-        .map((button) => toButtonData(button))
-        .sort((left, right) =>
-            compareNumbers(left.y, right.y)
-            || compareNumbers(left.x, right.x)
-            || compareStrings(left.type, right.type)
-            || compareNumbers(left.palette ?? 0, right.palette ?? 0)
-        );
-    const doors = data.doors
-        .map((door) => toDoorData(door))
-        .sort((left, right) =>
-            compareNumbers(left.doorID ?? -1, right.doorID ?? -1)
-            || compareNumbers(left.y, right.y)
-            || compareNumbers(left.x, right.x)
-            || compareStrings(left.type, right.type)
-        );
-    const creatures = data.creatures
-        .map((creature) => toCreatureData(creature))
-        .sort((left, right) =>
-            compareNumbers(left.y, right.y)
-            || compareNumbers(left.x, right.x)
-            || compareStrings(left.type, right.type)
-            || compareNumbers(left.palette ?? 0, right.palette ?? 0)
-            || compareNumbers(left.rotation ?? 0, right.rotation ?? 0)
-        );
-    const collectables = data.collectables
-        .filter((collectable) => !('creatureProjectile' in collectable) || !collectable.creatureProjectile)
-        .map((collectable) => toCollectableData(collectable))
-        .sort((left, right) =>
-            compareNumbers(left.y, right.y)
-            || compareNumbers(left.x, right.x)
-            || compareStrings(left.type, right.type)
-            || compareNumbers(left.palette ?? 0, right.palette ?? 0)
-            || compareNumbers(left.rotation ?? 0, right.rotation ?? 0)
-        );
-    const teleporters = (data.teleporters ?? [])
-        .map((teleporter) => toTeleporterData(teleporter))
-        .sort((left, right) =>
-            compareStrings(left.id, right.id)
-            || compareNumbers(left.baseY, right.baseY)
-            || compareNumbers(left.baseX, right.baseX)
-        );
-
-    return {
-        worldMap,
-        buttons,
-        doors,
-        creatures,
-        collectables,
-        teleporters,
-        windEmitters: (data.windEmitters ?? []).map((emitter) => ({ ...emitter })),
-        windSettings: data.windSettings ? deepClone(data.windSettings) : {},
-        astronautStart: {
-            x: Math.round(data.astronautStart.x),
-            y: Math.round(data.astronautStart.y)
-        }
-    };
-}
-
-function stableStringify(value: unknown) {
-    return JSON.stringify(value, null, 2);
-}
-
-function snapshotsEqual(left: RawWorldData, right: RawWorldData) {
-    return stableStringify(left) === stableStringify(right);
-}
-
-function designerSnapshotsEqual(left: DesignerSnapshot, right: DesignerSnapshot) {
-    return stableStringify(left) === stableStringify(right);
 }
 
 function getDefaultType(spriteTypes: string[], category: RuntimeDesignerCategory) {
@@ -1360,1252 +494,10 @@ function getGuideSpan(startA: number, endA: number, startB: number, endB: number
     return { start: midpoint, end: midpoint };
 }
 
-function parseDoorIds(value: string) {
-    return value
-        .split(',')
-        .map((entry) => Number(entry.trim()))
-        .filter((entry) => Number.isFinite(entry));
-}
-
-function parseStringIds(value: string) {
-    return [...new Set(
-        value
-            .split(',')
-            .map((entry) => entry.trim())
-            .filter((entry) => entry.length > 0)
-    )];
-}
-
 function yieldToUi() {
     return new Promise<void>((resolve) => {
         requestAnimationFrame(() => resolve());
     });
-}
-
-function padInteger(value: number, minimumDigits: number) {
-    return Math.max(0, Math.round(value)).toString().padStart(minimumDigits, '0');
-}
-
-function getChunkBaseName(sourceName: string) {
-    const withoutExtension = sourceName.replace(/\.[^.]+$/, '');
-    const normalized = withoutExtension
-        .trim()
-        .replace(/[^a-z0-9]+/gi, '-')
-        .replace(/^-+|-+$/g, '')
-        .toLowerCase();
-    return normalized || 'png-import';
-}
-
-function buildPngChunkFileName(sourceName: string, entry: PngChunkEntry) {
-    const baseName = getChunkBaseName(sourceName);
-    return `${baseName}__r${padInteger(entry.chunkRow, 4)}__c${padInteger(entry.chunkColumn, 4)}__tx${padInteger(entry.sourceTileX, 5)}__ty${padInteger(entry.sourceTileY, 5)}__w${padInteger(entry.tileWidth, 4)}__h${padInteger(entry.tileHeight, 4)}.png`;
-}
-
-function parsePngChunkFileName(fileName: string): PngChunkEntry | null {
-    const match = /__r(\d+)__c(\d+)__tx(\d+)__ty(\d+)__w(\d+)__h(\d+)\.png$/i.exec(fileName);
-    if (!match) {
-        return null;
-    }
-    const chunkRow = Number(match[1]);
-    const chunkColumn = Number(match[2]);
-    const sourceTileX = Number(match[3]);
-    const sourceTileY = Number(match[4]);
-    const tileWidth = Number(match[5]);
-    const tileHeight = Number(match[6]);
-    if (
-        !Number.isFinite(chunkRow) ||
-        !Number.isFinite(chunkColumn) ||
-        !Number.isFinite(sourceTileX) ||
-        !Number.isFinite(sourceTileY) ||
-        !Number.isFinite(tileWidth) ||
-        !Number.isFinite(tileHeight) ||
-        tileWidth <= 0 ||
-        tileHeight <= 0
-    ) {
-        return null;
-    }
-    return {
-        fileName,
-        chunkColumn: Math.round(chunkColumn),
-        chunkRow: Math.round(chunkRow),
-        sourceTileX: Math.round(sourceTileX),
-        sourceTileY: Math.round(sourceTileY),
-        tileWidth: Math.round(tileWidth),
-        tileHeight: Math.round(tileHeight),
-        pixelX: Math.round(sourceTileX) * PNG_IMPORT_SOURCE_TILE_SIZE,
-        pixelY: Math.round(sourceTileY) * PNG_IMPORT_SOURCE_TILE_SIZE,
-        pixelWidth: Math.round(tileWidth) * PNG_IMPORT_SOURCE_TILE_SIZE,
-        pixelHeight: Math.round(tileHeight) * PNG_IMPORT_SOURCE_TILE_SIZE
-    };
-}
-
-function getDirectoryPicker() {
-    const picker = (window as BrowserWindowWithDirectoryPicker).showDirectoryPicker;
-    if (!picker) {
-        throw new Error('This browser does not support choosing a folder. Use a Chromium-based browser with the File System Access API enabled.');
-    }
-    return picker.bind(window as BrowserWindowWithDirectoryPicker);
-}
-
-function canvasToBlob(canvas: HTMLCanvasElement, type = 'image/png') {
-    return new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob((blob) => {
-            if (blob) {
-                resolve(blob);
-                return;
-            }
-            reject(new Error('Could not create a PNG blob from the chunk canvas.'));
-        }, type);
-    });
-}
-
-async function writeBlobToDirectory(directoryHandle: BrowserDirectoryHandle, fileName: string, blob: Blob) {
-    const fileHandle = await directoryHandle.getFileHandle(fileName, { create: true });
-    const writable = await fileHandle.createWritable();
-    await writable.write(blob);
-    await writable.close();
-}
-
-async function writeTextToDirectory(directoryHandle: BrowserDirectoryHandle, fileName: string, text: string) {
-    const blob = new Blob([text], { type: 'application/json' });
-    await writeBlobToDirectory(directoryHandle, fileName, blob);
-}
-
-function isImageDataEmpty(imageData: ImageData) {
-    for (let index = 0; index < imageData.data.length; index += 4) {
-        const alpha = imageData.data[index + 3];
-        if (alpha === 0) {
-            continue;
-        }
-        if (
-            imageData.data[index] !== 0 ||
-            imageData.data[index + 1] !== 0 ||
-            imageData.data[index + 2] !== 0
-        ) {
-            return false;
-        }
-    }
-    return true;
-}
-
-async function loadImageFromBlob(blob: Blob) {
-    const url = URL.createObjectURL(blob);
-    try {
-        const image = new Image();
-        image.decoding = 'async';
-        await new Promise<void>((resolve, reject) => {
-            image.onload = () => resolve();
-            image.onerror = () => reject(new Error('Failed to decode an exported PNG chunk.'));
-            image.src = url;
-        });
-        return image;
-    } finally {
-        URL.revokeObjectURL(url);
-    }
-}
-
-async function isChunkFileEmpty(file: File) {
-    const bitmap = await createImageBitmap(file);
-    try {
-        const canvas = document.createElement('canvas');
-        canvas.width = bitmap.width;
-        canvas.height = bitmap.height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-            throw new Error('Could not create a canvas context while analyzing chunk PNGs.');
-        }
-        ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(bitmap, 0, 0);
-        return isImageDataEmpty(ctx.getImageData(0, 0, canvas.width, canvas.height));
-    } finally {
-        bitmap.close();
-    }
-}
-
-function normalizePngChunkManifest(raw: unknown): PngChunkManifest {
-    if (!raw || typeof raw !== 'object') {
-        throw new Error('Chunk manifest is missing or invalid.');
-    }
-    const manifestRecord = raw as Record<string, unknown>;
-    const cropRecord = manifestRecord.crop;
-    if (!cropRecord || typeof cropRecord !== 'object') {
-        throw new Error('Chunk manifest is missing crop metadata.');
-    }
-    const crop = cropRecord as Record<string, unknown>;
-    const rawChunks = Array.isArray(manifestRecord.chunks) ? manifestRecord.chunks : [];
-    const chunks = rawChunks.map((entry, index) => {
-        if (!entry || typeof entry !== 'object') {
-            throw new Error(`Chunk manifest entry ${index + 1} is invalid.`);
-        }
-        const record = entry as Record<string, unknown>;
-        const chunkEntry: PngChunkEntry = {
-            fileName: String(record.fileName ?? ''),
-            chunkColumn: Number(record.chunkColumn),
-            chunkRow: Number(record.chunkRow),
-            sourceTileX: Number(record.sourceTileX),
-            sourceTileY: Number(record.sourceTileY),
-            tileWidth: Number(record.tileWidth),
-            tileHeight: Number(record.tileHeight),
-            pixelX: Number(record.pixelX),
-            pixelY: Number(record.pixelY),
-            pixelWidth: Number(record.pixelWidth),
-            pixelHeight: Number(record.pixelHeight)
-        };
-        if (
-            !chunkEntry.fileName ||
-            !Number.isFinite(chunkEntry.chunkColumn) ||
-            !Number.isFinite(chunkEntry.chunkRow) ||
-            !Number.isFinite(chunkEntry.sourceTileX) ||
-            !Number.isFinite(chunkEntry.sourceTileY) ||
-            !Number.isFinite(chunkEntry.tileWidth) ||
-            !Number.isFinite(chunkEntry.tileHeight) ||
-            !Number.isFinite(chunkEntry.pixelX) ||
-            !Number.isFinite(chunkEntry.pixelY) ||
-            !Number.isFinite(chunkEntry.pixelWidth) ||
-            !Number.isFinite(chunkEntry.pixelHeight)
-        ) {
-            throw new Error(`Chunk manifest entry ${index + 1} is incomplete.`);
-        }
-        return {
-            ...chunkEntry,
-            chunkColumn: Math.round(chunkEntry.chunkColumn),
-            chunkRow: Math.round(chunkEntry.chunkRow),
-            sourceTileX: Math.round(chunkEntry.sourceTileX),
-            sourceTileY: Math.round(chunkEntry.sourceTileY),
-            tileWidth: Math.round(chunkEntry.tileWidth),
-            tileHeight: Math.round(chunkEntry.tileHeight),
-            pixelX: Math.round(chunkEntry.pixelX),
-            pixelY: Math.round(chunkEntry.pixelY),
-            pixelWidth: Math.round(chunkEntry.pixelWidth),
-            pixelHeight: Math.round(chunkEntry.pixelHeight)
-        };
-    });
-    const manifest: PngChunkManifest = {
-        version: 1,
-        sourceName: String(manifestRecord.sourceName ?? 'png-import'),
-        tileSize: Math.round(Number(manifestRecord.tileSize)),
-        crop: {
-            x: Math.round(Number(crop.x)),
-            y: Math.round(Number(crop.y)),
-            width: Math.round(Number(crop.width)),
-            height: Math.round(Number(crop.height))
-        },
-        chunkTileWidth: Math.round(Number(manifestRecord.chunkTileWidth)),
-        chunkTileHeight: Math.round(Number(manifestRecord.chunkTileHeight)),
-        totalSourceColumns: Math.round(Number(manifestRecord.totalSourceColumns)),
-        totalSourceRows: Math.round(Number(manifestRecord.totalSourceRows)),
-        totalChunkColumns: Math.round(Number(manifestRecord.totalChunkColumns)),
-        totalChunkRows: Math.round(Number(manifestRecord.totalChunkRows)),
-        chunks
-    };
-    if (
-        manifest.tileSize !== PNG_IMPORT_SOURCE_TILE_SIZE ||
-        manifest.crop.x < 0 ||
-        manifest.crop.y < 0 ||
-        manifest.crop.width <= 0 ||
-        manifest.crop.height <= 0 ||
-        manifest.chunkTileWidth <= 0 ||
-        manifest.chunkTileHeight <= 0 ||
-        manifest.totalSourceColumns <= 0 ||
-        manifest.totalSourceRows <= 0 ||
-        manifest.totalChunkColumns <= 0 ||
-        manifest.totalChunkRows <= 0
-    ) {
-        throw new Error('Chunk manifest metadata is invalid or unsupported.');
-    }
-    return manifest;
-}
-
-function buildChunkManifestFromFiles(directoryName: string, entries: PngChunkEntry[]) {
-    if (entries.length === 0) {
-        throw new Error('The selected folder does not contain any chunk PNGs with a supported naming pattern.');
-    }
-    const minTileX = Math.min(...entries.map((entry) => entry.sourceTileX));
-    const minTileY = Math.min(...entries.map((entry) => entry.sourceTileY));
-    const maxTileX = Math.max(...entries.map((entry) => entry.sourceTileX + entry.tileWidth));
-    const maxTileY = Math.max(...entries.map((entry) => entry.sourceTileY + entry.tileHeight));
-    const maxChunkColumn = Math.max(...entries.map((entry) => entry.chunkColumn));
-    const maxChunkRow = Math.max(...entries.map((entry) => entry.chunkRow));
-    return normalizePngChunkManifest({
-        version: 1,
-        sourceName: directoryName,
-        tileSize: PNG_IMPORT_SOURCE_TILE_SIZE,
-        crop: {
-            x: minTileX * PNG_IMPORT_SOURCE_TILE_SIZE,
-            y: minTileY * PNG_IMPORT_SOURCE_TILE_SIZE,
-            width: (maxTileX - minTileX) * PNG_IMPORT_SOURCE_TILE_SIZE,
-            height: (maxTileY - minTileY) * PNG_IMPORT_SOURCE_TILE_SIZE
-        },
-        chunkTileWidth: Math.max(...entries.map((entry) => entry.tileWidth)),
-        chunkTileHeight: Math.max(...entries.map((entry) => entry.tileHeight)),
-        totalSourceColumns: maxTileX - minTileX,
-        totalSourceRows: maxTileY - minTileY,
-        totalChunkColumns: maxChunkColumn + 1,
-        totalChunkRows: maxChunkRow + 1,
-        chunks: entries.map((entry) => ({
-            ...entry,
-            sourceTileX: entry.sourceTileX,
-            sourceTileY: entry.sourceTileY
-        }))
-    });
-}
-
-async function exportPngChunksToDirectory(config: {
-    image: HTMLImageElement;
-    sourceName: string;
-    sourceX: number;
-    sourceY: number;
-    sourceWidth: number;
-    sourceHeight: number;
-    chunkTileWidth: number;
-    chunkTileHeight: number;
-    skipEmpty: boolean;
-    shouldCancel?: () => boolean;
-}, onProgress?: (progress: PngImportProgress) => void | Promise<void>) {
-    if (
-        config.sourceX % PNG_IMPORT_SOURCE_TILE_SIZE !== 0 ||
-        config.sourceY % PNG_IMPORT_SOURCE_TILE_SIZE !== 0 ||
-        config.sourceWidth % PNG_IMPORT_SOURCE_TILE_SIZE !== 0 ||
-        config.sourceHeight % PNG_IMPORT_SOURCE_TILE_SIZE !== 0
-    ) {
-        throw new Error('Chunk export requires a source crop aligned to 32px tile boundaries.');
-    }
-    const directoryHandle = await getDirectoryPicker()();
-    const totalSourceColumns = config.sourceWidth / PNG_IMPORT_SOURCE_TILE_SIZE;
-    const totalSourceRows = config.sourceHeight / PNG_IMPORT_SOURCE_TILE_SIZE;
-    const totalChunkColumns = Math.ceil(totalSourceColumns / config.chunkTileWidth);
-    const totalChunkRows = Math.ceil(totalSourceRows / config.chunkTileHeight);
-    const sourceTileOriginX = Math.round(config.sourceX / PNG_IMPORT_SOURCE_TILE_SIZE);
-    const sourceTileOriginY = Math.round(config.sourceY / PNG_IMPORT_SOURCE_TILE_SIZE);
-    const chunkCanvas = document.createElement('canvas');
-    const chunkContext = chunkCanvas.getContext('2d');
-    if (!chunkContext) {
-        throw new Error('Could not create a canvas context for chunk export.');
-    }
-    chunkContext.imageSmoothingEnabled = false;
-
-    const chunks: PngChunkEntry[] = [];
-    const totalChunkCount = Math.max(1, totalChunkColumns * totalChunkRows);
-    let processedChunks = 0;
-    let exportedChunks = 0;
-    let skippedChunks = 0;
-    const progressStep = Math.max(1, Math.floor(totalChunkCount / 40));
-    let lastYieldAt = 0;
-
-    for (let chunkRow = 0; chunkRow < totalChunkRows; chunkRow += 1) {
-        for (let chunkColumn = 0; chunkColumn < totalChunkColumns; chunkColumn += 1) {
-            if (config.shouldCancel?.()) {
-                throw new Error('Chunk export cancelled.');
-            }
-            const sourceTileX = sourceTileOriginX + chunkColumn * config.chunkTileWidth;
-            const sourceTileY = sourceTileOriginY + chunkRow * config.chunkTileHeight;
-            const tileWidth = Math.min(config.chunkTileWidth, totalSourceColumns - chunkColumn * config.chunkTileWidth);
-            const tileHeight = Math.min(config.chunkTileHeight, totalSourceRows - chunkRow * config.chunkTileHeight);
-            const pixelX = sourceTileX * PNG_IMPORT_SOURCE_TILE_SIZE;
-            const pixelY = sourceTileY * PNG_IMPORT_SOURCE_TILE_SIZE;
-            const pixelWidth = tileWidth * PNG_IMPORT_SOURCE_TILE_SIZE;
-            const pixelHeight = tileHeight * PNG_IMPORT_SOURCE_TILE_SIZE;
-            const entry: PngChunkEntry = {
-                fileName: '',
-                chunkColumn,
-                chunkRow,
-                sourceTileX,
-                sourceTileY,
-                tileWidth,
-                tileHeight,
-                pixelX,
-                pixelY,
-                pixelWidth,
-                pixelHeight
-            };
-            entry.fileName = buildPngChunkFileName(config.sourceName, entry);
-            if (chunkCanvas.width !== pixelWidth) {
-                chunkCanvas.width = pixelWidth;
-            }
-            if (chunkCanvas.height !== pixelHeight) {
-                chunkCanvas.height = pixelHeight;
-            }
-            chunkContext.imageSmoothingEnabled = false;
-            chunkContext.clearRect(0, 0, chunkCanvas.width, chunkCanvas.height);
-            chunkContext.drawImage(
-                config.image,
-                pixelX,
-                pixelY,
-                pixelWidth,
-                pixelHeight,
-                0,
-                0,
-                pixelWidth,
-                pixelHeight
-            );
-            const shouldWrite = !config.skipEmpty || !isImageDataEmpty(
-                chunkContext.getImageData(0, 0, pixelWidth, pixelHeight)
-            );
-            if (shouldWrite) {
-                const blob = await canvasToBlob(chunkCanvas);
-                await writeBlobToDirectory(directoryHandle, entry.fileName, blob);
-                chunks.push(entry);
-                exportedChunks += 1;
-            } else {
-                skippedChunks += 1;
-            }
-            processedChunks += 1;
-            const shouldReportProgress = processedChunks === totalChunkCount ||
-                processedChunks - lastYieldAt >= progressStep;
-            if (onProgress && shouldReportProgress) {
-                await onProgress({
-                    phase: 'Exporting chunk PNGs',
-                    completed: processedChunks,
-                    total: totalChunkCount,
-                    detail: `Processed ${processedChunks} of ${totalChunkCount} chunks. Exported ${exportedChunks}, skipped ${skippedChunks}. Current chunk: row ${chunkRow + 1}, column ${chunkColumn + 1}.`
-                });
-            }
-            if (shouldReportProgress) {
-                lastYieldAt = processedChunks;
-                await yieldToUi();
-            }
-        }
-    }
-
-    const manifest: PngChunkManifest = {
-        version: 1,
-        sourceName: config.sourceName,
-        tileSize: PNG_IMPORT_SOURCE_TILE_SIZE,
-        crop: {
-            x: config.sourceX,
-            y: config.sourceY,
-            width: config.sourceWidth,
-            height: config.sourceHeight
-        },
-        chunkTileWidth: config.chunkTileWidth,
-        chunkTileHeight: config.chunkTileHeight,
-        totalSourceColumns,
-        totalSourceRows,
-        totalChunkColumns,
-        totalChunkRows,
-        chunks
-    };
-    await writeTextToDirectory(
-        directoryHandle,
-        PNG_CHUNK_EXPORT_MANIFEST_NAME,
-        `${JSON.stringify(manifest, null, 2)}\n`
-    );
-    return {
-        directoryName: directoryHandle.name,
-        manifest,
-        exportedChunks: chunks.length,
-        skippedChunks,
-        totalChunkCount
-    };
-}
-
-async function readPngChunkFolderSelection(
-    directoryHandle: BrowserDirectoryHandle,
-    onProgress?: (progress: PngImportProgress) => void | Promise<void>
-) {
-    const files = new Map<string, File>();
-    let processedEntries = 0;
-    for await (const entry of directoryHandle.values()) {
-        processedEntries += 1;
-        if (entry.kind === 'file') {
-            files.set(entry.name, await entry.getFile());
-        }
-        if (onProgress) {
-            await onProgress({
-                phase: 'Reading chunk folder',
-                completed: processedEntries,
-                total: Math.max(processedEntries, 1),
-                detail: `Scanning ${entry.name}.`
-            });
-        }
-    }
-    const manifestFile = files.get(PNG_CHUNK_EXPORT_MANIFEST_NAME);
-    let manifest: PngChunkManifest;
-    if (manifestFile) {
-        manifest = normalizePngChunkManifest(JSON.parse(await manifestFile.text()));
-    } else {
-        const parsedEntries = [...files.keys()]
-            .filter((name) => name.toLowerCase().endsWith('.png'))
-            .map((name) => parsePngChunkFileName(name))
-            .filter((entry): entry is PngChunkEntry => entry !== null);
-        manifest = buildChunkManifestFromFiles(directoryHandle.name, parsedEntries);
-    }
-    for (const chunk of manifest.chunks) {
-        if (!files.has(chunk.fileName)) {
-            throw new Error(`Chunk folder is missing ${chunk.fileName}, which is referenced by the manifest.`);
-        }
-    }
-    const emptyChunkFileNames = new Set<string>();
-    for (let index = 0; index < manifest.chunks.length; index += 1) {
-        const chunk = manifest.chunks[index];
-        const file = files.get(chunk.fileName);
-        if (!file) {
-            continue;
-        }
-        if (await isChunkFileEmpty(file)) {
-            emptyChunkFileNames.add(chunk.fileName);
-        }
-        if (onProgress) {
-            await onProgress({
-                phase: 'Checking chunk occupancy',
-                completed: index + 1,
-                total: manifest.chunks.length,
-                detail: `Inspecting ${chunk.fileName}.`
-            });
-        }
-    }
-    return {
-        directoryName: directoryHandle.name,
-        manifest,
-        files,
-        emptyChunkFileNames
-    };
-}
-
-function getPngChunkSelectionEntries(
-    selection: PngChunkFolderSelection,
-    range: PngChunkSelectionRange
-) {
-    const filteredChunks = selection.manifest.chunks
-        .filter((chunk) => (
-            chunk.chunkColumn >= range.minChunkColumn &&
-            chunk.chunkColumn <= range.maxChunkColumn &&
-            chunk.chunkRow >= range.minChunkRow &&
-            chunk.chunkRow <= range.maxChunkRow
-        ))
-        .sort((left, right) => (
-            left.chunkRow === right.chunkRow
-                ? left.chunkColumn - right.chunkColumn
-                : left.chunkRow - right.chunkRow
-        ));
-    const totalSelectedChunks = filteredChunks.length;
-    const limitedChunks = range.maxChunks > 0
-        ? filteredChunks
-            .filter((chunk) => !selection.emptyChunkFileNames.has(chunk.fileName))
-            .slice(0, range.maxChunks)
-        : filteredChunks;
-    return {
-        selectedChunks: limitedChunks,
-        totalSelectedChunks
-    };
-}
-
-async function composePngChunkFolderSource(
-    selection: PngChunkFolderSelection,
-    range: PngChunkSelectionRange,
-    onProgress?: (progress: PngImportProgress) => void | Promise<void>
-) {
-    const { selectedChunks, totalSelectedChunks } = getPngChunkSelectionEntries(selection, range);
-    if (selectedChunks.length === 0) {
-        throw new Error('The selected chunk range did not include any exported PNG chunks.');
-    }
-    const cropTileOriginX = Math.round(selection.manifest.crop.x / PNG_IMPORT_SOURCE_TILE_SIZE);
-    const cropTileOriginY = Math.round(selection.manifest.crop.y / PNG_IMPORT_SOURCE_TILE_SIZE);
-    const columns = selection.manifest.totalSourceColumns;
-    const rows = selection.manifest.totalSourceRows;
-    const activeTileIndexes = new Set<number>();
-    for (const chunk of selectedChunks) {
-        const startColumn = chunk.sourceTileX - cropTileOriginX;
-        const startRow = chunk.sourceTileY - cropTileOriginY;
-        for (let row = 0; row < chunk.tileHeight; row += 1) {
-            for (let column = 0; column < chunk.tileWidth; column += 1) {
-                activeTileIndexes.add((startRow + row) * columns + startColumn + column);
-            }
-        }
-    }
-    const canvas = document.createElement('canvas');
-    canvas.width = columns * PNG_IMPORT_SOURCE_TILE_SIZE;
-    canvas.height = rows * PNG_IMPORT_SOURCE_TILE_SIZE;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-        throw new Error('Could not create a canvas context for chunk composition.');
-    }
-    ctx.imageSmoothingEnabled = false;
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    for (let index = 0; index < selectedChunks.length; index += 1) {
-        const chunk = selectedChunks[index];
-        const file = selection.files.get(chunk.fileName);
-        if (!file) {
-            throw new Error(`The chunk folder is missing ${chunk.fileName}.`);
-        }
-        const bitmap = await createImageBitmap(file);
-        const destinationX = (chunk.sourceTileX - cropTileOriginX) * PNG_IMPORT_SOURCE_TILE_SIZE;
-        const destinationY = (chunk.sourceTileY - cropTileOriginY) * PNG_IMPORT_SOURCE_TILE_SIZE;
-        ctx.drawImage(bitmap, destinationX, destinationY);
-        bitmap.close();
-        if (onProgress) {
-            await onProgress({
-                phase: 'Composing chunk folder',
-                completed: index + 1,
-                total: selectedChunks.length,
-                detail: `Placed ${chunk.fileName}.`
-            });
-            await yieldToUi();
-        }
-    }
-    const image = await loadImageFromBlob(await canvasToBlob(canvas));
-    return {
-        image,
-        manifest: selection.manifest,
-        selectedChunks,
-        chunkCount: selectedChunks.length,
-        totalSelectedChunks,
-        sourceWidth: canvas.width,
-        sourceHeight: canvas.height,
-        columns,
-        rows,
-        activeTileIndexes
-    };
-}
-
-function parsePaletteCyclePalettes(value: string, paletteCount: number) {
-    return [...new Set(
-        value
-            .split(',')
-            .map((entry) => Number(entry.trim()))
-            .filter((entry) => Number.isFinite(entry) && entry >= 0 && entry < paletteCount)
-            .map((entry) => Math.round(entry))
-    )];
-}
-
-function isFormTarget(target: EventTarget | null) {
-    return target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target instanceof HTMLSelectElement;
-}
-
-function createDesignerStyles() {
-    const style = document.createElement('style');
-    style.dataset.designerStyle = 'true';
-    style.textContent = `
-        .world-designer-panel {
-            position: fixed;
-            top: 8px;
-            right: 8px;
-            width: 360px;
-            max-height: calc(100vh - 16px);
-            overflow: auto;
-            z-index: 9999;
-            background: rgba(10, 16, 22, 0.94);
-            color: #f1f5f9;
-            border: 1px solid rgba(148, 163, 184, 0.4);
-            border-radius: 10px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
-            font: 14px/1.4 system-ui, sans-serif;
-            padding: 12px;
-            backdrop-filter: blur(10px);
-        }
-        .world-designer-drag-handle {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 8px;
-            cursor: move;
-            user-select: none;
-        }
-        .world-designer-drag-title {
-            flex: 1 1 auto;
-        }
-        .world-designer-drag-active {
-            user-select: none;
-        }
-        .world-designer-panel h2,
-        .world-designer-panel h3 {
-            margin: 0 0 8px;
-            font-size: 13px;
-        }
-        .world-designer-grid {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 8px;
-        }
-        .world-designer-grid-wide {
-            grid-column: 1 / -1;
-        }
-        .world-designer-section {
-            border-top: 1px solid rgba(148, 163, 184, 0.2);
-            margin-top: 10px;
-            padding-top: 10px;
-        }
-        .world-designer-accordion {
-            border-radius: 8px;
-            background: rgba(15, 23, 42, 0.78);
-            border: 1px solid rgba(148, 163, 184, 0.2);
-            overflow: hidden;
-        }
-        .world-designer-accordion summary {
-            cursor: pointer;
-            padding: 10px 12px;
-            color: #f8fafc;
-            user-select: none;
-            list-style: none;
-            font-weight: 600;
-        }
-        .world-designer-accordion summary::-webkit-details-marker {
-            display: none;
-        }
-        .world-designer-accordion summary::before {
-            content: '▸';
-            display: inline-block;
-            margin-right: 8px;
-            transition: transform 0.15s ease;
-        }
-        .world-designer-accordion[open] summary::before {
-            transform: rotate(90deg);
-        }
-        .world-designer-accordion-body {
-            padding: 0 12px 12px;
-        }
-        .world-designer-accordion-body > :first-child {
-            margin-top: 0;
-        }
-        .world-designer-accordion-body > :last-child {
-            margin-bottom: 0;
-        }
-        .world-designer-field {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-            margin-bottom: 8px;
-        }
-        .world-designer-field input,
-        .world-designer-field select,
-        .world-designer-field textarea,
-        .world-designer-panel button {
-            font: inherit;
-        }
-        .world-designer-field input,
-        .world-designer-field select,
-        .world-designer-field textarea {
-            width: 100%;
-            box-sizing: border-box;
-            border-radius: 6px;
-            border: 1px solid rgba(148, 163, 184, 0.35);
-            background: rgba(15, 23, 42, 0.9);
-            color: #f8fafc;
-            padding: 6px 8px;
-        }
-        .world-designer-checkbox {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 6px;
-        }
-        .world-designer-actions {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-        }
-        .world-designer-panel button,
-        .world-designer-modal-card button {
-            border-radius: 6px;
-            border: 1px solid rgba(96, 165, 250, 0.22);
-            background: linear-gradient(180deg, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.98));
-            color: #f8fafc;
-            padding: 7px 12px;
-            cursor: pointer;
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 4px 12px rgba(2, 6, 23, 0.22);
-            transition: transform 0.08s ease, background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
-        }
-        .world-designer-panel button:hover,
-        .world-designer-modal-card button:hover {
-            background: linear-gradient(180deg, rgba(51, 65, 85, 0.98), rgba(30, 41, 59, 0.98));
-            border-color: rgba(96, 165, 250, 0.4);
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 6px 16px rgba(2, 6, 23, 0.28);
-        }
-        .world-designer-panel button:active,
-        .world-designer-modal-card button:active {
-            transform: translateY(1px);
-        }
-        .world-designer-panel button:disabled,
-        .world-designer-modal-card button:disabled {
-            opacity: 0.45;
-            cursor: default;
-            transform: none;
-            box-shadow: none;
-        }
-        .world-designer-modal-card .world-designer-button-primary,
-        .world-designer-modal-card .world-designer-button-secondary,
-        .world-designer-modal-card .world-designer-button-subtle {
-            border-color: rgba(96, 165, 250, 0.22);
-            background: linear-gradient(180deg, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.98));
-            color: #f8fafc;
-        }
-        .world-designer-button-primary {
-            background: linear-gradient(180deg, rgba(14, 165, 233, 0.96), rgba(2, 132, 199, 0.96));
-            border-color: rgba(125, 211, 252, 0.5);
-            color: #eff6ff;
-        }
-        .world-designer-button-primary:hover {
-            background: linear-gradient(180deg, rgba(56, 189, 248, 0.98), rgba(14, 165, 233, 0.98));
-        }
-        .world-designer-button-secondary {
-            background: linear-gradient(180deg, rgba(37, 99, 235, 0.18), rgba(15, 23, 42, 0.98));
-        }
-        .world-designer-button-subtle {
-            background: rgba(15, 23, 42, 0.7);
-        }
-        .world-designer-status {
-            margin-top: 6px;
-            padding: 6px 8px;
-            border-radius: 6px;
-            background: rgba(30, 41, 59, 0.6);
-        }
-        .world-designer-status.success {
-            background: rgba(20, 83, 45, 0.7);
-        }
-        .world-designer-status.error {
-            background: rgba(127, 29, 29, 0.8);
-        }
-        .world-designer-overview {
-            width: 100%;
-            height: auto;
-            display: block;
-            border-radius: 8px;
-            border: 1px solid rgba(148, 163, 184, 0.35);
-            background: #020617;
-        }
-        .world-designer-shortcuts {
-            margin: 0;
-            padding-left: 16px;
-        }
-        .world-designer-summary {
-            color: #cbd5e1;
-            margin-bottom: 6px;
-        }
-        .world-designer-sprite-preview {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 8px;
-            padding: 8px;
-            border-radius: 8px;
-            background: rgba(15, 23, 42, 0.85);
-            border: 1px solid rgba(148, 163, 184, 0.2);
-        }
-        .world-designer-sprite-canvas {
-            width: 72px;
-            height: 72px;
-            flex: 0 0 auto;
-            border-radius: 6px;
-            border: 1px solid rgba(148, 163, 184, 0.35);
-            background:
-                linear-gradient(45deg, rgba(148, 163, 184, 0.12) 25%, transparent 25%, transparent 75%, rgba(148, 163, 184, 0.12) 75%),
-                linear-gradient(45deg, rgba(148, 163, 184, 0.12) 25%, transparent 25%, transparent 75%, rgba(148, 163, 184, 0.12) 75%),
-                rgba(2, 6, 23, 0.95);
-            background-position: 0 0, 8px 8px, 0 0;
-            background-size: 16px 16px;
-            image-rendering: pixelated;
-        }
-        .world-designer-sprite-meta {
-            min-width: 0;
-            color: #cbd5e1;
-            word-break: break-word;
-        }
-        .world-designer-sprite-picker {
-            border-radius: 8px;
-            background: rgba(15, 23, 42, 0.85);
-            border: 1px solid rgba(148, 163, 184, 0.2);
-            overflow: hidden;
-        }
-        .world-designer-sprite-picker summary {
-            cursor: pointer;
-            padding: 8px 10px;
-            color: #f8fafc;
-            user-select: none;
-            list-style: none;
-        }
-        .world-designer-sprite-picker summary::-webkit-details-marker {
-            display: none;
-        }
-        .world-designer-sprite-picker summary::before {
-            content: '▸';
-            display: inline-block;
-            margin-right: 8px;
-            transition: transform 0.15s ease;
-        }
-        .world-designer-sprite-picker[open] summary::before {
-            transform: rotate(90deg);
-        }
-        .world-designer-sprite-picker-body {
-            max-height: 280px;
-            overflow-x: hidden;
-            overflow-y: auto;
-            padding: 0 8px 8px;
-            box-sizing: border-box;
-            min-width: 0;
-        }
-        .world-designer-sprite-picker-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
-            gap: 8px;
-            width: 100%;
-            min-width: 0;
-        }
-        .world-designer-sprite-option {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 4px;
-            width: 100%;
-            box-sizing: border-box;
-            padding: 6px;
-            min-width: 0;
-            text-align: center;
-            overflow: hidden;
-        }
-        .world-designer-sprite-option.selected {
-            border-color: rgba(56, 189, 248, 0.9);
-            box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.35);
-            background: rgba(14, 116, 144, 0.25);
-        }
-        .world-designer-sprite-option.dragging {
-            opacity: 0.55;
-            cursor: grabbing;
-        }
-        .world-designer-sprite-option-label {
-            width: 100%;
-            font-size: 11px;
-            color: #cbd5e1;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .world-designer-modal {
-            position: fixed;
-            inset: 0;
-            z-index: 10000;
-            display: none;
-            align-items: center;
-            justify-content: center;
-            background: rgba(2, 6, 23, 0.7);
-        }
-        .world-designer-modal.open {
-            display: flex;
-        }
-        .world-designer-modal-card {
-            width: min(92vw, 900px);
-            max-height: 88vh;
-            overflow: auto;
-            border-radius: 12px;
-            background: #0f172a;
-            color: #f8fafc;
-            border: 1px solid rgba(148, 163, 184, 0.35);
-            padding: 16px;
-            font: 12px/1.4 system-ui, sans-serif;
-        }
-        .world-designer-modal-card.world-designer-modal-card-import {
-            width: min(96vw, 1380px);
-            max-height: 92vh;
-        }
-        .world-designer-modal-actions {
-            display: flex;
-            justify-content: flex-end;
-            gap: 8px;
-            margin-top: 12px;
-        }
-        .world-designer-import-layout {
-            display: grid;
-            grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
-            gap: 18px;
-            align-items: start;
-        }
-        .world-designer-import-sidebar,
-        .world-designer-import-main {
-            min-width: 0;
-        }
-        .world-designer-import-card {
-            border-radius: 10px;
-            border: 1px solid rgba(148, 163, 184, 0.18);
-            background: rgba(15, 23, 42, 0.55);
-            padding: 12px;
-            margin-bottom: 12px;
-        }
-        .world-designer-import-tabs {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin-bottom: 8px;
-        }
-        .world-designer-import-tab {
-            border-radius: 999px;
-            padding: 8px 14px;
-        }
-        .world-designer-import-tab.selected {
-            border-color: rgba(56, 189, 248, 0.9);
-            box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.35);
-            background: rgba(8, 47, 73, 0.75);
-        }
-        .world-designer-import-paths {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 10px;
-        }
-        .world-designer-import-path {
-            display: flex;
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 6px;
-            padding: 12px;
-            border-radius: 10px;
-            border: 1px solid rgba(148, 163, 184, 0.24);
-            background: rgba(15, 23, 42, 0.72);
-            text-align: left;
-        }
-        .world-designer-import-path strong {
-            font-size: 13px;
-        }
-        .world-designer-import-path span {
-            color: #cbd5e1;
-        }
-        .world-designer-import-path.selected {
-            border-color: rgba(56, 189, 248, 0.9);
-            box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.35);
-            background: rgba(8, 47, 73, 0.75);
-        }
-        .world-designer-import-card:last-child {
-            margin-bottom: 0;
-        }
-        .world-designer-import-progress {
-            display: grid;
-            gap: 8px;
-            margin-top: 8px;
-        }
-        .world-designer-import-progress[hidden] {
-            display: none;
-        }
-        .world-designer-import-progress progress {
-            width: 100%;
-            height: 12px;
-            accent-color: #38bdf8;
-        }
-        .world-designer-import-progress-actions {
-            display: flex;
-            justify-content: flex-end;
-        }
-        .world-designer-import-toolbar {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: space-between;
-            gap: 8px;
-            align-items: center;
-            margin-bottom: 8px;
-        }
-        .world-designer-import-zoom-controls {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            align-items: center;
-        }
-        .world-designer-import-zoom-label {
-            color: #cbd5e1;
-            min-width: 70px;
-        }
-        .world-designer-png-preview-frame {
-            margin: 8px 0;
-            max-height: 70vh;
-            min-height: 420px;
-            overflow: auto;
-            border-radius: 8px;
-            border: 1px solid rgba(148, 163, 184, 0.25);
-            background:
-                linear-gradient(45deg, rgba(148, 163, 184, 0.08) 25%, transparent 25%, transparent 75%, rgba(148, 163, 184, 0.08) 75%),
-                linear-gradient(45deg, rgba(148, 163, 184, 0.08) 25%, transparent 25%, transparent 75%, rgba(148, 163, 184, 0.08) 75%),
-                rgba(2, 6, 23, 0.95);
-            background-position: 0 0, 8px 8px, 0 0;
-            background-size: 16px 16px;
-        }
-        .world-designer-png-preview-canvas {
-            display: block;
-            image-rendering: pixelated;
-            cursor: crosshair;
-        }
-        .world-designer-png-preview-frame.busy,
-        .world-designer-import-card.busy {
-            opacity: 0.68;
-        }
-        @media (max-width: 1080px) {
-            .world-designer-import-layout {
-                grid-template-columns: 1fr;
-            }
-            .world-designer-png-preview-frame {
-                min-height: 320px;
-            }
-        }
-        .world-designer-context-menu {
-            position: fixed;
-            z-index: 10001;
-            display: none;
-            min-width: 220px;
-            border-radius: 10px;
-            background: rgba(15, 23, 42, 0.96);
-            border: 1px solid rgba(148, 163, 184, 0.35);
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
-            padding: 6px;
-            font: 12px/1.4 system-ui, sans-serif;
-        }
-        .world-designer-context-menu.open {
-            display: block;
-        }
-        .world-designer-context-menu button {
-            display: block;
-            width: 100%;
-            text-align: left;
-            margin: 0;
-            border: 0;
-            border-radius: 6px;
-            background: transparent;
-            color: #f8fafc;
-            padding: 8px 10px;
-        }
-        .world-designer-context-menu button:hover {
-            background: rgba(51, 65, 85, 0.95);
-        }
-        .world-designer-context-toggle-action {
-            white-space: nowrap;
-        }
-        .world-designer-context-toggle-check {
-            display: inline-block;
-            width: 14px;
-            margin-right: 8px;
-            color: #38bdf8;
-            text-align: center;
-        }
-        .world-designer-context-menu button:disabled {
-            opacity: 0.45;
-            cursor: default;
-        }
-        .world-designer-context-menu hr {
-            border: 0;
-            border-top: 1px solid rgba(148, 163, 184, 0.2);
-            margin: 6px 0;
-        }
-        .world-designer-context-submenu {
-            margin: 2px 0;
-        }
-        .world-designer-context-submenu > summary {
-            display: block;
-            border-radius: 6px;
-            color: #f8fafc;
-            padding: 8px 10px;
-            cursor: pointer;
-            list-style: none;
-            user-select: none;
-        }
-        .world-designer-context-submenu > summary::-webkit-details-marker {
-            display: none;
-        }
-        .world-designer-context-submenu > summary:hover {
-            background: rgba(51, 65, 85, 0.95);
-        }
-        .world-designer-context-submenu > summary::after {
-            content: '▸';
-            float: right;
-            color: #cbd5e1;
-        }
-        .world-designer-context-submenu[open] > summary::after {
-            content: '▾';
-        }
-        .world-designer-context-submenu-body {
-            display: grid;
-            gap: 4px;
-            max-height: 220px;
-            overflow: auto;
-            padding: 4px 0 4px 12px;
-        }
-        .world-designer-context-palette-option {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            width: 100%;
-            text-align: left;
-            margin: 0;
-            border: 0;
-            border-radius: 6px;
-            background: transparent;
-            color: #f8fafc;
-            padding: 6px 8px;
-        }
-        .world-designer-context-palette-option:hover {
-            background: rgba(51, 65, 85, 0.95);
-        }
-        .world-designer-context-palette-option.selected {
-            background: rgba(14, 116, 144, 0.25);
-            box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.35);
-        }
-        .world-designer-context-palette-canvas {
-            width: 36px;
-            height: 36px;
-            flex: 0 0 auto;
-            border-radius: 4px;
-            border: 1px solid rgba(148, 163, 184, 0.35);
-            background:
-                linear-gradient(45deg, rgba(148, 163, 184, 0.12) 25%, transparent 25%, transparent 75%, rgba(148, 163, 184, 0.12) 75%),
-                linear-gradient(45deg, rgba(148, 163, 184, 0.12) 25%, transparent 25%, transparent 75%, rgba(148, 163, 184, 0.12) 75%),
-                rgba(2, 6, 23, 0.95);
-            background-position: 0 0, 6px 6px, 0 0;
-            background-size: 12px 12px;
-            image-rendering: pixelated;
-        }
-        .world-designer-context-palette-label {
-            color: #cbd5e1;
-        }
-        .world-designer-pre {
-            margin: 8px 0 12px;
-            padding: 10px;
-            overflow: auto;
-            border-radius: 8px;
-            background: rgba(15, 23, 42, 0.95);
-            border: 1px solid rgba(148, 163, 184, 0.25);
-            max-height: 240px;
-            white-space: pre-wrap;
-            word-break: break-word;
-        }
-        .world-designer-hidden {
-            display: none !important;
-        }
-        .world-designer-flyout {
-            position: fixed;
-            top: 8px;
-            right: 384px;
-            width: 420px;
-            max-height: calc(100vh - 16px);
-            overflow: auto;
-            z-index: 9998;
-            background: rgba(10, 16, 22, 0.96);
-            color: #f1f5f9;
-            border: 1px solid rgba(148, 163, 184, 0.4);
-            border-radius: 10px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
-            padding: 12px;
-            backdrop-filter: blur(10px);
-            font: 12px/1.4 system-ui, sans-serif;
-        }
-        .world-designer-flyout-hidden {
-            display: none !important;
-        }
-        .world-designer-palette-preview {
-            width: 100%;
-            height: 120px;
-        }
-        .world-designer-palette-list {
-            min-height: 160px;
-        }
-        .world-designer-palette-mappings {
-            display: grid;
-            gap: 8px;
-        }
-        .world-designer-palette-row {
-            display: grid;
-            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
-            gap: 8px;
-            align-items: end;
-        }
-        `;
-    document.head.appendChild(style);
-    return style;
 }
 
 function clearPreviewCanvas(canvas: HTMLCanvasElement) {
@@ -2836,314 +728,16 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         };
     };
 
-    const root = document.createElement('div');
-    root.className = 'world-designer-panel world-designer-hidden';
-    root.innerHTML = `
-        <div class="world-designer-drag-handle" data-role="panel-drag-handle">
-            <h2 class="world-designer-drag-title">World Designer</h2>
-            <button type="button" data-role="active-toggle">Hide panel</button>
-        </div>
-        <div class="world-designer-status" data-role="status"></div>
-        <details class="world-designer-section world-designer-accordion" data-section-id="overview">
-            <summary>Overview navigator</summary>
-            <div class="world-designer-accordion-body">
-            <div class="world-designer-summary">Zoomed-out world view. Move the cursor to preview the 1:1 viewport, then drag with the left mouse button to pan the main view.</div>
-            <canvas class="world-designer-overview" data-role="overview" width="320" height="220"></canvas>
-            </div>
-        </details>
-        <details class="world-designer-section world-designer-accordion" data-section-id="mode-and-sprite">
-            <summary>Mode and sprite setup</summary>
-            <div class="world-designer-accordion-body">
-            <div class="world-designer-grid">
-                <label class="world-designer-field">Mode<select data-role="mode"><option value="edit">Edit</option><option value="preview">Preview</option></select></label>
-                <label class="world-designer-field">Tool<select data-role="tool"><option value="select">Select / move</option><option value="place">Place new</option></select></label>
-                <label class="world-designer-field">Category<select data-role="category">
-                    <option value="world">World items</option>
-                    <option value="buttons">Buttons</option>
-                    <option value="doors">Doors</option>
-                    <option value="creatures">Creatures</option>
-                    <option value="collectables">Collectables</option>
-                    <option value="custom">Custom sprites</option>
-                </select></label>
-                <label class="world-designer-field">Sprite type<select data-role="type"></select></label>
-                <div class="world-designer-grid-wide">
-                    <div class="world-designer-sprite-preview">
-                        <canvas class="world-designer-sprite-canvas" data-role="sprite-preview" width="72" height="72"></canvas>
-                        <div class="world-designer-sprite-meta" data-role="sprite-preview-meta"></div>
-                    </div>
-                    <details class="world-designer-sprite-picker" data-role="sprite-picker">
-                        <summary>Choose from sprite grid</summary>
-                        <div class="world-designer-sprite-picker-body">
-                            <div class="world-designer-grid world-designer-grid-wide">
-                                <label class="world-designer-field">Filter sprites<input type="text" data-role="sprite-picker-filter" placeholder="Type to filter sprite names" /></label>
-                                <label class="world-designer-field">Category filter<select data-role="sprite-picker-category-filter"></select></label>
-                            </div>
-                            <div class="world-designer-sprite-picker-grid" data-role="sprite-picker-grid"></div>
-                        </div>
-                    </details>
-                </div>
-                <label class="world-designer-field">Rotation<select data-role="rotation"></select></label>
-                <label class="world-designer-field">Translation<select data-role="translation"></select></label>
-                <div class="world-designer-field">
-                    <label>Palette</label>
-                    <div style="display:flex;gap:8px;align-items:center;">
-                        <select data-role="palette" style="flex:1 1 auto;"></select>
-                        <button type="button" data-role="palette-designer-toggle">Edit</button>
-                    </div>
-                </div>
-            </div>
-            </div>
-        </details>
-        <details class="world-designer-section world-designer-accordion" data-section-id="placement-actions">
-            <summary>Placement and actions</summary>
-            <div class="world-designer-accordion-body">
-            <label class="world-designer-checkbox"><input type="checkbox" data-role="snap" /> Snap rough placement to 32px grid</label>
-            <label class="world-designer-checkbox"><input type="checkbox" data-role="object-snap" /> Snap to nearby object edges</label>
-            <div class="world-designer-grid" style="margin-top:8px;">
-                <label class="world-designer-field">Grid offset X<input type="number" min="0" max="31" step="1" value="0" data-role="snap-offset-x" /></label>
-                <label class="world-designer-field">Grid offset Y<input type="number" min="0" max="31" step="1" value="0" data-role="snap-offset-y" /></label>
-                <button type="button" data-role="snap-offset-capture">Use selection / view center</button>
-            </div>
-            <label class="world-designer-field">Arrow-key nudge size<input type="number" min="1" max="64" step="1" value="1" data-role="nudge" /></label>
-            <div class="world-designer-actions">
-                <button type="button" data-role="focus-astronaut">Center on astronaut</button>
-                <button type="button" data-role="move-astronaut">Move live astronaut to view center</button>
-                <button type="button" data-role="add-center">Place at view center</button>
-                <button type="button" data-role="set-start">Set astronaut start to view center</button>
-                <button type="button" data-role="duplicate">Duplicate selection</button>
-                <button type="button" data-role="delete">Delete selection</button>
-                <button type="button" data-role="send-to-back">Send to back</button>
-                <button type="button" data-role="bring-to-front">Bring to front</button>
-                <button type="button" data-role="focus">Focus selection</button>
-                <label class="world-designer-field" style="min-width:180px;">
-                    <span>Convert to</span>
-                    <select data-role="convert-target"></select>
-                </label>
-                <button type="button" data-role="convert">Convert</button>
-                <button type="button" data-role="png-import">Import PNG draft</button>
-                <button type="button" data-role="normalize-sprite-sheet">Normalize sprite colors</button>
-                <button type="button" data-role="save-preview">Preview before save</button>
-            </div>
-            </div>
-        </details>
-        <details class="world-designer-section world-designer-accordion" data-section-id="selection">
-            <summary>Selection</summary>
-            <div class="world-designer-accordion-body">
-            <div class="world-designer-summary" data-role="selection-summary">Nothing selected.</div>
-            <div data-role="inspector"></div>
-            </div>
-        </details>
-        <details class="world-designer-section world-designer-accordion" data-section-id="preview-toggles">
-            <summary>Preview toggles</summary>
-            <div class="world-designer-accordion-body">
-            <label class="world-designer-checkbox"><input type="checkbox" data-role="sound-enabled" /> Sound enabled</label>
-            <div class="world-designer-grid" style="margin-top:8px;">
-                <label class="world-designer-field">Bullet impact primary audio
-                    <select data-role="bullet-impact-primary">
-                        <option value="bulletExplosion">BulletExplosion.wav</option>
-                        <option value="bulletExplosion2">BulletExplosion2.wav</option>
-                    </select>
-                </label>
-                <label class="world-designer-field">Bullet impact alternate audio
-                    <select data-role="bullet-impact-alternate">
-                        <option value="bulletExplosion">BulletExplosion.wav</option>
-                        <option value="bulletExplosion2">BulletExplosion2.wav</option>
-                    </select>
-                </label>
-                <label class="world-designer-field">Alternate chance (0..1)
-                    <input type="number" min="0" max="1" step="0.01" data-role="bullet-impact-alternate-chance" />
-                </label>
-                <label class="world-designer-field">Bullet impact volume (0..1)
-                    <input type="number" min="0" max="1" step="0.05" data-role="bullet-impact-volume" />
-                </label>
-            </div>
-            <label class="world-designer-checkbox"><input type="checkbox" data-role="wind-enabled" /> Wind enabled</label>
-            <label class="world-designer-checkbox"><input type="checkbox" data-role="wind-emitters-enabled" /> Wind emitters enabled</label>
-            <label class="world-designer-checkbox"><input type="checkbox" data-role="wind-surface-enabled" /> Surface wind enabled</label>
-            <label class="world-designer-checkbox"><input type="checkbox" data-role="wind-vfx-enabled" /> Wind VFX enabled</label>
-            <label class="world-designer-checkbox"><input type="checkbox" data-role="expand-viewport" /> Expand viewport to window</label>
-            <label class="world-designer-checkbox"><input type="checkbox" data-role="show-collision" /> Show collision outlines</label>
-            <label class="world-designer-checkbox"><input type="checkbox" data-role="show-creature-overlays" /> Show creature overlays</label>
-            <label class="world-designer-checkbox"><input type="checkbox" data-role="show-sprite-outlines" /> Show sprite outlines (F)</label>
-            <label class="world-designer-checkbox"><input type="checkbox" data-role="show-performance-hud" /> Show FPS / perf overlay</label>
-            <label class="world-designer-checkbox"><input type="checkbox" data-role="magnifier-enabled" /> Show magnifier</label>
-            <label class="world-designer-checkbox"><input type="checkbox" data-role="disable-preview-collision" /> Disable collision during preview</label>
-            <div class="world-designer-grid">
-                <label class="world-designer-checkbox"><input type="checkbox" checked data-layer="world" /> World</label>
-                <label class="world-designer-checkbox"><input type="checkbox" checked data-layer="buttons" /> Buttons</label>
-                <label class="world-designer-checkbox"><input type="checkbox" checked data-layer="doors" /> Doors</label>
-                <label class="world-designer-checkbox"><input type="checkbox" checked data-layer="creatures" /> Creatures</label>
-                <label class="world-designer-checkbox"><input type="checkbox" checked data-layer="collectables" /> Collectables</label>
-                <label class="world-designer-checkbox"><input type="checkbox" checked data-layer="custom" /> Custom sprites</label>
-            </div>
-            </div>
-        </details>
-        <details class="world-designer-section world-designer-accordion" data-section-id="keyboard-shortcuts">
-            <summary>Keyboard shortcuts</summary>
-            <div class="world-designer-accordion-body">
-            <ul class="world-designer-shortcuts">
-                <li><strong>\`</strong> show/hide panel</li>
-                <li><strong>1</strong> select tool, <strong>2</strong> place tool, <strong>M</strong> toggle preview mode</li>
-                <li><strong>Alt+Enter</strong> toggle expanded viewport</li>
-                <li><strong>R</strong> rotate selection, <strong>Delete</strong> remove selection, <strong>Ctrl+C</strong> copy, <strong>Ctrl+V</strong> paste, <strong>Ctrl+D</strong> duplicate</li>
-                <li><strong>Arrow keys</strong> nudge selected item, <strong>Shift+Arrow</strong> larger nudge</li>
-                <li><strong>Ctrl+drag</strong> dock to nearby block edges, <strong>Alt+drag</strong> align matching edges, <strong>Ctrl+Alt+drag</strong> allow both</li>
-                <li><strong>F</strong> toggle sprite outlines, <strong>G</strong> toggle grid snap, <strong>X</strong> toggle magnifier, <strong>Ctrl+S</strong> preview before save</li>
-                <li><strong>Ctrl+Z</strong> undo, <strong>Ctrl+Y</strong> or <strong>Ctrl+Shift+Z</strong> redo</li>
-            </ul>
-            </div>
-        </details>
-    `;
-    document.body.appendChild(root);
-
-    const modal = document.createElement('div');
-    modal.className = 'world-designer-modal';
-    modal.innerHTML = `
-        <div class="world-designer-modal-card">
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
-                <h2 style="margin:0;" data-role="modal-title">Preview before save</h2>
-                <button type="button" data-role="modal-close">Close</button>
-            </div>
-            <div data-role="modal-body"></div>
-            <div class="world-designer-modal-actions">
-                <button type="button" data-role="modal-confirm">Save changes</button>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(modal);
-
-    const contextMenu = document.createElement('div');
-    contextMenu.className = 'world-designer-context-menu';
-    contextMenu.innerHTML = '<div data-role="context-menu-body"></div>';
-    document.body.appendChild(contextMenu);
-
-    const paletteFlyout = document.createElement('div');
-    paletteFlyout.className = 'world-designer-flyout world-designer-flyout-hidden';
-    paletteFlyout.innerHTML = `
-        <div class="world-designer-drag-handle" data-role="palette-flyout-drag-handle">
-            <h2 class="world-designer-drag-title" style="margin:0;">Palette Designer</h2>
-            <button type="button" data-role="palette-flyout-close">Close</button>
-        </div>
-        <div class="world-designer-summary" data-role="palette-usage"></div>
-        <div class="world-designer-grid">
-            <label class="world-designer-field world-designer-grid-wide">Palette<select class="world-designer-palette-list" size="8" data-role="palette-list"></select></label>
-            <div class="world-designer-actions world-designer-grid-wide">
-                <button type="button" data-role="palette-new">New</button>
-                <button type="button" data-role="palette-clone">Clone</button>
-                <button type="button" data-role="palette-delete">Delete</button>
-                <button type="button" data-role="palette-save">Save palettes</button>
-            </div>
-            <label class="world-designer-field world-designer-grid-wide">Preview sprite<select data-role="palette-preview-type"></select></label>
-            <div class="world-designer-grid-wide">
-                <canvas class="world-designer-sprite-canvas world-designer-palette-preview" data-role="palette-preview-canvas" width="320" height="120"></canvas>
-            </div>
-        </div>
-        <details class="world-designer-section world-designer-accordion" data-section-id="palette-remaps">
-            <summary>Color remaps</summary>
-            <div class="world-designer-accordion-body">
-            <div class="world-designer-palette-mappings" data-role="palette-mappings"></div>
-            <div class="world-designer-actions" style="margin-top:8px;">
-                <button type="button" data-role="palette-add-mapping">Add remap</button>
-            </div>
-            </div>
-        </details>
-    `;
-    document.body.appendChild(paletteFlyout);
-    const panelDragHandle = root.querySelector('[data-role="panel-drag-handle"]') as HTMLDivElement;
-    const paletteFlyoutDragHandle = paletteFlyout.querySelector('[data-role="palette-flyout-drag-handle"]') as HTMLDivElement;
-    const magnifierCanvas = document.createElement('canvas');
-    magnifierCanvas.width = Math.max(1, Math.round(MAGNIFIER_SIZE / MAGNIFIER_ZOOM));
-    magnifierCanvas.height = Math.max(1, Math.round(MAGNIFIER_SIZE / MAGNIFIER_ZOOM));
-
-    const refs: ControlRefs = {
-        root,
-        modeSelect: root.querySelector('[data-role="mode"]') as HTMLSelectElement,
-        toolSelect: root.querySelector('[data-role="tool"]') as HTMLSelectElement,
-        categorySelect: root.querySelector('[data-role="category"]') as HTMLSelectElement,
-        typeSelect: root.querySelector('[data-role="type"]') as HTMLSelectElement,
-        spritePreviewCanvas: root.querySelector('[data-role="sprite-preview"]') as HTMLCanvasElement,
-        spritePreviewMeta: root.querySelector('[data-role="sprite-preview-meta"]') as HTMLDivElement,
-        spritePicker: root.querySelector('[data-role="sprite-picker"]') as HTMLDetailsElement,
-        spritePickerFilter: root.querySelector('[data-role="sprite-picker-filter"]') as HTMLInputElement,
-        spritePickerCategoryFilter: root.querySelector('[data-role="sprite-picker-category-filter"]') as HTMLSelectElement,
-        spritePickerGrid: root.querySelector('[data-role="sprite-picker-grid"]') as HTMLDivElement,
-        rotationSelect: root.querySelector('[data-role="rotation"]') as HTMLSelectElement,
-        translationSelect: root.querySelector('[data-role="translation"]') as HTMLSelectElement,
-        paletteSelect: root.querySelector('[data-role="palette"]') as HTMLSelectElement,
-        snapCheckbox: root.querySelector('[data-role="snap"]') as HTMLInputElement,
-        objectSnapCheckbox: root.querySelector('[data-role="object-snap"]') as HTMLInputElement,
-        snapOffsetXInput: root.querySelector('[data-role="snap-offset-x"]') as HTMLInputElement,
-        snapOffsetYInput: root.querySelector('[data-role="snap-offset-y"]') as HTMLInputElement,
-        snapOffsetCaptureButton: root.querySelector('[data-role="snap-offset-capture"]') as HTMLButtonElement,
-        nudgeInput: root.querySelector('[data-role="nudge"]') as HTMLInputElement,
-        status: root.querySelector('[data-role="status"]') as HTMLDivElement,
-        selectionSummary: root.querySelector('[data-role="selection-summary"]') as HTMLDivElement,
-        inspector: root.querySelector('[data-role="inspector"]') as HTMLDivElement,
-        overviewCanvas: root.querySelector('[data-role="overview"]') as HTMLCanvasElement,
-        activeToggle: root.querySelector('[data-role="active-toggle"]') as HTMLButtonElement,
-        paletteDesignerToggle: root.querySelector('[data-role="palette-designer-toggle"]') as HTMLButtonElement,
-        pngImportButton: root.querySelector('[data-role="png-import"]') as HTMLButtonElement,
-        savePreviewButton: root.querySelector('[data-role="save-preview"]') as HTMLButtonElement,
-        normalizeSpriteSheetButton: root.querySelector('[data-role="normalize-sprite-sheet"]') as HTMLButtonElement,
-        deleteButton: root.querySelector('[data-role="delete"]') as HTMLButtonElement,
-        duplicateButton: root.querySelector('[data-role="duplicate"]') as HTMLButtonElement,
-        sendToBackButton: root.querySelector('[data-role="send-to-back"]') as HTMLButtonElement,
-        bringToFrontButton: root.querySelector('[data-role="bring-to-front"]') as HTMLButtonElement,
-        focusButton: root.querySelector('[data-role="focus"]') as HTMLButtonElement,
-        convertTargetSelect: root.querySelector('[data-role="convert-target"]') as HTMLSelectElement,
-        convertButton: root.querySelector('[data-role="convert"]') as HTMLButtonElement,
-        focusAstronautButton: root.querySelector('[data-role="focus-astronaut"]') as HTMLButtonElement,
-        moveAstronautButton: root.querySelector('[data-role="move-astronaut"]') as HTMLButtonElement,
-        expandViewportCheckbox: root.querySelector('[data-role="expand-viewport"]') as HTMLInputElement,
-        soundEnabledCheckbox: root.querySelector('[data-role="sound-enabled"]') as HTMLInputElement,
-        bulletImpactPrimarySelect: root.querySelector('[data-role="bullet-impact-primary"]') as HTMLSelectElement,
-        bulletImpactAlternateSelect: root.querySelector('[data-role="bullet-impact-alternate"]') as HTMLSelectElement,
-        bulletImpactAlternateChanceInput: root.querySelector('[data-role="bullet-impact-alternate-chance"]') as HTMLInputElement,
-        bulletImpactVolumeInput: root.querySelector('[data-role="bullet-impact-volume"]') as HTMLInputElement,
-        windEnabledCheckbox: root.querySelector('[data-role="wind-enabled"]') as HTMLInputElement,
-        windEmittersEnabledCheckbox: root.querySelector('[data-role="wind-emitters-enabled"]') as HTMLInputElement,
-        windSurfaceEnabledCheckbox: root.querySelector('[data-role="wind-surface-enabled"]') as HTMLInputElement,
-        windVfxEnabledCheckbox: root.querySelector('[data-role="wind-vfx-enabled"]') as HTMLInputElement,
-        addAtCenterButton: root.querySelector('[data-role="add-center"]') as HTMLButtonElement,
-        setAstronautStartButton: root.querySelector('[data-role="set-start"]') as HTMLButtonElement,
-        showCollisionCheckbox: root.querySelector('[data-role="show-collision"]') as HTMLInputElement,
-        showCreatureOverlaysCheckbox: root.querySelector('[data-role="show-creature-overlays"]') as HTMLInputElement,
-        showSpriteOutlineCheckbox: root.querySelector('[data-role="show-sprite-outlines"]') as HTMLInputElement,
-        showPerformanceHudCheckbox: root.querySelector('[data-role="show-performance-hud"]') as HTMLInputElement,
-        magnifierCheckbox: root.querySelector('[data-role="magnifier-enabled"]') as HTMLInputElement,
-        disablePreviewCollisionCheckbox: root.querySelector('[data-role="disable-preview-collision"]') as HTMLInputElement,
-        layerCheckboxes: {
-            world: root.querySelector('[data-layer="world"]') as HTMLInputElement,
-            buttons: root.querySelector('[data-layer="buttons"]') as HTMLInputElement,
-            doors: root.querySelector('[data-layer="doors"]') as HTMLInputElement,
-            creatures: root.querySelector('[data-layer="creatures"]') as HTMLInputElement,
-            collectables: root.querySelector('[data-layer="collectables"]') as HTMLInputElement,
-            custom: root.querySelector('[data-layer="custom"]') as HTMLInputElement
-        },
-        modal,
-        modalTitle: modal.querySelector('[data-role="modal-title"]') as HTMLHeadingElement,
-        modalBody: modal.querySelector('[data-role="modal-body"]') as HTMLDivElement,
-        modalClose: modal.querySelector('[data-role="modal-close"]') as HTMLButtonElement,
-        modalConfirm: modal.querySelector('[data-role="modal-confirm"]') as HTMLButtonElement,
-        contextMenu,
-        contextMenuBody: contextMenu.querySelector('[data-role="context-menu-body"]') as HTMLDivElement,
-        paletteFlyout,
-        paletteFlyoutClose: paletteFlyout.querySelector('[data-role="palette-flyout-close"]') as HTMLButtonElement,
-        paletteList: paletteFlyout.querySelector('[data-role="palette-list"]') as HTMLSelectElement,
-        paletteUsage: paletteFlyout.querySelector('[data-role="palette-usage"]') as HTMLDivElement,
-        palettePreviewCanvas: paletteFlyout.querySelector('[data-role="palette-preview-canvas"]') as HTMLCanvasElement,
-        palettePreviewTypeSelect: paletteFlyout.querySelector('[data-role="palette-preview-type"]') as HTMLSelectElement,
-        paletteMappings: paletteFlyout.querySelector('[data-role="palette-mappings"]') as HTMLDivElement,
-        paletteNewButton: paletteFlyout.querySelector('[data-role="palette-new"]') as HTMLButtonElement,
-        paletteCloneButton: paletteFlyout.querySelector('[data-role="palette-clone"]') as HTMLButtonElement,
-        paletteDeleteButton: paletteFlyout.querySelector('[data-role="palette-delete"]') as HTMLButtonElement,
-        paletteAddMappingButton: paletteFlyout.querySelector('[data-role="palette-add-mapping"]') as HTMLButtonElement,
-        paletteSaveButton: paletteFlyout.querySelector('[data-role="palette-save"]') as HTMLButtonElement
-    };
-    const sectionAccordions = [
-        ...Array.from(root.querySelectorAll('[data-section-id]')),
-        ...Array.from(paletteFlyout.querySelectorAll('[data-section-id]'))
-    ] as HTMLDetailsElement[];
+    const {
+        refs,
+        panelDragHandle,
+        paletteFlyoutDragHandle,
+        magnifierCanvas,
+        sectionAccordions
+    } = createWorldDesignerDom({
+        magnifierSize: MAGNIFIER_SIZE,
+        magnifierZoom: MAGNIFIER_ZOOM
+    });
     const spritePickerButtons = new Map<string, HTMLButtonElement>();
     const dragGhostPadding = 8;
     let modalConfirmAction: (() => void | Promise<void>) | null = null;
@@ -3213,383 +807,17 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         ? window.devicePixelRatio
         : 1;
 
-    function getOverlayViewportBounds() {
-        const viewport = window.visualViewport;
-        if (
-            viewport &&
-            Number.isFinite(viewport.width) &&
-            Number.isFinite(viewport.height) &&
-            viewport.width > 0 &&
-            viewport.height > 0
-        ) {
-            return {
-                left: Number.isFinite(viewport.offsetLeft) ? viewport.offsetLeft : 0,
-                top: Number.isFinite(viewport.offsetTop) ? viewport.offsetTop : 0,
-                width: viewport.width,
-                height: viewport.height
-            };
-        }
-        return {
-            left: 0,
-            top: 0,
-            width: window.innerWidth,
-            height: window.innerHeight
-        };
-    }
+    const applyDesignerOverlayZoomCompensation = () => {
+        applyOverlayZoomCompensation(refs.root, refs.paletteFlyout, initialDevicePixelRatio);
+    };
 
-    function clampOverlayPosition(element: HTMLElement, left: number, top: number) {
-        const rect = element.getBoundingClientRect();
-        const viewport = getOverlayViewportBounds();
-        const minLeft = viewport.left + 8;
-        const minTop = viewport.top + 8;
-        const maxLeft = Math.max(minLeft, viewport.left + viewport.width - rect.width - 8);
-        const maxTop = Math.max(minTop, viewport.top + viewport.height - rect.height - 8);
-        return {
-            left: clamp(left, minLeft, maxLeft),
-            top: clamp(top, minTop, maxTop)
-        };
-    }
-
-    function getBrowserZoomScale() {
-        const currentDevicePixelRatio = Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0
-            ? window.devicePixelRatio
-            : initialDevicePixelRatio;
-        const devicePixelRatioScale = currentDevicePixelRatio / initialDevicePixelRatio;
-        const visualViewportScale = window.visualViewport && Number.isFinite(window.visualViewport.scale) && window.visualViewport.scale > 0
-            ? window.visualViewport.scale
-            : 1;
-        const zoomScale = devicePixelRatioScale * visualViewportScale;
-        if (!Number.isFinite(zoomScale) || zoomScale <= 0) {
-            return 1;
-        }
-        return zoomScale;
-    }
-
-    function applyDesignerOverlayZoomCompensation() {
-        const zoomScale = getBrowserZoomScale();
-        const inverseScale = 1 / zoomScale;
-        const transformValue = Math.abs(inverseScale - 1) < 0.001
-            ? ''
-            : `scale(${inverseScale})`;
-        const viewport = getOverlayViewportBounds();
-        const maxHeight = `${Math.max(120, viewport.height - 16)}px`;
-
-        root.style.transformOrigin = 'top right';
-        root.style.transform = transformValue;
-        root.style.maxHeight = maxHeight;
-
-        paletteFlyout.style.transformOrigin = 'top right';
-        paletteFlyout.style.transform = transformValue;
-        paletteFlyout.style.maxHeight = maxHeight;
-
-        const clampDraggedOverlay = (element: HTMLElement) => {
-            if (!element.style.left && !element.style.top) {
-                return;
-            }
-            const rect = element.getBoundingClientRect();
-            const currentLeft = Number.parseFloat(element.style.left);
-            const currentTop = Number.parseFloat(element.style.top);
-            const next = clampOverlayPosition(
-                element,
-                Number.isFinite(currentLeft) ? currentLeft : rect.left,
-                Number.isFinite(currentTop) ? currentTop : rect.top
-            );
-            element.style.left = `${next.left}px`;
-            element.style.top = `${next.top}px`;
-            element.style.right = 'auto';
-        };
-        clampDraggedOverlay(root);
-        clampDraggedOverlay(paletteFlyout);
-    }
-
-    function attachDraggableSurface(element: HTMLElement, handle: HTMLElement) {
-        let dragPointerId: number | null = null;
-        let dragOffsetX = 0;
-        let dragOffsetY = 0;
-        handle.addEventListener('pointerdown', (event) => {
-            const target = event.target as HTMLElement | null;
-            if (!target || target.closest('button, input, select, textarea, label, summary, canvas, a')) {
-                return;
-            }
-            const rect = element.getBoundingClientRect();
-            dragPointerId = event.pointerId;
-            dragOffsetX = event.clientX - rect.left;
-            dragOffsetY = event.clientY - rect.top;
-            element.style.left = `${rect.left}px`;
-            element.style.top = `${rect.top}px`;
-            element.style.right = 'auto';
-            element.classList.add('world-designer-drag-active');
-            handle.setPointerCapture(event.pointerId);
-            event.preventDefault();
-        });
-        handle.addEventListener('pointermove', (event) => {
-            if (dragPointerId !== event.pointerId) {
-                return;
-            }
-            const next = clampOverlayPosition(element, event.clientX - dragOffsetX, event.clientY - dragOffsetY);
-            element.style.left = `${next.left}px`;
-            element.style.top = `${next.top}px`;
-        });
-        const stopDrag = (event: PointerEvent) => {
-            if (dragPointerId !== event.pointerId) {
-                return;
-            }
-            dragPointerId = null;
-            element.classList.remove('world-designer-drag-active');
-            if (handle.hasPointerCapture(event.pointerId)) {
-                handle.releasePointerCapture(event.pointerId);
-            }
-        };
-        handle.addEventListener('pointerup', stopDrag);
-        handle.addEventListener('pointercancel', stopDrag);
-    }
-
-    attachDraggableSurface(root, panelDragHandle);
-    attachDraggableSurface(paletteFlyout, paletteFlyoutDragHandle);
+    attachDraggableSurface(refs.root, panelDragHandle);
+    attachDraggableSurface(refs.paletteFlyout, paletteFlyoutDragHandle);
     applyDesignerOverlayZoomCompensation();
-
-    function findNearestWorldBlockByType(
-        worldMap: MapBlock[],
-        type: 'teleporter' | 'teleporter_pad',
-        targetX: number,
-        targetY: number,
-        maxDistance: number
-    ) {
-        let bestPart: MapBlock | null = null;
-        let bestDistanceSquared = Number.POSITIVE_INFINITY;
-        const maxDistanceSquared = maxDistance * maxDistance;
-        for (const part of worldMap) {
-            if (part.type !== type) {
-                continue;
-            }
-            const dx = targetX - part.x;
-            const dy = targetY - part.y;
-            const distanceSquared = dx * dx + dy * dy;
-            if (distanceSquared <= maxDistanceSquared && distanceSquared < bestDistanceSquared) {
-                bestPart = part;
-                bestDistanceSquared = distanceSquared;
-            }
-        }
-        return bestPart;
-    }
-
-    function findWorldTeleporterPartById(
-        worldMap: MapBlock[],
-        type: 'teleporter' | 'teleporter_pad',
-        teleporterId: string,
-        targetX: number,
-        targetY: number
-    ) {
-        const candidates = worldMap.filter((block) =>
-            block.type === type &&
-            block.teleporterId === teleporterId
-        );
-        if (candidates.length === 0) {
-            return null;
-        }
-        let best = candidates[0];
-        let bestDistanceSquared = Number.POSITIVE_INFINITY;
-        for (const candidate of candidates) {
-            const dx = targetX - candidate.x;
-            const dy = targetY - candidate.y;
-            const distanceSquared = dx * dx + dy * dy;
-            if (distanceSquared < bestDistanceSquared) {
-                best = candidate;
-                bestDistanceSquared = distanceSquared;
-            }
-        }
-        return best;
-    }
-
-    function syncTeleporterMetadataToWorldBlocks(data: RawWorldData) {
-        for (const teleporter of data.teleporters ?? []) {
-            const base = data.worldMap.find((block) =>
-                block.type === 'teleporter' &&
-                (block.teleporterId === teleporter.id || (block.x === teleporter.baseX && block.y === teleporter.baseY))
-            ) ?? null;
-            const pad = data.worldMap.find((block) =>
-                block.type === 'teleporter_pad' &&
-                (block.teleporterId === teleporter.id || (block.x === teleporter.padX && block.y === teleporter.padY))
-            ) ?? null;
-            for (const part of [base, pad]) {
-                if (!part) {
-                    continue;
-                }
-                part.teleporterId = teleporter.id;
-                part.teleporterEnabled = teleporter.enabled !== false;
-                part.teleporterRequiresKey = teleporter.requiresKey === true;
-                part.teleporterDestinationA = {
-                    x: Math.round(teleporter.destinationA.x),
-                    y: Math.round(teleporter.destinationA.y)
-                };
-                part.teleporterDestinationB = teleporter.destinationB
-                    ? {
-                        x: Math.round(teleporter.destinationB.x),
-                        y: Math.round(teleporter.destinationB.y)
-                    }
-                    : null;
-                part.teleporterActiveDestinationIndex = teleporter.activeDestinationIndex === 1 ? 1 : 0;
-            }
-        }
-    }
-
-    function reconcileTeleporterPairsForSave(data: RawWorldData) {
-        const teleporters = data.teleporters ?? [];
-        const taggedTeleporterParts = new Map<string, { base?: MapBlock; pad?: MapBlock }>();
-        for (const block of data.worldMap) {
-            if ((block.type !== 'teleporter' && block.type !== 'teleporter_pad') || !block.teleporterId) {
-                continue;
-            }
-            const id = String(block.teleporterId).trim();
-            if (!id) {
-                continue;
-            }
-            const existing = taggedTeleporterParts.get(id) ?? {};
-            if (block.type === 'teleporter') {
-                existing.base = block;
-            } else {
-                existing.pad = block;
-            }
-            taggedTeleporterParts.set(id, existing);
-        }
-        if (taggedTeleporterParts.size > 0) {
-            const byId = new Map<string, TeleporterSaveData>();
-            for (const teleporter of teleporters) {
-                byId.set(teleporter.id, teleporter);
-            }
-            const startX = Math.round(data.astronautStart.x);
-            const startY = Math.round(data.astronautStart.y);
-            const toPositionOrNull = (value: unknown) => {
-                if (!value || typeof value !== 'object') {
-                    return null;
-                }
-                const x = Math.round(Number((value as { x?: number }).x));
-                const y = Math.round(Number((value as { y?: number }).y));
-                if (!Number.isFinite(x) || !Number.isFinite(y)) {
-                    return null;
-                }
-                return { x, y };
-            };
-            for (const [id, parts] of taggedTeleporterParts.entries()) {
-                if (!parts.base || !parts.pad) {
-                    continue;
-                }
-                const existing = byId.get(id)
-                    ?? teleporters.find((teleporter) =>
-                        teleporter.baseX === parts.base!.x &&
-                        teleporter.baseY === parts.base!.y &&
-                        teleporter.padX === parts.pad!.x &&
-                        teleporter.padY === parts.pad!.y
-                    );
-                if (existing) {
-                    existing.baseX = parts.base.x;
-                    existing.baseY = parts.base.y;
-                    existing.padX = parts.pad.x;
-                    existing.padY = parts.pad.y;
-                    parts.base.teleporterId = existing.id;
-                    parts.pad.teleporterId = existing.id;
-                } else {
-                    const destinationA = toPositionOrNull(parts.base.teleporterDestinationA)
-                        ?? toPositionOrNull(parts.pad.teleporterDestinationA)
-                        ?? { x: startX, y: startY };
-                    const destinationB = toPositionOrNull(parts.base.teleporterDestinationB)
-                        ?? toPositionOrNull(parts.pad.teleporterDestinationB);
-                    data.teleporters.push({
-                        id,
-                        baseX: parts.base.x,
-                        baseY: parts.base.y,
-                        padX: parts.pad.x,
-                        padY: parts.pad.y,
-                        enabled: (parts.base.teleporterEnabled ?? parts.pad.teleporterEnabled) !== false,
-                        requiresKey: (parts.base.teleporterRequiresKey ?? parts.pad.teleporterRequiresKey) === true,
-                        destinationA,
-                        destinationB,
-                        activeDestinationIndex:
-                            ((parts.base.teleporterActiveDestinationIndex ?? parts.pad.teleporterActiveDestinationIndex) === 1 && destinationB)
-                                ? 1
-                                : 0
-                    });
-                }
-            }
-        }
-        if (teleporters.length === 0) {
-            return;
-        }
-        const correctionDistancePx = TILE_SIZE * 1.5;
-        teleporters.forEach((teleporter) => {
-            teleporter.baseX = Math.round(teleporter.baseX);
-            teleporter.baseY = Math.round(teleporter.baseY);
-            teleporter.padX = Math.round(teleporter.padX);
-            teleporter.padY = Math.round(teleporter.padY);
-            const baseById = findWorldTeleporterPartById(
-                data.worldMap,
-                'teleporter',
-                teleporter.id,
-                teleporter.baseX,
-                teleporter.baseY
-            );
-            const padById = findWorldTeleporterPartById(
-                data.worldMap,
-                'teleporter_pad',
-                teleporter.id,
-                teleporter.padX,
-                teleporter.padY
-            );
-            if (baseById) {
-                teleporter.baseX = baseById.x;
-                teleporter.baseY = baseById.y;
-                baseById.teleporterId = teleporter.id;
-            }
-            if (padById) {
-                teleporter.padX = padById.x;
-                teleporter.padY = padById.y;
-                padById.teleporterId = teleporter.id;
-            }
-            const hasBaseAtPosition = data.worldMap.some((block) =>
-                block.type === 'teleporter' &&
-                block.x === teleporter.baseX &&
-                block.y === teleporter.baseY
-            );
-            if (!hasBaseAtPosition) {
-                const correctedBase = findNearestWorldBlockByType(
-                    data.worldMap,
-                    'teleporter',
-                    teleporter.baseX,
-                    teleporter.baseY,
-                    correctionDistancePx
-                );
-                if (correctedBase) {
-                    teleporter.baseX = correctedBase.x;
-                    teleporter.baseY = correctedBase.y;
-                    correctedBase.teleporterId = teleporter.id;
-                }
-            }
-            const hasPadAtPosition = data.worldMap.some((block) =>
-                block.type === 'teleporter_pad' &&
-                block.x === teleporter.padX &&
-                block.y === teleporter.padY
-            );
-            if (!hasPadAtPosition) {
-                const correctedPad = findNearestWorldBlockByType(
-                    data.worldMap,
-                    'teleporter_pad',
-                    teleporter.padX,
-                    teleporter.padY,
-                    correctionDistancePx
-                );
-                if (correctedPad) {
-                    teleporter.padX = correctedPad.x;
-                    teleporter.padY = correctedPad.y;
-                    correctedPad.teleporterId = teleporter.id;
-                }
-            }
-        });
-        syncTeleporterMetadataToWorldBlocks(data);
-    }
 
     function getWorldSnapshot() {
         const rawWorldData = host.getRawWorldData();
-        reconcileTeleporterPairsForSave(rawWorldData);
+        reconcileTeleporterPairsForSave(rawWorldData, TILE_SIZE);
         return serializeWorldData(rawWorldData);
     }
 
@@ -3606,7 +834,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     async function getWorldSnapshotForValidationAndSave() {
         if (typeof host.getRawWorldDataForSave === 'function') {
             const rawWorldData = await host.getRawWorldDataForSave();
-            reconcileTeleporterPairsForSave(rawWorldData);
+            reconcileTeleporterPairsForSave(rawWorldData, TILE_SIZE);
             return serializeWorldData(rawWorldData);
         }
         return getWorldSnapshotForSave();
@@ -4915,7 +2143,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             image.onload = () => resolve(image);
             image.onerror = () => {
                 pngImportImageCache.delete(url);
-                reject(new Error(`Failed to load PNG at ${url}. Use a browser-served path such as ./src/assets/MAP-Exile-BC.png.`));
+                reject(new Error(`Failed to load PNG at ${url}. Use a browser-served path such as ./src/assets/images/maps/MAP-Exile-BC.png.`));
             };
             image.src = url;
         });
@@ -8424,7 +5652,30 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.modal.classList.add('open');
     }
 
-    function openPngImportModal() {
+    async function loadPngImportModalTemplate() {
+        if (pngImportModalTemplateCache) {
+            return pngImportModalTemplateCache;
+        }
+        const response = await fetch(`${PNG_IMPORT_MODAL_TEMPLATE_URL}?t=${Date.now()}`, { cache: 'no-store' });
+        if (!response.ok) {
+            throw new Error(`Failed to load designer modal template: ${response.status} ${response.statusText}`);
+        }
+        pngImportModalTemplateCache = await response.text();
+        return pngImportModalTemplateCache;
+    }
+
+    function renderPngImportModalTemplate(
+        template: string,
+        values: Record<string, string | number>
+    ) {
+        let rendered = template;
+        for (const [token, value] of Object.entries(values)) {
+            rendered = rendered.split(token).join(String(value));
+        }
+        return rendered;
+    }
+
+    async function openPngImportModal() {
         const modalCard = refs.modal.querySelector('.world-designer-modal-card') as HTMLDivElement | null;
         modalCard?.classList.add('world-designer-modal-card-import');
         const defaultWorldRect = getDefaultImportWorldRect();
@@ -8442,240 +5693,25 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         refs.modalConfirm.textContent = 'Import draft';
         refs.modalConfirm.disabled = true;
         clearPngImportObjectUrl();
-        refs.modalBody.innerHTML = `
-            <div class="world-designer-summary">
-                Create a rough draft of <strong>world items only</strong> by matching PNG pixels against the currently authored world sprite set. This modal now has two separate paths: <strong>Single PNG</strong> for direct small-region imports, and <strong>Chunk folder</strong> for rebuilding larger areas from exported chunks.
-            </div>
-            <div class="world-designer-import-layout">
-                <div class="world-designer-import-sidebar">
-                    <div class="world-designer-import-card">
-                        <h3>Choose an import path</h3>
-                        <div class="world-designer-import-paths">
-                            <button type="button" class="world-designer-import-path" data-role="png-import-mode-single">
-                                <strong>Single PNG</strong>
-                                <span>Import one PNG or one cropped section directly.</span>
-                            </button>
-                            <button type="button" class="world-designer-import-path" data-role="png-import-mode-folder">
-                                <strong>Chunk folder</strong>
-                                <span>Rebuild a larger area from exported chunks.</span>
-                            </button>
-                        </div>
-                        <div class="world-designer-summary">
-                            Pick <strong>Single PNG</strong> for fast small-area imports. Pick <strong>Chunk folder</strong> for staged large-map reconstruction.
-                        </div>
-                    </div>
-                    <div class="world-designer-import-card">
-                        <div class="world-designer-import-tabs">
-                            <button type="button" class="world-designer-import-tab" data-role="png-import-tab-import">Import</button>
-                            <button type="button" class="world-designer-import-tab" data-role="png-import-tab-export">Chunk export</button>
-                        </div>
-                        <div class="world-designer-summary" data-role="png-import-tab-summary">
-                            Import mode previews matched world blocks before they touch the live world.
-                        </div>
-                    </div>
-                    <div class="world-designer-import-card" data-role="png-import-single-source">
-                        <div class="world-designer-grid">
-                            <label class="world-designer-field world-designer-grid-wide">PNG file or URL
-                                <div style="display:flex;gap:8px;align-items:center;">
-                                    <input type="text" data-role="png-import-url" value="${PNG_IMPORT_DEFAULT_URL}" style="flex:1 1 auto;" />
-                                    <button type="button" class="world-designer-button-secondary" data-role="png-import-browse">Browse…</button>
-                                </div>
-                                <input type="file" data-role="png-import-file" accept=".png,image/png" style="display:none;" />
-                            </label>
-                        </div>
-                    </div>
-                    <div class="world-designer-import-card" data-role="png-import-folder-source" hidden>
-                        <h3>Exported chunk folder</h3>
-                        <div class="world-designer-actions">
-                            <button type="button" class="world-designer-button-secondary" data-role="png-import-folder-browse">Choose folder…</button>
-                        </div>
-                        <div class="world-designer-grid" style="margin-top:8px;">
-                            <label class="world-designer-field world-designer-grid-wide">Selected folder
-                                <input type="text" data-role="png-import-folder-name" value="No folder selected" readonly />
-                            </label>
-                            <label class="world-designer-field">Chunk column from
-                                <input type="number" data-role="png-import-folder-min-column" value="1" min="1" step="1" />
-                            </label>
-                            <label class="world-designer-field">Chunk column to
-                                <input type="number" data-role="png-import-folder-max-column" value="1" min="1" step="1" />
-                            </label>
-                            <label class="world-designer-field">Chunk row from
-                                <input type="number" data-role="png-import-folder-min-row" value="1" min="1" step="1" />
-                            </label>
-                            <label class="world-designer-field">Chunk row to
-                                <input type="number" data-role="png-import-folder-max-row" value="1" min="1" step="1" />
-                            </label>
-                            <label class="world-designer-field">Max chunks
-                                <input type="number" data-role="png-import-folder-max-chunks" value="0" min="0" step="1" />
-                            </label>
-                        </div>
-                        <label class="world-designer-checkbox">
-                            <input type="checkbox" data-role="png-import-folder-fit-target" checked />
-                            Keep the world span matched to the selected chunk range
-                        </label>
-                        <div class="world-designer-summary" data-role="png-import-folder-meta">
-                            Choose an exported chunk folder to reconstruct a larger map region.
-                        </div>
-                    </div>
-                    <div class="world-designer-import-card" data-role="png-import-source-crop">
-                        <h3>PNG crop in the source image</h3>
-                        <div class="world-designer-grid">
-                            <label class="world-designer-field">Crop left (px)
-                                <input type="number" data-role="png-import-source-x" value="0" step="1" />
-                            </label>
-                            <label class="world-designer-field">Crop top (px)
-                                <input type="number" data-role="png-import-source-y" value="0" step="1" />
-                            </label>
-                            <label class="world-designer-field">Crop width (px)
-                                <input type="number" data-role="png-import-source-width" value="0" step="1" />
-                            </label>
-                            <label class="world-designer-field">Crop height (px)
-                                <input type="number" data-role="png-import-source-height" value="0" step="1" />
-                            </label>
-                        </div>
-                        <div class="world-designer-actions">
-                            <button type="button" class="world-designer-button-subtle" data-role="png-import-snap">Snap crop to 32px tiles</button>
-                        </div>
-                    </div>
-                    <div class="world-designer-import-card" data-role="png-import-export-card">
-                        <h3>Split PNG into import chunks</h3>
-                        <div class="world-designer-grid">
-                            <label class="world-designer-field">Chunk preset
-                                <select data-role="png-import-export-preset">
-                                    <option value="4x4">4 x 4 tiles</option>
-                                    <option value="8x8">8 x 8 tiles</option>
-                                    <option value="16x16" selected>16 x 16 tiles</option>
-                                    <option value="24x16">24 x 16 tiles</option>
-                                    <option value="16x24">16 x 24 tiles</option>
-                                    <option value="custom">Custom</option>
-                                </select>
-                            </label>
-                            <label class="world-designer-field">Chunk width (tiles)
-                                <input type="number" data-role="png-import-export-width" value="16" min="1" step="1" />
-                            </label>
-                            <label class="world-designer-field">Chunk height (tiles)
-                                <input type="number" data-role="png-import-export-height" value="16" min="1" step="1" />
-                            </label>
-                        </div>
-                        <label class="world-designer-checkbox">
-                            <input type="checkbox" data-role="png-import-export-skip-empty" checked />
-                            Skip fully empty / black chunk PNGs
-                        </label>
-                        <div class="world-designer-actions">
-                            <button type="button" class="world-designer-button-secondary" data-role="png-import-export">Export chunks…</button>
-                        </div>
-                        <div class="world-designer-summary" data-role="png-import-export-meta">
-                            Export chunk PNGs with stable names and a manifest so the folder importer can reconstruct the larger map later.
-                        </div>
-                    </div>
-                    <div class="world-designer-import-card" data-role="png-import-progress-card" hidden>
-                        <h3 data-role="png-import-progress-title">Progress</h3>
-                        <div class="world-designer-import-progress" data-role="png-import-progress">
-                            <progress data-role="png-import-progress-bar" max="1" value="0"></progress>
-                            <div class="world-designer-summary" data-role="png-import-progress-label">Preparing…</div>
-                            <div class="world-designer-summary" data-role="png-import-progress-detail"></div>
-                            <div class="world-designer-import-progress-actions">
-                                <button type="button" class="world-designer-button-secondary" data-role="png-import-progress-cancel" hidden>Cancel chunk export</button>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="world-designer-import-card" data-role="png-import-world-card">
-                        <h3>Place matched blocks in the world</h3>
-                        <div class="world-designer-grid">
-                            <label class="world-designer-field">World left
-                                <input type="number" data-role="png-import-world-x" value="${defaultWorldRect.x}" step="1" />
-                            </label>
-                            <label class="world-designer-field">World top
-                                <input type="number" data-role="png-import-world-y" value="${defaultWorldRect.y}" step="1" />
-                            </label>
-                            <label class="world-designer-field">World span width
-                                <input type="number" data-role="png-import-world-width" value="${defaultWorldRect.width}" step="1" />
-                            </label>
-                            <label class="world-designer-field">World span height
-                                <input type="number" data-role="png-import-world-height" value="${defaultWorldRect.height}" step="1" />
-                            </label>
-                        </div>
-                        <div class="world-designer-summary" data-role="png-import-world-meta">
-                            In chunk-folder mode, world left/top is the origin for the exported crop and the folder preview keeps the selected chunk range aligned relative to that origin.
-                        </div>
-                        <label class="world-designer-checkbox">
-                            <input type="checkbox" data-role="png-import-replace" checked />
-                            Replace existing world items inside the target area before importing
-                        </label>
-                        <label class="world-designer-checkbox">
-                            <input type="checkbox" data-role="png-import-clear-all" />
-                            Clear all existing world items and collectibles before importing
-                        </label>
-                    </div>
-                    <div class="world-designer-import-card" data-role="png-import-action-card">
-                        <div class="world-designer-actions">
-                            <button type="button" class="world-designer-button-primary" data-role="png-import-preview">Preview blocks</button>
-                            <button type="button" class="world-designer-button-secondary" data-role="png-import-direct-folder" hidden>Try folder import now</button>
-                        </div>
-                        <div class="world-designer-summary" data-role="png-import-meta">
-                            Loading PNG metadata…
-                        </div>
-                    </div>
-                </div>
-                <div class="world-designer-import-main" data-role="png-import-main">
-                    <div class="world-designer-import-card" data-role="png-import-preview-card">
-                        <div class="world-designer-import-toolbar">
-                            <div class="world-designer-summary">
-                                Preview the matched world blocks before importing. Click a tile below to edit its type, palette, rotation, or translation.
-                            </div>
-                            <div class="world-designer-import-zoom-controls">
-                                <button type="button" class="world-designer-button-subtle" data-role="png-import-zoom-out">−</button>
-                                <button type="button" class="world-designer-button-subtle" data-role="png-import-zoom-fit">Fit</button>
-                                <button type="button" class="world-designer-button-subtle" data-role="png-import-zoom-reset">100%</button>
-                                <button type="button" class="world-designer-button-subtle" data-role="png-import-zoom-in">+</button>
-                                <span class="world-designer-import-zoom-label" data-role="png-import-zoom-label">100%</span>
-                            </div>
-                        </div>
-                        <div class="world-designer-png-preview-frame" data-role="png-import-preview-frame">
-                            <canvas class="world-designer-png-preview-canvas" data-role="png-import-preview-canvas" width="32" height="32"></canvas>
-                        </div>
-                        <div class="world-designer-summary" data-role="png-import-preview-meta">
-                            Preview not generated yet.
-                        </div>
-                    </div>
-                    <div class="world-designer-import-card" data-role="png-import-editor-card">
-                        <div class="world-designer-grid">
-                            <label class="world-designer-field world-designer-grid-wide">Selected preview tile
-                                <input type="text" data-role="png-import-selected-tile" value="No tile selected" readonly />
-                            </label>
-                            <div class="world-designer-grid-wide">
-                                <div class="world-designer-sprite-preview">
-                                    <canvas class="world-designer-sprite-canvas" data-role="png-import-selected-type-preview" width="72" height="72"></canvas>
-                                    <div class="world-designer-sprite-meta" data-role="png-import-selected-type-meta">No sprite selected</div>
-                                </div>
-                                <details class="world-designer-sprite-picker" data-role="png-import-type-picker">
-                                    <summary>Choose replacement sprite</summary>
-                                    <div class="world-designer-sprite-picker-body">
-                                        <label class="world-designer-field">
-                                            Filter sprites
-                                            <input type="text" data-role="png-import-type-filter" placeholder="Filter sprite names" />
-                                        </label>
-                                        <div class="world-designer-sprite-picker-grid" data-role="png-import-type-grid"></div>
-                                    </div>
-                                </details>
-                            </div>
-                            <label class="world-designer-field">Palette
-                                <input type="number" data-role="png-import-selected-palette" value="0" min="0" step="1" />
-                            </label>
-                            <label class="world-designer-field">Rotation
-                                <select data-role="png-import-selected-rotation">${rotationOptionMarkup}</select>
-                            </label>
-                            <label class="world-designer-field">Translation
-                                <select data-role="png-import-selected-translation">${translationOptionMarkup}</select>
-                            </label>
-                        </div>
-                        <div class="world-designer-actions">
-                            <button type="button" class="world-designer-button-subtle" data-role="png-import-reset-tile">Reset selected tile</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
+        try {
+            const modalTemplate = await loadPngImportModalTemplate();
+            refs.modalBody.innerHTML = renderPngImportModalTemplate(modalTemplate, {
+                '__PNG_IMPORT_DEFAULT_URL__': PNG_IMPORT_DEFAULT_URL,
+                '__WORLD_X__': defaultWorldRect.x,
+                '__WORLD_Y__': defaultWorldRect.y,
+                '__WORLD_WIDTH__': defaultWorldRect.width,
+                '__WORLD_HEIGHT__': defaultWorldRect.height,
+                '__ROTATION_OPTIONS__': rotationOptionMarkup,
+                '__TRANSLATION_OPTIONS__': translationOptionMarkup
+            });
+        } catch (error) {
+            refs.modalBody.innerHTML = '';
+            setStatus(
+                error instanceof Error ? error.message : 'Failed to load PNG import template.',
+                'error'
+            );
+            return;
+        }
         refs.modal.classList.add('open');
 
         const singleModeButton = refs.modalBody.querySelector('[data-role="png-import-mode-single"]') as HTMLButtonElement;
@@ -9888,20 +6924,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         checked: boolean,
         onChange: (checked: boolean) => void
     ) {
-        const row = document.createElement('label');
-        row.className = 'world-designer-checkbox';
-        const input = document.createElement('input');
-        const focusKey = label;
-        input.type = 'checkbox';
-        input.checked = checked;
-        input.dataset.inspectorKey = focusKey;
-        input.addEventListener('change', () => {
+        addCheckboxInspectorControl(container, label, checked, onChange, (focusKey) => {
             pendingInspectorFocusKey = focusKey;
-            onChange(input.checked);
         });
-        row.appendChild(input);
-        row.append(label);
-        container.appendChild(row);
     }
 
     function addTextInspector(
@@ -9911,19 +6936,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         onCommit: (value: string) => void,
         multiline = false
     ) {
-        const field = document.createElement('label');
-        field.className = 'world-designer-field';
-        field.textContent = label;
-        const input = multiline ? document.createElement('textarea') : document.createElement('input');
-        const focusKey = label;
-        input.value = value;
-        input.dataset.inspectorKey = focusKey;
-        input.addEventListener('change', () => {
+        addTextInspectorControl(container, label, value, onCommit, (focusKey) => {
             pendingInspectorFocusKey = focusKey;
-            onCommit(input.value);
-        });
-        field.appendChild(input);
-        container.appendChild(field);
+        }, multiline);
     }
 
     function addNumberInspector(
@@ -9933,21 +6948,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         onCommit: (value: number) => void,
         step = 1
     ) {
-        const field = document.createElement('label');
-        field.className = 'world-designer-field';
-        field.textContent = label;
-        const input = document.createElement('input');
-        const focusKey = label;
-        input.type = 'number';
-        input.step = String(step);
-        input.value = String(value);
-        input.dataset.inspectorKey = focusKey;
-        input.addEventListener('change', () => {
+        addNumberInspectorControl(container, label, value, onCommit, (focusKey) => {
             pendingInspectorFocusKey = focusKey;
-            onCommit(Number(input.value));
-        });
-        field.appendChild(input);
-        container.appendChild(field);
+        }, step);
     }
 
     function addSelectInspector(
@@ -9957,25 +6960,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         options: string[],
         onCommit: (value: string) => void
     ) {
-        const field = document.createElement('label');
-        field.className = 'world-designer-field';
-        field.textContent = label;
-        const select = document.createElement('select');
-        const focusKey = label;
-        for (const optionValue of options) {
-            const option = document.createElement('option');
-            option.value = optionValue;
-            option.textContent = optionValue;
-            select.appendChild(option);
-        }
-        select.value = value;
-        select.dataset.inspectorKey = focusKey;
-        select.addEventListener('change', () => {
+        addSelectInspectorControl(container, label, value, options, onCommit, (focusKey) => {
             pendingInspectorFocusKey = focusKey;
-            onCommit(select.value);
         });
-        field.appendChild(select);
-        container.appendChild(field);
     }
 
     function addOptionSelectInspector(
@@ -9985,44 +6972,13 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         options: Array<{ value: string; label: string }>,
         onCommit: (value: string) => void
     ) {
-        const field = document.createElement('label');
-        field.className = 'world-designer-field';
-        field.textContent = label;
-        const select = document.createElement('select');
-        const focusKey = label;
-        for (const optionValue of options) {
-            const option = document.createElement('option');
-            option.value = optionValue.value;
-            option.textContent = optionValue.label;
-            select.appendChild(option);
-        }
-        select.value = value;
-        select.dataset.inspectorKey = focusKey;
-        select.addEventListener('change', () => {
+        addOptionSelectInspectorControl(container, label, value, options, onCommit, (focusKey) => {
             pendingInspectorFocusKey = focusKey;
-            onCommit(select.value);
         });
-        field.appendChild(select);
-        container.appendChild(field);
     }
 
     function restorePendingInspectorFocus() {
-        if (!pendingInspectorFocusKey) {
-            return;
-        }
-        const selector = `[data-inspector-key="${CSS.escape(pendingInspectorFocusKey)}"]`;
-        const field = refs.inspector.querySelector(selector);
-        pendingInspectorFocusKey = null;
-        if (!(field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement || field instanceof HTMLSelectElement)) {
-            return;
-        }
-        if (field.disabled) {
-            return;
-        }
-        field.focus();
-        if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) {
-            field.select();
-        }
+        pendingInspectorFocusKey = restorePendingInspectorFocusControl(refs.inspector, pendingInspectorFocusKey);
     }
 
     function addInspectorAction(
@@ -10030,11 +6986,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         label: string,
         onClick: () => void
     ) {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.textContent = label;
-        button.addEventListener('click', onClick);
-        container.appendChild(button);
+        addInspectorActionControl(container, label, onClick);
     }
 
     function renderButtonDefaultsInspector(container: HTMLElement, selectedButton: Button | null) {
@@ -12606,9 +9558,9 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             window.visualViewport?.removeEventListener('resize', applyDesignerOverlayZoomCompensation);
             window.visualViewport?.removeEventListener('scroll', applyDesignerOverlayZoomCompensation);
             window.removeEventListener('beforeunload', handleWindowBeforeUnload);
-            root.remove();
-            modal.remove();
-            paletteFlyout.remove();
+            refs.root.remove();
+            refs.modal.remove();
+            refs.paletteFlyout.remove();
             styles.remove();
         }
     };

@@ -1,4 +1,4 @@
-import { CreatureProjectileKind, CreatureProjectileSettings } from './types/index.js';
+import { CreatureProjectileKind, CreatureProjectileSettings } from '../types/index.js';
 
 export type BulletImpactAudioKey = 'bulletExplosion' | 'bulletExplosion2';
 export type BulletImpactAudioSettings = {

@@ -5,9 +5,9 @@ import {
     CreatureSaveData,
     CreatureSoundSettings,
     PaletteCycleSettings
-} from './types/index.js';
-import { CREATURE_PROJECTILE_SETTINGS } from './settings.js';
-import { normalizeSpriteTranslation, SpriteTranslation } from './utilities.js';
+} from '../types/index.js';
+import { CREATURE_PROJECTILE_SETTINGS } from '../config/settings.js';
+import { normalizeSpriteTranslation, SpriteTranslation } from '../shared/utilities.js';
 
 export const DEFAULT_CREATURE_SOUND_SETTINGS: Required<CreatureSoundSettings> = {
     enabled: false,

@@ -1,10 +1,10 @@
-import { MOVEMENT_SETTINGS } from './settings.js';
+import { MOVEMENT_SETTINGS } from '../config/settings.js';
 import {
     CreatureProjectileRuntimeData,
     CreatureSaveData,
     PaletteCycleSettings,
     Position
-} from './types/index.js';
+} from '../types/index.js';
 
 export function isGrenadeCollectableType(type: string): type is 'grenade' | 'plasma_grenade' {
     return type === 'grenade' || type === 'plasma_grenade';

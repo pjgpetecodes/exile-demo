@@ -1,14 +1,14 @@
-import { assignEntityId } from './game.js';
+import { assignEntityId } from '../game/game.js';
 import {
     DEFAULT_MAP_HEIGHT,
     DEFAULT_MAP_WIDTH,
     SPRITE_SCALE as DEFAULT_SPRITE_SCALE,
     setMapBounds
-} from './constants.js';
-import type { DestructionSourceRequirement } from './destructibles.js';
+} from '../config/constants.js';
+import type { DestructionSourceRequirement } from '../entities/destructibles.js';
 import { resolveAnimatedPaletteIndex } from './palette-cycle.js';
-import { PaletteCycleSettings, Position, WindEmitterMode } from './types/index.js';
-import { getSpriteTranslationOffset, getTransformedSpriteCanvas, normalizeSpriteTranslation, SpriteTranslation } from './utilities.js';
+import { PaletteCycleSettings, Position, WindEmitterMode } from '../types/index.js';
+import { getSpriteTranslationOffset, getTransformedSpriteCanvas, normalizeSpriteTranslation, SpriteTranslation } from '../shared/utilities.js';
 
 export type MapBlock = {
     x: number; // tile x
@@ -47,6 +47,7 @@ export let mapLoaded = false;
 type BlockBucketMap = Map<string, MapBlock[]>;
 
 const MAP_BLOCK_TILE_SIZE = 32 * DEFAULT_SPRITE_SCALE;
+// --- Render/collision cache views derived from mapBlocks ---
 let mapBlocksWithoutBlackBackground: MapBlock[] = [];
 let mapBlocksBehindAstronaut: MapBlock[] = [];
 let mapBlocksBehindAstronautWithoutBlackBackground: MapBlock[] = [];
@@ -79,6 +80,7 @@ type MushroomPixelPoint = {
 
 type MushroomSpillSide = 'left' | 'right';
 
+// --- Deterministic mushroom visual noise helpers ---
 function hashStringToSeed(value: string) {
     let hash = 2166136261;
     for (let index = 0; index < value.length; index += 1) {
@@ -183,6 +185,7 @@ function getMushroomPatternCanvas(block: MapBlock, spriteCanvas: HTMLCanvasEleme
 }
 
 function getMapBlockPositionKey(x: number, y: number) {
+    // Fixed precision avoids lookup misses caused by tiny floating-point drift.
     return `${x.toFixed(3)}:${y.toFixed(3)}`;
 }
 
@@ -213,6 +216,7 @@ function getSpriteAlphaMask(sourceCanvas: HTMLCanvasElement) {
     return mask;
 }
 
+// Resolve the final sprite canvas after palette animation + authored rotation.
 function getMapBlockSpriteCanvas(
     block: MapBlock,
     rectMap: Record<string, any>,
@@ -439,6 +443,7 @@ function getBucketedBlocksInViewport(
     tileW: number,
     tileH: number
 ) {
+    // Bucket scan is the fast path used by rendering and coarse collision queries.
     const minColumn = Math.floor((camera.x - tileW) / MAP_BLOCK_TILE_SIZE);
     const maxColumn = Math.floor((camera.x + width + tileW) / MAP_BLOCK_TILE_SIZE);
     const minRow = Math.floor((camera.y - tileH) / MAP_BLOCK_TILE_SIZE);
@@ -498,7 +503,7 @@ export function shouldMaskAstronaut(block: Pick<MapBlock, 'type' | 'collision' |
     return block.collision === false;
 }
 
-// New: Color alias map and loader
+// --- Chunked world streaming state ---
 let colorAliases: Record<string, [number, number, number]> = {};
 let colorAliasesLoaded = false;
 type WorldChunkManifestEntry = {
@@ -672,9 +677,10 @@ async function ensureChunkLoaded(chunkKey: string): Promise<ChunkCacheEntry | nu
         chunkCacheByKey.set(chunkKey, cacheEntry);
     }
 
+    // Deduplicate concurrent fetches for the same chunk via a shared promise.
     if (!cacheEntry.loadPromise) {
         cacheEntry.loadPromise = (async () => {
-            const chunkPayload = await fetchFreshJson<any[]>(`./src/assets/world_chunks/${manifestEntry.file}`);
+            const chunkPayload = await fetchFreshJson<any[]>(`./src/assets/data/world_chunks/${manifestEntry.file}`);
             if (!Array.isArray(chunkPayload)) {
                 throw new Error('Invalid world chunk payload. Each chunk file must contain an array of map blocks.');
             }
@@ -737,7 +743,7 @@ async function fetchFreshJson<T>(url: string): Promise<T> {
 
 async function loadColorAliases() {
     if (colorAliasesLoaded) return;
-    colorAliases = await fetchFreshJson('./src/assets/colors.json');
+    colorAliases = await fetchFreshJson('./src/assets/data/colors.json');
     colorAliasesLoaded = true;
 }
 
@@ -755,7 +761,7 @@ function isChunkManifestEntry(value: unknown): value is WorldChunkManifestEntry 
 async function loadChunkedWorldMapBlocks() {
     let manifest: WorldChunkManifest;
     try {
-        manifest = await fetchFreshJson<WorldChunkManifest>('./src/assets/world_chunks/manifest.json');
+        manifest = await fetchFreshJson<WorldChunkManifest>('./src/assets/data/world_chunks/manifest.json');
     } catch (error) {
         if (error instanceof Error && error.message.includes('world_chunks/manifest.json: 404')) {
             return null;
@@ -818,7 +824,7 @@ export async function loadMapBlocks() {
         lastViewportSyncedChunkKeys = new Set();
     } else {
         chunkedWorldMapEnabled = false;
-        const arr = await fetchFreshJson<any[]>('./src/assets/world_map.json');
+        const arr = await fetchFreshJson<any[]>('./src/assets/data/world_map.json');
         // Assign entityId to each block using global assignEntityId
         setMapBlocks(arr.map((block: any) => assignEntityId(block)));
     }
@@ -870,6 +876,7 @@ export function syncMapChunksForViewport(
         return;
     }
 
+    // Viewport-driven chunk set includes a configurable prefetch margin.
     const requiredChunkKeys = buildChunkKeysForViewport(
         camera,
         viewportWidth,

@@ -1,5 +1,5 @@
 import { Door } from './door.js';
-import { PaletteCycleSettings, TeleporterDestinationMode } from './types/index.js';
+import { PaletteCycleSettings, TeleporterDestinationMode } from '../types/index.js';
 
 type ButtonPart = {
     x: number;

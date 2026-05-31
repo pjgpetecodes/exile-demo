@@ -3,7 +3,7 @@ import {
     getDefaultDestructibleHealth,
     getDefaultDestructionSource
 } from './destructibles.js';
-import { PaletteCycleSettings } from './types/index.js';
+import { PaletteCycleSettings } from '../types/index.js';
 import type { DestructionSourceRequirement } from './destructibles.js';
 
 export class Door {

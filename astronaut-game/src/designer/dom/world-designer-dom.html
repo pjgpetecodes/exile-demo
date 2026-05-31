@@ -1,0 +1,203 @@
+<template id="world-designer-panel-template">
+    <div class="world-designer-drag-handle" data-role="panel-drag-handle">
+        <h2 class="world-designer-drag-title">World Designer</h2>
+        <button type="button" data-role="active-toggle">Hide panel</button>
+    </div>
+    <div class="world-designer-status" data-role="status"></div>
+    <details class="world-designer-section world-designer-accordion" data-section-id="overview">
+        <summary>Overview navigator</summary>
+        <div class="world-designer-accordion-body">
+            <div class="world-designer-summary">Zoomed-out world view. Move the cursor to preview the 1:1 viewport, then drag with the left mouse button to pan the main view.</div>
+            <canvas class="world-designer-overview" data-role="overview" width="320" height="220"></canvas>
+        </div>
+    </details>
+    <details class="world-designer-section world-designer-accordion" data-section-id="mode-and-sprite">
+        <summary>Mode and sprite setup</summary>
+        <div class="world-designer-accordion-body">
+            <div class="world-designer-grid">
+                <label class="world-designer-field">Mode<select data-role="mode"><option value="edit">Edit</option><option value="preview">Preview</option></select></label>
+                <label class="world-designer-field">Tool<select data-role="tool"><option value="select">Select / move</option><option value="place">Place new</option></select></label>
+                <label class="world-designer-field">Category<select data-role="category">
+                    <option value="world">World items</option>
+                    <option value="buttons">Buttons</option>
+                    <option value="doors">Doors</option>
+                    <option value="creatures">Creatures</option>
+                    <option value="collectables">Collectables</option>
+                    <option value="custom">Custom sprites</option>
+                </select></label>
+                <label class="world-designer-field">Sprite type<select data-role="type"></select></label>
+                <div class="world-designer-grid-wide">
+                    <div class="world-designer-sprite-preview">
+                        <canvas class="world-designer-sprite-canvas" data-role="sprite-preview" width="72" height="72"></canvas>
+                        <div class="world-designer-sprite-meta" data-role="sprite-preview-meta"></div>
+                    </div>
+                    <details class="world-designer-sprite-picker" data-role="sprite-picker">
+                        <summary>Choose from sprite grid</summary>
+                        <div class="world-designer-sprite-picker-body">
+                            <div class="world-designer-grid world-designer-grid-wide">
+                                <label class="world-designer-field">Filter sprites<input type="text" data-role="sprite-picker-filter" placeholder="Type to filter sprite names" /></label>
+                                <label class="world-designer-field">Category filter<select data-role="sprite-picker-category-filter"></select></label>
+                            </div>
+                            <div class="world-designer-sprite-picker-grid" data-role="sprite-picker-grid"></div>
+                        </div>
+                    </details>
+                </div>
+                <label class="world-designer-field">Rotation<select data-role="rotation"></select></label>
+                <label class="world-designer-field">Translation<select data-role="translation"></select></label>
+                <div class="world-designer-field">
+                    <label>Palette</label>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <select data-role="palette" style="flex:1 1 auto;"></select>
+                        <button type="button" data-role="palette-designer-toggle">Edit</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </details>
+    <details class="world-designer-section world-designer-accordion" data-section-id="placement-actions">
+        <summary>Placement and actions</summary>
+        <div class="world-designer-accordion-body">
+            <label class="world-designer-checkbox"><input type="checkbox" data-role="snap" /> Snap rough placement to 32px grid</label>
+            <label class="world-designer-checkbox"><input type="checkbox" data-role="object-snap" /> Snap to nearby object edges</label>
+            <div class="world-designer-grid" style="margin-top:8px;">
+                <label class="world-designer-field">Grid offset X<input type="number" min="0" max="31" step="1" value="0" data-role="snap-offset-x" /></label>
+                <label class="world-designer-field">Grid offset Y<input type="number" min="0" max="31" step="1" value="0" data-role="snap-offset-y" /></label>
+                <button type="button" data-role="snap-offset-capture">Use selection / view center</button>
+            </div>
+            <label class="world-designer-field">Arrow-key nudge size<input type="number" min="1" max="64" step="1" value="1" data-role="nudge" /></label>
+            <div class="world-designer-actions">
+                <button type="button" data-role="focus-astronaut">Center on astronaut</button>
+                <button type="button" data-role="move-astronaut">Move live astronaut to view center</button>
+                <button type="button" data-role="add-center">Place at view center</button>
+                <button type="button" data-role="set-start">Set astronaut start to view center</button>
+                <button type="button" data-role="duplicate">Duplicate selection</button>
+                <button type="button" data-role="delete">Delete selection</button>
+                <button type="button" data-role="send-to-back">Send to back</button>
+                <button type="button" data-role="bring-to-front">Bring to front</button>
+                <button type="button" data-role="focus">Focus selection</button>
+                <label class="world-designer-field" style="min-width:180px;">
+                    <span>Convert to</span>
+                    <select data-role="convert-target"></select>
+                </label>
+                <button type="button" data-role="convert">Convert</button>
+                <button type="button" data-role="png-import">Import PNG draft</button>
+                <button type="button" data-role="normalize-sprite-sheet">Normalize sprite colors</button>
+                <button type="button" data-role="save-preview">Preview before save</button>
+            </div>
+        </div>
+    </details>
+    <details class="world-designer-section world-designer-accordion" data-section-id="selection">
+        <summary>Selection</summary>
+        <div class="world-designer-accordion-body">
+            <div class="world-designer-summary" data-role="selection-summary">Nothing selected.</div>
+            <div data-role="inspector"></div>
+        </div>
+    </details>
+    <details class="world-designer-section world-designer-accordion" data-section-id="preview-toggles">
+        <summary>Preview toggles</summary>
+        <div class="world-designer-accordion-body">
+            <label class="world-designer-checkbox"><input type="checkbox" data-role="sound-enabled" /> Sound enabled</label>
+            <div class="world-designer-grid" style="margin-top:8px;">
+                <label class="world-designer-field">Bullet impact primary audio
+                    <select data-role="bullet-impact-primary">
+                        <option value="bulletExplosion">BulletExplosion.wav</option>
+                        <option value="bulletExplosion2">BulletExplosion2.wav</option>
+                    </select>
+                </label>
+                <label class="world-designer-field">Bullet impact alternate audio
+                    <select data-role="bullet-impact-alternate">
+                        <option value="bulletExplosion">BulletExplosion.wav</option>
+                        <option value="bulletExplosion2">BulletExplosion2.wav</option>
+                    </select>
+                </label>
+                <label class="world-designer-field">Alternate chance (0..1)
+                    <input type="number" min="0" max="1" step="0.01" data-role="bullet-impact-alternate-chance" />
+                </label>
+                <label class="world-designer-field">Bullet impact volume (0..1)
+                    <input type="number" min="0" max="1" step="0.05" data-role="bullet-impact-volume" />
+                </label>
+            </div>
+            <label class="world-designer-checkbox"><input type="checkbox" data-role="wind-enabled" /> Wind enabled</label>
+            <label class="world-designer-checkbox"><input type="checkbox" data-role="wind-emitters-enabled" /> Wind emitters enabled</label>
+            <label class="world-designer-checkbox"><input type="checkbox" data-role="wind-surface-enabled" /> Surface wind enabled</label>
+            <label class="world-designer-checkbox"><input type="checkbox" data-role="wind-vfx-enabled" /> Wind VFX enabled</label>
+            <label class="world-designer-checkbox"><input type="checkbox" data-role="expand-viewport" /> Expand viewport to window</label>
+            <label class="world-designer-checkbox"><input type="checkbox" data-role="show-collision" /> Show collision outlines</label>
+            <label class="world-designer-checkbox"><input type="checkbox" data-role="show-creature-overlays" /> Show creature overlays</label>
+            <label class="world-designer-checkbox"><input type="checkbox" data-role="show-sprite-outlines" /> Show sprite outlines (F)</label>
+            <label class="world-designer-checkbox"><input type="checkbox" data-role="show-performance-hud" /> Show FPS / perf overlay</label>
+            <label class="world-designer-checkbox"><input type="checkbox" data-role="magnifier-enabled" /> Show magnifier</label>
+            <label class="world-designer-checkbox"><input type="checkbox" data-role="disable-preview-collision" /> Disable collision during preview</label>
+            <div class="world-designer-grid">
+                <label class="world-designer-checkbox"><input type="checkbox" checked data-layer="world" /> World</label>
+                <label class="world-designer-checkbox"><input type="checkbox" checked data-layer="buttons" /> Buttons</label>
+                <label class="world-designer-checkbox"><input type="checkbox" checked data-layer="doors" /> Doors</label>
+                <label class="world-designer-checkbox"><input type="checkbox" checked data-layer="creatures" /> Creatures</label>
+                <label class="world-designer-checkbox"><input type="checkbox" checked data-layer="collectables" /> Collectables</label>
+                <label class="world-designer-checkbox"><input type="checkbox" checked data-layer="custom" /> Custom sprites</label>
+            </div>
+        </div>
+    </details>
+    <details class="world-designer-section world-designer-accordion" data-section-id="keyboard-shortcuts">
+        <summary>Keyboard shortcuts</summary>
+        <div class="world-designer-accordion-body">
+            <ul class="world-designer-shortcuts">
+                <li><strong>`</strong> show/hide panel</li>
+                <li><strong>1</strong> select tool, <strong>2</strong> place tool, <strong>M</strong> toggle preview mode</li>
+                <li><strong>Alt+Enter</strong> toggle expanded viewport</li>
+                <li><strong>R</strong> rotate selection, <strong>Delete</strong> remove selection, <strong>Ctrl+C</strong> copy, <strong>Ctrl+V</strong> paste, <strong>Ctrl+D</strong> duplicate</li>
+                <li><strong>Arrow keys</strong> nudge selected item, <strong>Shift+Arrow</strong> larger nudge</li>
+                <li><strong>Ctrl+drag</strong> dock to nearby block edges, <strong>Alt+drag</strong> align matching edges, <strong>Ctrl+Alt+drag</strong> allow both</li>
+                <li><strong>F</strong> toggle sprite outlines, <strong>G</strong> toggle grid snap, <strong>X</strong> toggle magnifier, <strong>Ctrl+S</strong> preview before save</li>
+                <li><strong>Ctrl+Z</strong> undo, <strong>Ctrl+Y</strong> or <strong>Ctrl+Shift+Z</strong> redo</li>
+            </ul>
+        </div>
+    </details>
+</template>
+
+<template id="world-designer-modal-template">
+    <div class="world-designer-modal-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+            <h2 style="margin:0;" data-role="modal-title">Preview before save</h2>
+            <button type="button" data-role="modal-close">Close</button>
+        </div>
+        <div data-role="modal-body"></div>
+        <div class="world-designer-modal-actions">
+            <button type="button" data-role="modal-confirm">Save changes</button>
+        </div>
+    </div>
+</template>
+
+<template id="world-designer-context-menu-template">
+    <div data-role="context-menu-body"></div>
+</template>
+
+<template id="world-designer-palette-flyout-template">
+    <div class="world-designer-drag-handle" data-role="palette-flyout-drag-handle">
+        <h2 class="world-designer-drag-title" style="margin:0;">Palette Designer</h2>
+        <button type="button" data-role="palette-flyout-close">Close</button>
+    </div>
+    <div class="world-designer-summary" data-role="palette-usage"></div>
+    <div class="world-designer-grid">
+        <label class="world-designer-field world-designer-grid-wide">Palette<select class="world-designer-palette-list" size="8" data-role="palette-list"></select></label>
+        <div class="world-designer-actions world-designer-grid-wide">
+            <button type="button" data-role="palette-new">New</button>
+            <button type="button" data-role="palette-clone">Clone</button>
+            <button type="button" data-role="palette-delete">Delete</button>
+            <button type="button" data-role="palette-save">Save palettes</button>
+        </div>
+        <label class="world-designer-field world-designer-grid-wide">Preview sprite<select data-role="palette-preview-type"></select></label>
+        <div class="world-designer-grid-wide">
+            <canvas class="world-designer-sprite-canvas world-designer-palette-preview" data-role="palette-preview-canvas" width="320" height="120"></canvas>
+        </div>
+    </div>
+    <details class="world-designer-section world-designer-accordion" data-section-id="palette-remaps">
+        <summary>Color remaps</summary>
+        <div class="world-designer-accordion-body">
+            <div class="world-designer-palette-mappings" data-role="palette-mappings"></div>
+            <div class="world-designer-actions" style="margin-top:8px;">
+                <button type="button" data-role="palette-add-mapping">Add remap</button>
+            </div>
+        </div>
+    </details>
+</template>

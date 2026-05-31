@@ -9,17 +9,15 @@ import {
     GameState,
     PaletteCycleSettings,
     Position,
-    TeleporterDestinationMode,
-    TeleporterSaveData,
     WindGlobalSettings
-} from './types/index.js';
+} from '../types/index.js';
 import {
     astronaut, resetAstronaut, resetAstronautToPosition, flipAstronaut, handleAstronautMovement, applyLandingMomentum, getAstronautCollisionOffsets, setAstronautCollisionProfile, canAstronautFitCollisionProfile,
     getAstronautStartPosition, setAstronautStartPosition,
     walkSpeed, facingLeft, upPressed, downPressed, leftPressed, rightPressed,
     checkAstronautCollisions
-} from './astronaut.js';
-import { applyGravity } from './gravity.js';
+} from '../entities/astronaut.js';
+import { applyGravity } from '../physics/gravity.js';
 import {
     DynamicObjectPhysicsSettings,
     applyDynamicObjectGravity,
@@ -28,7 +26,7 @@ import {
     getDynamicObjectHeadBounceLaunchSpeed,
     getDynamicObjectPushedVelocity,
     getDynamicObjectPushScale
-} from './object-physics.js';
+} from '../physics/object-physics.js';
 import {
     clearMapSpriteCache,
     mapBlocks,
@@ -48,24 +46,24 @@ import {
     materializeAllMapChunksForSave,
     prefetchMapChunksAroundWorldPosition,
     syncMapChunksForViewport
-} from './map.js';
-import { initStars, updateAndDrawStars } from './stars.js';
-import { emitJetpackDots, updateAndDrawJetpackDots, resetJetpackDotEmitTimer, hasActiveJetpackDots } from './jetpack.js';
-import { Button } from './button.js';
+} from '../world/map.js';
+import { initStars, updateAndDrawStars } from '../world/stars.js';
+import { emitJetpackDots, updateAndDrawJetpackDots, resetJetpackDotEmitTimer, hasActiveJetpackDots } from '../physics/jetpack.js';
+import { Button } from '../entities/button.js';
 import {
     getDefaultDestructibleEnabled,
     getDefaultDestructibleHealth,
     getDefaultDestructionSource,
     type DestructionSourceRequirement
-} from './destructibles.js';
-import { Door } from './door.js';
-import { Creature, getCreatureAuthoredType, toCreatureSaveData } from './creature.js';
-import { Collectable, getDefaultGrenadeExplosionPower, isGrenadeCollectableType } from './collectable.js';
+} from '../entities/destructibles.js';
+import { Door } from '../entities/door.js';
+import { Creature, getCreatureAuthoredType, toCreatureSaveData } from '../entities/creature.js';
+import { Collectable, getDefaultGrenadeExplosionPower } from '../entities/collectable.js';
 import { makeBlackTransparent, remapSpritePalette, calculateSpriteCollisionBoundingBoxes, 
 calculateAstronautSpriteBoundingBoxes, getSolidBlockAtWorld, getAnyBlockAtWorld, 
 drawEntities, getSpriteTranslationOffset, getSpriteVisibleBounds, getTransformedSpriteCanvas,
 getVisibleCenterRotationOffset, getRenderedEntitySpriteCanvas, normalizeSpriteTranslation, SpriteTranslation
-} from './utilities.js';
+} from '../shared/utilities.js';
 import {
     CHUNK_ACTIVITY_SETTINGS,
     BULLET_IMPACT_AUDIO_SETTINGS,
@@ -73,8 +71,8 @@ import {
     CREATURE_PROJECTILE_SETTINGS,
     MOVEMENT_SETTINGS,
     VIEWPORT_SETTINGS
-} from './settings.js';
-import { ChunkActivityManager } from './chunk-activity-manager.js';
+} from '../config/settings.js';
+import { ChunkActivityManager } from '../world/chunk-activity-manager.js';
 import {
     SPRITE_ROW, SPRITE_COL_STAND, SPRITE_COL_FLY_RIGHT, SPRITE_COL_FLY_DIAGONAL,
     SPRITE_COL_FLY_FLOAT, SPRITE_COL_FLY_DOWN, SPRITE_COL_WALK_START, SPRITE_COL_WALK_RIGHT1,
@@ -82,7 +80,7 @@ import {
     SPRITE_SCALE, rememberSound, teleportSound, buttonOnSound, doorOpenSound, doorCloseSound, getSound, saveSound, bulletExplosionSound, bulletExplosion2Sound, grenadeArmedSound, plasmaGrenadeImpactSound, mushroomsSound, ouchSounds, creatureManifestSounds,
     setMapBounds,
     getSoundEnabled, setSoundEnabled, toggleSoundEnabled
-} from './constants.js';
+} from '../config/constants.js';
 import {
     createWorldDesigner,
     LayerVisibility,
@@ -91,13 +89,60 @@ import {
     SpriteCatalogEntry,
     SpriteSheetNormalizationReport,
     WorldDesigner
-} from './world-designer.js';
+} from '../designer/world-designer.js';
+import {
+    blockBrowserShortcut,
+    getInputKey,
+    shouldPreventGameplayDefault
+} from './game-input.js';
+import { createGameFrameScheduler } from './game-frame-scheduler.js';
+import { createGamePerformanceTracker } from './game-performance-tracker.js';
+import {
+    type TeleporterRuntime,
+    normalizeTeleporter,
+    buildTeleportersFromMapMetadata,
+    reconcileTeleporterRuntimePositions,
+    applyButtonTeleporterLinks
+} from './game-teleporter-runtime.js';
+import { createTeleporterPadRuntime } from './game-teleporter-pad-runtime.js';
+import {
+    type WindEmitterRuntime,
+    type WindRuntimeToggles,
+    normalizeWindEmitter,
+    normalizeWindSettings,
+    setWindDebugToggle,
+    getEffectiveWindToggles,
+    toWindEmitterFromBlock,
+    resolveEmitterMagnitude,
+    computeEmitterWindAccelerationAtPoint,
+    getSurfaceWindEdgeProximity,
+    getSurfaceWindBoundaryOvershoot,
+    applySurfaceWindField
+} from './game-wind-runtime.js';
+import { createGameAudioRuntime } from './game-audio-runtime.js';
+import {
+    type CreatureProjectileCollectable,
+    isCreatureProjectileCollectable,
+    isCollectableCollected as isCollectableCollectedRuntime,
+    markCollectableCollected as markCollectableCollectedRuntime,
+    syncGrenadeFuseState,
+    setGrenadeCollectableArmedState,
+    isGrenadeCollectable,
+    getGrenadeExplosionRadius,
+    getGrenadeExplosionPower,
+    getExplosionDamageSource,
+    isRadioactiveBoulderCollectable,
+    getCreatureProjectileCollectables as getCreatureProjectileCollectablesRuntime,
+    getRenderableCollectables as getRenderableCollectablesRuntime,
+    getDesignerRenderableCollectables as getDesignerRenderableCollectablesRuntime,
+    getSavableCollectables as getSavableCollectablesRuntime
+} from './game-collectable-runtime.js';
 
 // Instead of dynamic import, fetch the JSON file at runtime for browser compatibility
 let spriteMap: any;
 
 async function loadSpriteMap() {
-    const res = await fetch('./src/assets/exile_sprites_map.json');
+    const res = await fetch('./src/assets/data/exile_sprites_map.json');
     spriteMap = await res.json();
 }
 
@@ -132,6 +177,16 @@ const MUSHROOM_AMBIENT_RANGE = 360;
 const MUSHROOM_AMBIENT_BASE_VOLUME = 0.6;
 const MUSHROOM_AMBIENT_MIN_DELAY_MS = 180;
 const MUSHROOM_AMBIENT_MAX_DELAY_MS = 420;
+const gameAudio = createGameAudioRuntime({
+    getSoundEnabled,
+    creatureManifestSounds,
+    ouchSounds,
+    plasmaGrenadeImpactSound,
+    grenadeArmedSound,
+    bulletExplosionSound,
+    bulletExplosion2Sound,
+    mushroomsSound
+});
 
 function getCreatureProjectilePhysicsSettings(collectable: Pick<Collectable, 'bounciness' | 'creatureProjectile'>) {
     const projectileKind = collectable.creatureProjectile?.kind;
@@ -166,7 +221,7 @@ async function fetchFreshJson<T>(url: string): Promise<T> {
 
 async function loadColorAliases() {
     if (Object.keys(colorAliases).length > 0) return;
-    colorAliases = await fetchFreshJson('./src/assets/colors.json');
+    colorAliases = await fetchFreshJson('./src/assets/data/colors.json');
 }
 
 function resolveColor(color: string | [number, number, number]): [number, number, number] {
@@ -178,7 +233,7 @@ function resolveColor(color: string | [number, number, number]): [number, number
 
 async function loadPalettes() {
     await loadColorAliases();
-    rawPaletteDefinitions = await fetchFreshJson<PaletteDefinition[]>('./src/assets/palettes.json');
+    rawPaletteDefinitions = await fetchFreshJson<PaletteDefinition[]>('./src/assets/data/palettes.json');
     palettes = rawPaletteDefinitions.map((palette) =>
         palette.map(({ from, to }) => ({
             from: resolveColor(from),
@@ -206,58 +261,8 @@ function applyPaletteDefinitions(definitions: PaletteDefinition[]) {
     rebuildRemappedSpriteSheets();
 }
 
-function shouldBlockBrowserShortcut(event: KeyboardEvent) {
-    if (!(event.ctrlKey || event.metaKey)) {
-        return false;
-    }
-    const key = event.key.toLowerCase();
-    return key === 'p' || key === 'w' || event.code === 'KeyP' || event.code === 'KeyW';
-}
-
-function blockBrowserShortcut(event: KeyboardEvent) {
-    if (!shouldBlockBrowserShortcut(event)) {
-        return false;
-    }
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    return true;
-}
-
-function getInputKey(event: KeyboardEvent) {
-    if (event.code === 'Space') {
-        return ' ';
-    }
-    if (event.code === 'Quote' && event.shiftKey) {
-        return '@';
-    }
-    if (event.key.length === 1) {
-        return event.key.toLowerCase();
-    }
-    return event.key;
-}
-
-function shouldPreventGameplayDefault(event: KeyboardEvent) {
-    if (isDesignerOpen()) {
-        return false;
-    }
-    const key = getInputKey(event);
-    return (
-        key === ' ' ||
-        key === 'Tab' ||
-        key === '@' ||
-        key === "'" ||
-        key === '/' ||
-        key === 'q' ||
-        key === 'w' ||
-        key === 'p' ||
-        key === 'l' ||
-        event.code === 'Quote' ||
-        event.code === 'Slash'
-    );
-}
-
 document.addEventListener('keydown', (event) => {
-    if (blockBrowserShortcut(event) || shouldPreventGameplayDefault(event)) {
+    if (blockBrowserShortcut(event) || shouldPreventGameplayDefault(event, isDesignerOpen())) {
         event.preventDefault();
     }
 }, { capture: true });
@@ -268,7 +273,7 @@ window.addEventListener('keydown', (event) => {
         return;
     }
     const key = getInputKey(event);
-    if (shouldPreventGameplayDefault(event)) {
+    if (shouldPreventGameplayDefault(event, isDesignerOpen())) {
         event.preventDefault();
     }
     keys[key] = true;
@@ -277,7 +282,7 @@ window.addEventListener('keydown', (event) => {
 
 window.addEventListener('keyup', (event) => {
     const key = getInputKey(event);
-    if (shouldPreventGameplayDefault(event)) {
+    if (shouldPreventGameplayDefault(event, isDesignerOpen())) {
         event.preventDefault();
     }
     keys[key] = false;
@@ -350,34 +355,13 @@ const IDLE_FRAME_DELAY_MS = 125;
 const HIDDEN_FRAME_DELAY_MS = 500;
 const ACTIVE_MOTION_EPSILON = 0.05;
 
-type ScheduledFrameMode = 'raf' | 'timeout' | null;
-
-let scheduledFrameMode: ScheduledFrameMode = null;
-let scheduledFrameHandle: number | null = null;
 let isGameLoopRunning = false;
 const PERF_WINDOW_SIZE = 180;
 const PERF_CONSOLE_SUMMARY_INTERVAL_MS = 5000;
-let showPerformanceHud = false;
-let showPerformanceConsoleSummary = false;
-let lastPerformanceConsoleSummaryAt = 0;
-let perfSampleCount = 0;
-let perfSampleIndex = 0;
-let lastFrameTimestamp: number | null = null;
-const perfFrameTimes = new Float32Array(PERF_WINDOW_SIZE);
-const perfUpdateTimes = new Float32Array(PERF_WINDOW_SIZE);
-const perfMapDrawTimes = new Float32Array(PERF_WINDOW_SIZE);
-const perfEntityDrawTimes = new Float32Array(PERF_WINDOW_SIZE);
-const perfTotalFrameTimes = new Float32Array(PERF_WINDOW_SIZE);
-let perfFrameTimeSum = 0;
-let perfUpdateTimeSum = 0;
-let perfMapDrawTimeSum = 0;
-let perfEntityDrawTimeSum = 0;
-let perfTotalFrameTimeSum = 0;
-let perfWorstFrameTime = 0;
-let perfWorstUpdateTime = 0;
-let perfWorstMapDrawTime = 0;
-let perfWorstEntityDrawTime = 0;
-let perfWorstTotalFrameTime = 0;
+const performanceTracker = createGamePerformanceTracker({
+    windowSize: PERF_WINDOW_SIZE,
+    consoleSummaryIntervalMs: PERF_CONSOLE_SUMMARY_INTERVAL_MS
+});
 
 let spriteSheet: HTMLImageElement;
 let astronautSpriteSource: CanvasImageSource; // Use this for astronaut rendering
@@ -468,183 +452,15 @@ function shouldRunInteractiveFrameRate() {
     );
 }
 
-function clearScheduledFrame() {
-    if (scheduledFrameMode === 'raf' && scheduledFrameHandle !== null) {
-        window.cancelAnimationFrame(scheduledFrameHandle);
-    } else if (scheduledFrameMode === 'timeout' && scheduledFrameHandle !== null) {
-        window.clearTimeout(scheduledFrameHandle);
-    }
-
-    scheduledFrameMode = null;
-    scheduledFrameHandle = null;
-}
-
-function requestImmediateFrame() {
-    if (!gameState.isRunning || !mapLoaded || scheduledFrameMode === 'raf') {
-        return;
-    }
-
-    if (scheduledFrameMode === 'timeout') {
-        clearScheduledFrame();
-    }
-
-    scheduledFrameMode = 'raf';
-    scheduledFrameHandle = window.requestAnimationFrame(() => {
-        scheduledFrameMode = null;
-        scheduledFrameHandle = null;
+const { requestImmediateFrame, scheduleNextFrame } = createGameFrameScheduler({
+    idleFrameDelayMs: IDLE_FRAME_DELAY_MS,
+    hiddenFrameDelayMs: HIDDEN_FRAME_DELAY_MS,
+    shouldRunInteractiveFrameRate,
+    canRunFrames: () => Boolean(gameState.isRunning && mapLoaded),
+    runFrame: () => {
         void gameLoop();
-    });
-}
-
-function scheduleNextFrame() {
-    if (!gameState.isRunning || !mapLoaded || scheduledFrameMode !== null) {
-        return;
     }
-
-    const delayMs = document.visibilityState === 'hidden'
-        ? HIDDEN_FRAME_DELAY_MS
-        : (shouldRunInteractiveFrameRate() ? 0 : IDLE_FRAME_DELAY_MS);
-
-    if (delayMs === 0) {
-        requestImmediateFrame();
-        return;
-    }
-
-    scheduledFrameMode = 'timeout';
-    scheduledFrameHandle = window.setTimeout(() => {
-        scheduledFrameMode = null;
-        scheduledFrameHandle = null;
-        requestImmediateFrame();
-    }, delayMs);
-}
-
-function isPerformanceInstrumentationEnabled() {
-    return showPerformanceHud || showPerformanceConsoleSummary;
-}
-
-function recomputeWorstPerformanceSample(buffer: Float32Array) {
-    let worst = 0;
-    for (let index = 0; index < perfSampleCount; index++) {
-        if (buffer[index] > worst) {
-            worst = buffer[index];
-        }
-    }
-    return worst;
-}
-
-function formatPerfSummaryLine(label: string, averageMs: number, worstMs: number) {
-    return `${label} ${averageMs.toFixed(2)}ms avg / ${worstMs.toFixed(2)}ms worst`;
-}
-
-function formatFpsFromFrameTime(frameTimeMs: number) {
-    if (!Number.isFinite(frameTimeMs) || frameTimeMs <= 0) {
-        return 'n/a';
-    }
-    return (1000 / frameTimeMs).toFixed(1);
-}
-
-function recordPerformanceFrameSample(
-    frameTimeMs: number,
-    updateWorkMs: number,
-    mapDrawMs: number,
-    entityEffectsDrawMs: number,
-    totalFrameMs: number,
-    frameNow: number
-) {
-    const replacingExistingSample = perfSampleCount === PERF_WINDOW_SIZE;
-    const replaceIndex = perfSampleIndex;
-    const replacedFrameTime = perfFrameTimes[replaceIndex];
-    const replacedUpdateTime = perfUpdateTimes[replaceIndex];
-    const replacedMapDrawTime = perfMapDrawTimes[replaceIndex];
-    const replacedEntityDrawTime = perfEntityDrawTimes[replaceIndex];
-    const replacedTotalFrameTime = perfTotalFrameTimes[replaceIndex];
-
-    if (replacingExistingSample) {
-        perfFrameTimeSum -= replacedFrameTime;
-        perfUpdateTimeSum -= replacedUpdateTime;
-        perfMapDrawTimeSum -= replacedMapDrawTime;
-        perfEntityDrawTimeSum -= replacedEntityDrawTime;
-        perfTotalFrameTimeSum -= replacedTotalFrameTime;
-    } else {
-        perfSampleCount++;
-    }
-
-    perfFrameTimes[replaceIndex] = frameTimeMs;
-    perfUpdateTimes[replaceIndex] = updateWorkMs;
-    perfMapDrawTimes[replaceIndex] = mapDrawMs;
-    perfEntityDrawTimes[replaceIndex] = entityEffectsDrawMs;
-    perfTotalFrameTimes[replaceIndex] = totalFrameMs;
-    perfFrameTimeSum += frameTimeMs;
-    perfUpdateTimeSum += updateWorkMs;
-    perfMapDrawTimeSum += mapDrawMs;
-    perfEntityDrawTimeSum += entityEffectsDrawMs;
-    perfTotalFrameTimeSum += totalFrameMs;
-
-    if (frameTimeMs >= perfWorstFrameTime) {
-        perfWorstFrameTime = frameTimeMs;
-    } else if (replacingExistingSample && replacedFrameTime >= perfWorstFrameTime) {
-        perfWorstFrameTime = recomputeWorstPerformanceSample(perfFrameTimes);
-    }
-
-    if (updateWorkMs >= perfWorstUpdateTime) {
-        perfWorstUpdateTime = updateWorkMs;
-    } else if (replacingExistingSample && replacedUpdateTime >= perfWorstUpdateTime) {
-        perfWorstUpdateTime = recomputeWorstPerformanceSample(perfUpdateTimes);
-    }
-
-    if (mapDrawMs >= perfWorstMapDrawTime) {
-        perfWorstMapDrawTime = mapDrawMs;
-    } else if (replacingExistingSample && replacedMapDrawTime >= perfWorstMapDrawTime) {
-        perfWorstMapDrawTime = recomputeWorstPerformanceSample(perfMapDrawTimes);
-    }
-
-    if (entityEffectsDrawMs >= perfWorstEntityDrawTime) {
-        perfWorstEntityDrawTime = entityEffectsDrawMs;
-    } else if (replacingExistingSample && replacedEntityDrawTime >= perfWorstEntityDrawTime) {
-        perfWorstEntityDrawTime = recomputeWorstPerformanceSample(perfEntityDrawTimes);
-    }
-
-    if (totalFrameMs >= perfWorstTotalFrameTime) {
-        perfWorstTotalFrameTime = totalFrameMs;
-    } else if (replacingExistingSample && replacedTotalFrameTime >= perfWorstTotalFrameTime) {
-        perfWorstTotalFrameTime = recomputeWorstPerformanceSample(perfTotalFrameTimes);
-    }
-
-    perfSampleIndex = (perfSampleIndex + 1) % PERF_WINDOW_SIZE;
-
-    if (
-        showPerformanceConsoleSummary &&
-        frameNow - lastPerformanceConsoleSummaryAt >= PERF_CONSOLE_SUMMARY_INTERVAL_MS
-    ) {
-        const sampleCount = Math.max(perfSampleCount, 1);
-        console.info(
-            `[perf][${navigator.userAgent.includes('Firefox') ? 'Firefox' : (navigator.userAgent.includes('Edg') ? 'Edge' : 'Other')}] ` +
-            `${formatPerfSummaryLine('frame', perfFrameTimeSum / sampleCount, perfWorstFrameTime)} | ` +
-            `${formatPerfSummaryLine('update', perfUpdateTimeSum / sampleCount, perfWorstUpdateTime)} | ` +
-            `${formatPerfSummaryLine('map', perfMapDrawTimeSum / sampleCount, perfWorstMapDrawTime)} | ` +
-            `${formatPerfSummaryLine('entities', perfEntityDrawTimeSum / sampleCount, perfWorstEntityDrawTime)} | ` +
-            `${formatPerfSummaryLine('total', perfTotalFrameTimeSum / sampleCount, perfWorstTotalFrameTime)}`
-        );
-        lastPerformanceConsoleSummaryAt = frameNow;
-    }
-}
-
-function finalizePerformanceInstrumentationFrame(
-    frameNow: number,
-    frameStartMs: number,
-    frameTimeMs: number,
-    updateWorkMs: number,
-    mapDrawMs: number,
-    drawPhaseMs: number
-) {
-    if (!isPerformanceInstrumentationEnabled()) {
-        return;
-    }
-
-    const entityEffectsDrawMs = Math.max(0, drawPhaseMs - mapDrawMs);
-    const totalFrameMs = performance.now() - frameStartMs;
-    recordPerformanceFrameSample(frameTimeMs, updateWorkMs, mapDrawMs, entityEffectsDrawMs, totalFrameMs, frameNow);
-}
+});
 
 function resetFlySwitchAnimationState() {
     flySwitching = false;
@@ -996,9 +812,6 @@ type ThrowGuideDot = {
     hueDrift: number;
     flickerOffset: number;
 };
-type CreatureProjectileCollectable = Collectable & {
-    creatureProjectile: CreatureProjectileRuntimeData;
-};
 type ProjectileImpactEffect = {
     x: number;
     y: number;
@@ -1028,85 +841,6 @@ type DoorDestructionEffect = {
     life: number;
     maxLife: number;
 };
-type TeleporterRuntime = Required<Omit<TeleporterSaveData, 'destinationB'>> & {
-    destinationB: Position | null;
-    activeDestinationIndex: 0 | 1;
-};
-type TeleporterRenderPad = {
-    teleporter: TeleporterRuntime;
-    active: boolean;
-    x: number;
-    y: number;
-    palette: number;
-    rotation: number;
-    translation: SpriteTranslation;
-    paletteCycle?: PaletteCycleSettings;
-};
-
-type TeleporterPadViewportFilter = {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    margin?: number;
-};
-
-type TeleporterPadProximityFilter = {
-    x: number;
-    y: number;
-    radius: number;
-};
-
-type WindEmitterRuntime = {
-    id: string;
-    x: number;
-    y: number;
-    enabled: boolean;
-    directionDegrees: number;
-    strength: number;
-    radius: number;
-    mode: 'constant' | 'variable';
-    variabilityHz: number;
-    variabilityAmount: number;
-    affectsAstronaut: boolean;
-    affectsLooseObjects: boolean;
-    showParticles: boolean;
-};
-
-type WindRuntimeToggles = {
-    windEnabled: boolean;
-    emittersEnabled: boolean;
-    surfaceWindEnabled: boolean;
-    windVfxEnabled: boolean;
-};
-
-const TELEPORTER_PAD_SWEEP_PHASES = [0, 0.28, 0.56, 0.82, 1] as const;
-const TELEPORTER_PAD_SWEEP_FRAME_MS = 90;
-const TELEPORTER_TILE_SIZE = 32 * SPRITE_SCALE;
-const TELEPORTER_PAD_SWEEP_CACHE_LIMIT = 4096;
-const teleporterPadSweepPositionCache = new Map<string, Position>();
-let teleporterPadCacheVersion = 0;
-let teleporterPadKeyCache: { version: number; keys: Set<string> } = { version: -1, keys: new Set<string>() };
-const teleporterPadFilteredMapCache = new WeakMap<MapBlock[], { version: number; filtered: MapBlock[] }>();
-let teleporterBlockIndexCache:
-    | {
-        version: number;
-        baseBlocksById: Map<string, MapBlock>;
-        padBlocksById: Map<string, MapBlock>;
-        baseBlocksByPosition: Map<string, MapBlock>;
-        padBlocksByPosition: Map<string, MapBlock>;
-    }
-    | null = null;
-const teleporterPadDrawEntities: Array<{
-    x: number;
-    y: number;
-    type: 'teleporter_pad';
-    palette: number;
-    rotation: number;
-    translation: SpriteTranslation;
-    paletteCycle?: PaletteCycleSettings;
-    collision: false;
-}> = [];
 type BulletImpactParticle = {
     x: number;
     y: number;
@@ -1145,8 +879,6 @@ let bulletImpactParticles: BulletImpactParticle[] = [];
 let windParticles: WindParticle[] = [];
 let destructibleDamageByEntity = new WeakMap<object, number>();
 let bulletImpactAudioSettings: BulletImpactAudioSettings = { ...BULLET_IMPACT_AUDIO_SETTINGS };
-let grenadeArmedLoopActive = false;
-let nextMushroomAmbientAt = 0;
 let worldDesigner: WorldDesigner | null = null;
 let saveSnapshotInProgress = false;
 const STARFIELD_HEIGHT = Math.min(MAP_HEIGHT, 2000);
@@ -1156,12 +888,34 @@ const BULLET_DAZE_WALK_SCALE = 0.45;
 const BULLET_DAZE_FLIGHT_SCALE = 0.35;
 const WIND_BLOCK_SAMPLE_INTERVAL_MS = 120;
 const WIND_BLOCK_SAMPLE_DISTANCE_PX = 96;
+const TELEPORTER_TILE_SIZE = 32 * SPRITE_SCALE;
 let currentAstronautRenderState = {
     spriteCol: SPRITE_COL_STAND,
     flipSprite: false,
     flipVertical: false
 };
 let lastAstronautWindAcceleration = { x: 0, y: 0, activeEmitterCount: 0 };
+const teleporterPadRuntime = createTeleporterPadRuntime({
+    spriteScale: SPRITE_SCALE,
+    getMapBlocks: () => mapBlocks,
+    getTeleporters: () => teleporterEntities,
+    getCanvasSize: () => ({ width: canvas.width, height: canvas.height }),
+    getRenderedEntityWorldSprite,
+    normalizeSpriteTranslation,
+    getSpriteVisibleBounds,
+    drawEntities: (context, camera, entities, now) => {
+        drawEntities(
+            context,
+            camera,
+            spriteMap,
+            remappedSpriteSheets,
+            SPRITE_SCALE,
+            entities,
+            now
+        );
+    },
+    canUseKeyLockedTeleporter
+});
 let layDownVerticalFlipToggled = false;
 let pronePoseActive = false;
 let proneForcedByGeometry = false;
@@ -1481,312 +1235,19 @@ export function assignEntityId(obj: any) {
     return obj;
 }
 
-function normalizeTeleporter(data: any): TeleporterRuntime {
-    const destinationA = {
-        x: Math.round(Number(data?.destinationA?.x) || 0),
-        y: Math.round(Number(data?.destinationA?.y) || 0)
-    };
-    const destinationB = data?.destinationB
-        ? {
-            x: Math.round(Number(data.destinationB.x) || 0),
-            y: Math.round(Number(data.destinationB.y) || 0)
-        }
-        : null;
-    const activeDestinationIndex = data?.activeDestinationIndex === 1 && destinationB ? 1 : 0;
-    return {
-        id: typeof data?.id === 'string' && data.id.trim().length > 0
-            ? data.id.trim()
-            : `teleporter_${Math.round(Number(data?.padX) || 0)}_${Math.round(Number(data?.padY) || 0)}`,
-        baseX: Math.round(Number(data?.baseX) || 0),
-        baseY: Math.round(Number(data?.baseY) || 0),
-        padX: Math.round(Number(data?.padX) || 0),
-        padY: Math.round(Number(data?.padY) || 0),
-        enabled: data?.enabled !== false,
-        requiresKey: data?.requiresKey === true,
-        destinationA,
-        destinationB,
-        activeDestinationIndex
-    };
-}
-
-function toRoundedPosition(value: any, fallback: Position) {
-    const x = Math.round(Number(value?.x));
-    const y = Math.round(Number(value?.y));
-    if (!Number.isFinite(x) || !Number.isFinite(y)) {
-        return { x: Math.round(fallback.x), y: Math.round(fallback.y) };
-    }
-    return { x, y };
-}
-
-function buildTeleportersFromMapMetadata() {
-    const grouped = new Map<string, { base?: MapBlock; pad?: MapBlock }>();
-    for (const block of mapBlocks) {
-        if ((block.type !== 'teleporter' && block.type !== 'teleporter_pad') || !block.teleporterId) {
-            continue;
-        }
-        const id = String(block.teleporterId).trim();
-        if (!id) {
-            continue;
-        }
-        const entry = grouped.get(id) ?? {};
-        if (block.type === 'teleporter') {
-            entry.base = block;
-        } else {
-            entry.pad = block;
-        }
-        grouped.set(id, entry);
-    }
-    const fallbackDestination = getAstronautStartPosition();
-    const reconstructed: TeleporterRuntime[] = [];
-    for (const [id, parts] of grouped.entries()) {
-        if (!parts.base || !parts.pad) {
-            continue;
-        }
-        const base = parts.base;
-        const pad = parts.pad;
-        const destinationA = toRoundedPosition(
-            base.teleporterDestinationA ?? pad.teleporterDestinationA,
-            fallbackDestination
-        );
-        const destinationBSource = base.teleporterDestinationB ?? pad.teleporterDestinationB;
-        const destinationB = destinationBSource
-            ? toRoundedPosition(destinationBSource, destinationA)
-            : null;
-        const activeDestinationIndex = (base.teleporterActiveDestinationIndex ?? pad.teleporterActiveDestinationIndex) === 1 && destinationB
-            ? 1
-            : 0;
-        reconstructed.push(normalizeTeleporter({
-            id,
-            baseX: base.x,
-            baseY: base.y,
-            padX: pad.x,
-            padY: pad.y,
-            enabled: (base.teleporterEnabled ?? pad.teleporterEnabled) !== false,
-            requiresKey: (base.teleporterRequiresKey ?? pad.teleporterRequiresKey) === true,
-            destinationA,
-            destinationB,
-            activeDestinationIndex
-        }));
-    }
-    return reconstructed;
-}
-
-function findNearestMapBlockByType(
-    type: 'teleporter' | 'teleporter_pad',
-    targetX: number,
-    targetY: number,
-    maxDistance: number
-) {
-    const maxDistanceSquared = maxDistance * maxDistance;
-    let best: MapBlock | null = null;
-    let bestDistanceSquared = Number.POSITIVE_INFINITY;
-    for (const block of mapBlocks) {
-        if (block.type !== type) {
-            continue;
-        }
-        const dx = targetX - block.x;
-        const dy = targetY - block.y;
-        const distanceSquared = dx * dx + dy * dy;
-        if (distanceSquared <= maxDistanceSquared && distanceSquared < bestDistanceSquared) {
-            best = block;
-            bestDistanceSquared = distanceSquared;
-        }
-    }
-    return best;
-}
-
-function findMapBlockByTeleporterId(
-    type: 'teleporter' | 'teleporter_pad',
-    teleporterId: string,
-    targetX: number,
-    targetY: number
-) {
-    const candidates = mapBlocks.filter((block) =>
-        block.type === type &&
-        block.teleporterId === teleporterId
-    );
-    if (candidates.length === 0) {
-        return null;
-    }
-    let best = candidates[0];
-    let bestDistanceSquared = Number.POSITIVE_INFINITY;
-    for (const candidate of candidates) {
-        const dx = targetX - candidate.x;
-        const dy = targetY - candidate.y;
-        const distanceSquared = dx * dx + dy * dy;
-        if (distanceSquared < bestDistanceSquared) {
-            best = candidate;
-            bestDistanceSquared = distanceSquared;
-        }
-    }
-    return best;
-}
-
-function reconcileTeleporterRuntimePositions(teleporters: TeleporterRuntime[]) {
-    const correctionDistancePx = 32 * 1.5;
-    for (const teleporter of teleporters) {
-        const baseById = findMapBlockByTeleporterId('teleporter', teleporter.id, teleporter.baseX, teleporter.baseY);
-        const padById = findMapBlockByTeleporterId('teleporter_pad', teleporter.id, teleporter.padX, teleporter.padY);
-        if (baseById) {
-            teleporter.baseX = baseById.x;
-            teleporter.baseY = baseById.y;
-            baseById.teleporterId = teleporter.id;
-        }
-        if (padById) {
-            teleporter.padX = padById.x;
-            teleporter.padY = padById.y;
-            padById.teleporterId = teleporter.id;
-        }
-        const hasBaseAtPosition = mapBlocks.some((block) =>
-            block.type === 'teleporter' &&
-            block.x === teleporter.baseX &&
-            block.y === teleporter.baseY
-        );
-        if (!hasBaseAtPosition) {
-            const correctedBase = findNearestMapBlockByType(
-                'teleporter',
-                teleporter.baseX,
-                teleporter.baseY,
-                correctionDistancePx
-            );
-            if (correctedBase) {
-                teleporter.baseX = correctedBase.x;
-                teleporter.baseY = correctedBase.y;
-                correctedBase.teleporterId = teleporter.id;
-            }
-        }
-
-        const hasPadAtPosition = mapBlocks.some((block) =>
-            block.type === 'teleporter_pad' &&
-            block.x === teleporter.padX &&
-            block.y === teleporter.padY
-        );
-        if (!hasPadAtPosition) {
-            const correctedPad = findNearestMapBlockByType(
-                'teleporter_pad',
-                teleporter.padX,
-                teleporter.padY,
-                correctionDistancePx
-            );
-            if (correctedPad) {
-                teleporter.padX = correctedPad.x;
-                teleporter.padY = correctedPad.y;
-                correctedPad.teleporterId = teleporter.id;
-            }
-        }
-
-    }
-}
-
 async function loadTeleporters() {
-    const arr = await fetchFreshJson<any[]>('./src/assets/teleporters.json');
+    const arr = await fetchFreshJson<any[]>('./src/assets/data/teleporters.json');
     teleporterEntities = arr.length > 0
         ? arr.map(normalizeTeleporter)
-        : buildTeleportersFromMapMetadata();
-    reconcileTeleporterRuntimePositions(teleporterEntities);
+        : buildTeleportersFromMapMetadata(mapBlocks, getAstronautStartPosition());
+    reconcileTeleporterRuntimePositions(teleporterEntities, mapBlocks);
     invalidateTeleporterPadCaches();
-}
-
-function normalizeWindEmitter(data: any): WindEmitterRuntime {
-    const numericIdFallback = Math.round(Number(data?.x) || 0);
-    return {
-        id: typeof data?.id === 'string' && data.id.trim().length > 0
-            ? data.id.trim()
-            : `wind_${numericIdFallback}_${Math.round(Number(data?.y) || 0)}`,
-        x: Math.round(Number(data?.x) || 0),
-        y: Math.round(Number(data?.y) || 0),
-        enabled: data?.enabled !== false,
-        directionDegrees: Number.isFinite(Number(data?.directionDegrees))
-            ? ((Number(data.directionDegrees) % 360) + 360) % 360
-            : 270,
-        strength: Math.max(0, Number(data?.strength ?? MOVEMENT_SETTINGS.windEmitterDefaultStrength)),
-        radius: Math.max(1, Number(data?.radius ?? MOVEMENT_SETTINGS.windEmitterDefaultRadius)),
-        mode: data?.mode === 'variable' ? 'variable' : 'constant',
-        variabilityHz: Math.max(0, Number(data?.variabilityHz ?? MOVEMENT_SETTINGS.windEmitterVariableDefaultHz)),
-        variabilityAmount: clampToRange(
-            Number(data?.variabilityAmount ?? MOVEMENT_SETTINGS.windEmitterVariableDefaultAmount),
-            0,
-            1
-        ),
-        affectsAstronaut: data?.affectsAstronaut !== false,
-        affectsLooseObjects: data?.affectsLooseObjects !== false,
-        showParticles: data?.showParticles !== false
-    };
-}
-
-function normalizeWindSettings(data: any): WindGlobalSettings {
-    const leftStartX = Number.isFinite(Number(data?.surfaceWindLeftStartX))
-        ? Number(data.surfaceWindLeftStartX)
-        : MOVEMENT_SETTINGS.surfaceWindDefaultLeftStartX;
-    const leftLimitX = Number.isFinite(Number(data?.surfaceWindLeftLimitX))
-        ? Number(data.surfaceWindLeftLimitX)
-        : MOVEMENT_SETTINGS.surfaceWindDefaultLeftLimitX;
-    const rightStartX = Number.isFinite(Number(data?.surfaceWindRightStartX))
-        ? Number(data.surfaceWindRightStartX)
-        : MOVEMENT_SETTINGS.surfaceWindDefaultRightStartX;
-    const rightLimitX = Number.isFinite(Number(data?.surfaceWindRightLimitX))
-        ? Number(data.surfaceWindRightLimitX)
-        : MOVEMENT_SETTINGS.surfaceWindDefaultRightLimitX;
-    return {
-        windEnabled: data?.windEnabled !== false,
-        emittersEnabled: data?.emittersEnabled !== false,
-        surfaceWindEnabled: data?.surfaceWindEnabled === true
-            ? true
-            : MOVEMENT_SETTINGS.surfaceWindDefaultEnabled,
-        windVfxEnabled: data?.windVfxEnabled !== false,
-        surfaceWindMaxY: Number.isFinite(Number(data?.surfaceWindMaxY))
-            ? Math.max(0, Number(data.surfaceWindMaxY))
-            : MOVEMENT_SETTINGS.surfaceWindDefaultMaxY,
-        surfaceWindCenterX: Number.isFinite(Number(data?.surfaceWindCenterX))
-            ? Number(data.surfaceWindCenterX)
-            : MOVEMENT_SETTINGS.surfaceWindDefaultCenterX,
-        surfaceWindDeadzone: Number.isFinite(Number(data?.surfaceWindDeadzone))
-            ? Math.max(0, Number(data.surfaceWindDeadzone))
-            : MOVEMENT_SETTINGS.surfaceWindDefaultDeadzone,
-        surfaceWindStrength: Number.isFinite(Number(data?.surfaceWindStrength))
-            ? Math.max(0, Number(data.surfaceWindStrength))
-            : MOVEMENT_SETTINGS.surfaceWindDefaultStrength,
-        surfaceWindEdgeBand: Number.isFinite(Number(data?.surfaceWindEdgeBand))
-            ? Math.max(1, Number(data.surfaceWindEdgeBand))
-            : MOVEMENT_SETTINGS.surfaceWindDefaultEdgeBand,
-        surfaceWindBuffetHz: Number.isFinite(Number(data?.surfaceWindBuffetHz))
-            ? Math.max(0, Number(data.surfaceWindBuffetHz))
-            : MOVEMENT_SETTINGS.surfaceWindDefaultBuffetHz,
-        surfaceWindBuffetStrength: Number.isFinite(Number(data?.surfaceWindBuffetStrength))
-            ? clampToRange(Number(data.surfaceWindBuffetStrength), 0, 1)
-            : MOVEMENT_SETTINGS.surfaceWindDefaultBuffetStrength,
-        surfaceWindLeftStartX: Math.max(leftStartX, leftLimitX + 1),
-        surfaceWindLeftLimitX: Math.min(leftLimitX, leftStartX - 1),
-        surfaceWindRightStartX: Math.min(rightStartX, rightLimitX - 1),
-        surfaceWindRightLimitX: Math.max(rightLimitX, rightStartX + 1)
-    };
-}
-
-function setWindDebugToggle(
-    key: keyof WindRuntimeToggles,
-    enabled: boolean | null
-) {
-    if (enabled === null) {
-        delete windDebugToggles[key];
-        return;
-    }
-    windDebugToggles[key] = enabled;
-}
-
-function getEffectiveWindToggles(): WindRuntimeToggles {
-    const normalizedSettings = normalizeWindSettings(windSettings);
-    return {
-        windEnabled: windDebugToggles.windEnabled ?? (normalizedSettings.windEnabled !== false),
-        emittersEnabled: windDebugToggles.emittersEnabled ?? (normalizedSettings.emittersEnabled !== false),
-        surfaceWindEnabled: windDebugToggles.surfaceWindEnabled ?? (normalizedSettings.surfaceWindEnabled === true),
-        windVfxEnabled: windDebugToggles.windVfxEnabled ?? (normalizedSettings.windVfxEnabled !== false)
-    };
 }
 
 async function loadWindData() {
     let emitterPayload: any[] = [];
     try {
-        emitterPayload = await fetchFreshJson<any[]>('./src/assets/wind_emitters.json');
+        emitterPayload = await fetchFreshJson<any[]>('./src/assets/data/wind_emitters.json');
     } catch (error) {
         if (!(error instanceof Error) || !error.message.includes('wind_emitters.json: 404')) {
             throw error;
@@ -1796,7 +1257,7 @@ async function loadWindData() {
 
     let settingsPayload: any = {};
     try {
-        settingsPayload = await fetchFreshJson<Record<string, unknown>>('./src/assets/wind_settings.json');
+        settingsPayload = await fetchFreshJson<Record<string, unknown>>('./src/assets/data/wind_settings.json');
     } catch (error) {
         if (!(error instanceof Error) || !error.message.includes('wind_settings.json: 404')) {
             throw error;
@@ -1810,7 +1271,7 @@ async function loadWindData() {
 }
 
 async function loadButtons() {
-    const arr = await fetchFreshJson<any[]>('./src/assets/buttons.json');
+    const arr = await fetchFreshJson<any[]>('./src/assets/data/buttons.json');
     buttonEntities = arr.map((data: any) => assignEntityId(new Button(data)));
     syncButtonStatesToDoors();
 }
@@ -1831,65 +1292,23 @@ function syncButtonStatesToDoors() {
     }
 }
 
-function applyButtonTeleporterMode(teleporter: TeleporterRuntime, mode: TeleporterDestinationMode) {
-    if (mode === 'enable') {
-        teleporter.enabled = true;
-        return;
-    }
-    if (mode === 'disable') {
-        teleporter.enabled = false;
-        return;
-    }
-    if (mode === 'toggle_enabled') {
-        teleporter.enabled = teleporter.enabled === false;
-        return;
-    }
-    if (mode === 'destination_a') {
-        teleporter.activeDestinationIndex = 0;
-        return;
-    }
-    if (mode === 'destination_b') {
-        if (teleporter.destinationB) {
-            teleporter.activeDestinationIndex = 1;
-        }
-        return;
-    }
-    if (teleporter.destinationB) {
-        teleporter.activeDestinationIndex = teleporter.activeDestinationIndex === 0 ? 1 : 0;
-    } else {
-        teleporter.activeDestinationIndex = 0;
-    }
-}
-
-function applyButtonTeleporterLinks(button: Button) {
-    if (!Array.isArray(button.linkedTeleporters) || button.linkedTeleporters.length === 0) {
-        return;
-    }
-    const mode: TeleporterDestinationMode = button.teleporterMode ?? 'toggle';
-    for (const teleporterId of button.linkedTeleporters) {
-        const teleporter = teleporterEntities.find((entry) => entry.id === teleporterId);
-        if (teleporter) {
-            applyButtonTeleporterMode(teleporter, mode);
-        }
-    }
-}
 async function loadDoors() {
-    const arr = await fetchFreshJson<any[]>('./src/assets/doors.json');
+    const arr = await fetchFreshJson<any[]>('./src/assets/data/doors.json');
     doorEntities = arr.map((data: any) => assignEntityId(new Door(data)));
 }
 async function loadCreatures() {
-    const arr = await fetchFreshJson<any[]>('./src/assets/creatures.json');
+    const arr = await fetchFreshJson<any[]>('./src/assets/data/creatures.json');
     creatureEntities = arr.map((data: any) => assignEntityId(new Creature(data)));
 }
 async function loadCollectables() {
-    const arr = await fetchFreshJson<any[]>('./src/assets/collectables.json');
+    const arr = await fetchFreshJson<any[]>('./src/assets/data/collectables.json');
     collectableEntities = arr.map((data: any) => assignEntityId(new Collectable(data)));
     collectedCollectableEntityIds.clear();
     syncCollectableRuntimeState();
 }
 
 async function loadAstronautStartPosition() {
-    const data = await fetchFreshJson<Position>('./src/assets/astronaut_start.json');
+    const data = await fetchFreshJson<Position>('./src/assets/data/astronaut_start.json');
     updateAstronautStartPosition(data, true);
 }
 
@@ -1911,42 +1330,28 @@ function syncCollectableRuntimeState() {
     }
 }
 
-function isCreatureProjectileCollectable(collectable: Collectable): collectable is CreatureProjectileCollectable {
-    return !!collectable.creatureProjectile;
-}
-
 function isCollectableCollected(collectable: Collectable) {
-    return typeof collectable.entityId === 'number' && collectedCollectableEntityIds.has(collectable.entityId);
+    return isCollectableCollectedRuntime(collectable, collectedCollectableEntityIds);
 }
 
 function markCollectableCollected(collectable: Collectable) {
-    if (typeof collectable.entityId === 'number') {
-        collectedCollectableEntityIds.add(collectable.entityId);
-    }
+    markCollectableCollectedRuntime(collectable, collectedCollectableEntityIds);
 }
 
 function getCreatureProjectileCollectables() {
-    return collectableEntities.filter(isCreatureProjectileCollectable);
+    return getCreatureProjectileCollectablesRuntime(collectableEntities);
 }
 
 function getRenderableCollectables() {
-    return collectableEntities.filter((collectable) =>
-        !isCreatureProjectileCollectable(collectable) &&
-        !isCollectableCollected(collectable) &&
-        !collectable.stored &&
-        !collectable.held
-    );
+    return getRenderableCollectablesRuntime(collectableEntities, collectedCollectableEntityIds);
 }
 
 function getDesignerRenderableCollectables() {
-    return collectableEntities.filter((collectable) =>
-        !isCreatureProjectileCollectable(collectable) &&
-        !collectable.held
-    );
+    return getDesignerRenderableCollectablesRuntime(collectableEntities);
 }
 
 function getSavableCollectables() {
-    return collectableEntities.filter((collectable) => !isCreatureProjectileCollectable(collectable));
+    return getSavableCollectablesRuntime(collectableEntities);
 }
 
 function findSpriteRectByType(type: string) {
@@ -2151,10 +1556,10 @@ function replaceRawWorldData(data: RawWorldData) {
     collectableEntities = data.collectables.map((collectable) => assignEntityId(new Collectable(collectable)));
     teleporterEntities = (data.teleporters ?? []).length > 0
         ? (data.teleporters ?? []).map(normalizeTeleporter)
-        : buildTeleportersFromMapMetadata();
+        : buildTeleportersFromMapMetadata(mapBlocks, getAstronautStartPosition());
     windEmitters = (data.windEmitters ?? []).map(normalizeWindEmitter);
     windSettings = normalizeWindSettings(data.windSettings);
-    reconcileTeleporterRuntimePositions(teleporterEntities);
+    reconcileTeleporterRuntimePositions(teleporterEntities, mapBlocks);
     updateAstronautStartPosition(data.astronautStart, true);
     afterWorldDataMutated();
 }
@@ -2461,7 +1866,7 @@ async function init() {
     await ensureMapChunksAroundWorldPosition(getAstronautStartPosition(), 1, true);
     initStars(MAP_WIDTH, STARFIELD_HEIGHT);
     const img = new Image();
-    img.src = './src/assets/sprite_sheet.png';
+    img.src = './src/assets/images/sprites/sprite_sheet.png';
     img.onload = () => {
         makeBlackTransparent(img, async (canvasWithTransparency) => {
             spriteSheet = new Image();
@@ -2593,24 +1998,21 @@ async function init() {
                     setShowCreatureOverlays: (value: boolean) => {
                         showCreatureOverlays = value;
                     },
-                    getPerformanceHudEnabled: () => showPerformanceHud,
+                    getPerformanceHudEnabled: () => performanceTracker.getHudEnabled(),
                     setPerformanceHudEnabled: (enabled: boolean) => {
-                        showPerformanceHud = enabled;
-                        if (!isPerformanceInstrumentationEnabled()) {
-                            lastFrameTimestamp = null;
-                        }
+                        performanceTracker.setHudEnabled(enabled);
                         requestImmediateFrame();
                     },
                     getBulletImpactAudioSettings: () => ({ ...bulletImpactAudioSettings }),
                     setBulletImpactAudioSettings: (value: BulletImpactAudioSettings) => {
                         bulletImpactAudioSettings = normalizeBulletImpactAudioSettings(value);
                     },
-                    getWindRuntimeToggles: () => ({ ...getEffectiveWindToggles() }),
+                    getWindRuntimeToggles: () => ({ ...getEffectiveWindToggles(windSettings, windDebugToggles) }),
                     setWindRuntimeToggle: (
                         key: 'windEnabled' | 'emittersEnabled' | 'surfaceWindEnabled' | 'windVfxEnabled',
                         enabled: boolean
                     ) => {
-                        setWindDebugToggle(key, enabled);
+                        setWindDebugToggle(windDebugToggles, key, enabled);
                         cachedWindEmittersFrameKey = -1;
                         requestImmediateFrame();
                     },
@@ -2635,7 +2037,7 @@ async function init() {
         });
     };
     img.onerror = () => {
-        alert('Sprite sheet not found at ./src/assets/exile_sprites.png');
+        alert('Sprite sheet not found at ./src/assets/images/sprites/exile_sprites.png');
     };
 }
 
@@ -2685,19 +2087,13 @@ async function gameLoop() {
         if (!gameState.isRunning || !mapLoaded) return;
 
         const frameNow = performance.now();
-        const performanceInstrumentationEnabled = isPerformanceInstrumentationEnabled();
-        const frameStartMs = frameNow;
-        const frameTimeMs = (
-            performanceInstrumentationEnabled && lastFrameTimestamp !== null
-                ? frameNow - lastFrameTimestamp
-                : 0
-        );
+        const frameTiming = performanceTracker.startFrame(frameNow);
+        const performanceInstrumentationEnabled = frameTiming.enabled;
+        const frameStartMs = frameTiming.frameStartMs;
+        const frameTimeMs = frameTiming.frameTimeMs;
         let updateWorkMs = 0;
         let mapDrawMs = 0;
         let drawPhaseMs = 0;
-        if (performanceInstrumentationEnabled) {
-            lastFrameTimestamp = frameNow;
-        }
 
         ctx!.imageSmoothingEnabled = false;
         ctx!.clearRect(0, 0, canvas.width, canvas.height);
@@ -2949,7 +2345,7 @@ async function gameLoop() {
         if (performanceInstrumentationEnabled) {
             drawPhaseMs = performance.now() - drawPhaseStartMs;
         }
-        finalizePerformanceInstrumentationFrame(
+        performanceTracker.finalizeFrame(
             frameNow,
             frameStartMs,
             frameTimeMs,
@@ -3107,7 +2503,7 @@ async function gameLoop() {
             );
         if (landingImpactDamage > 0) {
             applyAstronautDamage(landingImpactDamage, frameNow);
-            playAstronautImpactSound();
+            gameAudio.playAstronautImpactSound();
         }
         applyLandingMomentum(landingMomentumSource);
         astronaut.velocity.x = 0;
@@ -3133,7 +2529,7 @@ async function gameLoop() {
                     door.locked = !door.locked;
                 }
             }
-            applyButtonTeleporterLinks(collidedButton);
+            applyButtonTeleporterLinks(teleporterEntities, collidedButton.linkedTeleporters, collidedButton.teleporterMode);
             syncButtonStatesToDoors();
             buttonPressTimestamps.set(collidedButton, now);
             try { buttonOnSound.currentTime = 0; buttonOnSound.play(); } catch {}
@@ -3207,6 +2603,8 @@ async function gameLoop() {
     // let flipSprite = facingLeft;
     // let flipVertical = false; // <-- add this
 
+    const performanceSnapshot = performanceTracker.getSnapshot();
+
     // Debug: Log key and state info for animation selection
     if (gameState.debugMode) {
         ctx!.save();
@@ -3252,7 +2650,7 @@ async function gameLoop() {
             10, debugY
         );
         debugY += 16;
-        const windToggleState = getEffectiveWindToggles();
+        const windToggleState = getEffectiveWindToggles(windSettings, windDebugToggles);
         ctx!.fillText(
             `Wind: enabled=${windToggleState.windEnabled} emitters=${windToggleState.emittersEnabled} surface=${windToggleState.surfaceWindEnabled} vfx=${windToggleState.windVfxEnabled} accel=(${lastAstronautWindAcceleration.x.toFixed(3)}, ${lastAstronautWindAcceleration.y.toFixed(3)}) sources=${lastAstronautWindAcceleration.activeEmitterCount}`,
             10, debugY
@@ -3346,45 +2744,65 @@ async function gameLoop() {
             `Mouse world: (${mouseWorld.x.toFixed(1)}, ${mouseWorld.y.toFixed(1)})`,
             10, debugY
         );
-        if (showPerformanceHud && perfSampleCount > 0) {
-            const sampleCount = Math.max(perfSampleCount, 1);
+        if (performanceTracker.getHudEnabled() && performanceSnapshot.sampleCount > 0) {
+            const sampleCount = Math.max(performanceSnapshot.sampleCount, 1);
             debugY += 16;
             ctx!.fillText(
-                formatPerfSummaryLine('Frame', perfFrameTimeSum / sampleCount, perfWorstFrameTime),
+                performanceTracker.formatSummaryLine(
+                    'Frame',
+                    performanceSnapshot.sums.frameTimeSum / sampleCount,
+                    performanceSnapshot.worst.frame
+                ),
                 10, debugY
             );
             debugY += 16;
             ctx!.fillText(
-                formatPerfSummaryLine('Update', perfUpdateTimeSum / sampleCount, perfWorstUpdateTime),
+                performanceTracker.formatSummaryLine(
+                    'Update',
+                    performanceSnapshot.sums.updateTimeSum / sampleCount,
+                    performanceSnapshot.worst.update
+                ),
                 10, debugY
             );
             debugY += 16;
             ctx!.fillText(
-                formatPerfSummaryLine('Map', perfMapDrawTimeSum / sampleCount, perfWorstMapDrawTime),
+                performanceTracker.formatSummaryLine(
+                    'Map',
+                    performanceSnapshot.sums.mapDrawTimeSum / sampleCount,
+                    performanceSnapshot.worst.map
+                ),
                 10, debugY
             );
             debugY += 16;
             ctx!.fillText(
-                formatPerfSummaryLine('Entities', perfEntityDrawTimeSum / sampleCount, perfWorstEntityDrawTime),
+                performanceTracker.formatSummaryLine(
+                    'Entities',
+                    performanceSnapshot.sums.entityDrawTimeSum / sampleCount,
+                    performanceSnapshot.worst.entities
+                ),
                 10, debugY
             );
             debugY += 16;
             ctx!.fillText(
-                formatPerfSummaryLine('Total', perfTotalFrameTimeSum / sampleCount, perfWorstTotalFrameTime),
+                performanceTracker.formatSummaryLine(
+                    'Total',
+                    performanceSnapshot.sums.totalFrameTimeSum / sampleCount,
+                    performanceSnapshot.worst.total
+                ),
                 10, debugY
             );
         }
         ctx!.restore();
     }
-    if (!gameState.debugMode && showPerformanceHud && perfSampleCount > 0) {
-        const sampleCount = Math.max(perfSampleCount, 1);
-        const averageFrameTime = perfFrameTimeSum / sampleCount;
+    if (!gameState.debugMode && performanceTracker.getHudEnabled() && performanceSnapshot.sampleCount > 0) {
+        const sampleCount = Math.max(performanceSnapshot.sampleCount, 1);
+        const averageFrameTime = performanceSnapshot.sums.frameTimeSum / sampleCount;
         ctx!.save();
         ctx!.font = '12px monospace';
         ctx!.fillStyle = '#ff0';
-        ctx!.fillText(`FPS ${formatFpsFromFrameTime(averageFrameTime)}`, 10, 16);
+        ctx!.fillText(`FPS ${performanceTracker.formatFpsFromFrameTime(averageFrameTime)}`, 10, 16);
         ctx!.fillText(
-            formatPerfSummaryLine('Frame', averageFrameTime, perfWorstFrameTime),
+            performanceTracker.formatSummaryLine('Frame', averageFrameTime, performanceSnapshot.worst.frame),
             10,
             32
         );
@@ -3758,7 +3176,7 @@ async function gameLoop() {
         if (performanceInstrumentationEnabled) {
             drawPhaseMs = performance.now() - drawPhaseStartMs;
         }
-        finalizePerformanceInstrumentationFrame(
+        performanceTracker.finalizeFrame(
             frameNow,
             frameStartMs,
             frameTimeMs,
@@ -3972,7 +3390,7 @@ async function gameLoop() {
     if (performanceInstrumentationEnabled) {
         drawPhaseMs = performance.now() - drawPhaseStartMs;
     }
-    finalizePerformanceInstrumentationFrame(
+    performanceTracker.finalizeFrame(
         frameNow,
         frameStartMs,
         frameTimeMs,
@@ -4107,91 +3525,6 @@ function getEntityCollisionBounds(entity: {
     };
 }
 
-function hashWindSourceSeed(id: string, x: number, y: number) {
-    let hash = 2166136261;
-    const input = `${id}:${x}:${y}`;
-    for (let index = 0; index < input.length; index++) {
-        hash ^= input.charCodeAt(index);
-        hash = Math.imul(hash, 16777619);
-    }
-    return hash >>> 0;
-}
-
-function toWindEmitterFromBlock(block: MapBlock): WindEmitterRuntime | null {
-    if (block.windEnabled !== true) {
-        return null;
-    }
-    const blockWithId = block as MapBlock & { entityId?: number };
-    return {
-        id: `block_${blockWithId.entityId ?? `${Math.round(block.x)}_${Math.round(block.y)}`}`,
-        x: Math.round(block.x),
-        y: Math.round(block.y),
-        enabled: true,
-        directionDegrees: ((Number(block.windDirectionDegrees ?? 270) % 360) + 360) % 360,
-        strength: Math.max(0, Number(block.windStrength ?? MOVEMENT_SETTINGS.windEmitterDefaultStrength)),
-        radius: Math.max(1, Number(block.windRadius ?? MOVEMENT_SETTINGS.windEmitterDefaultRadius)),
-        mode: block.windMode === 'variable' ? 'variable' : 'constant',
-        variabilityHz: Math.max(0, Number(block.windVariabilityHz ?? MOVEMENT_SETTINGS.windEmitterVariableDefaultHz)),
-        variabilityAmount: clampToRange(
-            Number(block.windVariabilityAmount ?? MOVEMENT_SETTINGS.windEmitterVariableDefaultAmount),
-            0,
-            1
-        ),
-        affectsAstronaut: block.windAffectsAstronaut !== false,
-        affectsLooseObjects: block.windAffectsLooseObjects !== false,
-        showParticles: block.windShowParticles !== false
-    };
-}
-
-function resolveEmitterMagnitude(emitter: WindEmitterRuntime, now: number) {
-    if (emitter.mode !== 'variable') {
-        return emitter.strength;
-    }
-    const seed = hashWindSourceSeed(emitter.id, emitter.x, emitter.y);
-    const seedPhase = (seed % 360) * (Math.PI / 180);
-    const oscillation = Math.sin(now * 0.001 * Math.PI * 2 * emitter.variabilityHz + seedPhase);
-    const variability = clampToRange(emitter.variabilityAmount, 0, 1);
-    const scale = 1 - variability + ((oscillation + 1) * 0.5) * variability;
-    return emitter.strength * scale;
-}
-
-function computeEmitterWindAccelerationAtPoint(
-    worldX: number,
-    worldY: number,
-    now: number,
-    emitters: WindEmitterRuntime[],
-    target: 'astronaut' | 'looseObject'
-) {
-    let totalX = 0;
-    let totalY = 0;
-    let activeEmitterCount = 0;
-    for (const emitter of emitters) {
-        if (target === 'astronaut' && !emitter.affectsAstronaut) {
-            continue;
-        }
-        if (target === 'looseObject' && !emitter.affectsLooseObjects) {
-            continue;
-        }
-        const dx = worldX - emitter.x;
-        const dy = worldY - emitter.y;
-        const distance = Math.hypot(dx, dy);
-        if (distance > emitter.radius) {
-            continue;
-        }
-        const radialFalloff = 1 - distance / emitter.radius;
-        const magnitude = resolveEmitterMagnitude(emitter, now) * radialFalloff;
-        const directionRadians = (emitter.directionDegrees * Math.PI) / 180;
-        totalX += Math.cos(directionRadians) * magnitude;
-        totalY += Math.sin(directionRadians) * magnitude;
-        activeEmitterCount++;
-    }
-    return {
-        x: totalX,
-        y: totalY,
-        activeEmitterCount
-    };
-}
-
 function getActiveWindEmittersNearAstronaut(now: number, toggles: WindRuntimeToggles) {
     const frameKey = Math.floor(now);
     if (frameKey === cachedWindEmittersFrameKey) {
@@ -4234,89 +3567,11 @@ function getActiveWindEmittersNearAstronaut(now: number, toggles: WindRuntimeTog
     return cachedWindEmittersForFrame;
 }
 
-function getSurfaceWindBounds(settings: WindGlobalSettings) {
-    const leftStartX = Number(settings.surfaceWindLeftStartX ?? MOVEMENT_SETTINGS.surfaceWindDefaultLeftStartX);
-    const leftLimitX = Number(settings.surfaceWindLeftLimitX ?? MOVEMENT_SETTINGS.surfaceWindDefaultLeftLimitX);
-    const rightStartX = Number(settings.surfaceWindRightStartX ?? MOVEMENT_SETTINGS.surfaceWindDefaultRightStartX);
-    const rightLimitX = Number(settings.surfaceWindRightLimitX ?? MOVEMENT_SETTINGS.surfaceWindDefaultRightLimitX);
-    return {
-        leftStartX: Math.max(leftStartX, leftLimitX + 1),
-        leftLimitX: Math.min(leftLimitX, leftStartX - 1),
-        rightStartX: Math.min(rightStartX, rightLimitX - 1),
-        rightLimitX: Math.max(rightLimitX, rightStartX + 1)
-    };
-}
-
-function getSurfaceWindEdgeProximity(worldX: number, settings: WindGlobalSettings) {
-    const { leftStartX, leftLimitX, rightStartX, rightLimitX } = getSurfaceWindBounds(settings);
-    const leftProximity = worldX < leftStartX
-        ? clampToRange((leftStartX - worldX) / Math.max(1, leftStartX - leftLimitX), 0, 1)
-        : 0;
-    const rightProximity = worldX > rightStartX
-        ? clampToRange((worldX - rightStartX) / Math.max(1, rightLimitX - rightStartX), 0, 1)
-        : 0;
-    return {
-        leftProximity,
-        rightProximity,
-        edgeProximity: Math.max(leftProximity, rightProximity)
-    };
-}
-
-function getSurfaceWindBoundaryOvershoot(worldX: number, settings: WindGlobalSettings) {
-    const { leftLimitX, rightLimitX } = getSurfaceWindBounds(settings);
-    const leftOvershoot = Math.max(0, leftLimitX - worldX);
-    const rightOvershoot = Math.max(0, worldX - rightLimitX);
-    return {
-        leftOvershoot,
-        rightOvershoot,
-        maxOvershoot: Math.max(leftOvershoot, rightOvershoot)
-    };
-}
-
-function applySurfaceWindField(worldX: number, worldY: number, now: number) {
-    const normalizedSettings = normalizeWindSettings(windSettings);
-    const maxY = Number(normalizedSettings.surfaceWindMaxY ?? MOVEMENT_SETTINGS.surfaceWindDefaultMaxY);
-    if (worldY > maxY) {
-        return { x: 0, y: 0 };
-    }
-    const strength = Math.max(0, Number(normalizedSettings.surfaceWindStrength ?? MOVEMENT_SETTINGS.surfaceWindDefaultStrength));
-    const { leftProximity, rightProximity, edgeProximity } = getSurfaceWindEdgeProximity(worldX, normalizedSettings);
-    const { leftOvershoot, rightOvershoot, maxOvershoot } = getSurfaceWindBoundaryOvershoot(worldX, normalizedSettings);
-    if (edgeProximity <= 0 && maxOvershoot <= 0) {
-        return { x: 0, y: 0 };
-    }
-    const buffetHz = Math.max(0, Number(normalizedSettings.surfaceWindBuffetHz ?? MOVEMENT_SETTINGS.surfaceWindDefaultBuffetHz));
-    const buffetStrength = clampToRange(
-        Number(normalizedSettings.surfaceWindBuffetStrength ?? MOVEMENT_SETTINGS.surfaceWindDefaultBuffetStrength),
-        0,
-        1
-    );
-    let baseLeft = Math.pow(leftProximity, 1.35) + Math.pow(leftProximity, 4.2) * 2.8;
-    let baseRight = Math.pow(rightProximity, 1.35) + Math.pow(rightProximity, 4.2) * 2.8;
-    if (leftOvershoot > 0) {
-        const overshootRamp = leftOvershoot / (leftOvershoot + 900);
-        baseLeft = Math.max(1, baseLeft) * (1 + overshootRamp * 0.12);
-    }
-    if (rightOvershoot > 0) {
-        const overshootRamp = rightOvershoot / (rightOvershoot + 900);
-        baseRight = Math.max(1, baseRight) * (1 + overshootRamp * 0.12);
-    }
-    const edgeBuffetScale = 0.18 + edgeProximity * 0.22;
-    const baseX = strength * (baseLeft - baseRight);
-    const phase = now * 0.001 * Math.PI * 2 * buffetHz + worldX * 0.0021 + worldY * 0.0013;
-    const gustScale = clampToRange(1 + Math.sin(phase) * buffetStrength * edgeBuffetScale, 0.78, 1.34);
-    const crosswindY = Math.cos(phase * 1.7) * strength * 0.45 * buffetStrength * (0.2 + edgeProximity * 0.8);
-    return {
-        x: baseX * gustScale,
-        y: crosswindY
-    };
-}
-
 function computeAstronautWindAcceleration(
     now: number,
     effectiveWeight: number
 ) {
-    const toggles = getEffectiveWindToggles();
+    const toggles = getEffectiveWindToggles(windSettings, windDebugToggles);
     if (!toggles.windEnabled) {
         return { x: 0, y: 0, activeEmitterCount: 0 };
     }
@@ -4334,7 +3589,7 @@ function computeAstronautWindAcceleration(
     let totalY = emitterWind.y;
 
     if (toggles.surfaceWindEnabled) {
-        const surfaceWind = applySurfaceWindField(astronaut.position.x, astronaut.position.y, now);
+        const surfaceWind = applySurfaceWindField(astronaut.position.x, astronaut.position.y, now, windSettings);
         totalX += surfaceWind.x;
         totalY += surfaceWind.y;
     }
@@ -4368,7 +3623,7 @@ function computeAstronautWindAcceleration(
 }
 
 function applySurfaceWindCarryToAstronaut(now: number) {
-    const toggles = getEffectiveWindToggles();
+    const toggles = getEffectiveWindToggles(windSettings, windDebugToggles);
     if (!toggles.windEnabled || !toggles.surfaceWindEnabled) {
         return;
     }
@@ -4379,7 +3634,7 @@ function applySurfaceWindCarryToAstronaut(now: number) {
         return;
     }
 
-    const surfaceWind = applySurfaceWindField(astronaut.position.x, astronaut.position.y, now);
+    const surfaceWind = applySurfaceWindField(astronaut.position.x, astronaut.position.y, now, windSettings);
     const targetCarryVelocityX = clampToRange(
         surfaceWind.x * 6.6,
         -MOVEMENT_SETTINGS.flyMaxSpeed * 1.25,
@@ -4585,57 +3840,9 @@ function getRenderedEntityWorldSprite(entity: {
     };
 }
 
-function makeTeleporterPositionKey(x: number, y: number) {
-    return `${x},${y}`;
-}
-
 function invalidateTeleporterPadCaches() {
-    teleporterPadCacheVersion += 1;
-    teleporterPadSweepPositionCache.clear();
-    teleporterPadKeyCache = { version: -1, keys: new Set<string>() };
-    teleporterBlockIndexCache = null;
-}
-
-function getTeleporterBlockIndex() {
-    if (teleporterBlockIndexCache && teleporterBlockIndexCache.version === teleporterPadCacheVersion) {
-        return teleporterBlockIndexCache;
-    }
-
-    const baseBlocksById = new Map<string, MapBlock>();
-    const padBlocksById = new Map<string, MapBlock>();
-    const baseBlocksByPosition = new Map<string, MapBlock>();
-    const padBlocksByPosition = new Map<string, MapBlock>();
-    for (const block of mapBlocks) {
-        if (block.type === 'teleporter') {
-            baseBlocksByPosition.set(makeTeleporterPositionKey(block.x, block.y), block);
-        } else if (block.type === 'teleporter_pad') {
-            padBlocksByPosition.set(makeTeleporterPositionKey(block.x, block.y), block);
-        } else {
-            continue;
-        }
-
-        if (!block.teleporterId) {
-            continue;
-        }
-        const id = String(block.teleporterId).trim();
-        if (!id) {
-            continue;
-        }
-        if (block.type === 'teleporter') {
-            baseBlocksById.set(id, block);
-        } else {
-            padBlocksById.set(id, block);
-        }
-    }
-
-    teleporterBlockIndexCache = {
-        version: teleporterPadCacheVersion,
-        baseBlocksById,
-        padBlocksById,
-        baseBlocksByPosition,
-        padBlocksByPosition
-    };
-    return teleporterBlockIndexCache;
+    // Keep game.ts orchestration-only; the runtime module owns teleporter pad cache details.
+    teleporterPadRuntime.invalidateCaches();
 }
 
 function canUseKeyLockedTeleporter(_teleporter: TeleporterRuntime) {
@@ -4654,325 +3861,15 @@ function isTeleporterActive(teleporter: TeleporterRuntime, options?: { ignoreKey
 }
 
 function getTeleporterActiveDestination(teleporter: TeleporterRuntime) {
-    if (teleporter.activeDestinationIndex === 1 && teleporter.destinationB) {
-        return teleporter.destinationB;
-    }
-    return teleporter.destinationA;
-}
-
-function getTeleporterBaseBlock(teleporter: TeleporterRuntime) {
-    const block = getTeleporterBlockIndex()
-        .baseBlocksByPosition
-        .get(makeTeleporterPositionKey(teleporter.baseX, teleporter.baseY));
-    return block ?? null;
-}
-
-function getTeleporterPadBlock(teleporter: TeleporterRuntime) {
-    const block = getTeleporterBlockIndex()
-        .padBlocksByPosition
-        .get(makeTeleporterPositionKey(teleporter.padX, teleporter.padY));
-    return block ?? null;
-}
-
-function getTeleporterPadSweepPosition(
-    teleporter: TeleporterRuntime,
-    progress: number,
-    padRender: Pick<TeleporterRenderPad, 'palette' | 'rotation' | 'translation' | 'paletteCycle'>,
-    baseBlock: MapBlock | null
-) {
-    const basePalette = typeof baseBlock?.palette === 'number' ? baseBlock.palette : padRender.palette;
-    const baseRotation = typeof baseBlock?.rotation === 'number' ? baseBlock.rotation : 1;
-    const baseTranslation = normalizeSpriteTranslation(baseBlock?.translation);
-    const baseRendered = getRenderedEntityWorldSprite({
-        x: teleporter.baseX,
-        y: teleporter.baseY,
-        type: 'teleporter',
-        palette: basePalette,
-        rotation: baseRotation,
-        translation: baseTranslation,
-        paletteCycle: baseBlock?.paletteCycle
-    });
-    const padProbe = getRenderedEntityWorldSprite({
-        x: teleporter.baseX,
-        y: teleporter.baseY,
-        type: 'teleporter_pad',
-        palette: padRender.palette,
-        rotation: padRender.rotation,
-        translation: padRender.translation,
-        paletteCycle: padRender.paletteCycle
-    });
-
-    const baseBounds = baseRendered ? getSpriteVisibleBounds(baseRendered.canvas) : null;
-    const padBounds = padProbe ? getSpriteVisibleBounds(padProbe.canvas) : null;
-    const fallbackSpan = 32 * SPRITE_SCALE;
-    const tileLeft = teleporter.baseX;
-    const tileTop = teleporter.baseY;
-    const tileRight = tileLeft + fallbackSpan;
-    const tileBottom = tileTop + fallbackSpan;
-    const tileCenterX = tileLeft + fallbackSpan / 2;
-    const tileCenterY = tileTop + fallbackSpan / 2;
-    const baseVisibleLeft = baseRendered && baseBounds
-        ? baseRendered.drawX + baseBounds.minX * SPRITE_SCALE
-        : tileLeft;
-    const baseVisibleRight = baseRendered && baseBounds
-        ? baseRendered.drawX + (baseBounds.maxX + 1) * SPRITE_SCALE
-        : tileRight;
-    const baseVisibleTop = baseRendered && baseBounds
-        ? baseRendered.drawY + baseBounds.minY * SPRITE_SCALE
-        : tileTop;
-    const baseVisibleBottom = baseRendered && baseBounds
-        ? baseRendered.drawY + (baseBounds.maxY + 1) * SPRITE_SCALE
-        : tileBottom;
-
-    const normalizedRotation = Math.round(padRender.rotation);
-    const sweepAxis = normalizedRotation === 2
-        ? 'left'
-        : normalizedRotation === 3
-            ? 'up'
-            : normalizedRotation === 4
-                ? 'right'
-                : normalizedRotation === 6 || normalizedRotation === 7
-                    ? 'up'
-                    : 'down';
-
-    const padProbeAnchor = (() => {
-        if (!padProbe || !padBounds) {
-            return { x: teleporter.baseX, y: teleporter.baseY };
-        }
-        const left = padProbe.drawX + padBounds.minX * SPRITE_SCALE;
-        const right = padProbe.drawX + (padBounds.maxX + 1) * SPRITE_SCALE;
-        const top = padProbe.drawY + padBounds.minY * SPRITE_SCALE;
-        const bottom = padProbe.drawY + (padBounds.maxY + 1) * SPRITE_SCALE;
-        const centerX = (left + right) / 2;
-        const centerY = (top + bottom) / 2;
-        if (sweepAxis === 'left') {
-            return { x: right, y: centerY };
-        }
-        if (sweepAxis === 'right') {
-            return { x: left, y: centerY };
-        }
-        if (sweepAxis === 'up') {
-            return { x: centerX, y: bottom };
-        }
-        return { x: centerX, y: top };
-    })();
-    const padAnchorOffsetX = padProbeAnchor.x - teleporter.baseX;
-    const padAnchorOffsetY = padProbeAnchor.y - teleporter.baseY;
-
-    const sweepStart = (() => {
-        if (sweepAxis === 'left') {
-            return { x: tileRight, y: tileCenterY };
-        }
-        if (sweepAxis === 'right') {
-            return { x: tileLeft, y: tileCenterY };
-        }
-        if (sweepAxis === 'up') {
-            return { x: tileCenterX, y: tileBottom };
-        }
-        return { x: tileCenterX, y: tileTop };
-    })();
-    const sweepEnd = (() => {
-        if (sweepAxis === 'left') {
-            return { x: Math.min(sweepStart.x, baseVisibleRight), y: sweepStart.y };
-        }
-        if (sweepAxis === 'right') {
-            return { x: Math.max(sweepStart.x, baseVisibleLeft), y: sweepStart.y };
-        }
-        if (sweepAxis === 'up') {
-            return { x: sweepStart.x, y: Math.min(sweepStart.y, baseVisibleBottom) };
-        }
-        return { x: sweepStart.x, y: Math.max(sweepStart.y, baseVisibleTop) };
-    })();
-    const fallbackSweepEnd = (() => {
-        if (sweepAxis === 'left') {
-            return { x: Math.max(tileLeft, Math.min(baseVisibleRight, tileRight)), y: sweepStart.y };
-        }
-        if (sweepAxis === 'right') {
-            return { x: Math.min(tileRight, Math.max(baseVisibleLeft, tileLeft)), y: sweepStart.y };
-        }
-        if (sweepAxis === 'up') {
-            return { x: sweepStart.x, y: Math.max(tileTop, Math.min(baseVisibleBottom, tileBottom)) };
-        }
-        return { x: sweepStart.x, y: Math.min(tileBottom, Math.max(baseVisibleTop, tileTop)) };
-    })();
-    const usesVerticalAxis = sweepAxis === 'up' || sweepAxis === 'down';
-    const primarySpan = usesVerticalAxis
-        ? Math.abs(sweepEnd.y - sweepStart.y)
-        : Math.abs(sweepEnd.x - sweepStart.x);
-    const effectiveSweepEnd = primarySpan >= 1 ? sweepEnd : fallbackSweepEnd;
-    const desiredAnchor = {
-        x: sweepStart.x + (effectiveSweepEnd.x - sweepStart.x) * progress,
-        y: sweepStart.y + (effectiveSweepEnd.y - sweepStart.y) * progress
-    };
-
-    return {
-        x: desiredAnchor.x - padAnchorOffsetX,
-        y: desiredAnchor.y - padAnchorOffsetY
-    };
-}
-
-function isTeleporterInViewport(teleporter: TeleporterRuntime, viewport: TeleporterPadViewportFilter) {
-    const margin = Math.max(0, viewport.margin ?? 0);
-    const left = viewport.x - margin;
-    const top = viewport.y - margin;
-    const right = viewport.x + viewport.width + margin;
-    const bottom = viewport.y + viewport.height + margin;
-    const candidates = [
-        { x: teleporter.baseX, y: teleporter.baseY },
-        { x: teleporter.padX, y: teleporter.padY }
-    ];
-    for (const candidate of candidates) {
-        if (
-            candidate.x + TELEPORTER_TILE_SIZE >= left &&
-            candidate.x <= right &&
-            candidate.y + TELEPORTER_TILE_SIZE >= top &&
-            candidate.y <= bottom
-        ) {
-            return true;
-        }
-    }
-    return false;
-}
-
-function isTeleporterNearPoint(teleporter: TeleporterRuntime, proximity: TeleporterPadProximityFilter) {
-    const radius = Math.max(0, proximity.radius);
-    const radiusSquared = radius * radius;
-    const candidates = [
-        { x: teleporter.baseX + TELEPORTER_TILE_SIZE / 2, y: teleporter.baseY + TELEPORTER_TILE_SIZE / 2 },
-        { x: teleporter.padX + TELEPORTER_TILE_SIZE / 2, y: teleporter.padY + TELEPORTER_TILE_SIZE / 2 }
-    ];
-    for (const candidate of candidates) {
-        const dx = candidate.x - proximity.x;
-        const dy = candidate.y - proximity.y;
-        if ((dx * dx + dy * dy) <= radiusSquared) {
-            return true;
-        }
-    }
-    return false;
-}
-
-function getTeleporterRenderPads(
-    now: number,
-    options?: {
-        ignoreKeyRequirement?: boolean;
-        activeOnly?: boolean;
-        inactiveOnly?: boolean;
-        fixedProgress?: number;
-        viewport?: TeleporterPadViewportFilter;
-        proximity?: TeleporterPadProximityFilter;
-    }
-): TeleporterRenderPad[] {
-    const renderPads: TeleporterRenderPad[] = [];
-    const sweepProgress = typeof options?.fixedProgress === 'number'
-        ? Math.max(0, Math.min(1, options.fixedProgress))
-        : (() => {
-            const frameIndex = Math.floor(now / TELEPORTER_PAD_SWEEP_FRAME_MS) % TELEPORTER_PAD_SWEEP_PHASES.length;
-            return TELEPORTER_PAD_SWEEP_PHASES[frameIndex];
-        })();
-    const { baseBlocksById, padBlocksById } = getTeleporterBlockIndex();
-    for (const teleporter of teleporterEntities) {
-        if (options?.viewport && !isTeleporterInViewport(teleporter, options.viewport)) {
-            continue;
-        }
-        if (options?.proximity && !isTeleporterNearPoint(teleporter, options.proximity)) {
-            continue;
-        }
-        const active = isTeleporterActive(teleporter, options);
-        if (options?.activeOnly && !active) {
-            continue;
-        }
-        if (options?.inactiveOnly && active) {
-            continue;
-        }
-        const baseBlock = baseBlocksById.get(teleporter.id)
-            ?? getTeleporterBaseBlock(teleporter);
-        const padBlock = padBlocksById.get(teleporter.id)
-            ?? getTeleporterPadBlock(teleporter);
-        const palette = typeof padBlock?.palette === 'number'
-            ? padBlock.palette
-            : (typeof baseBlock?.palette === 'number' ? baseBlock.palette : 0);
-        const rotation = typeof padBlock?.rotation === 'number'
-            ? padBlock.rotation
-            : (typeof baseBlock?.rotation === 'number' ? baseBlock.rotation : 1);
-        const translation = normalizeSpriteTranslation(padBlock?.translation ?? baseBlock?.translation);
-        const paletteCycle = padBlock?.paletteCycle;
-        const baseRotation = typeof baseBlock?.rotation === 'number' ? baseBlock.rotation : 1;
-        const basePalette = typeof baseBlock?.palette === 'number' ? baseBlock.palette : palette;
-        const baseTranslation = normalizeSpriteTranslation(baseBlock?.translation);
-        const padCycleKey = paletteCycle && Array.isArray(paletteCycle.palettes)
-            ? `${paletteCycle.intervalMs ?? 0}:${paletteCycle.palettes.join(',')}`
-            : 'none';
-        const progress = !active && !options?.activeOnly
-            ? 1
-            : sweepProgress;
-        const progressBucketForPad = Math.round(progress * 1000);
-        const positionCacheKey = [
-            teleporter.id,
-            teleporter.baseX,
-            teleporter.baseY,
-            teleporter.padX,
-            teleporter.padY,
-            progressBucketForPad,
-            palette,
-            rotation,
-            translation,
-            basePalette,
-            baseRotation,
-            baseTranslation,
-            padCycleKey
-        ].join('|');
-        let position = teleporterPadSweepPositionCache.get(positionCacheKey);
-        if (!position) {
-            position = getTeleporterPadSweepPosition(teleporter, progress, {
-                palette,
-                rotation,
-                translation,
-                paletteCycle
-            }, baseBlock);
-            if (teleporterPadSweepPositionCache.size >= TELEPORTER_PAD_SWEEP_CACHE_LIMIT) {
-                teleporterPadSweepPositionCache.clear();
-            }
-            teleporterPadSweepPositionCache.set(positionCacheKey, position);
-        }
-        renderPads.push({
-            teleporter,
-            active,
-            x: position.x,
-            y: position.y,
-            palette,
-            rotation,
-            translation,
-            paletteCycle
-        });
-    }
-    return renderPads;
+    return teleporterPadRuntime.getTeleporterActiveDestination(teleporter);
 }
 
 function getTeleporterPadKeySet() {
-    if (teleporterPadKeyCache.version === teleporterPadCacheVersion) {
-        return teleporterPadKeyCache.keys;
-    }
-    const keys = new Set<string>();
-    for (const teleporter of teleporterEntities) {
-        keys.add(makeTeleporterPositionKey(teleporter.padX, teleporter.padY));
-    }
-    teleporterPadKeyCache = { version: teleporterPadCacheVersion, keys };
-    return keys;
+    return teleporterPadRuntime.getTeleporterPadKeySet();
 }
 
 function filterTeleporterPadsFromBlocks(blocks: MapBlock[], teleporterPadKeys: Set<string>) {
-    if (teleporterPadKeys.size === 0 || blocks.length === 0) {
-        return blocks;
-    }
-    const cached = teleporterPadFilteredMapCache.get(blocks);
-    if (cached && cached.version === teleporterPadCacheVersion) {
-        return cached.filtered;
-    }
-    const filtered = blocks.filter((block) =>
-        block.type !== 'teleporter_pad' || !teleporterPadKeys.has(makeTeleporterPositionKey(block.x, block.y))
-    );
-    teleporterPadFilteredMapCache.set(blocks, { version: teleporterPadCacheVersion, filtered });
-    return filtered;
+    return teleporterPadRuntime.filterTeleporterPadsFromBlocks(blocks, teleporterPadKeys);
 }
 
 function drawTeleporterPads(
@@ -4981,62 +3878,7 @@ function drawTeleporterPads(
     now: number,
     options?: { ignoreKeyRequirement?: boolean }
 ) {
-    const viewport = {
-        x: camera.x,
-        y: camera.y,
-        width: canvas.width,
-        height: canvas.height,
-        margin: TELEPORTER_TILE_SIZE * 2
-    };
-    const pads = getTeleporterRenderPads(now, {
-        ignoreKeyRequirement: options?.ignoreKeyRequirement,
-        viewport
-    });
-    if (pads.length === 0) {
-        return;
-    }
-    teleporterPadDrawEntities.length = 0;
-    const pushPad = (pad: TeleporterRenderPad) => {
-        const nextIndex = teleporterPadDrawEntities.length;
-        const entity = teleporterPadDrawEntities[nextIndex] ?? {
-            x: 0,
-            y: 0,
-            type: 'teleporter_pad' as const,
-            palette: 0,
-            rotation: 1,
-            translation: 'center' as SpriteTranslation,
-            collision: false as const
-        };
-        entity.x = pad.x;
-        entity.y = pad.y;
-        entity.palette = pad.palette;
-        entity.rotation = pad.rotation;
-        entity.translation = pad.translation;
-        entity.paletteCycle = pad.paletteCycle;
-        teleporterPadDrawEntities[nextIndex] = entity;
-    };
-    for (const pad of pads) {
-        if (!pad.active) {
-            pushPad(pad);
-        }
-    }
-    for (const pad of pads) {
-        if (pad.active) {
-            pushPad(pad);
-        }
-    }
-    const previousAlpha = context.globalAlpha;
-    context.globalAlpha = previousAlpha * 0.82;
-    drawEntities(
-        context,
-        camera,
-        spriteMap,
-        remappedSpriteSheets,
-        SPRITE_SCALE,
-        teleporterPadDrawEntities,
-        now
-    );
-    context.globalAlpha = previousAlpha;
+    teleporterPadRuntime.drawTeleporterPads(context, camera, now, options);
 }
 
 function updateTeleporterPadTeleporting(now: number, simulationFrame: number) {
@@ -5044,7 +3886,7 @@ function updateTeleporterPadTeleporting(now: number, simulationFrame: number) {
         return;
     }
     const astronautRect = getAstronautRect();
-    for (const activePad of getTeleporterRenderPads(now, {
+    for (const activePad of teleporterPadRuntime.getRenderPads(now, {
         activeOnly: true,
         proximity: {
             x: astronaut.position.x + TELEPORTER_TILE_SIZE / 2,
@@ -5487,39 +4329,6 @@ function getCreatureTargetPoint(
     };
 }
 
-function isGrenadeCollectable(collectable: Collectable | null | undefined): collectable is Collectable {
-    return !!collectable && isGrenadeCollectableType(collectable.type);
-}
-
-function getGrenadeExplosionRadius(type: string, explosionRadius?: number) {
-    const fallbackRadius = type === 'plasma_grenade'
-        ? MOVEMENT_SETTINGS.plasmaGrenadeExplosionRadius
-        : MOVEMENT_SETTINGS.grenadeExplosionRadius;
-    return typeof explosionRadius === 'number'
-        ? Math.max(1, explosionRadius)
-        : fallbackRadius;
-}
-
-function getGrenadeExplosionPower(type: string, explosionPower?: number) {
-    const fallbackPower = getDefaultGrenadeExplosionPower(type) ?? MOVEMENT_SETTINGS.grenadeExplosionPower;
-    const resolvedPower = typeof explosionPower === 'number' ? explosionPower : fallbackPower;
-    return clampToRange(resolvedPower, 0.5, MOVEMENT_SETTINGS.grenadeMaxExplosionPower);
-}
-
-function getExplosionDamageSource(type: 'grenade' | 'plasma_grenade' | 'coronium') {
-    if (type === 'plasma_grenade') {
-        return 'plasma_grenade_explosion' as const;
-    }
-    if (type === 'coronium') {
-        return 'coronium_explosion' as const;
-    }
-    return 'grenade_explosion' as const;
-}
-
-function isRadioactiveBoulderCollectable(collectable: Collectable) {
-    return collectable.type === 'boulder' && collectable.radioactive === true;
-}
-
 function isCoroniumExplosionAtCenter(center: Position) {
     const radioactiveBoulderCenters = collectableEntities
         .filter((collectable) =>
@@ -5732,32 +4541,6 @@ function applyExplosionDamageToDestructibles(
     };
 }
 
-function syncGrenadeFuseState(collectable: Collectable, now: number = performance.now()) {
-    if (!isGrenadeCollectable(collectable)) {
-        return;
-    }
-
-    if (collectable.armed) {
-        if (typeof collectable.armedAtMs !== 'number') {
-            collectable.armedAtMs = now;
-        }
-    } else {
-        collectable.armedAtMs = undefined;
-    }
-}
-
-function setGrenadeCollectableArmedState(collectable: Collectable, armed: boolean, now: number = performance.now()) {
-    if (!isGrenadeCollectable(collectable)) {
-        return;
-    }
-
-    if (armed) {
-        collectable.arm(now);
-    } else {
-        collectable.disarm();
-    }
-}
-
 function spawnGrenadeExplosionEffect(type: 'grenade' | 'plasma_grenade', palette: number, centerX: number, centerY: number) {
     const settings = getProjectileSettings(type);
     const effectBounds = getEntityCollisionBounds({
@@ -5883,7 +4666,7 @@ function spawnProjectileImpactEffect(
     projectileImpactEffects.push(effect);
 
     if (projectile.creatureProjectile.kind === 'bullet') {
-        playBulletImpactSound();
+        gameAudio.playBulletImpactSound(bulletImpactAudioSettings.volume);
         spawnBulletImpactParticles(effect.centerX, effect.centerY);
         applyAstronautBulletImpactBlast(effect.centerX, effect.centerY, projectile.creatureProjectile.damage);
     }
@@ -6027,7 +4810,7 @@ function updateAndDrawBulletImpactParticles(context: CanvasRenderingContext2D | 
 }
 
 function spawnWindParticlesNearAstronaut(now: number) {
-    const toggles = getEffectiveWindToggles();
+    const toggles = getEffectiveWindToggles(windSettings, windDebugToggles);
     if (!toggles.windEnabled || !toggles.windVfxEnabled || !toggles.emittersEnabled) {
         return;
     }
@@ -6066,7 +4849,7 @@ function spawnWindParticlesNearAstronaut(now: number) {
     }
 
     if (toggles.surfaceWindEnabled) {
-        const surfaceWind = applySurfaceWindField(astronaut.position.x, astronaut.position.y, now);
+        const surfaceWind = applySurfaceWindField(astronaut.position.x, astronaut.position.y, now, windSettings);
         const magnitude = Math.hypot(surfaceWind.x, surfaceWind.y);
         if (magnitude > 0.01) {
             const directionRadians = Math.atan2(surfaceWind.y, surfaceWind.x);
@@ -6153,120 +4936,6 @@ function convertProjectileToEnergyPodCollectable(projectile: CreatureProjectileC
     delete (projectile as Collectable).creatureProjectile;
 }
 
-function playRuntimeSound(audio: HTMLAudioElement, volume = 1) {
-    if (!getSoundEnabled()) {
-        return;
-    }
-    audio.volume = Math.max(0, Math.min(1, volume));
-    try {
-        audio.currentTime = 0;
-        audio.play();
-    } catch {}
-}
-
-function playManifestSound(key: string, volume = 1) {
-    const audio = creatureManifestSounds[key];
-    if (!audio) {
-        return;
-    }
-    playRuntimeSound(audio, volume);
-}
-
-function playAstronautImpactSound() {
-    playRuntimeSound(ouchSounds[Math.floor(Math.random() * ouchSounds.length)], 0.8);
-}
-
-function playPlasmaGrenadeImpactSound() {
-    playRuntimeSound(plasmaGrenadeImpactSound, 0.95);
-}
-
-function updateGrenadeArmedLoopSound() {
-    const shouldPlay = getSoundEnabled() && collectableEntities.some(
-        (collectable) => isGrenadeCollectable(collectable) && collectable.armed
-    );
-    if (shouldPlay) {
-        grenadeArmedSound.loop = true;
-        grenadeArmedSound.volume = 0.5;
-        if (!grenadeArmedLoopActive) {
-            try {
-                grenadeArmedSound.currentTime = 0;
-                grenadeArmedSound.play();
-            } catch {}
-            grenadeArmedLoopActive = true;
-        }
-        return;
-    }
-
-    if (grenadeArmedLoopActive) {
-        try {
-            grenadeArmedSound.pause();
-            grenadeArmedSound.currentTime = 0;
-        } catch {}
-        grenadeArmedLoopActive = false;
-    }
-}
-
-function updateMushroomAmbientLoopSound() {
-    if (!getSoundEnabled()) {
-        nextMushroomAmbientAt = 0;
-        return;
-    }
-
-    const mushrooms = getMushroomBlocks();
-    if (mushrooms.length === 0) {
-        nextMushroomAmbientAt = 0;
-        return;
-    }
-
-    const tileSize = 32 * SPRITE_SCALE;
-    const mushroomCenterOffset = tileSize / 2;
-    let nearestDistance = Number.POSITIVE_INFINITY;
-    for (const mushroom of mushrooms) {
-        const dx = mushroom.x + mushroomCenterOffset - astronaut.position.x;
-        const dy = mushroom.y + mushroomCenterOffset - astronaut.position.y;
-        const distance = Math.hypot(dx, dy);
-        if (distance < nearestDistance) {
-            nearestDistance = distance;
-        }
-    }
-
-    if (nearestDistance > MUSHROOM_AMBIENT_RANGE) {
-        nextMushroomAmbientAt = 0;
-        return;
-    }
-
-    const now = performance.now();
-    if (now < nextMushroomAmbientAt) {
-        return;
-    }
-
-    const volume = Math.max(
-        0,
-        Math.min(1, MUSHROOM_AMBIENT_BASE_VOLUME * (1 - nearestDistance / MUSHROOM_AMBIENT_RANGE))
-    );
-    if (volume > 0) {
-        const ambientInstance = mushroomsSound.cloneNode(true);
-        if (ambientInstance instanceof HTMLAudioElement) {
-            ambientInstance.volume = volume;
-            void ambientInstance.play().catch(() => { });
-        }
-    }
-    const delay = MUSHROOM_AMBIENT_MIN_DELAY_MS
-        + Math.random() * (MUSHROOM_AMBIENT_MAX_DELAY_MS - MUSHROOM_AMBIENT_MIN_DELAY_MS);
-    nextMushroomAmbientAt = now + delay;
-}
-
-function playBulletImpactSound() {
-    playRuntimeSound(bulletExplosionSound, bulletImpactAudioSettings.volume);
-}
-
-function playExplosionDamageSound(destroyedDoor: boolean, volume: number) {
-    playRuntimeSound(
-        destroyedDoor ? bulletExplosion2Sound : bulletExplosionSound,
-        volume
-    );
-}
-
 function cleanupCollectableReferences(collectable: Collectable) {
     if (heldCollectable === collectable) {
         heldCollectable = null;
@@ -6324,7 +4993,7 @@ function applyAstronautImpact(sourceX: number, sourceY: number, force: number, c
             }
         }
     }
-    playAstronautImpactSound();
+    gameAudio.playAstronautImpactSound();
 }
 
 function applyAstronautBulletImpactBlast(centerX: number, centerY: number, damage: number) {
@@ -6381,7 +5050,7 @@ function applyAstronautProjectileImpact(projectile: CreatureProjectileCollectabl
     );
     astronaut.velocity.x += (projectile.velocity.x / speed) * force;
     astronaut.velocity.y += (projectile.velocity.y / speed) * Math.max(0.55, force * 0.8);
-    playAstronautImpactSound();
+    gameAudio.playAstronautImpactSound();
 }
 
 function markCreatureDamaged(creature: Creature, damage: number) {
@@ -6479,7 +5148,7 @@ function explodeProjectile(projectile: CreatureProjectileCollectable, entityX = 
         ),
         destructionSource
     );
-    playExplosionDamageSound(
+    gameAudio.playExplosionDamageSound(
         destructibleDamageResult.destroyedDoor || doorEntities.length < doorCountBeforeExplosion,
         bulletImpactAudioSettings.volume
     );
@@ -6544,7 +5213,7 @@ function explodeCollectableGrenade(collectable: Collectable) {
         power * 6,
         destructionSource
     );
-    playExplosionDamageSound(
+    gameAudio.playExplosionDamageSound(
         destructibleDamageResult.destroyedDoor || doorEntities.length < doorCountBeforeExplosion,
         0.9
     );
@@ -7083,7 +5752,7 @@ function updateCreatureProjectileCollectable(projectile: CreatureProjectileColle
         }
         expired = true;
         if (wasRemoved) {
-            playManifestSound('get', 0.55);
+            gameAudio.playManifestSound('get', 0.55);
         }
         break;
     }
@@ -7443,7 +6112,7 @@ function updateCreatures(frameNow: number, simulationFrame: number) {
         }
         removeCreatureEntity(prey);
         predator.currentDamage = Math.max(0, predator.currentDamage - 0.5);
-        playManifestSound('get', 0.5);
+        gameAudio.playManifestSound('get', 0.5);
     }
 }
 
@@ -7556,7 +6225,7 @@ function updateCreatureSounds(frameNow: number) {
         runtimeState.nextAmbientSoundAt = frameNow + Math.max(250, creature.sound.intervalMs + variance);
         creature.state = runtimeState;
 
-        playRuntimeSound(audio, creature.sound.volume * (1 - distance / range));
+        gameAudio.playRuntimeSound(audio, creature.sound.volume * (1 - distance / range));
     }
 }
 
@@ -8185,7 +6854,7 @@ function updateSingleCollectablePhysics(
     }
 
     const collisionBounds = getEntityCollisionBounds(collectable);
-    const windToggles = getEffectiveWindToggles();
+    const windToggles = getEffectiveWindToggles(windSettings, windDebugToggles);
     if (
         windToggles.windEnabled &&
         !collectable.creatureProjectile
@@ -8201,7 +6870,7 @@ function updateSingleCollectablePhysics(
             )
             : { x: 0, y: 0, activeEmitterCount: 0 };
         const surfaceWind = windToggles.surfaceWindEnabled
-            ? applySurfaceWindField(collectable.x, collectable.y, now)
+            ? applySurfaceWindField(collectable.x, collectable.y, now, windSettings)
             : { x: 0, y: 0 };
         const totalWindX = emitterWind.x + surfaceWind.x;
         const totalWindY = emitterWind.y + surfaceWind.y;
@@ -8360,7 +7029,7 @@ function updateCollectablePhysics(now: number, simulationFrame: number) {
                 const distance = Math.hypot(center.x - astronaut.position.x, center.y - astronaut.position.y);
                 const range = 280;
                 if (distance <= range) {
-                    playManifestSound(collectable.ambientSoundKey, 0.35 * (1 - distance / range));
+                    gameAudio.playManifestSound(collectable.ambientSoundKey, 0.35 * (1 - distance / range));
                 }
                 collectable.nextAmbientSoundAt = now + Math.max(250, collectable.ambientSoundIntervalMs ?? 1000);
             }
@@ -8369,7 +7038,7 @@ function updateCollectablePhysics(now: number, simulationFrame: number) {
         if (typeof collectable.ttlFrames === 'number') {
             collectable.ttlFrames--;
             if (collectable.ttlFrames <= 0) {
-                playManifestSound('teleport', 0.45);
+                gameAudio.playManifestSound('teleport', 0.45);
                 removeCollectableEntity(collectable);
                 continue;
             }
@@ -8388,13 +7057,25 @@ function updateCollectablePhysics(now: number, simulationFrame: number) {
             collectable.type === 'plasma_grenade' &&
             (surfaceResult.hitWorld || isCollectableOverlappingAstronaut(collectable))
         ) {
-            playPlasmaGrenadeImpactSound();
+            gameAudio.playPlasmaGrenadeImpactSound();
             explodeCollectableGrenade(collectable);
             continue;
         }
     }
-    updateGrenadeArmedLoopSound();
-    updateMushroomAmbientLoopSound();
+    gameAudio.updateGrenadeArmedLoopSound(
+        collectableEntities,
+        (collectable) => isGrenadeCollectable(collectable) && collectable.armed
+    );
+    gameAudio.updateMushroomAmbientLoopSound({
+        astronautPosition: astronaut.position,
+        mushrooms: getMushroomBlocks(),
+        spriteScale: SPRITE_SCALE,
+        ambientRange: MUSHROOM_AMBIENT_RANGE,
+        ambientBaseVolume: MUSHROOM_AMBIENT_BASE_VOLUME,
+        minDelayMs: MUSHROOM_AMBIENT_MIN_DELAY_MS,
+        maxDelayMs: MUSHROOM_AMBIENT_MAX_DELAY_MS,
+        now
+    });
 }
 
 function updateAndDrawThrowGuide(context: CanvasRenderingContext2D, camera: Position) {
@@ -8459,20 +7140,12 @@ window.addEventListener('keydown', (e) => {
     if (e.key === 'd') gameState.debugMode = !gameState.debugMode;
     if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'h') {
         e.preventDefault();
-        showPerformanceHud = !showPerformanceHud;
-        if (!isPerformanceInstrumentationEnabled()) {
-            lastFrameTimestamp = null;
-        }
+        performanceTracker.toggleHudEnabled();
         requestImmediateFrame();
     }
     if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'j') {
         e.preventDefault();
-        showPerformanceConsoleSummary = !showPerformanceConsoleSummary;
-        if (showPerformanceConsoleSummary) {
-            lastPerformanceConsoleSummaryAt = 0;
-        } else if (!isPerformanceInstrumentationEnabled()) {
-            lastFrameTimestamp = null;
-        }
+        performanceTracker.toggleConsoleSummaryEnabled();
         requestImmediateFrame();
     }
 });

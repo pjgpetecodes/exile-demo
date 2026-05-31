@@ -1,4 +1,4 @@
-import { Astronaut } from './types/index.js';
+import { Astronaut } from '../types/index.js';
 
 export function applyGravity(
     astronaut: Astronaut,

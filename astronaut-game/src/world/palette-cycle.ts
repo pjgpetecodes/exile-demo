@@ -1,4 +1,4 @@
-import { PaletteCycleSettings } from './types/index.js';
+import { PaletteCycleSettings } from '../types/index.js';
 
 function clamp(value: number, min: number, max: number) {
     return Math.min(Math.max(value, min), max);

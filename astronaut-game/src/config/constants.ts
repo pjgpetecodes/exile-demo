@@ -1,4 +1,4 @@
-import { CREATURE_SOUND_MANIFEST } from './assets/creature-sound-manifest.js';
+import { CREATURE_SOUND_MANIFEST } from '../assets/creature-sound-manifest.js';
 
 // --- Map size in pixels ---
 export const DEFAULT_MAP_WIDTH = 10000;
@@ -28,21 +28,21 @@ export const SPRITE_COL_WALK_END = 7;
 export const TELEPORT_ANIM_FRAMES = 30; // 0.5 seconds at 60fps
 
 // --- Sound effects ---
-export const rememberSound = new Audio('./src/assets/remember.wav');
-export const teleportSound = new Audio('./src/assets/teleport.wav');
-export const buttonOnSound = new Audio('./src/assets/button_on.wav');
-export const doorOpenSound = new Audio('./src/assets/door_open.wav');
-export const doorCloseSound = new Audio('./src/assets/door_close.wav');
-export const getSound = new Audio('./src/assets/get.wav');
-export const saveSound = new Audio('./src/assets/save.wav');
-export const bulletExplosionSound = new Audio('./src/assets/BulletExplosion.wav');
-export const bulletExplosion2Sound = new Audio('./src/assets/BulletExplosion2.wav');
-export const grenadeArmedSound = new Audio('./src/assets/GrenadeArmed.wav');
-export const plasmaGrenadeImpactSound = new Audio('./src/assets/plasmagrenade.wav');
-export const mushroomsSound = new Audio('./src/assets/Mushrooms.wav');
+export const rememberSound = new Audio('./src/assets/audio/remember.wav');
+export const teleportSound = new Audio('./src/assets/audio/teleport.wav');
+export const buttonOnSound = new Audio('./src/assets/audio/button_on.wav');
+export const doorOpenSound = new Audio('./src/assets/audio/door_open.wav');
+export const doorCloseSound = new Audio('./src/assets/audio/door_close.wav');
+export const getSound = new Audio('./src/assets/audio/get.wav');
+export const saveSound = new Audio('./src/assets/audio/save.wav');
+export const bulletExplosionSound = new Audio('./src/assets/audio/BulletExplosion.wav');
+export const bulletExplosion2Sound = new Audio('./src/assets/audio/BulletExplosion2.wav');
+export const grenadeArmedSound = new Audio('./src/assets/audio/GrenadeArmed.wav');
+export const plasmaGrenadeImpactSound = new Audio('./src/assets/audio/plasmagrenade.wav');
+export const mushroomsSound = new Audio('./src/assets/audio/Mushrooms.wav');
 export const ouchSounds = [
-    new Audio('./src/assets/ouch_1.wav'),
-    new Audio('./src/assets/ouch_2.wav')
+    new Audio('./src/assets/audio/ouch_1.wav'),
+    new Audio('./src/assets/audio/ouch_2.wav')
 ];
 
 export const creatureManifestSounds = Object.fromEntries(

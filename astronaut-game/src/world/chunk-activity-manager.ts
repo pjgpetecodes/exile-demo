@@ -3,7 +3,7 @@ import {
     ChunkActivityRadii,
     ChunkCoordinates,
     Position
-} from './types/index.js';
+} from '../types/index.js';
 
 type ChunkActivityViewportInput = {
     camera: Position;
