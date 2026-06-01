@@ -81,6 +81,16 @@ type ProjectileRuntimeFactoryOptions = {
 };
 
 export function createCreatureProjectileRuntime(options: ProjectileRuntimeFactoryOptions) {
+    const processedGrenadeExplosions = new WeakSet<Collectable>();
+
+    function markProjectileExpired(projectile: CreatureProjectileCollectable) {
+        // Guard against repeated impact/explosion processing if a projectile lingers for any reason.
+        projectile.creatureProjectile.impacted = true;
+        if (options.isCreatureProjectileCollectable(projectile)) {
+            options.removeCollectableEntity(projectile);
+        }
+    }
+
     function projectileOverlapsCreature(projectile: CreatureProjectileCollectable, creature: Creature) {
         const projectileBounds = options.getEntityCollisionBounds(projectile);
         const projectileRect = options.getEntityRect(projectile.x, projectile.y, projectileBounds);
@@ -166,6 +176,10 @@ export function createCreatureProjectileRuntime(options: ProjectileRuntimeFactor
         if (!options.isGrenadeCollectable(collectable)) {
             return;
         }
+        if (processedGrenadeExplosions.has(collectable)) {
+            return;
+        }
+        processedGrenadeExplosions.add(collectable);
 
         const center = collectable.stored
             ? options.getAstronautPosition()
@@ -565,6 +579,10 @@ export function createCreatureProjectileRuntime(options: ProjectileRuntimeFactor
     function updateCreatureProjectileCollectable(projectile: CreatureProjectileCollectable) {
         let expired = false;
         const projectileRuntime = projectile.creatureProjectile;
+        if (projectileRuntime.impacted === true) {
+            markProjectileExpired(projectile);
+            return;
+        }
         const previousPosition = {
             x: projectile.x,
             y: projectile.y
@@ -602,9 +620,7 @@ export function createCreatureProjectileRuntime(options: ProjectileRuntimeFactor
             expired = true;
         }
         if (expired) {
-            if (options.isCreatureProjectileCollectable(projectile)) {
-                options.removeCollectableEntity(projectile);
-            }
+            markProjectileExpired(projectile);
             return;
         }
 
@@ -645,9 +661,7 @@ export function createCreatureProjectileRuntime(options: ProjectileRuntimeFactor
             break;
         }
         if (expired) {
-            if (options.isCreatureProjectileCollectable(projectile)) {
-                options.removeCollectableEntity(projectile);
-            }
+            markProjectileExpired(projectile);
             return;
         }
 
@@ -683,8 +697,8 @@ export function createCreatureProjectileRuntime(options: ProjectileRuntimeFactor
             }
             expired = true;
         }
-        if (expired && options.isCreatureProjectileCollectable(projectile)) {
-            options.removeCollectableEntity(projectile);
+        if (expired) {
+            markProjectileExpired(projectile);
         }
     }
 

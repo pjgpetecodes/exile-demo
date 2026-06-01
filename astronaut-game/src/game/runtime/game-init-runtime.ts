@@ -3,7 +3,14 @@ export interface GameInitRuntimeContext {
 }
 
 export async function runGameInitRuntime(context: GameInitRuntimeContext) {
+    (window as any).__initCtxDiagnostics = {
+        hasSetSpriteSheetFunction: typeof (context as any).setSpriteSheet === 'function',
+        hasSetSpriteMapFunction: typeof (context as any).setSpriteMap === 'function',
+        spriteSheetDescriptorHasSetter: !!Object.getOwnPropertyDescriptor(context, 'spriteSheet')?.set,
+        spriteMapDescriptorHasSetter: !!Object.getOwnPropertyDescriptor(context, 'spriteMap')?.set
+    };
     const {
+        MAP_HEIGHT,
         MAP_WIDTH,
         STARFIELD_HEIGHT,
         astronaut,
@@ -67,7 +74,10 @@ export async function runGameInitRuntime(context: GameInitRuntimeContext) {
     } = context;
 
 
-    await loadSpriteMap();
+    const loadedSpriteMap = await loadSpriteMap();
+    if (loadedSpriteMap !== undefined) {
+        context.spriteMap = loadedSpriteMap;
+    }
     await loadPalettes();
     await loadMapBlocks();
     await loadDoors();
@@ -80,12 +90,11 @@ export async function runGameInitRuntime(context: GameInitRuntimeContext) {
     await ensureMapChunksAroundWorldPosition(getAstronautStartPosition(), 1, true);
     initStars(MAP_WIDTH, STARFIELD_HEIGHT);
     const img = new Image();
-    img.src = './src/assets/images/sprites/sprite_sheet.png';
     img.onload = () => {
         makeBlackTransparent(img, async (canvasWithTransparency: any) => {
-            context.spriteSheet = new Image();
-            context.spriteSheet.src = canvasWithTransparency.toDataURL();
-            context.spriteSheet.onload = async () => {
+            const loadedSpriteSheet = new Image();
+            loadedSpriteSheet.onload = async () => {
+                context.spriteSheet = loadedSpriteSheet;
                 // Make context.spriteSheet globally accessible for pixel-perfect collision
                 (window as any).spriteSheet = context.spriteSheet;
                 // Also create and store a 2D context for pixel access
@@ -98,6 +107,9 @@ export async function runGameInitRuntime(context: GameInitRuntimeContext) {
                 rebuildRemappedSpriteSheets();
 
                 // --- Calculate tightest collision bounding boxes at startup ---
+                if (!context.spriteMap) {
+                    throw new Error('Sprite map was not available after loadSpriteMap()');
+                }
                 const boundingBoxes = await calculateSpriteCollisionBoundingBoxes(
                     context.spriteSheet,
                     context.spriteMap,
@@ -239,6 +251,7 @@ export async function runGameInitRuntime(context: GameInitRuntimeContext) {
                     getPaletteDefinitions: () => deepClone(context.rawPaletteDefinitions),
                     getColorAliases: () => deepClone(context.colorAliases),
                     getPaletteCount: () => Math.max(context.remappedSpriteSheets.length, context.palettes.length, 1),
+                    getMapBounds: () => ({ width: MAP_WIDTH, height: MAP_HEIGHT }),
                     clampCamera,
                     ensureWorldBounds,
                     saveWorldData,
@@ -248,8 +261,10 @@ export async function runGameInitRuntime(context: GameInitRuntimeContext) {
                 });
                 requestImmediateFrame();
             };
+            loadedSpriteSheet.src = canvasWithTransparency.toDataURL();
         });
     };
+    img.src = './src/assets/images/sprites/sprite_sheet.png';
     img.onerror = () => {
         alert('Sprite sheet not found at ./src/assets/images/sprites/exile_sprites.png');
     };

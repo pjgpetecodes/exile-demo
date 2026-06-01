@@ -20,6 +20,12 @@ export function getInputKey(event: KeyboardEvent) {
     if (event.code === 'Space') {
         return ' ';
     }
+    if (event.code === 'ArrowLeft') {
+        return 'q';
+    }
+    if (event.code === 'ArrowRight') {
+        return 'w';
+    }
     if (event.code === 'Quote' && event.shiftKey) {
         return '@';
     }
@@ -44,6 +50,8 @@ export function shouldPreventGameplayDefault(event: KeyboardEvent, designerOpen:
         key === 'w' ||
         key === 'p' ||
         key === 'l' ||
+        event.code === 'ArrowLeft' ||
+        event.code === 'ArrowRight' ||
         event.code === 'Quote' ||
         event.code === 'Slash'
     );

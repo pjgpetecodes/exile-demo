@@ -34,7 +34,10 @@ function buildResourceStateAccessors(context: ValuePack) {
         palettes: { get: () => context.getPalettes() },
         rawPaletteDefinitions: { get: () => context.getRawPaletteDefinitions() },
         remappedSpriteSheets: { get: () => context.getRemappedSpriteSheets() },
-        spriteMap: { get: () => context.getSpriteMap() },
+        spriteMap: {
+            get: () => context.getSpriteMap(),
+            set: (value: any) => { context.setSpriteMap(value); }
+        },
         spriteSheet: {
             get: () => context.getSpriteSheet(),
             set: (value: HTMLImageElement) => { context.setSpriteSheet(value); }

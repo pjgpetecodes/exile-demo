@@ -2,13 +2,24 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Launch Astronaut Game",
+      "name": "Launch Astronaut Game (Firefox)",
       "type": "firefox",
       "request": "launch",
       "url": "http://localhost:3000",
       "runtimeExecutable": "C:\\Program Files\\Mozilla Firefox\\firefox.exe",
       "webRoot": "${workspaceFolder}\\astronaut-game",
       "sourceMaps": true,
+      "preLaunchTask": "dev astronaut-game",
+      "postDebugTask": "stop astronaut-game dev"
+    },
+    {
+      "name": "Launch Astronaut Game (Edge fallback)",
+      "type": "pwa-msedge",
+      "request": "launch",
+      "url": "http://localhost:3000",
+      "webRoot": "${workspaceFolder}\\astronaut-game",
+      "sourceMaps": true,
+      "userDataDir": true,
       "preLaunchTask": "dev astronaut-game",
       "postDebugTask": "stop astronaut-game dev"
     }

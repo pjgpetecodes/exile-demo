@@ -1,4 +1,5 @@
 import type { RawWorldData } from '../../designer/world-designer.js';
+import { normalizeWaterBlock } from '../../world/water-blocks.js';
 
 type AssignEntityId = <T>(value: T) => T;
 
@@ -62,7 +63,11 @@ export function createGameWorldDataRuntime(options: {
     function replaceRawWorldData(data: RawWorldData) {
         options.clearCollectedCollectableEntityIds();
         const mapBlocks = options.getMapBlocks();
-        mapBlocks.splice(0, mapBlocks.length, ...data.worldMap.map((block) => options.assignEntityId({ ...block })));
+        mapBlocks.splice(
+            0,
+            mapBlocks.length,
+            ...data.worldMap.map((block) => options.assignEntityId(normalizeWaterBlock({ ...block })))
+        );
         options.setDoorEntities(data.doors.map((door) => options.assignEntityId(options.createDoor(door))));
         options.setButtonEntities(data.buttons.map((button) => options.assignEntityId(options.createButton(button))));
         options.setCreatureEntities(data.creatures.map((creature) => options.assignEntityId(options.createCreature(creature))));

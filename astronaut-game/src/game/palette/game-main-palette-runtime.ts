@@ -54,9 +54,14 @@ export function createGameMainPaletteRuntime(options: PaletteRuntimeOptions) {
 
         options.clearPalettePreviewCache();
         options.clearMapSpriteCache();
-        const remappedSpriteSheets = options.getPalettes().map((palette) => options.remapSpritePalette(spriteSheet, palette));
-        options.setRemappedSpriteSheets(remappedSpriteSheets);
-        options.setAstronautSpriteSource(remappedSpriteSheets[1] || remappedSpriteSheets[0] || spriteSheet);
+        const remappedSpriteSheets = options.getPalettes()
+            .map((palette) => options.remapSpritePalette(spriteSheet, palette));
+        const validRemappedSpriteSheets = remappedSpriteSheets.filter(
+            (sheet): sheet is HTMLCanvasElement => sheet instanceof HTMLCanvasElement
+        );
+        const effectiveSheets = validRemappedSpriteSheets.length > 0 ? validRemappedSpriteSheets : [spriteSheet];
+        options.setRemappedSpriteSheets(effectiveSheets);
+        options.setAstronautSpriteSource(effectiveSheets[1] || effectiveSheets[0] || spriteSheet);
     }
 
     function applyPaletteDefinitions(definitions: PaletteDefinition[]) {

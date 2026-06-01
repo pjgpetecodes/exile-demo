@@ -29,6 +29,7 @@ type HeldItemRuntimeOptions = {
     getEntityRect: (x: number, y: number, bounds: CollisionBounds) => EntityRect;
     getEntityCenter: (x: number, y: number, bounds: CollisionBounds) => Position;
     getAstronautRenderedWorldSprite: () => { canvas: HTMLCanvasElement; drawX: number; drawY: number } | null;
+    getRenderedEntityWorldSprite: (entity: any) => { canvas: HTMLCanvasElement; drawX: number; drawY: number } | null;
     getSpriteVisibleBounds: (canvas: HTMLCanvasElement | null) => { minX: number; minY: number; maxX: number; maxY: number } | null;
     getCollectableEntities: () => Collectable[];
     getHeldCollectable: () => Collectable | null;
@@ -52,6 +53,8 @@ type HeldItemRuntimeOptions = {
 };
 
 export function createGameHeldItemRuntime(options: HeldItemRuntimeOptions) {
+    const swallowAutoplayRejection = () => {};
+
     function getHeldCollectableTargetPosition(): Position {
         const heldCollectable = options.getHeldCollectable();
         if (!heldCollectable) {
@@ -59,11 +62,22 @@ export function createGameHeldItemRuntime(options: HeldItemRuntimeOptions) {
         }
 
         const collectableBounds = options.getEntityCollisionBounds(heldCollectable);
-        const collectableHalfHeight = (collectableBounds.bottom - collectableBounds.top + 1) / 2;
-        const desiredCenterY = options.astronaut.position.y + options.movementSettings.heldCollectableVerticalOffset;
         const renderedAstronaut = options.getAstronautRenderedWorldSprite();
         const visibleBounds = renderedAstronaut ? options.getSpriteVisibleBounds(renderedAstronaut.canvas) : null;
+        const renderedHeldCollectable = options.getRenderedEntityWorldSprite(heldCollectable);
+        const heldVisibleBounds = renderedHeldCollectable
+            ? options.getSpriteVisibleBounds(renderedHeldCollectable.canvas)
+            : null;
         const facingLeft = options.getFacingLeft();
+        const desiredCenterY = renderedAstronaut && visibleBounds
+            ? renderedAstronaut.drawY
+                + (visibleBounds.minY + (visibleBounds.maxY - visibleBounds.minY + 1) / 2) * options.spriteScale
+            : options.astronaut.position.y + options.movementSettings.heldCollectableVerticalOffset;
+        const heldCenterOffsetY = renderedHeldCollectable && heldVisibleBounds
+            ? (renderedHeldCollectable.drawY
+                + (heldVisibleBounds.minY + (heldVisibleBounds.maxY - heldVisibleBounds.minY + 1) / 2) * options.spriteScale)
+                - heldCollectable.y
+            : collectableBounds.top + (collectableBounds.bottom - collectableBounds.top + 1) / 2;
 
         let x: number;
         if (renderedAstronaut && visibleBounds) {
@@ -84,7 +98,7 @@ export function createGameHeldItemRuntime(options: HeldItemRuntimeOptions) {
 
         return {
             x,
-            y: desiredCenterY - collectableBounds.top - collectableHalfHeight
+            y: desiredCenterY - heldCenterOffsetY
         };
     }
 
@@ -216,7 +230,10 @@ export function createGameHeldItemRuntime(options: HeldItemRuntimeOptions) {
         storedCollectables.push(heldCollectable);
         options.setInventoryCycleIndex(storedCollectables.length - 1);
         options.setHeldCollectable(null);
-        try { options.saveSound.currentTime = 0; options.saveSound.play(); } catch {}
+        try {
+            options.saveSound.currentTime = 0;
+            void options.saveSound.play().catch(swallowAutoplayRejection);
+        } catch {}
     }
 
     function cycleStoredCollectable() {
@@ -243,7 +260,10 @@ export function createGameHeldItemRuntime(options: HeldItemRuntimeOptions) {
         const nextCollectable = storedCollectables.splice(inventoryCycleIndex, 1)[0];
         nextCollectable.hold(options.getFacingLeft());
         options.setHeldCollectable(nextCollectable);
-        try { options.getSound.currentTime = 0; options.getSound.play(); } catch {}
+        try {
+            options.getSound.currentTime = 0;
+            void options.getSound.play().catch(swallowAutoplayRejection);
+        } catch {}
 
         if (storedCollectables.length === 0) {
             options.setInventoryCycleIndex(-1);
@@ -290,7 +310,10 @@ export function createGameHeldItemRuntime(options: HeldItemRuntimeOptions) {
             if (pickupTarget) {
                 if (pickupTarget.collected) {
                     options.markCollectableCollected(pickupTarget);
-                    try { options.getSound.currentTime = 0; options.getSound.play(); } catch {}
+                    try {
+                        options.getSound.currentTime = 0;
+                        void options.getSound.play().catch(swallowAutoplayRejection);
+                    } catch {}
                 } else {
                     pickupTarget.hold(options.getFacingLeft());
                     options.setHeldCollectable(pickupTarget);

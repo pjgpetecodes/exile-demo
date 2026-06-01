@@ -29,8 +29,7 @@ type WorldDesignerRenderLifecycleDeps = {
             layerVisibility: Record<DesignerCategory, boolean>
         ) => void;
     };
-    mapWidth: number;
-    mapHeight: number;
+    getMapBounds: () => { width: number; height: number };
     tileSize: number;
     getChunkedWorldOverview: () => any;
     getCategoryArray: (category: DesignerCategory) => any[];
@@ -112,8 +111,7 @@ export function createWorldDesignerRenderLifecycle(deps: WorldDesignerRenderLife
         refs,
         state,
         host,
-        mapWidth,
-        mapHeight,
+        getMapBounds,
         tileSize,
         getChunkedWorldOverview,
         getCategoryArray,
@@ -159,6 +157,7 @@ export function createWorldDesignerRenderLifecycle(deps: WorldDesignerRenderLife
     }
 
     function redrawOverviewBase() {
+        const { width: mapWidth, height: mapHeight } = getMapBounds();
         redrawOverviewBaseLayer({
             overviewBaseCanvas,
             overviewCanvas: refs.overviewCanvas,
@@ -177,6 +176,7 @@ export function createWorldDesignerRenderLifecycle(deps: WorldDesignerRenderLife
 
     function drawOverview() {
         ensureOverviewWorldTilesLoaded();
+        const { width: mapWidth, height: mapHeight } = getMapBounds();
         const worldCount = getCategoryArray('world').length;
         if (
             worldCount !== lastOverviewWorldCount ||

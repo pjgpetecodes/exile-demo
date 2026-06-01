@@ -1090,7 +1090,7 @@ export function checkAstronautCollisions(buttonEntities: Button[],
         doorEntities,
         buttonEntities
     );
-    if (support && velocityY >= 0) {
+    if (support && (velocityY >= 0 || deltaY === 0)) {
         recordTriggerEntity(support.hit);
         isLanded = true;
         velocityY = 0;

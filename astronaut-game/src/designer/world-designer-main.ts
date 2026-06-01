@@ -1,4 +1,4 @@
-import { MAP_HEIGHT, MAP_WIDTH, mushroomsSound, getSoundEnabled } from '../config/constants.js';
+import { mushroomsSound, getSoundEnabled } from '../config/constants.js';
 import {
     getDefaultDestructibleEnabled,
     getDefaultDestructibleHealth,
@@ -1272,9 +1272,14 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         renderSpritePickerGrid();
     }
 
+    function getMapBounds() {
+        return host.getMapBounds();
+    }
+
     const interactionHandlers = initializeInteractionHandlersFromMain({
         core: { state, refs, host },
-        constants: { MAP_WIDTH, MAP_HEIGHT, CATEGORY_LABELS },
+        constants: { CATEGORY_LABELS },
+        data: { getMapBounds },
         types: { isFormTarget },
         geometry: { getCanvasPoint, screenToWorld },
         teleporters: { getTeleporterById },
@@ -1315,9 +1320,10 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
 
     function focusOnCurrentWorldPosition() {
         const focus = host.getFocusWorldPosition();
+        const { width: mapWidth, height: mapHeight } = getMapBounds();
         state.overviewHoverWorld = {
-            x: clamp(focus.x, 0, MAP_WIDTH),
-            y: clamp(focus.y, 0, MAP_HEIGHT)
+            x: clamp(focus.x, 0, mapWidth),
+            y: clamp(focus.y, 0, mapHeight)
         };
         moveCameraToWorldCenter(state.overviewHoverWorld.x, state.overviewHoverWorld.y);
         persistDesignerUiState();

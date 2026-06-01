@@ -11,6 +11,7 @@ import type {
     Selection
 } from '../core/world-designer-types.js';
 import type { Position } from '../../types/index.js';
+import { shouldTreatTypePaletteAsWater } from '../../world/water-blocks.js';
 import { getGuideSpan, getRangeGap, snapCoordinateToOffset } from '../core/world-designer-helpers.js';
 
 const OBJECT_SNAP_THRESHOLD = 20;
@@ -383,7 +384,8 @@ export function createWorldDesignerPlacement(deps: WorldDesignerPlacementDeps) {
                 maskAstronaut: false,
                 palette: state.palette,
                 rotation: state.rotation,
-                translation: state.translation
+                translation: state.translation,
+                ...(shouldTreatTypePaletteAsWater(type, state.palette) ? { water: true } : {})
             };
             getCategoryArray('world').push(entity);
             playMushroomPlacementSound(type);

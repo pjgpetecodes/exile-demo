@@ -83,7 +83,7 @@ export function createGameSpritePreviewRuntime(options: CreateGameSpritePreviewR
         translation: SpriteTranslation = 'center'
     ) {
         const rect = options.findSpriteRectByType(type);
-        if (!rect || options.getRemappedSpriteSheets().length === 0) {
+        if (!rect) {
             if (clearFirst) {
                 context.clearRect(0, 0, context.canvas.width, context.canvas.height);
             }
@@ -111,7 +111,7 @@ export function createGameSpritePreviewRuntime(options: CreateGameSpritePreviewR
         translation: SpriteTranslation = 'center'
     ) {
         const rect = options.findSpriteRectByType(type);
-        if (!rect || options.getRemappedSpriteSheets().length === 0) {
+        if (!rect) {
             if (clearFirst) {
                 context.clearRect(0, 0, context.canvas.width, context.canvas.height);
             }

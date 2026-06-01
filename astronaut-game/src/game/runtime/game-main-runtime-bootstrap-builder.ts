@@ -49,6 +49,7 @@ export function createGameMainRuntimeBootstrapFromContext(context: ValuePack) {
             getEntityFrontAnchorPoint: context.getEntityFrontAnchorPoint,
             getEntitySideAnchorPoint: context.getEntitySideAnchorPoint,
             getEntityPositionFromCenter: context.getEntityPositionFromCenter,
+            getSpriteVisibleBounds: context.getSpriteVisibleBounds,
             isRenderedSpriteOpaqueAtWorld: context.isRenderedSpriteOpaqueAtWorld,
             doRenderedSpritesOverlap: context.doRenderedSpritesOverlap,
             getRenderedEntityWorldSprite: context.getRenderedEntityWorldSprite

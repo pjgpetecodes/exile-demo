@@ -77,6 +77,7 @@ export class Door {
     }
 
     updateAnimation(doorOpenSound: HTMLAudioElement, doorCloseSound: HTMLAudioElement) {
+        const swallowAutoplayRejection = () => {};
         // Only horizontal doors animate; lock state should not interrupt an animation already in progress
         if (!this.animating || this.type !== "door_horizontal") return;
 
@@ -101,7 +102,10 @@ export class Door {
                 this.x = (this as any)._originalX + (this as any).animationOffset;
                 // Play door open sound at the start of opening
                 if ((this as any).animationOffset === -1.5) {
-                    try { doorOpenSound.currentTime = 0; doorOpenSound.play(); } catch {}
+                    try {
+                        doorOpenSound.currentTime = 0;
+                        void doorOpenSound.play().catch(swallowAutoplayRejection);
+                    } catch {}
                 }
             } else {
                 // Fully open, start close delay
@@ -122,7 +126,10 @@ export class Door {
             if ((this as any).animationOffset < 0) {
                 // Play door close sound at the start of closing (when offset crosses -70)
                 if ((this as any).animationOffset <= -70 && !(this as any)._closeSoundPlayed) {
-                    try { doorCloseSound.currentTime = 0; doorCloseSound.play(); } catch {}
+                    try {
+                        doorCloseSound.currentTime = 0;
+                        void doorCloseSound.play().catch(swallowAutoplayRejection);
+                    } catch {}
                     (this as any)._closeSoundPlayed = true;
                 }
                 (this as any).animationOffset += 1.5;

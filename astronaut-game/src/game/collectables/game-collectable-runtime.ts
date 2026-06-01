@@ -85,7 +85,10 @@ export function isRadioactiveBoulderCollectable(collectable: Collectable) {
 }
 
 export function getCreatureProjectileCollectables(collectables: Collectable[]) {
-    return collectables.filter(isCreatureProjectileCollectable);
+    return collectables.filter((collectable) =>
+        isCreatureProjectileCollectable(collectable) &&
+        collectable.creatureProjectile.impacted !== true
+    );
 }
 
 export function getRenderableCollectables(

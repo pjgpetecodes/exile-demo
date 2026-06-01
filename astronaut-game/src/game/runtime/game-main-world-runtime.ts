@@ -42,8 +42,8 @@ export function createGameMainWorldRuntime(options: {
     getBlockInstanceRotatedBoundingBoxes: () => WeakMap<object, any>;
     findSpriteRectByType: (type: string) => { w: number; h: number } | null;
     getAstronautStartPosition: () => Position;
-    mapWidth: number;
-    mapHeight: number;
+    getMapWidth: () => number;
+    getMapHeight: () => number;
     spriteScale: number;
     worldBoundsPadding: number;
     setMapBounds: (width: number, height: number) => void;
@@ -192,6 +192,8 @@ export function createGameMainWorldRuntime(options: {
     }
 
     function syncRuntimeMapBounds() {
+        const mapWidth = options.getMapWidth();
+        const mapHeight = options.getMapHeight();
         let maxRight = 0;
         let maxBottom = 0;
         const approximateEntitySpan = Math.ceil(32 * options.spriteScale);
@@ -219,15 +221,17 @@ export function createGameMainWorldRuntime(options: {
         }
 
         options.setMapBounds(
-            Math.max(options.mapWidth, maxRight + options.worldBoundsPadding),
-            Math.max(options.mapHeight, maxBottom + options.worldBoundsPadding)
+            Math.max(mapWidth, maxRight + options.worldBoundsPadding),
+            Math.max(mapHeight, maxBottom + options.worldBoundsPadding)
         );
     }
 
     function ensureWorldBounds(width: number, height: number) {
+        const mapWidth = options.getMapWidth();
+        const mapHeight = options.getMapHeight();
         options.setMapBounds(
-            Math.max(options.mapWidth, Math.round(width)),
-            Math.max(options.mapHeight, Math.round(height))
+            Math.max(mapWidth, Math.round(width)),
+            Math.max(mapHeight, Math.round(height))
         );
     }
 
@@ -242,14 +246,16 @@ export function createGameMainWorldRuntime(options: {
         options.rebuildMapBlockRenderCache();
         rebuildBlockInstanceBoundingBoxes();
         syncRuntimeMapBounds();
-        options.initStars(options.mapWidth, Math.min(options.mapHeight, 2000));
+        options.initStars(options.getMapWidth(), Math.min(options.getMapHeight(), 2000));
         options.invalidateTeleporterPadCaches();
     }
 
     function clampCamera(camera: Position, canvasSize: { width: number; height: number }) {
+        const mapWidth = options.getMapWidth();
+        const mapHeight = options.getMapHeight();
         return {
-            x: Math.max(0, Math.min(camera.x, Math.max(0, options.mapWidth - canvasSize.width))),
-            y: Math.max(0, Math.min(camera.y, Math.max(0, options.mapHeight - canvasSize.height)))
+            x: Math.max(0, Math.min(camera.x, Math.max(0, mapWidth - canvasSize.width))),
+            y: Math.max(0, Math.min(camera.y, Math.max(0, mapHeight - canvasSize.height)))
         };
     }
 

@@ -18,8 +18,7 @@ type WorldDesignerInteractionHandlersDeps = {
         canvas: HTMLCanvasElement;
         clampCamera: (camera: Position) => Position;
     };
-    mapWidth: number;
-    mapHeight: number;
+    getMapBounds: () => { width: number; height: number };
     clamp: (value: number, min: number, max: number) => number;
     isFormTarget: (target: EventTarget | null) => boolean;
     getCanvasPoint: (event: MouseEvent) => Position;
@@ -67,8 +66,7 @@ export function createWorldDesignerInteractionHandlers(deps: WorldDesignerIntera
         state,
         refs,
         host,
-        mapWidth,
-        mapHeight,
+        getMapBounds,
         clamp,
         isFormTarget,
         getCanvasPoint,
@@ -346,6 +344,7 @@ export function createWorldDesignerInteractionHandlers(deps: WorldDesignerIntera
         const y = clamp(event.clientY - rect.top, 0, cssHeight);
         const normalizedX = cssWidth > 0 ? x / cssWidth : 0;
         const normalizedY = cssHeight > 0 ? y / cssHeight : 0;
+        const { width: mapWidth, height: mapHeight } = getMapBounds();
         const worldX = clamp(normalizedX * mapWidth, 0, mapWidth);
         const worldY = clamp(normalizedY * mapHeight, 0, mapHeight);
         state.overviewHoverWorld = { x: worldX, y: worldY };

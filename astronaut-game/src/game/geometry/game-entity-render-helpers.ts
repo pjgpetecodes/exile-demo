@@ -242,6 +242,13 @@ export function createGameEntityRenderHelpers(options: RenderHelperOptions) {
         if (!first || !second) {
             return false;
         }
+        const firstCtx = first.canvas.getContext('2d');
+        const secondCtx = second.canvas.getContext('2d');
+        if (!firstCtx || !secondCtx) {
+            return false;
+        }
+        const firstAlpha = firstCtx.getImageData(0, 0, first.canvas.width, first.canvas.height).data;
+        const secondAlpha = secondCtx.getImageData(0, 0, second.canvas.width, second.canvas.height).data;
 
         const overlapLeft = Math.max(first.drawX, second.drawX);
         const overlapTop = Math.max(first.drawY, second.drawY);
@@ -258,12 +265,32 @@ export function createGameEntityRenderHelpers(options: RenderHelperOptions) {
             return false;
         }
 
-        for (let worldY = Math.floor(overlapTop); worldY < Math.ceil(overlapBottom); worldY++) {
-            for (let worldX = Math.floor(overlapLeft); worldX < Math.ceil(overlapRight); worldX++) {
+        const scale = options.spriteScale;
+        const startLocalX = Math.max(0, Math.floor((overlapLeft - first.drawX) / scale));
+        const endLocalX = Math.min(first.canvas.width - 1, Math.ceil((overlapRight - first.drawX) / scale) - 1);
+        const startLocalY = Math.max(0, Math.floor((overlapTop - first.drawY) / scale));
+        const endLocalY = Math.min(first.canvas.height - 1, Math.ceil((overlapBottom - first.drawY) / scale) - 1);
+
+        for (let localY = startLocalY; localY <= endLocalY; localY++) {
+            for (let localX = startLocalX; localX <= endLocalX; localX++) {
+                const firstAlphaIndex = (localY * first.canvas.width + localX) * 4 + 3;
+                if (firstAlpha[firstAlphaIndex] === 0) {
+                    continue;
+                }
+                const worldX = first.drawX + (localX + 0.5) * scale;
+                const worldY = first.drawY + (localY + 0.5) * scale;
+                const secondLocalX = Math.floor((worldX - second.drawX) / scale);
+                const secondLocalY = Math.floor((worldY - second.drawY) / scale);
                 if (
-                    isRenderedSpriteOpaqueAtWorld(first, worldX, worldY) &&
-                    isRenderedSpriteOpaqueAtWorld(second, worldX, worldY)
+                    secondLocalX < 0 ||
+                    secondLocalY < 0 ||
+                    secondLocalX >= second.canvas.width ||
+                    secondLocalY >= second.canvas.height
                 ) {
+                    continue;
+                }
+                const secondAlphaIndex = (secondLocalY * second.canvas.width + secondLocalX) * 4 + 3;
+                if (secondAlpha[secondAlphaIndex] > 0) {
                     return true;
                 }
             }

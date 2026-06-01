@@ -3,12 +3,16 @@ import type { Creature } from '../../entities/creature.js';
 
 type EntityRect = { left: number; right: number; top: number; bottom: number };
 type CollisionBounds = EntityRect;
+type RenderedEntitySprite = { canvas: HTMLCanvasElement; drawX: number; drawY: number } | null;
 
 type GameCombatHelpersOptions = {
     getCreatureEntities: () => Creature[];
     getAstronautRect: () => EntityRect;
     getEntityCollisionBounds: (entity: any) => CollisionBounds;
     getEntityRect: (x: number, y: number, bounds: CollisionBounds) => EntityRect;
+    getAstronautRenderedWorldSprite: () => RenderedEntitySprite;
+    getRenderedEntityWorldSprite: (entity: any) => RenderedEntitySprite;
+    doRenderedSpritesOverlap: (first: RenderedEntitySprite, second: RenderedEntitySprite) => boolean;
     gameState: { astronaut: { position: Position } };
     astronaut: { velocity: Position };
     applyAstronautDamage: (damage: number, now?: number) => void;
@@ -20,6 +24,10 @@ type GameCombatHelpersOptions = {
 };
 
 export function createGameCombatHelpers(options: GameCombatHelpersOptions) {
+    const swallowAutoplayRejection = () => {};
+    const isBirdCollision = (creature: Creature) =>
+        creature.archetype === 'bird' || /^bird/i.test(creature.type);
+
     function resolveAstronautCreatureCollisions() {
         for (const creature of options.getCreatureEntities()) {
             const astronautRect = options.getAstronautRect();
@@ -29,6 +37,13 @@ export function createGameCombatHelpers(options: GameCombatHelpersOptions) {
             const overlapY = Math.min(astronautRect.bottom, creatureRect.bottom) - Math.max(astronautRect.top, creatureRect.top) + 1;
             if (overlapX <= 0 || overlapY <= 0) {
                 continue;
+            }
+            if (isBirdCollision(creature)) {
+                const astronautRendered = options.getAstronautRenderedWorldSprite();
+                const creatureRendered = options.getRenderedEntityWorldSprite(creature);
+                if (!options.doRenderedSpritesOverlap(astronautRendered, creatureRendered)) {
+                    continue;
+                }
             }
 
             const creatureDeltaX = creature.x - creature.previousX;
@@ -75,7 +90,7 @@ export function createGameCombatHelpers(options: GameCombatHelpersOptions) {
                 const ouchSound = options.ouchSounds[Math.floor(Math.random() * options.ouchSounds.length)];
                 try {
                     ouchSound.currentTime = 0;
-                    ouchSound.play();
+                    void ouchSound.play().catch(swallowAutoplayRejection);
                 } catch {}
                 runtimeState.nextContactSoundAt = now + 600;
                 creature.state = runtimeState;

@@ -200,6 +200,7 @@ export interface WorldDesignerHost {
     getPaletteDefinitions(): PaletteDefinition[];
     getColorAliases(): Record<string, [number, number, number]>;
     getPaletteCount(): number;
+    getMapBounds(): { width: number; height: number };
     clampCamera(camera: Position): Position;
     ensureWorldBounds(width: number, height: number): void;
     saveWorldData(data: RawWorldData): Promise<void>;

@@ -2,7 +2,6 @@ import { Creature } from '../../entities/creature.js';
 import { Collectable, getDefaultGrenadeExplosionPower, isGrenadeCollectableType } from '../../entities/collectable.js';
 import { DESTRUCTION_SOURCE_OPTIONS, getDefaultDestructibleEnabled, getDefaultDestructibleHealth, getDefaultDestructionSource } from '../../entities/destructibles.js';
 import { MOVEMENT_SETTINGS } from '../../config/settings.js';
-import { MAP_HEIGHT, MAP_WIDTH } from '../../config/constants.js';
 import { CREATURE_SOUND_MANIFEST } from '../../assets/creature-sound-manifest.js';
 import { shouldMaskAstronaut } from '../../world/map.js';
 import { buildDefaultPaletteCycle, getEffectivePaletteCycle } from '../../world/palette-cycle.js';
@@ -248,14 +247,15 @@ export function createRuntimeAssemblyMainContext(context: any) {
     const resolve = context.resolve;
     return {
         core: { refs, state, host, paletteCount, colorAliasNames, overviewBaseCanvas, styles },
-        constants: { CATEGORY_LABELS, MAP_WIDTH, MAP_HEIGHT, TILE_SIZE },
+        constants: { CATEGORY_LABELS, TILE_SIZE },
         data: {
             setCurrentType: resolve('setCurrentType'),
             getCategoryArray: resolve('getCategoryArray'),
             getChunkedWorldOverview: resolve('getChunkedWorldOverview'),
             getAstronautStartPosition: resolve('getAstronautStartPosition'),
             ensureOverviewWorldTilesLoaded: resolve('ensureOverviewWorldTilesLoaded'),
-            getOverviewWorldTiles: resolve('overviewWorldTileLoader').getOverviewWorldTiles
+            getOverviewWorldTiles: resolve('overviewWorldTileLoader').getOverviewWorldTiles,
+            getMapBounds: resolve('getMapBounds')
         },
         utilities: { clamp, normalizeRotation, normalizeSpriteTranslation, categorySupportsTranslation, normalizeRect },
         types: {

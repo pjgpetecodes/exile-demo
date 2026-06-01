@@ -1024,6 +1024,12 @@ export function drawEntities(
         const renderParts = entity instanceof Button ? entity.getRenderParts() : [entity];
 
         for (const renderPart of renderParts) {
+            if (
+                entity instanceof Collectable &&
+                entity.creatureProjectile?.impacted === true
+            ) {
+                continue;
+            }
             const renderEntity = entity instanceof Collectable && entity.creatureProjectile?.kind === 'bullet'
                 ? { ...renderPart, angleDegrees: undefined }
                 : renderPart;

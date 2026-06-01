@@ -11,6 +11,7 @@ import {
 import type {
     DesignerCategory,
     DesignerSectionId,
+    LayerVisibility,
     DesignerState,
     PaletteDefinition,
     PersistedDesignerUiState,
@@ -88,6 +89,26 @@ function createPersistedStateSnapshot(
         customSpriteInstances: deepClone(state.customSpriteInstances),
         sectionOpenState: deepClone(state.sectionOpenState)
     };
+}
+
+function normalizePersistedLayerVisibility(
+    persistedLayerVisibility: unknown
+): LayerVisibility {
+    const defaults = buildLayerVisibility();
+    if (!persistedLayerVisibility || typeof persistedLayerVisibility !== 'object') {
+        return defaults;
+    }
+    const normalized: LayerVisibility = { ...defaults };
+    for (const category of Object.keys(defaults) as DesignerCategory[]) {
+        const value = (persistedLayerVisibility as Record<string, unknown>)[category];
+        if (typeof value === 'boolean') {
+            normalized[category] = value;
+        }
+    }
+    if (!Object.values(normalized).some((value) => value)) {
+        return defaults;
+    }
+    return normalized;
 }
 
 export function createWorldDesignerBootstrap({
@@ -213,10 +234,7 @@ export function createWorldDesignerBootstrap({
         showCollisionOverlay: persistedState?.showCollisionOverlay ?? false,
         showCreatureOverlays: persistedState?.showCreatureOverlays ?? false,
         disableCollisionInPreview: persistedState?.disableCollisionInPreview ?? false,
-        layerVisibility: {
-            ...buildLayerVisibility(),
-            ...(persistedState?.layerVisibility ?? {})
-        },
+        layerVisibility: normalizePersistedLayerVisibility(persistedState?.layerVisibility),
         camera: initialCamera,
         dirty: false,
         status: 'Designer hidden by default. Press ` to open it.',

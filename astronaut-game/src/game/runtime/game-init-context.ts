@@ -15,6 +15,7 @@ type RuntimeInitStateBindings = {
     getRawPaletteDefinitions: () => any;
     getRemappedSpriteSheets: () => any;
     getSpriteMap: () => any;
+    setSpriteMap: (value: any) => void;
     getSpriteSheet: () => any;
     setSpriteSheet: (value: any) => void;
     getWorldDesigner: () => any;
@@ -26,31 +27,64 @@ type RuntimeInitStateBindings = {
 };
 
 export function createGameInitRuntimeContext(runtimeContext: Record<string, any>, state: RuntimeInitStateBindings) {
-    return {
-        ...runtimeContext,
-        get astronautBoundingBoxes() { return state.getAstronautBoundingBoxes(); },
-        set astronautBoundingBoxes(value) { state.setAstronautBoundingBoxes(value); },
-        get bulletImpactAudioSettings() { return state.getBulletImpactAudioSettings(); },
-        set bulletImpactAudioSettings(value) { state.setBulletImpactAudioSettings(value); },
-        get cachedWindEmittersFrameKey() { return state.getCachedWindEmittersFrameKey(); },
-        set cachedWindEmittersFrameKey(value) { state.setCachedWindEmittersFrameKey(value); },
-        get showCreatureOverlays() { return state.getShowCreatureOverlays(); },
-        set showCreatureOverlays(value) { state.setShowCreatureOverlays(value); },
-        get showWorldBoundingBoxes() { return state.getShowWorldBoundingBoxes(); },
-        set showWorldBoundingBoxes(value) { state.setShowWorldBoundingBoxes(value); },
-        get colorAliases() { return state.getColorAliases(); },
-        get mapBlocks() { return state.getMapBlocks(); },
-        get palettes() { return state.getPalettes(); },
-        get rawPaletteDefinitions() { return state.getRawPaletteDefinitions(); },
-        get remappedSpriteSheets() { return state.getRemappedSpriteSheets(); },
-        get spriteMap() { return state.getSpriteMap(); },
-        get spriteSheet() { return state.getSpriteSheet(); },
-        set spriteSheet(value) { state.setSpriteSheet(value); },
-        get worldDesigner() { return state.getWorldDesigner(); },
-        set worldDesigner(value) { state.setWorldDesigner(value); },
-        get worldMapBoundingBoxes() { return state.getWorldMapBoundingBoxes(); },
-        set worldMapBoundingBoxes(value) { state.setWorldMapBoundingBoxes(value); },
-        get worldMapRotatedBoundingBoxes() { return state.getWorldMapRotatedBoundingBoxes(); },
-        set worldMapRotatedBoundingBoxes(value) { state.setWorldMapRotatedBoundingBoxes(value); }
-    };
+    const context: Record<string, any> = {};
+    Object.assign(context, runtimeContext);
+    Object.defineProperties(context, {
+        astronautBoundingBoxes: {
+            enumerable: true,
+            get: () => state.getAstronautBoundingBoxes(),
+            set: (value) => { state.setAstronautBoundingBoxes(value); }
+        },
+        bulletImpactAudioSettings: {
+            enumerable: true,
+            get: () => state.getBulletImpactAudioSettings(),
+            set: (value) => { state.setBulletImpactAudioSettings(value); }
+        },
+        cachedWindEmittersFrameKey: {
+            enumerable: true,
+            get: () => state.getCachedWindEmittersFrameKey(),
+            set: (value) => { state.setCachedWindEmittersFrameKey(value); }
+        },
+        showCreatureOverlays: {
+            enumerable: true,
+            get: () => state.getShowCreatureOverlays(),
+            set: (value) => { state.setShowCreatureOverlays(value); }
+        },
+        showWorldBoundingBoxes: {
+            enumerable: true,
+            get: () => state.getShowWorldBoundingBoxes(),
+            set: (value) => { state.setShowWorldBoundingBoxes(value); }
+        },
+        colorAliases: { enumerable: true, get: () => state.getColorAliases() },
+        mapBlocks: { enumerable: true, get: () => state.getMapBlocks() },
+        palettes: { enumerable: true, get: () => state.getPalettes() },
+        rawPaletteDefinitions: { enumerable: true, get: () => state.getRawPaletteDefinitions() },
+        remappedSpriteSheets: { enumerable: true, get: () => state.getRemappedSpriteSheets() },
+        spriteMap: {
+            enumerable: true,
+            get: () => state.getSpriteMap(),
+            set: (value) => { state.setSpriteMap(value); }
+        },
+        spriteSheet: {
+            enumerable: true,
+            get: () => state.getSpriteSheet(),
+            set: (value) => { state.setSpriteSheet(value); }
+        },
+        worldDesigner: {
+            enumerable: true,
+            get: () => state.getWorldDesigner(),
+            set: (value) => { state.setWorldDesigner(value); }
+        },
+        worldMapBoundingBoxes: {
+            enumerable: true,
+            get: () => state.getWorldMapBoundingBoxes(),
+            set: (value) => { state.setWorldMapBoundingBoxes(value); }
+        },
+        worldMapRotatedBoundingBoxes: {
+            enumerable: true,
+            get: () => state.getWorldMapRotatedBoundingBoxes(),
+            set: (value) => { state.setWorldMapRotatedBoundingBoxes(value); }
+        }
+    });
+    return context;
 }

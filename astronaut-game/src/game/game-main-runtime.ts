@@ -38,6 +38,7 @@ import {
     getMapBlocksMaskAstronaut,
     getMushroomBlocks,
     getRenderableMapBlocks,
+    getChunkedWorldOverview,
     rebuildMapBlockRenderCache,
     materializeAllMapChunksForSave,
     prefetchMapChunksAroundWorldPosition,
@@ -218,10 +219,14 @@ import {
 
 // Instead of dynamic import, fetch the JSON file at runtime for browser compatibility
 let spriteMap: any;
+let spriteSheetSetCount = 0;
+let lastSetSpriteSheetWidth = 0;
+let lastSetSpriteSheetDefined = false;
 
 async function loadSpriteMap() {
     const res = await fetch('./src/assets/data/exile_sprites_map.json');
     spriteMap = await res.json();
+    return spriteMap;
 }
 
 let rawPaletteDefinitions: PaletteDefinition[] = [];
@@ -637,7 +642,77 @@ const windowRuntimeOptions = {
     getChunkActivityTuningSnapshot: () => getChunkActivityTuningSnapshot(),
     applyChunkActivityTuning,
     resetChunkActivityTuning,
-    toggleSoundEnabled
+    toggleSoundEnabled,
+    forceRebuildSpriteSheets: () => {
+        try {
+            rebuildRemappedSpriteSheets();
+            return { ok: true, count: remappedSpriteSheets.length };
+        } catch (error) {
+            return {
+                ok: false,
+                count: remappedSpriteSheets.length,
+                error: error instanceof Error ? error.message : String(error)
+            };
+        }
+    },
+    getRuntimeSnapshot: () => ({
+        spriteSheetSetCount,
+        lastSetSpriteSheetWidth,
+        lastSetSpriteSheetDefined,
+        missingMapSpriteTypes: (() => {
+            if (!spriteMap) {
+                return [];
+            }
+            const knownTypes = new Set<string>();
+            if (Array.isArray(spriteMap)) {
+                for (const row of spriteMap) {
+                    for (const entry of row ?? []) {
+                        if (entry?.name) {
+                            knownTypes.add(entry.name);
+                        }
+                    }
+                }
+            } else {
+                for (const key of Object.keys(spriteMap)) {
+                    knownTypes.add(key);
+                }
+            }
+            const missing = new Set<string>();
+            for (const block of mapBlocks) {
+                if (block?.type && !knownTypes.has(block.type)) {
+                    missing.add(block.type);
+                }
+            }
+            return [...missing].slice(0, 20);
+        })(),
+        sampleMapTypes: mapBlocks.slice(0, 20).map((block) => block?.type ?? ''),
+        mapBlocksCount: mapBlocks.length,
+        chunkedWorldMapEnabled: !!getChunkedWorldOverview(),
+        mapLoaded,
+        spriteMapLoaded: !!spriteMap,
+        runtimeSpriteSheetLoaded: !!spriteSheet,
+        runtimeSpriteSheetComplete: !!spriteSheet?.complete,
+        spriteTypeCount: spriteSheetRuntime.getSpriteTypes().length,
+        rawPaletteDefinitionCount: rawPaletteDefinitions.length,
+        paletteCount: palettes.length,
+        remappedSpriteSheetCount: remappedSpriteSheets.length,
+        worldDesignerExists: !!worldDesigner,
+        worldDesignerActive: worldDesigner?.isActive() === true,
+        mapWidth: MAP_WIDTH,
+        mapHeight: MAP_HEIGHT,
+        astronautPosition: {
+            x: astronaut.position.x,
+            y: astronaut.position.y
+        },
+        astronautVelocity: {
+            x: astronaut.velocity.x,
+            y: astronaut.velocity.y
+        },
+        astronautIsLanded: astronaut.isLanded,
+        walkAnimFrame,
+        walkAnimTimer,
+        designerCamera: worldDesigner?.getCamera() ?? null
+    })
 };
 attachBlackBackgroundWindowShortcuts(windowRuntimeOptions);
 exposeGameMainDebugRuntime(windowRuntimeOptions);
@@ -749,8 +824,8 @@ const {
     getBlockInstanceRotatedBoundingBoxes: () => blockInstanceRotatedBoundingBoxes,
     findSpriteRectByType: (type: any) => spriteSheetRuntime.findSpriteRectByType(type),
     getAstronautStartPosition,
-    mapWidth: MAP_WIDTH,
-    mapHeight: MAP_HEIGHT,
+    getMapWidth: () => MAP_WIDTH,
+    getMapHeight: () => MAP_HEIGHT,
     spriteScale: SPRITE_SCALE,
     worldBoundsPadding: WORLD_BOUNDS_PADDING,
     setMapBounds,
@@ -1171,6 +1246,9 @@ const {
     getAstronautRect,
     getEntityCollisionBounds,
     getEntityRect,
+    getAstronautRenderedWorldSprite,
+    getRenderedEntityWorldSprite,
+    doRenderedSpritesOverlap,
     gameState,
     astronaut,
     applyAstronautDamage,
@@ -1228,6 +1306,7 @@ const sharedRuntimeContext = createSharedRuntimeContextFromState({
     getEntityFrontAnchorPoint,
     getEntitySideAnchorPoint,
     getEntityPositionFromCenter,
+    getSpriteVisibleBounds,
     isRenderedSpriteOpaqueAtWorld,
     doRenderedSpritesOverlap,
     getRenderedEntityWorldSprite,
@@ -1311,7 +1390,8 @@ const sharedRuntimeContext = createSharedRuntimeContextFromState({
     getSpriteMap: () => spriteMap,
     getMapBlocks: () => mapBlocks,
     getDoorEntities: () => doorEntities,
-    getButtonEntities: () => buttonEntities
+    getButtonEntities: () => buttonEntities,
+    getTeleporterEntities: () => teleporterEntities
 });
 
 const runtimeBootstrap = createGameMainRuntimeBootstrapFromContext(sharedRuntimeContext);
@@ -1330,6 +1410,60 @@ const {
     updateSingleCollectablePhysics,
     updateCollectablePhysics
 } = runtimeBootstrap;
+
+const debugRuntime = (window as any).__exileDebug;
+if (debugRuntime) {
+    debugRuntime.teleportAstronaut = (x: number, y: number) => {
+        astronaut.position.x = x;
+        astronaut.position.y = y;
+        astronaut.velocity.x = 0;
+        astronaut.velocity.y = 0;
+    };
+    debugRuntime.holdNearestGrenade = () => {
+        let best: Collectable | null = null;
+        let bestDistance = Number.POSITIVE_INFINITY;
+        for (const collectable of collectableEntities) {
+            if ((collectable.type !== 'grenade' && collectable.type !== 'plasma_grenade') || collectable.stored) {
+                continue;
+            }
+            const dx = collectable.x - astronaut.position.x;
+            const dy = collectable.y - astronaut.position.y;
+            const distance = Math.hypot(dx, dy);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = collectable;
+            }
+        }
+        if (!best) {
+            return false;
+        }
+        best.hold(facingLeft);
+        heldCollectable = best;
+        updateHeldCollectablePosition();
+        return true;
+    };
+    debugRuntime.getHeldItemDebugSnapshot = () => {
+        const held = heldCollectable;
+        const target = held ? runtimeBootstrap.runtimeAssemblies.heldItemRuntime.getHeldCollectableTargetPosition() : null;
+        const astronautRendered = getAstronautRenderedWorldSprite();
+        const astronautVisibleBounds = astronautRendered ? getSpriteVisibleBounds(astronautRendered.canvas) : null;
+        const heldRendered = held ? getRenderedEntityWorldSprite(held) : null;
+        const heldVisibleBounds = heldRendered ? getSpriteVisibleBounds(heldRendered.canvas) : null;
+        const astronautVisibleCenterY = astronautRendered && astronautVisibleBounds
+            ? astronautRendered.drawY + (astronautVisibleBounds.minY + (astronautVisibleBounds.maxY - astronautVisibleBounds.minY + 1) / 2) * SPRITE_SCALE
+            : null;
+        const heldVisibleCenterY = heldRendered && heldVisibleBounds
+            ? heldRendered.drawY + (heldVisibleBounds.minY + (heldVisibleBounds.maxY - heldVisibleBounds.minY + 1) / 2) * SPRITE_SCALE
+            : null;
+        return {
+            astronaut: { x: astronaut.position.x, y: astronaut.position.y },
+            held: held ? { x: held.x, y: held.y, type: held.type } : null,
+            target,
+            astronautVisibleCenterY,
+            heldVisibleCenterY
+        };
+    };
+}
 
 // --- Show tight bounding boxes toggle ---
 let showTightBoundingBoxes = false; // Red sprite-based bounding boxes
@@ -1360,6 +1494,7 @@ const extraRuntimeContext = createExtraRuntimeContextFromState({
     SPRITE_COL_WALK_RIGHT2,
     SPRITE_COL_WALK_START,
     SPRITE_ROW,
+    SPRITE_SCALE,
     STARFIELD_HEIGHT,
     TELEPORT_ANIM_FRAMES,
     applyButtonTeleporterLinks,
@@ -1369,7 +1504,12 @@ const extraRuntimeContext = createExtraRuntimeContextFromState({
     astronautRenderer,
     getAstronautSpriteSource: () => astronautSpriteSource,
     bulletImpactParticles,
+    projectileImpactEffects,
+    windParticles,
     buttonEntities,
+    collectableEntities,
+    creatureEntities,
+    doorEntities,
     buttonOnSound,
     buttonPressTimestamps,
     canAstronautFitCollisionProfile,
@@ -1378,6 +1518,7 @@ const extraRuntimeContext = createExtraRuntimeContextFromState({
     computeAstronautWindAcceleration,
     computeLandingImpactDamage,
     ctx,
+    gameState,
     doorCloseSound,
     doorDestructionEffects,
     doorOpenSound,
@@ -1434,19 +1575,23 @@ const extraRuntimeContext = createExtraRuntimeContextFromState({
     updateDoorDestructionEffects,
     updateProjectileImpactEffects,
     updateTeleporterPadTeleporting,
-    walkSpeed,
-    downPressed,
-    facingLeft,
-    leftPressed,
+    getWalkSpeed: () => walkSpeed,
+    isDesignerOpen,
+    windDebugToggles,
+    windSettings,
+    getDownPressed: () => downPressed,
+    getFacingLeft: () => facingLeft,
+    getLeftPressed: () => leftPressed,
     remappedSpriteSheets,
-    rightPressed,
+    getRightPressed: () => rightPressed,
     saveSnapshotInProgress,
     showCreatureOverlays,
     showTightBoundingBoxes,
     showWorldBoundingBoxes,
-    upPressed,
+    getUpPressed: () => upPressed,
     astronautBoundingBoxes,
     blockInstanceRotatedBoundingBoxes,
+    getBlockInstanceRotatedBoundingBoxes: () => blockInstanceRotatedBoundingBoxes,
     worldMapBoundingBoxes,
     worldMapRotatedBoundingBoxes,
     drawCustomPalettePreview,
@@ -1456,6 +1601,7 @@ const extraRuntimeContext = createExtraRuntimeContextFromState({
     ensureWorldBounds,
     afterWorldDataMutated,
     clampCamera,
+    getAstronautStartPosition,
     getRawWorldData,
     getRawWorldDataForSave,
     getSpriteCatalog,
@@ -1474,6 +1620,7 @@ const extraRuntimeContext = createExtraRuntimeContextFromState({
     loadWindData,
     createWorldDesigner,
     deepClone,
+    getSoundEnabled,
     setSoundEnabled,
     setWindDebugToggle,
     makeBlackTransparent,
@@ -1501,7 +1648,16 @@ const extraRuntimeContext = createExtraRuntimeContextFromState({
     getPalettes: () => palettes,
     getRawPaletteDefinitions: () => rawPaletteDefinitions,
     getRemappedSpriteSheets: () => remappedSpriteSheets,
-    setSpriteSheet: (value: HTMLImageElement) => { spriteSheet = value; },
+    getSpriteMap: () => spriteMap,
+    setSpriteMap: (value: any) => { spriteMap = value; },
+    getSpriteSheet: () => spriteSheet,
+    getWorldDesigner: () => worldDesigner,
+    setSpriteSheet: (value: HTMLImageElement) => {
+        spriteSheetSetCount += 1;
+        lastSetSpriteSheetDefined = !!value;
+        lastSetSpriteSheetWidth = value?.width ?? 0;
+        spriteSheet = value;
+    },
     setWorldDesigner: (value: WorldDesigner | null) => { worldDesigner = value; },
     getWorldMapBoundingBoxes: () => worldMapBoundingBoxes,
     setWorldMapBoundingBoxes: (value: any) => { worldMapBoundingBoxes = value; },

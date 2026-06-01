@@ -91,6 +91,7 @@ export interface CreatureProjectileRuntimeData {
     remainingFrames: number;
     damage: number;
     sourceEntityId?: number;
+    impacted?: boolean;
 }
 
 export interface CreatureSoundSettings {

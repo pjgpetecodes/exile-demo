@@ -37,15 +37,41 @@ export function createGameAudioRuntime({
 }: GameAudioRuntimeDependencies) {
     let grenadeArmedLoopActive = false;
     let nextMushroomAmbientAt = 0;
+    const swallowAutoplayRejection = () => {};
+    const oneShotAudioPool = new WeakMap<HTMLAudioElement, HTMLAudioElement[]>();
+
+    function getOneShotInstance(audio: HTMLAudioElement) {
+        const existingPool = oneShotAudioPool.get(audio);
+        const pool = existingPool ?? [];
+        if (!existingPool) {
+            oneShotAudioPool.set(audio, pool);
+        }
+        for (const instance of pool) {
+            if (instance.paused || instance.ended) {
+                return instance;
+            }
+        }
+        const cloned = audio.cloneNode(true);
+        if (
+            typeof HTMLAudioElement !== 'undefined' &&
+            !(cloned instanceof HTMLAudioElement)
+        ) {
+            return audio as HTMLAudioElement;
+        }
+        const clonedAudio = cloned as HTMLAudioElement;
+        pool.push(clonedAudio);
+        return clonedAudio;
+    }
 
     function playRuntimeSound(audio: HTMLAudioElement, volume = 1) {
         if (!getSoundEnabled()) {
             return;
         }
-        audio.volume = Math.max(0, Math.min(1, volume));
+        const instance = getOneShotInstance(audio);
+        instance.volume = Math.max(0, Math.min(1, volume));
         try {
-            audio.currentTime = 0;
-            audio.play();
+            instance.currentTime = 0;
+            void instance.play().catch(swallowAutoplayRejection);
         } catch {}
     }
 
@@ -87,7 +113,7 @@ export function createGameAudioRuntime({
             if (!grenadeArmedLoopActive) {
                 try {
                     grenadeArmedSound.currentTime = 0;
-                    grenadeArmedSound.play();
+                    void grenadeArmedSound.play().catch(swallowAutoplayRejection);
                 } catch {}
                 grenadeArmedLoopActive = true;
             }
@@ -152,7 +178,7 @@ export function createGameAudioRuntime({
             const ambientInstance = mushroomsSound.cloneNode(true);
             if (ambientInstance instanceof HTMLAudioElement) {
                 ambientInstance.volume = volume;
-                void ambientInstance.play().catch(() => { });
+                void ambientInstance.play().catch(swallowAutoplayRejection);
             }
         }
         const delay = minDelayMs + Math.random() * (maxDelayMs - minDelayMs);

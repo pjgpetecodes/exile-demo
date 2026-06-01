@@ -36,7 +36,9 @@ function buildLoopSystems(context: ValuePack) {
         astronautRenderer: context.astronautRenderer,
         astronautSpriteSource: context.getAstronautSpriteSource(),
         bulletImpactParticles: context.bulletImpactParticles,
-        buttonEntities: context.buttonEntities,
+        buttonEntities: typeof context.getButtonEntities === 'function'
+            ? context.getButtonEntities()
+            : context.buttonEntities,
         buttonOnSound: context.buttonOnSound,
         buttonPressTimestamps: context.buttonPressTimestamps,
         canAstronautFitCollisionProfile: context.canAstronautFitCollisionProfile,
@@ -45,12 +47,16 @@ function buildLoopSystems(context: ValuePack) {
         chunkActivityManager: context.chunkActivityManager,
         computeAstronautWindAcceleration: context.computeAstronautWindAcceleration,
         computeLandingImpactDamage: context.computeLandingImpactDamage,
-        creatureEntities: context.creatureEntities,
+        creatureEntities: typeof context.getCreatureEntities === 'function'
+            ? context.getCreatureEntities()
+            : context.creatureEntities,
         creatureRuntime: context.creatureRuntime,
         ctx: context.ctx,
         doorCloseSound: context.doorCloseSound,
         doorDestructionEffects: context.doorDestructionEffects,
-        doorEntities: context.doorEntities,
+        doorEntities: typeof context.getDoorEntities === 'function'
+            ? context.getDoorEntities()
+            : context.doorEntities,
         doorOpenSound: context.doorOpenSound,
         drawCreatureOverlays: context.drawCreatureOverlays,
         drawDoorDestructionEffects: context.drawDoorDestructionEffects,
@@ -94,7 +100,7 @@ function buildLoopSystems(context: ValuePack) {
         handleCollectableInteractions: context.handleCollectableInteractions,
         hideBlackBackgroundBlocks: context.hideBlackBackgroundBlocks,
         keys: context.keys,
-        mapBlocks: context.mapBlocks,
+        mapBlocks: typeof context.getMapBlocks === 'function' ? context.getMapBlocks() : context.mapBlocks,
         mapLoaded: typeof context.getMapLoaded === 'function' ? context.getMapLoaded() : context.mapLoaded,
         mouseScreen: context.mouseScreen,
         mouseWorld: context.mouseWorld,
@@ -119,7 +125,9 @@ function buildLoopSystems(context: ValuePack) {
         teleportFlipVertical: context.teleportFlipVertical,
         teleportLocations: context.teleportLocations,
         teleportSpriteCol: context.teleportSpriteCol,
-        teleporterEntities: context.teleporterEntities,
+        teleporterEntities: typeof context.getTeleporterEntities === 'function'
+            ? context.getTeleporterEntities()
+            : context.teleporterEntities,
         updateAndDrawBulletImpactParticles: context.updateAndDrawBulletImpactParticles,
         updateAndDrawJetpackDots: context.updateAndDrawJetpackDots,
         updateAndDrawStars: context.updateAndDrawStars,
@@ -133,44 +141,73 @@ function buildLoopSystems(context: ValuePack) {
         updateProjectileImpactEffects: context.updateProjectileImpactEffects,
         updateTeleporterPadTeleporting: context.updateTeleporterPadTeleporting,
         updateThrowAngle: context.updateThrowAngle,
-        walkSpeed: context.walkSpeed,
-        windDebugToggles: context.windDebugToggles,
+        getWalkSpeed: context.getWalkSpeed,
+        walkSpeed: typeof context.getWalkSpeed === 'function' ? context.getWalkSpeed() : context.walkSpeed,
+        windDebugToggles: typeof context.getWindDebugToggles === 'function'
+            ? context.getWindDebugToggles()
+            : context.windDebugToggles,
         windParticles: context.windParticles,
-        windSettings: context.windSettings
+        windSettings: typeof context.getWindSettings === 'function'
+            ? context.getWindSettings()
+            : context.windSettings
     };
 }
 
 function buildLoopFrameState(context: ValuePack) {
+    const remappedSheets = typeof context.getRemappedSpriteSheets === 'function'
+        ? context.getRemappedSpriteSheets()
+        : context.remappedSpriteSheets;
+    const fallbackSpriteSheet = typeof context.getSpriteSheet === 'function'
+        ? context.getSpriteSheet()
+        : context.spriteSheet;
     return {
-        downPressed: context.downPressed,
-        facingLeft: context.facingLeft,
-        heldCollectable: context.heldCollectable,
+        downPressed: typeof context.getDownPressed === 'function' ? context.getDownPressed() : context.downPressed,
+        facingLeft: typeof context.getFacingLeft === 'function' ? context.getFacingLeft() : context.facingLeft,
+        heldCollectable: typeof context.getHeldCollectable === 'function'
+            ? context.getHeldCollectable()
+            : context.heldCollectable,
         isDesignerOpen: context.isDesignerOpen,
-        leftPressed: context.leftPressed,
-        remappedSpriteSheets: context.remappedSpriteSheets,
-        rightPressed: context.rightPressed,
+        leftPressed: typeof context.getLeftPressed === 'function' ? context.getLeftPressed() : context.leftPressed,
+        remappedSpriteSheets: (Array.isArray(remappedSheets) && remappedSheets.length > 0)
+            ? remappedSheets
+            : (fallbackSpriteSheet ? [fallbackSpriteSheet] : []),
+        rightPressed: typeof context.getRightPressed === 'function' ? context.getRightPressed() : context.rightPressed,
         saveSnapshotInProgress: context.saveSnapshotInProgress,
-        showCreatureOverlays: context.showCreatureOverlays,
+        showCreatureOverlays: typeof context.getShowCreatureOverlays === 'function'
+            ? context.getShowCreatureOverlays()
+            : context.showCreatureOverlays,
         showTightBoundingBoxes: context.showTightBoundingBoxes,
-        showWorldBoundingBoxes: context.showWorldBoundingBoxes,
-        upPressed: context.upPressed
+        showWorldBoundingBoxes: typeof context.getShowWorldBoundingBoxes === 'function'
+            ? context.getShowWorldBoundingBoxes()
+            : context.showWorldBoundingBoxes,
+        upPressed: typeof context.getUpPressed === 'function' ? context.getUpPressed() : context.upPressed
     };
 }
 
 function buildLoopAssetState(context: ValuePack) {
     return {
-        astronautBoundingBoxes: context.astronautBoundingBoxes,
-        blockInstanceRotatedBoundingBoxes: context.blockInstanceRotatedBoundingBoxes,
-        spriteMap: context.spriteMap,
+        astronautBoundingBoxes: typeof context.getAstronautBoundingBoxes === 'function'
+            ? context.getAstronautBoundingBoxes()
+            : context.astronautBoundingBoxes,
+        blockInstanceRotatedBoundingBoxes: typeof context.getBlockInstanceRotatedBoundingBoxes === 'function'
+            ? context.getBlockInstanceRotatedBoundingBoxes()
+            : context.blockInstanceRotatedBoundingBoxes,
+        spriteMap: typeof context.getSpriteMap === 'function' ? context.getSpriteMap() : context.spriteMap,
         spriteSheet: context.getSpriteSheet()
     };
 }
 
 function buildLoopWorldState(context: ValuePack) {
     return {
-        worldDesigner: context.worldDesigner,
-        worldMapBoundingBoxes: context.worldMapBoundingBoxes,
-        worldMapRotatedBoundingBoxes: context.worldMapRotatedBoundingBoxes
+        worldDesigner: typeof context.getWorldDesigner === 'function'
+            ? context.getWorldDesigner()
+            : context.worldDesigner,
+        worldMapBoundingBoxes: typeof context.getWorldMapBoundingBoxes === 'function'
+            ? context.getWorldMapBoundingBoxes()
+            : context.worldMapBoundingBoxes,
+        worldMapRotatedBoundingBoxes: typeof context.getWorldMapRotatedBoundingBoxes === 'function'
+            ? context.getWorldMapRotatedBoundingBoxes()
+            : context.worldMapRotatedBoundingBoxes
     };
 }
 

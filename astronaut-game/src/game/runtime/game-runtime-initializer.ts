@@ -68,6 +68,7 @@ export function initializeGameEntityRuntimes(options: RuntimeInitializerOptions)
         getEntityRect: options.getEntityRect,
         getEntityCenter: options.getEntityCenter,
         getAstronautRenderedWorldSprite: options.getAstronautRenderedWorldSprite,
+        getRenderedEntityWorldSprite: options.getRenderedEntityWorldSprite,
         getSpriteVisibleBounds: options.getSpriteVisibleBounds,
         getCollectableEntities: options.getCollectableEntities,
         getHeldCollectable: options.getHeldCollectable,

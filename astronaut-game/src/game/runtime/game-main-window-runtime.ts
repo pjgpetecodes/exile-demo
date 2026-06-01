@@ -15,6 +15,38 @@ type GameMainWindowRuntimeOptions = {
     applyChunkActivityTuning: (update: ChunkActivityTuningUpdate) => void;
     resetChunkActivityTuning: () => void;
     toggleSoundEnabled: () => void;
+    forceRebuildSpriteSheets: () => {
+        ok: boolean;
+        count: number;
+        error?: string;
+    };
+    getRuntimeSnapshot: () => {
+        spriteSheetSetCount: number;
+        lastSetSpriteSheetWidth: number;
+        lastSetSpriteSheetDefined: boolean;
+        missingMapSpriteTypes: string[];
+        sampleMapTypes: string[];
+        mapBlocksCount: number;
+        chunkedWorldMapEnabled: boolean;
+        mapLoaded: boolean;
+        spriteMapLoaded: boolean;
+        runtimeSpriteSheetLoaded: boolean;
+        runtimeSpriteSheetComplete: boolean;
+        spriteTypeCount: number;
+        rawPaletteDefinitionCount: number;
+        paletteCount: number;
+        remappedSpriteSheetCount: number;
+        worldDesignerExists: boolean;
+        worldDesignerActive: boolean;
+        mapWidth: number;
+        mapHeight: number;
+        astronautPosition: { x: number; y: number };
+        astronautVelocity: { x: number; y: number };
+        astronautIsLanded: boolean;
+        walkAnimFrame: number;
+        walkAnimTimer: number;
+        designerCamera: { x: number; y: number } | null;
+    };
 };
 
 export function attachBlackBackgroundWindowShortcuts(options: GameMainWindowRuntimeOptions) {
@@ -66,6 +98,8 @@ export function exposeGameMainDebugRuntime(options: GameMainWindowRuntimeOptions
                 options.resetChunkActivityTuning();
                 return options.getChunkActivityTuningSnapshot();
             }
-        }
+        },
+        forceRebuildSpriteSheets: () => options.forceRebuildSpriteSheets(),
+        getRuntimeSnapshot: () => options.getRuntimeSnapshot()
     };
 }

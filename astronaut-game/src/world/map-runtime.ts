@@ -9,6 +9,7 @@ import type { DestructionSourceRequirement } from '../entities/destructibles.js'
 import { resolveAnimatedPaletteIndex } from './palette-cycle.js';
 import { PaletteCycleSettings, Position, WindEmitterMode } from '../types/index.js';
 import { getSpriteTranslationOffset, getTransformedSpriteCanvas, normalizeSpriteTranslation, SpriteTranslation } from '../shared/utilities.js';
+import { normalizeWaterBlock } from './water-blocks.js';
 import {
     getMushroomPatternKey,
     hashStringToSeed,
@@ -46,6 +47,7 @@ export type MapBlock = {
     windAffectsAstronaut?: boolean;
     windAffectsLooseObjects?: boolean;
     windShowParticles?: boolean;
+    water?: boolean;
 };
 
 export let mapBlocks: MapBlock[] = [];
@@ -668,7 +670,7 @@ async function ensureChunkLoaded(chunkKey: string): Promise<ChunkCacheEntry | nu
                 throw new Error('Invalid world chunk payload. Each chunk file must contain an array of map blocks.');
             }
             cacheEntry!.blocks = chunkPayload.map((block: any) => {
-                const assignedBlock = assignEntityId(block) as MapBlock;
+                const assignedBlock = assignEntityId(normalizeWaterBlock(block as MapBlock)) as MapBlock;
                 mapBlockChunkKeyLookup.set(assignedBlock, chunkKey);
                 return assignedBlock;
             });
@@ -809,7 +811,7 @@ export async function loadMapBlocks() {
         chunkedWorldMapEnabled = false;
         const arr = await fetchFreshJson<any[]>('./src/assets/data/world_map.json');
         // Assign entityId to each block using global assignEntityId
-        setMapBlocks(arr.map((block: any) => assignEntityId(block)));
+        setMapBlocks(arr.map((block: any) => assignEntityId(normalizeWaterBlock(block as MapBlock))));
     }
     rebuildMapBlockRenderCache();
     mapLoaded = true;

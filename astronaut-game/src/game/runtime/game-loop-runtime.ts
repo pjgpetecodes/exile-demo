@@ -11,6 +11,7 @@ export interface GameLoopRuntimeContext {
 }
 
 export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
+    const swallowAutoplayRejection = () => {};
     let {
         CHUNK_SYNC_INTERVAL_FRAMES,
         MAP_HEIGHT,
@@ -110,6 +111,12 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         getSpriteRectFromMap,
         getSpriteTranslationOffset,
         getTeleporterPadKeySet,
+        getWalkSpeed,
+        getFacingLeft,
+        getLeftPressed,
+        getRightPressed,
+        getUpPressed,
+        getDownPressed,
         getTransformedSpriteCanvas,
         handleAstronautMovement,
         handleCollectableInteractions,
@@ -249,7 +256,7 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
     // --- Sprite selection logic (animation, flipping, flying, walking) ---
     // Declare spriteCol/flipSprite/flipVertical only ONCE at the top of gameLoop
     let spriteCol = SPRITE_COL_STAND;
-    let flipSprite = facingLeft;
+    let flipSprite = (typeof getFacingLeft === 'function' ? getFacingLeft() : facingLeft);
     let flipVertical = false;
     pronePoseActive = false;
 
@@ -263,7 +270,10 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         }
         teleportSlot = (teleportSlot + 1) % 6;
         // Play remember sound
-        try { rememberSound.currentTime = 0; rememberSound.play(); } catch {}
+        try {
+            rememberSound.currentTime = 0;
+            void rememberSound.play().catch(swallowAutoplayRejection);
+        } catch {}
     }
     if (!isDesignerOpen() && keys['t'] && !prevKeys['t']) {
         startTeleportToLocation(popLatestTeleportLocation());
@@ -328,7 +338,8 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         ? getBlackBackgroundBlocks()
         : [];
 
-    if (spriteSheet && spriteSheet.complete) {
+    const hasRenderableSpriteSheets = Array.isArray(remappedSpriteSheets) && remappedSpriteSheets.length > 0;
+    if (hasRenderableSpriteSheets || (spriteSheet && spriteSheet.complete)) {
         if (layerVisibility.doors) {
             drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, doorEntities, frameNow);
         }
@@ -441,7 +452,7 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
     const movementStartY = gameState.astronaut.position.y;
     const movementModifiers = getHeldMovementModifiers();
     const astronautControlModifiers = getAstronautControlModifiers(frameNow);
-    const proneIntentActive = !!(keys['Shift'] || (!gameState.astronaut.isLanded && proneForcedByGeometry));
+    const proneIntentActive = !!keys['Shift'];
     const hasThrustInput = !!(keys['q'] || keys['w'] || keys['p'] || keys['ArrowUp'] || keys['l']);
     const boosterActive = !!(keys['@'] && hasThrustInput && astronaut.energy > 0);
     const boosterScale = boosterActive ? MOVEMENT_SETTINGS.jetpackBoosterMultiplier : 1;
@@ -453,6 +464,15 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         walkSpeedScale: movementModifiers.walkSpeedScale * astronautControlModifiers.walkSpeedScale,
         flightControlScale: movementModifiers.flightControlScale * astronautControlModifiers.flightControlScale * boosterScale
     });
+    const readCurrentControlState = () => ({
+        leftPressed: typeof getLeftPressed === 'function' ? getLeftPressed() : context.leftPressed,
+        rightPressed: typeof getRightPressed === 'function' ? getRightPressed() : context.rightPressed,
+        facingLeft: typeof getFacingLeft === 'function' ? getFacingLeft() : context.facingLeft,
+        upPressed: typeof getUpPressed === 'function' ? getUpPressed() : context.upPressed,
+        downPressed: typeof getDownPressed === 'function' ? getDownPressed() : context.downPressed,
+        walkSpeed: typeof getWalkSpeed === 'function' ? getWalkSpeed() : context.walkSpeed
+    });
+    let currentControlState = readCurrentControlState();
     let movementTargetX = astronaut.position.x;
     let movementTargetY = astronaut.position.y;
     astronaut.position.x = movementStartX;
@@ -474,7 +494,7 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
     // Clear all velocities if landed and not walking
     if (
         gameState.astronaut.isLanded &&
-        walkSpeed === 0 &&
+        currentControlState.walkSpeed === 0 &&
         !proneIntentActive
     ) {
         astronaut.velocity.x = 0;
@@ -484,9 +504,9 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
     // Prevent diagonal takeoff: if landed and only up is pressed, clear horizontal velocity
     if (
         gameState.astronaut.isLanded &&
-        upPressed &&
-        !leftPressed &&
-        !rightPressed
+        currentControlState.upPressed &&
+        !currentControlState.leftPressed &&
+        !currentControlState.rightPressed
     ) {
         astronaut.velocity.x = 0;
     }
@@ -495,7 +515,7 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
     applyGravity(
         astronaut,
         gameState.gravity * movementModifiers.gravityScale,
-        (downPressed ? MOVEMENT_SETTINGS.flyDownTerminalVelocity : MOVEMENT_SETTINGS.fallTerminalVelocity) * movementModifiers.terminalVelocityScale
+        (currentControlState.downPressed ? MOVEMENT_SETTINGS.flyDownTerminalVelocity : MOVEMENT_SETTINGS.fallTerminalVelocity) * movementModifiers.terminalVelocityScale
     );
     const windAcceleration = computeAstronautWindAcceleration(frameNow, movementModifiers.effectiveWeight);
     astronaut.velocity.x += windAcceleration.x;
@@ -591,7 +611,8 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         flyDir = null;
         resetFlySwitchAnimationState();
         lastFlySpriteCol = SPRITE_COL_STAND;
-        lastFlyFlipSprite = facingLeft;
+        currentControlState = readCurrentControlState();
+        lastFlyFlipSprite = currentControlState.facingLeft;
     }
 
     const collidedButton = collisionState.touchedButton;
@@ -610,7 +631,10 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
             applyButtonTeleporterLinks(teleporterEntities, collidedButton.linkedTeleporters, collidedButton.teleporterMode);
             syncButtonStatesToDoors();
             buttonPressTimestamps.set(collidedButton, now);
-            try { buttonOnSound.currentTime = 0; buttonOnSound.play(); } catch {}
+            try {
+                buttonOnSound.currentTime = 0;
+                void buttonOnSound.play().catch(swallowAutoplayRejection);
+            } catch {}
         }
     }
 
@@ -656,11 +680,11 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
 
     // --- Jetpack dots emission (world coordinates) ---
     emitJetpackDots({
-        upPressed,
-        downPressed,
-        leftPressed,
-        rightPressed,
-        facingLeft,
+        upPressed: currentControlState.upPressed,
+        downPressed: currentControlState.downPressed,
+        leftPressed: currentControlState.leftPressed,
+        rightPressed: currentControlState.rightPressed,
+        facingLeft: currentControlState.facingLeft,
         astronaut,
         spriteSheet,
         spriteMap,
@@ -686,11 +710,11 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         ctx: ctx!,
         gameState,
         controlState: {
-            leftPressed,
-            rightPressed,
-            upPressed,
-            downPressed,
-            walkSpeed,
+            leftPressed: currentControlState.leftPressed,
+            rightPressed: currentControlState.rightPressed,
+            upPressed: currentControlState.upPressed,
+            downPressed: currentControlState.downPressed,
+            walkSpeed: currentControlState.walkSpeed,
             spriteCol,
             walkAnimFrame,
             walkAnimTimer,
@@ -781,10 +805,10 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         gameState,
         keys,
         controls: {
-            downPressed,
-            upPressed,
-            walkSpeed,
-            facingLeft,
+            downPressed: currentControlState.downPressed,
+            upPressed: currentControlState.upPressed,
+            walkSpeed: currentControlState.walkSpeed,
+            facingLeft: currentControlState.facingLeft,
             proneForcedByGeometry,
             layDownVerticalFlipToggled
         },
@@ -922,7 +946,7 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
     }
 
     // --- Render astronaut at center of screen with correct animation ---
-    if ((astronautSpriteSource || spriteSheet) && (spriteSheet && spriteSheet.complete)) {
+    if (astronautSpriteSource || hasRenderableSpriteSheets || (spriteSheet && spriteSheet.complete)) {
         updateAndDrawThrowGuide(ctx!, camera);
         const renderNow = performance.now();
         astronautRenderer.drawAstronautAtScreenCenter(

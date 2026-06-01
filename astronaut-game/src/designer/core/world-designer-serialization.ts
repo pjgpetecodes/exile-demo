@@ -4,6 +4,7 @@ import {
     getDefaultDestructionSource
 } from '../../entities/destructibles.js';
 import { MapBlock, shouldMaskAstronaut } from '../../world/map.js';
+import { isWaterBlock } from '../../world/water-blocks.js';
 import { toCreatureSaveData } from '../../entities/creature.js';
 import { getDefaultGrenadeExplosionPower, isGrenadeCollectableType } from '../../entities/collectable.js';
 import type { CreatureSaveData, TeleporterDestinationMode, TeleporterSaveData } from '../../types/index.js';
@@ -127,7 +128,8 @@ export function toMapBlockData(block: MapBlock): MapBlock {
                 windShowParticles: block.windShowParticles !== false
             }
             : {}),
-        ...(block.paletteCycle ? { paletteCycle: deepClone(block.paletteCycle) } : {})
+        ...(block.paletteCycle ? { paletteCycle: deepClone(block.paletteCycle) } : {}),
+        ...(isWaterBlock(block) ? { water: true } : {})
     };
 }
 

@@ -45,6 +45,8 @@ export function createAstronautTeleportSurvivalHelpers(context: {
     };
     releaseHeldCollectable: () => void;
 }) {
+    const swallowAutoplayRejection = () => {};
+
     function syncDefaultTeleportLocation(position: Position) {
         context.setDefaultTeleportLocation({
             x: Math.round(position.x),
@@ -90,7 +92,10 @@ export function createAstronautTeleportSurvivalHelpers(context: {
         context.setTeleportSpriteCol(renderState.spriteCol);
         context.setTeleportFlipSprite(renderState.flipSprite);
         context.setTeleportFlipVertical(renderState.flipVertical);
-        try { context.teleportSound.currentTime = 0; context.teleportSound.play(); } catch {}
+        try {
+            context.teleportSound.currentTime = 0;
+            void context.teleportSound.play().catch(swallowAutoplayRejection);
+        } catch {}
         context.requestImmediateFrame();
         return true;
     }
