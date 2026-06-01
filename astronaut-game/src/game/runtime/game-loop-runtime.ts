@@ -197,6 +197,9 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         worldMapBoundingBoxes,
         worldMapRotatedBoundingBoxes
     } = context;
+    const teleportAnimFrameCount = Number.isFinite(TELEPORT_ANIM_FRAMES) && TELEPORT_ANIM_FRAMES > 0
+        ? TELEPORT_ANIM_FRAMES
+        : 12;
 
     try {
 
@@ -275,7 +278,13 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
             void rememberSound.play().catch(swallowAutoplayRejection);
         } catch {}
     }
-    if (!isDesignerOpen() && keys['t'] && !prevKeys['t']) {
+    if (
+        !isDesignerOpen() &&
+        keys['t'] &&
+        !prevKeys['t'] &&
+        typeof startTeleportToLocation === 'function' &&
+        typeof popLatestTeleportLocation === 'function'
+    ) {
         startTeleportToLocation(popLatestTeleportLocation());
     }
 
@@ -313,7 +322,10 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
                 : getRenderableCollectables()
         )
         : [];
-    const heldCollectableDrawables = heldCollectable ? [heldCollectable] : [];
+    const currentHeldCollectable = typeof context.getHeldCollectable === 'function'
+        ? context.getHeldCollectable()
+        : heldCollectable;
+    const heldCollectableDrawables = currentHeldCollectable ? [currentHeldCollectable] : [];
     const mapBlocksToDraw = !layerVisibility.world
         ? []
         : getRenderableMapBlocks(hideBlackBackgroundBlocks);
@@ -668,6 +680,15 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         gameState.astronaut.position.y - movementStartY
     );
     updateCollectablePhysics(frameNow, simulationFrameCounter);
+    // Emergency teleports can be triggered by damage during runtime updates.
+    // Re-sync teleport state from shared context before render/update writes.
+    teleporting = context.teleporting;
+    teleportPhase = context.teleportPhase;
+    teleportAnimFrame = context.teleportAnimFrame;
+    teleportTarget = context.teleportTarget;
+    teleportSpriteCol = context.teleportSpriteCol;
+    teleportFlipSprite = context.teleportFlipSprite;
+    teleportFlipVertical = context.teleportFlipVertical;
     spawnWindParticlesNearAstronaut(frameNow);
     updateHeldCollectablePosition();
     if (performanceInstrumentationEnabled) {
@@ -845,55 +866,58 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
     };
 
     // --- Teleport animation rendering ---
-    if (teleporting && spriteSheet && spriteSheet.complete) {
-        const spriteRect = getSpriteRectFromMap(SPRITE_ROW, teleportSpriteCol);
-        const SPRITE_W = spriteRect.w;
-        const SPRITE_H = spriteRect.h;
-        const drawW = 32 * SPRITE_SCALE;
-        const drawH = 32 * SPRITE_SCALE;
-        ctx!.save();
-        ctx!.translate(canvas.width / 2, canvas.height / 2);
-        if (teleportFlipSprite) ctx!.scale(-1, 1);
-        if (teleportFlipVertical) ctx!.scale(1, -1);
+    if (teleporting) {
+        const canRenderTeleportSprite = !!(spriteSheet && spriteSheet.complete);
+        if (canRenderTeleportSprite) {
+            const spriteRect = getSpriteRectFromMap(SPRITE_ROW, teleportSpriteCol);
+            const SPRITE_W = spriteRect.w;
+            const SPRITE_H = spriteRect.h;
+            const drawW = 32 * SPRITE_SCALE;
+            const drawH = 32 * SPRITE_SCALE;
+            ctx!.save();
+            ctx!.translate(canvas.width / 2, canvas.height / 2);
+            if (teleportFlipSprite) ctx!.scale(-1, 1);
+            if (teleportFlipVertical) ctx!.scale(1, -1);
 
-        // Render random bits of the sprite for a more "teleport" effect
-        const totalBits = 32; // number of random bits per frame
-        let visibleBits = totalBits;
-        if (teleportPhase === 'out') {
-            visibleBits = Math.max(2, Math.floor(totalBits * (1 - teleportAnimFrame / TELEPORT_ANIM_FRAMES)));
-        } else if (teleportPhase === 'in') {
-            visibleBits = Math.max(2, Math.floor(totalBits * (teleportAnimFrame / TELEPORT_ANIM_FRAMES)));
-        }
-        for (let i = 0; i < visibleBits; ++i) {
-            // Randomly pick a region of the sprite
-            const bitW = SPRITE_W / 8;
-            const bitH = SPRITE_H / 8;
-            const sx = spriteRect.x + Math.floor(Math.random() * (SPRITE_W - bitW));
-            const sy = spriteRect.y + Math.floor(Math.random() * (SPRITE_H - bitH));
-            const dx = -drawW / 2 + ((sx - spriteRect.x) / SPRITE_W) * drawW;
-            const dy = -drawH / 2 + ((sy - spriteRect.y) / SPRITE_H) * drawH;
-            ctx!.drawImage(
-                spriteSheet,
-                sx, sy, bitW, bitH,
-                dx, dy, bitW * SPRITE_SCALE, bitH * SPRITE_SCALE
-            );
-        }
-        ctx!.restore();
-        if (mapBlocksMaskAstronaut.length > 0) {
-            if (performanceInstrumentationEnabled) {
-                const mapDrawStart = performance.now();
-                drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
-                mapDrawMs += performance.now() - mapDrawStart;
-            } else {
-                drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
+            // Render random bits of the sprite for a more "teleport" effect
+            const totalBits = 32; // number of random bits per frame
+            let visibleBits = totalBits;
+            if (teleportPhase === 'out') {
+                visibleBits = Math.max(2, Math.floor(totalBits * (1 - teleportAnimFrame / teleportAnimFrameCount)));
+            } else if (teleportPhase === 'in') {
+                visibleBits = Math.max(2, Math.floor(totalBits * (teleportAnimFrame / teleportAnimFrameCount)));
             }
-        }
-        if (layerVisibility.creatures && creatureProjectileDrawables.length > 0) {
-            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureProjectileDrawables, frameNow);
+            for (let i = 0; i < visibleBits; ++i) {
+                // Randomly pick a region of the sprite
+                const bitW = SPRITE_W / 8;
+                const bitH = SPRITE_H / 8;
+                const sx = spriteRect.x + Math.floor(Math.random() * (SPRITE_W - bitW));
+                const sy = spriteRect.y + Math.floor(Math.random() * (SPRITE_H - bitH));
+                const dx = -drawW / 2 + ((sx - spriteRect.x) / SPRITE_W) * drawW;
+                const dy = -drawH / 2 + ((sy - spriteRect.y) / SPRITE_H) * drawH;
+                ctx!.drawImage(
+                    spriteSheet,
+                    sx, sy, bitW, bitH,
+                    dx, dy, bitW * SPRITE_SCALE, bitH * SPRITE_SCALE
+                );
+            }
+            ctx!.restore();
+            if (mapBlocksMaskAstronaut.length > 0) {
+                if (performanceInstrumentationEnabled) {
+                    const mapDrawStart = performance.now();
+                    drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
+                    mapDrawMs += performance.now() - mapDrawStart;
+                } else {
+                    drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
+                }
+            }
+            if (layerVisibility.creatures && creatureProjectileDrawables.length > 0) {
+                drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureProjectileDrawables, frameNow);
+            }
         }
         teleportAnimFrame++;
 
-        if (teleportPhase === 'out' && teleportAnimFrame >= TELEPORT_ANIM_FRAMES) {
+        if (teleportPhase === 'out' && teleportAnimFrame >= teleportAnimFrameCount) {
             // Move astronaut after 0.5 second
             if (teleportTarget) {
                 astronaut.position.x = teleportTarget.x;
@@ -920,7 +944,7 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
             }
             teleportPhase = 'in';
             teleportAnimFrame = 0;
-        } else if (teleportPhase === 'in' && teleportAnimFrame >= TELEPORT_ANIM_FRAMES) {
+        } else if (teleportPhase === 'in' && teleportAnimFrame >= teleportAnimFrameCount) {
             astronaut.energy = Math.min(
                 astronaut.maxEnergy,
                 astronaut.energy + 1
@@ -930,19 +954,21 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
             teleportTarget = null;
         }
 
-        if (performanceInstrumentationEnabled) {
-            drawPhaseMs = performance.now() - drawPhaseStartMs;
+        if (canRenderTeleportSprite) {
+            if (performanceInstrumentationEnabled) {
+                drawPhaseMs = performance.now() - drawPhaseStartMs;
+            }
+            performanceTracker.finalizeFrame(
+                frameNow,
+                frameStartMs,
+                frameTimeMs,
+                updateWorkMs,
+                mapDrawMs,
+                drawPhaseMs
+            );
+            prevKeys = { ...keys };
+            return;
         }
-        performanceTracker.finalizeFrame(
-            frameNow,
-            frameStartMs,
-            frameTimeMs,
-            updateWorkMs,
-            mapDrawMs,
-            drawPhaseMs
-        );
-        prevKeys = { ...keys };
-        return;
     }
 
     // --- Render astronaut at center of screen with correct animation ---

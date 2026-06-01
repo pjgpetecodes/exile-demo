@@ -280,13 +280,12 @@ export function createGameCollectablePhysics(options: CollectablePhysicsFactoryO
     function updateCollectablePhysics(now: number, simulationFrame: number) {
         const collectableEntities = options.getCollectableEntities();
         for (const collectable of [...collectableEntities]) {
-            const collectableChunkActivity = options.getChunkActivityForEntityPosition(collectable, now);
             if (options.isCreatureProjectileCollectable(collectable)) {
+                const collectableChunkActivity = options.getChunkActivityForEntityPosition(collectable, now);
                 if (!options.shouldRunChunkBandUpdate(collectableChunkActivity, options.projectileChunkCadence, simulationFrame)) continue;
                 options.updateCreatureProjectileCollectable(collectable);
                 continue;
             }
-            if (!options.shouldRunChunkBandUpdate(collectableChunkActivity, options.collectableChunkCadence, simulationFrame)) continue;
             options.syncGrenadeFuseState(collectable, now);
 
             if (typeof collectable.ambientSoundKey === 'string') {

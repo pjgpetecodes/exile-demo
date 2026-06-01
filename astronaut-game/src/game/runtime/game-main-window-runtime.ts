@@ -46,6 +46,11 @@ type GameMainWindowRuntimeOptions = {
         walkAnimFrame: number;
         walkAnimTimer: number;
         designerCamera: { x: number; y: number } | null;
+        teleporting: boolean;
+        teleportPhase: 'none' | 'out' | 'in';
+        teleportAnimFrame: number;
+        teleportTarget: { x: number; y: number } | null;
+        astronautStartPosition: { x: number; y: number };
     };
 };
 

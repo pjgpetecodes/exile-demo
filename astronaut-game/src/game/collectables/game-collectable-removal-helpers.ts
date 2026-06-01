@@ -6,8 +6,8 @@ type GameCollectableRemovalHelpersOptions = {
     getStoredCollectables: () => Collectable[];
     getInventoryCycleIndex: () => number;
     setInventoryCycleIndex: (index: number) => void;
-    collectableEntities: Collectable[];
-    collectedCollectableEntityIds: Set<number>;
+    getCollectableEntities: () => Collectable[];
+    getCollectedCollectableEntityIds: () => Set<number>;
 };
 
 export function createGameCollectableRemovalHelpers(options: GameCollectableRemovalHelpersOptions) {
@@ -29,12 +29,14 @@ export function createGameCollectableRemovalHelpers(options: GameCollectableRemo
 
     function removeCollectableEntity(collectable: Collectable) {
         cleanupCollectableReferences(collectable);
+        const collectedCollectableEntityIds = options.getCollectedCollectableEntityIds();
         if (typeof collectable.entityId === 'number') {
-            options.collectedCollectableEntityIds.delete(collectable.entityId);
+            collectedCollectableEntityIds.delete(collectable.entityId);
         }
-        const index = options.collectableEntities.indexOf(collectable);
+        const collectableEntities = options.getCollectableEntities();
+        const index = collectableEntities.indexOf(collectable);
         if (index >= 0) {
-            options.collectableEntities.splice(index, 1);
+            collectableEntities.splice(index, 1);
         }
     }
 

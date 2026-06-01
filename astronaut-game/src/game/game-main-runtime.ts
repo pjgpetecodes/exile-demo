@@ -570,6 +570,7 @@ const {
     computeLandingImpactDamage
 } = createAstronautTeleportSurvivalHelpers({
     setAstronautStartPosition,
+    getAstronautStartPosition,
     getDefaultTeleportLocation: () => defaultTeleportLocation,
     setDefaultTeleportLocation: (location) => { defaultTeleportLocation = location; },
     getTeleportLocations: () => teleportLocations,
@@ -588,6 +589,25 @@ const {
     setTeleportSpriteCol: (value) => { teleportSpriteCol = value; },
     setTeleportFlipSprite: (value) => { teleportFlipSprite = value; },
     setTeleportFlipVertical: (value) => { teleportFlipVertical = value; },
+    teleportAstronautImmediately: (location) => {
+        astronaut.position.x = location.x;
+        astronaut.position.y = location.y;
+        astronaut.velocity.x = 0;
+        astronaut.velocity.y = 0;
+        const astronautOffsets = getAstronautCollisionOffsets();
+        const feetY = location.y + astronautOffsets.bottom;
+        const blockBelow = getSolidBlockAtWorld(
+            location.x,
+            feetY + 1,
+            spriteMap,
+            SPRITE_SCALE,
+            mapBlocks,
+            doorEntities,
+            buttonEntities
+        );
+        astronaut.isLanded = !!blockBelow;
+        astronaut.isFlying = !astronaut.isLanded;
+    },
     teleportSound,
     requestImmediateFrame,
     getAstronaut: () => astronaut,
@@ -711,7 +731,12 @@ const windowRuntimeOptions = {
         astronautIsLanded: astronaut.isLanded,
         walkAnimFrame,
         walkAnimTimer,
-        designerCamera: worldDesigner?.getCamera() ?? null
+        designerCamera: worldDesigner?.getCamera() ?? null,
+        teleporting,
+        teleportPhase,
+        teleportAnimFrame,
+        teleportTarget: teleportTarget ? { ...teleportTarget } : null,
+        astronautStartPosition: { ...getAstronautStartPosition() }
     })
 };
 attachBlackBackgroundWindowShortcuts(windowRuntimeOptions);
@@ -1208,8 +1233,8 @@ const {
     getStoredCollectables: () => storedCollectables,
     getInventoryCycleIndex: () => inventoryCycleIndex,
     setInventoryCycleIndex: (index: number) => { inventoryCycleIndex = index; },
-    collectableEntities,
-    collectedCollectableEntityIds
+    getCollectableEntities: () => collectableEntities,
+    getCollectedCollectableEntityIds: () => collectedCollectableEntityIds
 });
 
 const {
@@ -1419,6 +1444,23 @@ if (debugRuntime) {
         astronaut.velocity.x = 0;
         astronaut.velocity.y = 0;
     };
+    debugRuntime.clearTeleportLocations = () => {
+        teleportLocations.length = 0;
+        teleportSlot = 0;
+        return { count: teleportLocations.length, slot: teleportSlot };
+    };
+    debugRuntime.applyAstronautDamage = (amount: number) => {
+        applyAstronautDamage(amount, performance.now());
+        return { energy: astronaut.energy, teleporting };
+    };
+    debugRuntime.getAstronautStartPosition = () => ({ ...getAstronautStartPosition() });
+    debugRuntime.getTeleportDebugState = () => ({
+        teleporting,
+        teleportPhase,
+        teleportAnimFrame,
+        teleportTarget: teleportTarget ? { ...teleportTarget } : null,
+        astronautPosition: { x: astronaut.position.x, y: astronaut.position.y }
+    });
     debugRuntime.holdNearestGrenade = () => {
         let best: Collectable | null = null;
         let bestDistance = Number.POSITIVE_INFINITY;
@@ -1441,6 +1483,93 @@ if (debugRuntime) {
         heldCollectable = best;
         updateHeldCollectablePosition();
         return true;
+    };
+    debugRuntime.dropHeldCollectable = () => {
+        releaseHeldCollectable();
+        return heldCollectable === null;
+    };
+    debugRuntime.getNearestGrenadeDebugSnapshot = () => {
+        let best: Collectable | null = null;
+        let bestDistance = Number.POSITIVE_INFINITY;
+        for (const collectable of collectableEntities) {
+            if (collectable.type !== 'grenade' && collectable.type !== 'plasma_grenade') {
+                continue;
+            }
+            const dx = collectable.x - astronaut.position.x;
+            const dy = collectable.y - astronaut.position.y;
+            const distance = Math.hypot(dx, dy);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = collectable;
+            }
+        }
+        if (!best) {
+            return null;
+        }
+        return {
+            entityId: best.entityId ?? null,
+            x: best.x,
+            y: best.y,
+            held: best.held,
+            stored: best.stored,
+            isGrounded: best.isGrounded,
+            armed: best.armed
+        };
+    };
+    debugRuntime.getCollectableDebugSnapshot = (entityId: number | null) => {
+        if (typeof entityId !== 'number') {
+            return null;
+        }
+        const collectable = collectableEntities.find((candidate) => candidate.entityId === entityId);
+        if (!collectable) {
+            return null;
+        }
+        return {
+            entityId: collectable.entityId ?? null,
+            x: collectable.x,
+            y: collectable.y,
+            held: collectable.held,
+            stored: collectable.stored,
+            isGrounded: collectable.isGrounded,
+            armed: collectable.armed,
+            type: collectable.type
+        };
+    };
+    debugRuntime.explodeNearestGrenade = () => {
+        let best: Collectable | null = null;
+        let bestDistance = Number.POSITIVE_INFINITY;
+        for (const collectable of collectableEntities) {
+            if (collectable.type !== 'grenade' && collectable.type !== 'plasma_grenade') {
+                continue;
+            }
+            const dx = collectable.x - astronaut.position.x;
+            const dy = collectable.y - astronaut.position.y;
+            const distance = Math.hypot(dx, dy);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = collectable;
+            }
+        }
+        if (!best) {
+            return false;
+        }
+        creatureProjectileRuntime.explodeCollectableGrenade(best);
+        return !collectableEntities.includes(best);
+    };
+    debugRuntime.explodeCollectableByEntityId = (entityId: number | null) => {
+        if (typeof entityId !== 'number') {
+            return { ok: false, reason: 'invalid-id' };
+        }
+        const collectable = collectableEntities.find((candidate) => candidate.entityId === entityId);
+        if (!collectable) {
+            return { ok: false, reason: 'missing-collectable' };
+        }
+        const wasGrenade = collectable.type === 'grenade' || collectable.type === 'plasma_grenade';
+        creatureProjectileRuntime.explodeCollectableGrenade(collectable);
+        return {
+            ok: !collectableEntities.includes(collectable),
+            reason: wasGrenade ? 'grenade' : `not-grenade:${collectable.type}`
+        };
     };
     debugRuntime.getHeldItemDebugSnapshot = () => {
         const held = heldCollectable;

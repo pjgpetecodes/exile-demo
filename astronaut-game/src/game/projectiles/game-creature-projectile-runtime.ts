@@ -83,11 +83,20 @@ type ProjectileRuntimeFactoryOptions = {
 export function createCreatureProjectileRuntime(options: ProjectileRuntimeFactoryOptions) {
     const processedGrenadeExplosions = new WeakSet<Collectable>();
 
+    function removeCollectableFromWorld(collectable: Collectable) {
+        options.removeCollectableEntity(collectable);
+        const entities = options.getCollectableEntities();
+        const index = entities.indexOf(collectable);
+        if (index >= 0) {
+            entities.splice(index, 1);
+        }
+    }
+
     function markProjectileExpired(projectile: CreatureProjectileCollectable) {
         // Guard against repeated impact/explosion processing if a projectile lingers for any reason.
         projectile.creatureProjectile.impacted = true;
         if (options.isCreatureProjectileCollectable(projectile)) {
-            options.removeCollectableEntity(projectile);
+            removeCollectableFromWorld(projectile);
         }
     }
 
@@ -234,7 +243,7 @@ export function createCreatureProjectileRuntime(options: ProjectileRuntimeFactor
             }
         }
 
-        options.removeCollectableEntity(collectable);
+        removeCollectableFromWorld(collectable);
     }
 
     function spawnCreatureGrenadeCollectable(

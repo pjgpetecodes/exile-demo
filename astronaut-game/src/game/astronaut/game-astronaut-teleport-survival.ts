@@ -16,6 +16,7 @@ type AstronautRenderState = {
 
 export function createAstronautTeleportSurvivalHelpers(context: {
     setAstronautStartPosition: (position: Position, applyToAstronaut: boolean) => void;
+    getAstronautStartPosition: () => Position;
     getDefaultTeleportLocation: () => TeleportLocation;
     setDefaultTeleportLocation: (location: TeleportLocation) => void;
     getTeleportLocations: () => TeleportLocation[];
@@ -34,6 +35,7 @@ export function createAstronautTeleportSurvivalHelpers(context: {
     setTeleportSpriteCol: (value: number) => void;
     setTeleportFlipSprite: (value: boolean) => void;
     setTeleportFlipVertical: (value: boolean) => void;
+    teleportAstronautImmediately: (location: TeleportLocation) => void;
     teleportSound: HTMLAudioElement;
     requestImmediateFrame: () => void;
     getAstronaut: () => AstronautEnergyState;
@@ -68,7 +70,11 @@ export function createAstronautTeleportSurvivalHelpers(context: {
             }
             return location;
         }
-        return { ...context.getDefaultTeleportLocation() };
+        const astronautStart = context.getAstronautStartPosition();
+        return {
+            x: Math.round(astronautStart.x),
+            y: Math.round(astronautStart.y)
+        };
     }
 
     function startTeleportToLocation(location: TeleportLocation) {
@@ -132,7 +138,16 @@ export function createAstronautTeleportSurvivalHelpers(context: {
             astronaut.maxEnergy,
             Math.max(1, context.movementSettings.astronautEmergencyTeleportEnergy)
         );
-        startTeleportToLocation(popLatestTeleportLocation());
+        const emergencyTarget = popLatestTeleportLocation();
+        if (startTeleportToLocation(emergencyTarget)) {
+            // Fail-safe for emergency teleports: ensure position shifts immediately even if
+            // animation progression stalls.
+            context.teleportAstronautImmediately(emergencyTarget);
+            context.setTeleportAnimFrame(0);
+            context.setTeleportPhase('none');
+            context.setTeleportTarget(null);
+            context.setTeleporting(false);
+        }
     }
 
     function applyAstronautDamage(amount: number, now: number = context.now()) {
@@ -154,17 +169,17 @@ export function createAstronautTeleportSurvivalHelpers(context: {
         horizontalSpeed: number,
         windExposure: number
     ) {
-        if (verticalSpeed < 4.2 && horizontalSpeed < 5.0) {
+        if (verticalSpeed < 5.2 && horizontalSpeed < 6.3) {
             return 0;
         }
-        const verticalComponent = Math.max(0, verticalSpeed - 4.35);
-        const horizontalComponent = Math.max(0, horizontalSpeed - 5.2) * 0.1;
-        const windComponent = Math.max(0, windExposure - 1.8) * 0.28;
+        const verticalComponent = Math.max(0, verticalSpeed - 5.35);
+        const horizontalComponent = Math.max(0, horizontalSpeed - 6.6) * 0.08;
+        const windComponent = Math.max(0, windExposure - 2.2) * 0.18;
         const severity = verticalComponent + horizontalComponent + windComponent;
         if (severity <= 0) {
             return 0;
         }
-        return Math.min(5, Math.pow(severity, 1.35) * 0.45);
+        return Math.min(4, Math.pow(severity, 1.25) * 0.34);
     }
 
     return {
