@@ -23,7 +23,7 @@ function createMockCanvas(width: number, height: number, fillRectCalls: FillRect
 }
 
 describe('world designer overview rendering', () => {
-    it('fills missing chunk regions when overview tile snapshot is partial', () => {
+    it('does not paint missing chunk regions when a partial tile snapshot exists', () => {
         const fillRectCalls: FillRectCall[] = [];
         const overviewCanvas = createMockCanvas(100, 100, fillRectCalls);
         const overviewBaseCanvas = createMockCanvas(100, 100, fillRectCalls);
@@ -60,6 +60,41 @@ describe('world designer overview rendering', () => {
         const drawsMissingChunkRect = fillRectCalls.some((call) =>
             call.x === 10 && call.y === 0 && call.width >= 10 && call.height >= 10
         );
-        expect(drawsMissingChunkRect).toBe(true);
+        expect(drawsMissingChunkRect).toBe(false);
+    });
+
+    it('paints chunk regions when no tile snapshot is available yet', () => {
+        const fillRectCalls: FillRectCall[] = [];
+        const overviewCanvas = createMockCanvas(100, 100, fillRectCalls);
+        const overviewBaseCanvas = createMockCanvas(100, 100, fillRectCalls);
+
+        redrawOverviewBase({
+            overviewBaseCanvas,
+            overviewCanvas,
+            mapWidth: 100,
+            mapHeight: 100,
+            layerVisibility: {
+                world: true,
+                buttons: false,
+                doors: false,
+                creatures: false,
+                collectables: false,
+                custom: false
+            },
+            getCategoryArray: () => [],
+            getChunkedWorldOverview: () => ({
+                chunkWorldSize: 10,
+                chunks: [{ x: 1, y: 0 }]
+            }),
+            overviewWorldTiles: null,
+            tileSize: 1,
+            getEntityRect: () => ({ left: 0, top: 0, width: 0, height: 0 }),
+            getAstronautStartPosition: () => ({ x: 0, y: 0 })
+        });
+
+        const drawsChunkRect = fillRectCalls.some((call) =>
+            call.x === 10 && call.y === 0 && call.width >= 10 && call.height >= 10
+        );
+        expect(drawsChunkRect).toBe(true);
     });
 });

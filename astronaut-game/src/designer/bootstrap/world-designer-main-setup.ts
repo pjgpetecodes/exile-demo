@@ -6,6 +6,9 @@ import {
 import type { WorldDesignerHost } from '../core/world-designer-types.js';
 
 type OverviewWorldTile = { x: number; y: number };
+type ChunkedOverviewLike = {
+    chunks?: Array<{ count?: number }>;
+};
 
 type CreateOverviewWorldTileLoaderContext = {
     host: Pick<WorldDesignerHost, 'getRawWorldData' | 'getRawWorldDataForSave'>;
@@ -30,12 +33,35 @@ export function createOverviewWorldTileLoader({
     let overviewWorldTilesLoading = false;
     let nextOverviewWorldTilesRetryAtMs = 0;
 
+    function getExpectedWorldTileCount(chunkedOverview: unknown): number | null {
+        if (!chunkedOverview || !Array.isArray((chunkedOverview as ChunkedOverviewLike).chunks)) {
+            return null;
+        }
+        let expectedCount = 0;
+        for (const chunk of (chunkedOverview as ChunkedOverviewLike).chunks ?? []) {
+            const count = Number(chunk?.count);
+            if (!Number.isFinite(count) || count < 0) {
+                return null;
+            }
+            expectedCount += Math.floor(count);
+        }
+        return expectedCount;
+    }
+
     function ensureOverviewWorldTilesLoaded() {
         const chunkedOverview = getChunkedWorldOverview();
         if (!chunkedOverview || overviewWorldTilesLoading) {
             return;
         }
-        if (overviewWorldTiles && overviewWorldTiles.length > 0) {
+        const expectedWorldTileCount = getExpectedWorldTileCount(chunkedOverview);
+        if (
+            overviewWorldTiles &&
+            overviewWorldTiles.length > 0 &&
+            (
+                expectedWorldTileCount === null ||
+                overviewWorldTiles.length >= expectedWorldTileCount
+            )
+        ) {
             return;
         }
         if (Date.now() < nextOverviewWorldTilesRetryAtMs) {
@@ -57,8 +83,19 @@ export function createOverviewWorldTileLoader({
                     nextOverviewWorldTilesRetryAtMs = Date.now() + 1000;
                     return;
                 }
-                overviewWorldTiles = worldTiles;
-                invalidateOverviewBase();
+                if (!overviewWorldTiles || worldTiles.length !== overviewWorldTiles.length) {
+                    overviewWorldTiles = worldTiles;
+                    invalidateOverviewBase();
+                } else {
+                    overviewWorldTiles = worldTiles;
+                }
+                if (
+                    expectedWorldTileCount !== null &&
+                    worldTiles.length < expectedWorldTileCount
+                ) {
+                    // Snapshot is still partial; keep refreshing so overview fills in progressively.
+                    nextOverviewWorldTilesRetryAtMs = Date.now() + 500;
+                }
             })
             .catch(() => {
                 // Keep the overview usable with currently loaded world data if full snapshot fails.

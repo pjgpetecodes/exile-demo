@@ -71,40 +71,18 @@ export function redrawOverviewBase(options: {
 
             if (hasChunkOverview) {
                 const chunkWorldSize = Number(chunkedOverview.chunkWorldSize);
-                if (hasOverviewWorldTiles && Array.isArray(worldTiles)) {
-                    const coveredChunkKeys = new Set<string>();
-                    for (const tile of worldTiles) {
-                        const tileX = Number(tile.x);
-                        const tileY = Number(tile.y);
-                        if (!Number.isFinite(tileX) || !Number.isFinite(tileY)) {
-                            continue;
-                        }
-                        coveredChunkKeys.add(
-                            `${Math.floor(tileX / chunkWorldSize)}:${Math.floor(tileY / chunkWorldSize)}`
-                        );
-                    }
+                if (!hasOverviewWorldTiles) {
+                    // Coarse chunk fallback is only used before a world-tile snapshot exists.
+                    // Once tile data exists, we avoid painting entire chunks solid to preserve real gaps.
                     for (const chunk of chunkedOverview.chunks) {
                         const chunkX = Number(chunk.x);
                         const chunkY = Number(chunk.y);
                         if (!Number.isFinite(chunkX) || !Number.isFinite(chunkY)) {
                             continue;
                         }
-                        const key = `${chunkX}:${chunkY}`;
-                        if (coveredChunkKeys.has(key)) {
-                            continue;
-                        }
                         ctx.fillRect(
                             chunkX * chunkWorldSize * scaleX,
                             chunkY * chunkWorldSize * scaleY,
-                            Math.max(2, chunkWorldSize * scaleX),
-                            Math.max(2, chunkWorldSize * scaleY)
-                        );
-                    }
-                } else {
-                    for (const chunk of chunkedOverview.chunks) {
-                        ctx.fillRect(
-                            Number(chunk.x) * chunkWorldSize * scaleX,
-                            Number(chunk.y) * chunkWorldSize * scaleY,
                             Math.max(2, chunkWorldSize * scaleX),
                             Math.max(2, chunkWorldSize * scaleY)
                         );
