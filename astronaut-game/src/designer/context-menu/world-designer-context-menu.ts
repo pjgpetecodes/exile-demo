@@ -12,7 +12,11 @@ import type {
     Selection,
     WorldDesignerHost
 } from '../core/world-designer-types.js';
-import { fillConnectedWorldWater } from '../water/world-designer-water-fill.js';
+import {
+    clearSingleWaterTile,
+    fillConnectedWorldWater,
+    setSingleWaterTile
+} from '../water/world-designer-water-fill.js';
 
 type StatusTone = 'neutral' | 'success' | 'error';
 
@@ -422,6 +426,40 @@ export function createWorldDesignerContextMenu(deps: WorldDesignerContextMenuDep
         updateSelectionFromInspectorState();
     }
 
+    function fillSingleWaterTileAtWorldPosition(world: Position) {
+        const target = resolvePlacementPosition(world.x, world.y);
+        runMutation('Filled one tile with water.', () => {
+            const changedCount = setSingleWaterTile(
+                host.getRawWorldData().worldMap as MapBlock[],
+                target,
+                TILE_SIZE
+            );
+            if (changedCount === 0) {
+                setStatus('That tile is already marked as water.', 'neutral');
+            } else {
+                setStatus('Marked one tile as water.', 'success');
+            }
+        });
+        updateSelectionFromInspectorState();
+    }
+
+    function clearSingleWaterTileAtWorldPosition(world: Position) {
+        const target = resolvePlacementPosition(world.x, world.y);
+        runMutation('Cleared water from one tile.', () => {
+            const changedCount = clearSingleWaterTile(
+                host.getRawWorldData().worldMap as MapBlock[],
+                target,
+                TILE_SIZE
+            );
+            if (changedCount === 0) {
+                setStatus('That tile has no water to clear.', 'neutral');
+            } else {
+                setStatus('Cleared water from one tile.', 'success');
+            }
+        });
+        updateSelectionFromInspectorState();
+    }
+
     function toggleDoorLockedDefault() {
         const selection = state.contextMenu.primarySelection;
         if (!selection || selection.category !== 'doors') return;
@@ -704,6 +742,16 @@ export function createWorldDesignerContextMenu(deps: WorldDesignerContextMenuDep
             const target = getContextMenuWorldPosition();
             if (!target) return;
             floodFillWaterAtWorldPosition(target);
+        });
+        addContextMenuAction('Fill single water tile here', () => {
+            const target = getContextMenuWorldPosition();
+            if (!target) return;
+            fillSingleWaterTileAtWorldPosition(target);
+        });
+        addContextMenuAction('Clear single water tile here', () => {
+            const target = getContextMenuWorldPosition();
+            if (!target) return;
+            clearSingleWaterTileAtWorldPosition(target);
         });
         refs.contextMenu.classList.add('open');
         positionContextMenu();

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { MapBlock } from '../../../src/world/map.js';
-import { fillConnectedWorldWater } from '../../../src/designer/water/world-designer-water-fill.js';
+import {
+    clearSingleWaterTile,
+    fillConnectedWorldWater,
+    setSingleWaterTile
+} from '../../../src/designer/water/world-designer-water-fill.js';
 
 function createWorldBlock(x: number, y: number): MapBlock {
     return {
@@ -148,5 +152,53 @@ describe('world designer water flood-fill', () => {
         expect(convertedCount).toBeGreaterThanOrEqual(1);
         const adjacentTransparentCell = worldMap.find((block) => block.x === 0 && block.y === 0 && block.waterOnly === true);
         expect(adjacentTransparentCell).toBeDefined();
+    });
+
+    it('fills one empty tile with a water-only block', () => {
+        const tileSize = 32;
+        const worldMap: MapBlock[] = [createWorldBlock(0, tileSize)];
+
+        const changedCount = setSingleWaterTile(worldMap, { x: 0, y: 0 }, tileSize);
+
+        expect(changedCount).toBe(1);
+        const waterBlock = worldMap.find((block) => block.x === 0 && block.y === 0);
+        expect(waterBlock?.water).toBe(true);
+        expect(waterBlock?.waterOnly).toBe(true);
+        expect(waterBlock?.collision).toBe(false);
+    });
+
+    it('marks one terrain tile as water without creating a water-only tile', () => {
+        const tileSize = 32;
+        const worldMap: MapBlock[] = [createDiagonalWorldBlock(tileSize, 0)];
+
+        const changedCount = setSingleWaterTile(worldMap, { x: tileSize, y: 0 }, tileSize);
+
+        expect(changedCount).toBe(1);
+        expect(worldMap[0].water).toBe(true);
+        expect(worldMap[0].waterOnly).not.toBe(true);
+    });
+
+    it('clears one water-only tile and clears water flag from terrain in that cell', () => {
+        const tileSize = 32;
+        const terrain = createDiagonalWorldBlock(tileSize, 0);
+        terrain.water = true;
+        const worldMap: MapBlock[] = [
+            terrain,
+            {
+                x: tileSize,
+                y: 0,
+                type: 'floor_full',
+                collision: false,
+                palette: 14,
+                water: true,
+                waterOnly: true
+            }
+        ];
+
+        const changedCount = clearSingleWaterTile(worldMap, { x: tileSize, y: 0 }, tileSize);
+
+        expect(changedCount).toBe(2);
+        expect(worldMap).toHaveLength(1);
+        expect(worldMap[0].water).toBeUndefined();
     });
 });

@@ -5747,7 +5747,8 @@
     "maskAstronaut": false,
     "palette": 14,
     "rotation": 1,
-    "translation": "center"
+    "translation": "center",
+    "water": true
   },
   {
     "x": 8589,
@@ -5757,7 +5758,8 @@
     "maskAstronaut": false,
     "palette": 14,
     "rotation": 1,
-    "translation": "center"
+    "translation": "center",
+    "water": true
   },
   {
     "x": 8659,
@@ -5987,7 +5989,8 @@
     "maskAstronaut": false,
     "palette": 14,
     "rotation": 1,
-    "translation": "center"
+    "translation": "center",
+    "water": true
   },
   {
     "x": 8237,
@@ -6037,7 +6040,8 @@
     "maskAstronaut": false,
     "palette": 14,
     "rotation": 1,
-    "translation": "center"
+    "translation": "center",
+    "water": true
   },
   {
     "x": 8589,
@@ -6047,7 +6051,8 @@
     "maskAstronaut": false,
     "palette": 14,
     "rotation": 1,
-    "translation": "center"
+    "translation": "center",
+    "water": true
   },
   {
     "x": 8659,
@@ -6277,7 +6282,8 @@
     "maskAstronaut": false,
     "palette": 14,
     "rotation": 1,
-    "translation": "center"
+    "translation": "center",
+    "water": true
   },
   {
     "x": 8237,
@@ -6327,7 +6333,8 @@
     "maskAstronaut": false,
     "palette": 14,
     "rotation": 1,
-    "translation": "center"
+    "translation": "center",
+    "water": true
   },
   {
     "x": 8589,
@@ -6337,7 +6344,8 @@
     "maskAstronaut": false,
     "palette": 14,
     "rotation": 1,
-    "translation": "center"
+    "translation": "center",
+    "water": true
   },
   {
     "x": 8659,
@@ -6617,7 +6625,8 @@
     "maskAstronaut": false,
     "palette": 14,
     "rotation": 1,
-    "translation": "center"
+    "translation": "center",
+    "water": true
   },
   {
     "x": 8589,
@@ -7287,7 +7296,8 @@
     "maskAstronaut": false,
     "palette": 14,
     "rotation": 1,
-    "translation": "center"
+    "translation": "center",
+    "water": true
   },
   {
     "x": 9222,

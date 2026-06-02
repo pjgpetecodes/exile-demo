@@ -48,6 +48,87 @@ function createWaterBlockAtGrid(grid: GridPoint, tileSize: number): MapBlock {
     };
 }
 
+function getBlocksInGridCell(worldMap: MapBlock[], gridX: number, gridY: number, tileSize: number) {
+    return worldMap.filter((block) =>
+        toGridCoordinate(block.x, tileSize) === gridX &&
+        toGridCoordinate(block.y, tileSize) === gridY
+    );
+}
+
+export function setSingleWaterTile(
+    worldMap: MapBlock[],
+    seed: WorldPoint,
+    tileSize: number
+) {
+    if (!Array.isArray(worldMap) || !Number.isFinite(tileSize) || tileSize <= 0) {
+        return 0;
+    }
+    const seedGridX = toGridCoordinate(seed.x, tileSize);
+    const seedGridY = toGridCoordinate(seed.y, tileSize);
+    const cellBlocks = getBlocksInGridCell(worldMap, seedGridX, seedGridY, tileSize);
+    if (cellBlocks.length === 0) {
+        worldMap.push(createWaterBlockAtGrid({ x: seedGridX, y: seedGridY }, tileSize));
+        return 1;
+    }
+
+    let changedCount = 0;
+    for (const block of cellBlocks) {
+        if (block.waterOnly === true) {
+            if (block.water !== true) {
+                block.water = true;
+                changedCount += 1;
+            }
+            continue;
+        }
+        if (block.water !== true) {
+            block.water = true;
+            changedCount += 1;
+        }
+    }
+    return changedCount;
+}
+
+export function clearSingleWaterTile(
+    worldMap: MapBlock[],
+    seed: WorldPoint,
+    tileSize: number
+) {
+    if (!Array.isArray(worldMap) || !Number.isFinite(tileSize) || tileSize <= 0) {
+        return 0;
+    }
+    const seedGridX = toGridCoordinate(seed.x, tileSize);
+    const seedGridY = toGridCoordinate(seed.y, tileSize);
+    let changedCount = 0;
+
+    for (let index = worldMap.length - 1; index >= 0; index -= 1) {
+        const block = worldMap[index];
+        if (
+            toGridCoordinate(block.x, tileSize) !== seedGridX ||
+            toGridCoordinate(block.y, tileSize) !== seedGridY
+        ) {
+            continue;
+        }
+        if (block.waterOnly === true) {
+            worldMap.splice(index, 1);
+            changedCount += 1;
+        }
+    }
+
+    const remainingCellBlocks = getBlocksInGridCell(worldMap, seedGridX, seedGridY, tileSize);
+    for (const block of remainingCellBlocks) {
+        if (block.water === true) {
+            delete block.water;
+            changedCount += 1;
+        }
+        if (block.waterOnly === true) {
+            delete block.waterOnly;
+            changedCount += 1;
+        }
+    }
+
+    return changedCount;
+}
+
 export function fillConnectedWorldWater(
     worldMap: MapBlock[],
     seed: WorldPoint,

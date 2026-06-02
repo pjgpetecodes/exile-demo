@@ -370,6 +370,42 @@
     "translation": "center"
   },
   {
+    "x": 2675,
+    "y": 2323,
+    "type": "teleporter",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 4,
+    "rotation": 1,
+    "translation": "center",
+    "teleporterId": "teleporter_2",
+    "teleporterEnabled": true,
+    "teleporterRequiresKey": false,
+    "teleporterDestinationA": {
+      "x": 8754,
+      "y": 372
+    },
+    "teleporterActiveDestinationIndex": 0
+  },
+  {
+    "x": 2675,
+    "y": 2323,
+    "type": "teleporter_pad",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 4,
+    "rotation": 1,
+    "translation": "center",
+    "teleporterId": "teleporter_2",
+    "teleporterEnabled": true,
+    "teleporterRequiresKey": false,
+    "teleporterDestinationA": {
+      "x": 8754,
+      "y": 372
+    },
+    "teleporterActiveDestinationIndex": 0
+  },
+  {
     "x": 2816,
     "y": 2323,
     "type": "floor_diag_left",
@@ -4397,7 +4433,8 @@
     "maskAstronaut": false,
     "palette": 14,
     "rotation": 1,
-    "translation": "center"
+    "translation": "center",
+    "water": true
   },
   {
     "x": 4013,
@@ -6198,43 +6235,5 @@
     "palette": 26,
     "rotation": 5,
     "translation": "center"
-  },
-  {
-    "x": 2675,
-    "y": 2323,
-    "type": "teleporter",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 4,
-    "rotation": 1,
-    "translation": "center",
-    "teleporterId": "teleporter_2",
-    "teleporterEnabled": true,
-    "teleporterRequiresKey": false,
-    "teleporterDestinationA": {
-      "x": 8754,
-      "y": 372
-    },
-    "teleporterDestinationB": null,
-    "teleporterActiveDestinationIndex": 0
-  },
-  {
-    "x": 2675,
-    "y": 2323,
-    "type": "teleporter_pad",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 4,
-    "rotation": 1,
-    "translation": "center",
-    "teleporterId": "teleporter_2",
-    "teleporterEnabled": true,
-    "teleporterRequiresKey": false,
-    "teleporterDestinationA": {
-      "x": 8754,
-      "y": 372
-    },
-    "teleporterDestinationB": null,
-    "teleporterActiveDestinationIndex": 0
   }
 ]

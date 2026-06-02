@@ -120,7 +120,7 @@
       "x": 3,
       "y": 2,
       "file": "chunk_3_2.json",
-      "count": 1202
+      "count": 1201
     },
     {
       "x": 4,
@@ -216,7 +216,7 @@
       "x": 3,
       "y": 4,
       "file": "chunk_3_4.json",
-      "count": 778
+      "count": 683
     },
     {
       "x": 4,
@@ -258,13 +258,13 @@
       "x": 2,
       "y": 5,
       "file": "chunk_2_5.json",
-      "count": 787
+      "count": 746
     },
     {
       "x": 3,
       "y": 5,
       "file": "chunk_3_5.json",
-      "count": 841
+      "count": 840
     },
     {
       "x": 4,

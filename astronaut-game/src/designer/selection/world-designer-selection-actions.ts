@@ -243,8 +243,22 @@ export function createWorldDesignerSelectionActions(deps: WorldDesignerSelection
             setStatus('Nothing copied yet.', 'neutral');
             return;
         }
-        runMutation('Pasted selection.', () => {
-            const pastedSelections = createPastedSelections(clipboardEntries, 12, 12);
+        const xs = clipboardEntries.map((entry) => Number(entry.data.x) || 0);
+        const ys = clipboardEntries.map((entry) => Number(entry.data.y) || 0);
+        const sourceCenter = {
+            x: (Math.min(...xs) + Math.max(...xs)) / 2,
+            y: (Math.min(...ys) + Math.max(...ys)) / 2
+        };
+        const targetCenter = {
+            x: Math.round(state.camera.x + host.canvas.width / 2),
+            y: Math.round(state.camera.y + host.canvas.height / 2)
+        };
+        runMutation('Pasted selection at view center.', () => {
+            const pastedSelections = createPastedSelections(
+                clipboardEntries,
+                targetCenter.x - sourceCenter.x,
+                targetCenter.y - sourceCenter.y
+            );
             setSelections(pastedSelections);
         });
     }

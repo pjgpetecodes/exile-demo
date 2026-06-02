@@ -2800,6 +2800,42 @@
     "translation": "center"
   },
   {
+    "x": 4576,
+    "y": 6899,
+    "type": "teleporter",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 19,
+    "rotation": 1,
+    "translation": "center",
+    "teleporterId": "teleporter_13",
+    "teleporterEnabled": true,
+    "teleporterRequiresKey": false,
+    "teleporterDestinationA": {
+      "x": 8754,
+      "y": 372
+    },
+    "teleporterActiveDestinationIndex": 0
+  },
+  {
+    "x": 4576,
+    "y": 6899,
+    "type": "teleporter_pad",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 19,
+    "rotation": 1,
+    "translation": "center",
+    "teleporterId": "teleporter_13",
+    "teleporterEnabled": true,
+    "teleporterRequiresKey": false,
+    "teleporterDestinationA": {
+      "x": 8754,
+      "y": 372
+    },
+    "teleporterActiveDestinationIndex": 0
+  },
+  {
     "x": 4717,
     "y": 6899,
     "type": "tree",
@@ -7288,43 +7324,5 @@
     "palette": 12,
     "rotation": 1,
     "translation": "center"
-  },
-  {
-    "x": 4576,
-    "y": 6899,
-    "type": "teleporter",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 19,
-    "rotation": 1,
-    "translation": "center",
-    "teleporterId": "teleporter_13",
-    "teleporterEnabled": true,
-    "teleporterRequiresKey": false,
-    "teleporterDestinationA": {
-      "x": 8754,
-      "y": 372
-    },
-    "teleporterDestinationB": null,
-    "teleporterActiveDestinationIndex": 0
-  },
-  {
-    "x": 4576,
-    "y": 6899,
-    "type": "teleporter_pad",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 19,
-    "rotation": 1,
-    "translation": "center",
-    "teleporterId": "teleporter_13",
-    "teleporterEnabled": true,
-    "teleporterRequiresKey": false,
-    "teleporterDestinationA": {
-      "x": 8754,
-      "y": 372
-    },
-    "teleporterDestinationB": null,
-    "teleporterActiveDestinationIndex": 0
   }
 ]

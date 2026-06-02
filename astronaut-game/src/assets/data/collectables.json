@@ -14,10 +14,10 @@
     "collision": true,
     "held": false,
     "stored": false,
-    "isGrounded": true,
+    "isGrounded": false,
     "velocity": {
       "x": 0,
-      "y": 0
+      "y": 0.3
     },
     "astronautCollisionIgnoreFrames": 0,
     "armed": false,
@@ -38,10 +38,10 @@
     "collision": true,
     "held": false,
     "stored": false,
-    "isGrounded": true,
+    "isGrounded": false,
     "velocity": {
       "x": 0,
-      "y": 0
+      "y": 0.3
     },
     "astronautCollisionIgnoreFrames": 0,
     "armed": false,
@@ -62,10 +62,10 @@
     "collision": true,
     "held": false,
     "stored": false,
-    "isGrounded": true,
+    "isGrounded": false,
     "velocity": {
       "x": 0,
-      "y": 0
+      "y": 0.3
     },
     "astronautCollisionIgnoreFrames": 0,
     "armed": false,
@@ -86,10 +86,10 @@
     "collision": true,
     "held": false,
     "stored": false,
-    "isGrounded": true,
+    "isGrounded": false,
     "velocity": {
       "x": 0,
-      "y": 0
+      "y": 0.3
     },
     "astronautCollisionIgnoreFrames": 0
   },
@@ -130,10 +130,10 @@
     "collision": true,
     "held": false,
     "stored": false,
-    "isGrounded": true,
+    "isGrounded": false,
     "velocity": {
       "x": 0,
-      "y": 0
+      "y": 0.3
     },
     "astronautCollisionIgnoreFrames": 0,
     "armed": false,
