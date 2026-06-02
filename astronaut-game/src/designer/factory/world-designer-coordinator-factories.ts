@@ -53,6 +53,7 @@ export function createInteractionCoordinatorFromContext(context: any) {
             screenToWorld: context.screenToWorld,
             refreshPanel: context.refreshPanel,
             updateDirtyState: context.updateDirtyState,
+            syncEditModeSnapshot: context.syncEditModeSnapshot,
             setStatus: context.setStatus,
             snapshotsEqual: context.snapshotsEqual,
             isTeleporterCompositeType: context.isTeleporterCompositeType,

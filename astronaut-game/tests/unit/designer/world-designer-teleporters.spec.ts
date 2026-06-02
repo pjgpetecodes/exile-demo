@@ -60,4 +60,34 @@ describe('reconcileTeleporterPairsForSave', () => {
         expect(data.worldMap.some((block) => block.type === 'teleporter_pad' && block.x === 1000 && block.y === 1000)).toBe(false);
         expect(data.worldMap.some((block) => block.type === 'teleporter_pad' && block.x === 232 && block.y === 200)).toBe(true);
     });
+
+    it('creates a missing pad block for an existing teleporter entry', () => {
+        const data = createWorldData({
+            worldMap: [
+                { x: 2746, y: 2253, type: 'teleporter', collision: true, teleporterId: 'tp_missing_pad' }
+            ],
+            teleporters: [
+                {
+                    id: 'tp_missing_pad',
+                    baseX: 2746,
+                    baseY: 2253,
+                    padX: 2816,
+                    padY: 2253,
+                    destinationA: { x: 0, y: 0 },
+                    destinationB: null,
+                    activeDestinationIndex: 0
+                }
+            ]
+        });
+
+        reconcileTeleporterPairsForSave(data, 32);
+
+        const createdPad = data.worldMap.find((block) =>
+            block.type === 'teleporter_pad' &&
+            block.x === 2816 &&
+            block.y === 2253
+        );
+        expect(createdPad).toBeTruthy();
+        expect(createdPad?.teleporterId).toBe('tp_missing_pad');
+    });
 });

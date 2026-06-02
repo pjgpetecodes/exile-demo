@@ -237,6 +237,33 @@ export function reconcileTeleporterPairsForSave(data: RawWorldData, tileSize: nu
                 teleporter.padX = correctedPad.x;
                 teleporter.padY = correctedPad.y;
                 correctedPad.teleporterId = teleporter.id;
+            } else {
+                const baseAtPosition = data.worldMap.find((block) =>
+                    block.type === 'teleporter' &&
+                    block.x === teleporter.baseX &&
+                    block.y === teleporter.baseY
+                ) ?? null;
+                const createdPad: MapBlock = baseAtPosition
+                    ? {
+                        ...baseAtPosition,
+                        x: teleporter.padX,
+                        y: teleporter.padY,
+                        type: 'teleporter_pad',
+                        collision: false,
+                        maskAstronaut: true
+                    }
+                    : {
+                        x: teleporter.padX,
+                        y: teleporter.padY,
+                        type: 'teleporter_pad',
+                        collision: false,
+                        maskAstronaut: true,
+                        palette: 1,
+                        rotation: 2,
+                        translation: 'left'
+                    };
+                createdPad.teleporterId = teleporter.id;
+                data.worldMap.push(createdPad);
             }
         }
     });

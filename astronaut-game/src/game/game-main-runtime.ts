@@ -1760,6 +1760,8 @@ const extraRuntimeContext = createExtraRuntimeContextFromState({
     normalizeBulletImpactAudioSettings,
     normalizeSpriteSheetColors,
     previewSpriteSheetNormalization,
+    savePaletteDefinitions,
+    saveWorldData,
     replaceRawWorldData,
     calculateAstronautSpriteBoundingBoxes,
     calculateSpriteCollisionBoundingBoxes,

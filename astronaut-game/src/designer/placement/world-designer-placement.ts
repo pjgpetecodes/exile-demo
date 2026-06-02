@@ -38,6 +38,7 @@ type WorldDesignerPlacementDeps = {
     screenToWorld: (x: number, y: number) => Position;
     refreshPanel: () => void;
     updateDirtyState: () => void;
+    syncEditModeSnapshot: () => void;
     setStatus: (status: string, tone?: StatusTone) => void;
     snapshotsEqual: (left: DesignerSnapshot, right: DesignerSnapshot) => boolean;
     isTeleporterCompositeType: (type: string) => boolean;
@@ -101,6 +102,7 @@ export function createWorldDesignerPlacement(deps: WorldDesignerPlacementDeps) {
         screenToWorld,
         refreshPanel,
         updateDirtyState,
+        syncEditModeSnapshot,
         setStatus,
         snapshotsEqual,
         isTeleporterCompositeType,
@@ -596,6 +598,7 @@ export function createWorldDesignerPlacement(deps: WorldDesignerPlacementDeps) {
         state.redoStack = [];
         host.afterWorldDataMutated();
         updateDirtyState();
+        syncEditModeSnapshot();
         refreshPanel();
         setStatus('Moved selected objects with the mouse. Use arrow keys for precise nudging.', 'neutral');
     }

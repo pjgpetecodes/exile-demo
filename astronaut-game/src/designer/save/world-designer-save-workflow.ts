@@ -267,6 +267,17 @@ export function createWorldDesignerSaveWorkflow(context: CreateWorldDesignerSave
         refs.modalConfirm.disabled = report.changedPixels === 0;
     }
 
+    function resolveSaveWorldDataMethod() {
+        const hostWithLegacySave = host as WorldDesignerHost & {
+            saveworlddata?: (data: RawWorldData) => Promise<void>;
+        };
+        const saveMethod = hostWithLegacySave.saveWorldData ?? hostWithLegacySave.saveworlddata;
+        if (typeof saveMethod !== 'function') {
+            throw new Error('World save API is unavailable (expected host.saveWorldData).');
+        }
+        return saveMethod.bind(hostWithLegacySave);
+    }
+
     async function saveFromPreview() {
         const snapshot = await getWorldSnapshotForValidationAndSave();
         const preview = buildSavePreview(snapshot, { strictTeleporterValidation: true });
@@ -289,7 +300,8 @@ export function createWorldDesignerSaveWorkflow(context: CreateWorldDesignerSave
                 refreshSelectOptions();
                 refreshPaletteDesigner();
             } else {
-                await host.saveWorldData(snapshot);
+                const saveWorldData = resolveSaveWorldDataMethod();
+                await saveWorldData(snapshot);
             }
             state.lastSavedSnapshot = snapshot;
             if (state.mode === 'edit') {

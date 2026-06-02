@@ -298,6 +298,8 @@ export function createExtraRuntimeContextFromState(state: ValuePack) {
         normalizeBulletImpactAudioSettings: state.normalizeBulletImpactAudioSettings,
         normalizeSpriteSheetColors: state.normalizeSpriteSheetColors,
         previewSpriteSheetNormalization: state.previewSpriteSheetNormalization,
+        savePaletteDefinitions: state.savePaletteDefinitions,
+        saveWorldData: state.saveWorldData,
         replaceRawWorldData: state.replaceRawWorldData,
         calculateAstronautSpriteBoundingBoxes: state.calculateAstronautSpriteBoundingBoxes,
         calculateSpriteCollisionBoundingBoxes: state.calculateSpriteCollisionBoundingBoxes,
