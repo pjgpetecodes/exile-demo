@@ -28,15 +28,6 @@ function isLikelyTransparentEdgeTerrain(block: MapBlock) {
     return type.includes('diag') || type.includes('half');
 }
 
-function getCardinalNeighbors(point: GridPoint): GridPoint[] {
-    return [
-        { x: point.x - 1, y: point.y },
-        { x: point.x + 1, y: point.y },
-        { x: point.x, y: point.y - 1 },
-        { x: point.x, y: point.y + 1 }
-    ];
-}
-
 function createWaterBlockAtGrid(grid: GridPoint, tileSize: number): MapBlock {
     return {
         x: grid.x * tileSize,
@@ -141,7 +132,10 @@ export function fillConnectedWorldWater(
 
     if (!hasSeedWorldBlocks) {
         for (const cell of connectedCells) {
-            for (const neighbor of getCardinalNeighbors(cell)) {
+            for (const neighbor of getHorizontalAndDownNeighbors(cell)) {
+                if (neighbor.y < seedGridY) {
+                    continue;
+                }
                 const neighborBlocks = blocksByCell.get(toCellKey(neighbor.x, neighbor.y)) ?? [];
                 for (const block of neighborBlocks) {
                     if (block.water === true || !isLikelyTransparentEdgeTerrain(block)) {

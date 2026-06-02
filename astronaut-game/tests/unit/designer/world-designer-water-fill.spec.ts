@@ -92,4 +92,21 @@ describe('world designer water flood-fill', () => {
         expect(diagonalBoundary?.water).toBe(true);
         expect(diagonalBoundary?.waterOnly).not.toBe(true);
     });
+
+    it('does not mark diagonal edge terrain above the seed row as water', () => {
+        const tileSize = 32;
+        const worldMap: MapBlock[] = [
+            createDiagonalWorldBlock(tileSize, -tileSize),
+            createWorldBlock(tileSize, 0),
+            createWorldBlock(tileSize * 2, 0),
+            createWorldBlock(tileSize, tileSize),
+            createWorldBlock(tileSize * 2, tileSize)
+        ];
+
+        const convertedCount = fillConnectedWorldWater(worldMap, { x: 0, y: 0 }, tileSize);
+
+        expect(convertedCount).toBeGreaterThanOrEqual(1);
+        const aboveDiagonal = worldMap.find((block) => block.x === tileSize && block.y === -tileSize);
+        expect(aboveDiagonal?.water).not.toBe(true);
+    });
 });
