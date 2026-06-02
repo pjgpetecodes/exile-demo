@@ -1,6 +1,8 @@
 import type { Position } from '../../types/index.js';
 import type { Collectable } from '../../entities/collectable.js';
 import type { SpriteTranslation } from '../../shared/utilities.js';
+import type { MapBlock } from '../../world/map.js';
+import { TILE_SIZE } from '../config/world-designer-config.js';
 import type {
     ClipboardEntry,
     ControlRefs,
@@ -10,6 +12,7 @@ import type {
     Selection,
     WorldDesignerHost
 } from '../core/world-designer-types.js';
+import { fillConnectedWorldWater } from '../water/world-designer-water-fill.js';
 
 type StatusTone = 'neutral' | 'success' | 'error';
 
@@ -23,7 +26,7 @@ type WorldDesignerContextMenuDeps = {
     refs: Pick<ControlRefs, 'contextMenu' | 'contextMenuBody'>;
     paletteCount: number;
     clipboardEntries: ClipboardEntry[];
-    host: Pick<WorldDesignerHost, 'setAstronautStartPosition' | 'resetAstronautToPosition'>;
+    host: Pick<WorldDesignerHost, 'setAstronautStartPosition' | 'resetAstronautToPosition' | 'getRawWorldData'>;
     clamp: (value: number, min: number, max: number) => number;
     normalizeRotation: (rotation: number) => number;
     normalizeSpriteTranslation: (translation?: SpriteTranslation) => SpriteTranslation;
@@ -398,6 +401,26 @@ export function createWorldDesignerContextMenu(deps: WorldDesignerContextMenuDep
         setStatus('Moved the live astronaut to the clicked position.', 'success');
     }
 
+    function floodFillWaterAtWorldPosition(world: Position) {
+        const target = resolvePlacementPosition(world.x, world.y);
+        runMutation('Flood-filled connected world tiles with water (across/down only).', () => {
+            const convertedCount = fillConnectedWorldWater(
+                host.getRawWorldData().worldMap as MapBlock[],
+                target,
+                TILE_SIZE
+            );
+            if (convertedCount === 0) {
+                setStatus('No additional connected world tiles were marked as water.', 'neutral');
+            } else {
+                setStatus(
+                    `Marked ${convertedCount} connected world tile${convertedCount === 1 ? '' : 's'} as water.`,
+                    'success'
+                );
+            }
+        });
+        updateSelectionFromInspectorState();
+    }
+
     function toggleDoorLockedDefault() {
         const selection = state.contextMenu.primarySelection;
         if (!selection || selection.category !== 'doors') return;
@@ -675,6 +698,11 @@ export function createWorldDesignerContextMenu(deps: WorldDesignerContextMenuDep
             const target = getContextMenuWorldPosition();
             if (!target) return;
             moveLiveAstronautToWorldPosition(target);
+        });
+        addContextMenuAction('Water flood-fill from here', () => {
+            const target = getContextMenuWorldPosition();
+            if (!target) return;
+            floodFillWaterAtWorldPosition(target);
         });
         refs.contextMenu.classList.add('open');
         positionContextMenu();
