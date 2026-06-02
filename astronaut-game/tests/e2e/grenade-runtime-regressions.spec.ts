@@ -58,6 +58,45 @@ test('dropped grenades fall and exploded grenades are removed', async ({ page })
     expect(explodeResult.ok || explodeResult.reason === 'missing-collectable').toBe(true);
 });
 
+test('keyboard grenade drop releases hold and falls', async ({ page }) => {
+    await page.goto('/');
+    await page.click('body');
+    await page.waitForFunction(() => {
+        const snapshot = (window as any).__exileDebug?.getRuntimeSnapshot?.();
+        return !!snapshot && snapshot.mapLoaded === true;
+    }, { timeout: 20_000 });
+
+    const heldResult = await page.evaluate(() => {
+        const debug = (window as any).__exileDebug;
+        debug.teleportAstronaut(8526, 1800);
+        const held = debug.holdNearestGrenade();
+        const snapshot = debug.getNearestGrenadeDebugSnapshot();
+        return { held, snapshot };
+    });
+    expect(heldResult.held).toBe(true);
+    const trackedEntityId = heldResult.snapshot?.entityId ?? null;
+    expect(typeof trackedEntityId).toBe('number');
+
+    await page.keyboard.press('m');
+    await page.waitForTimeout(120);
+
+    const droppedSnapshot = await page.evaluate((entityId) => (window as any).__exileDebug.getCollectableDebugSnapshot(entityId), trackedEntityId);
+    expect(droppedSnapshot?.held).toBe(false);
+
+    const startY = droppedSnapshot?.y ?? 0;
+    const ySamples: number[] = [];
+    for (let i = 0; i < 8; i += 1) {
+        await page.waitForTimeout(80);
+        const snapshot = await page.evaluate((entityId) => (window as any).__exileDebug.getCollectableDebugSnapshot(entityId), trackedEntityId);
+        if (snapshot) {
+            ySamples.push(snapshot.y);
+        }
+    }
+    expect(ySamples.length).toBeGreaterThan(3);
+    expect(Math.max(...ySamples) - Math.min(...ySamples)).toBeGreaterThan(0);
+    expect(ySamples.some((y) => y > startY)).toBe(true);
+});
+
 test('damage emergency teleport falls back to astronaut start with no remembered locations', async ({ page }) => {
     await page.goto('/');
     await page.click('body');

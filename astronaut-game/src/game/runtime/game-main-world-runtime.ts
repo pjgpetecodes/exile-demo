@@ -251,11 +251,15 @@ export function createGameMainWorldRuntime(options: {
     }
 
     function clampCamera(camera: Position, canvasSize: { width: number; height: number }) {
-        const mapWidth = options.getMapWidth();
-        const mapHeight = options.getMapHeight();
+        const mapWidth = Number.isFinite(options.getMapWidth()) ? options.getMapWidth() : 0;
+        const mapHeight = Number.isFinite(options.getMapHeight()) ? options.getMapHeight() : 0;
+        const viewportWidth = Number.isFinite(canvasSize?.width) ? Math.max(0, canvasSize.width) : 0;
+        const viewportHeight = Number.isFinite(canvasSize?.height) ? Math.max(0, canvasSize.height) : 0;
+        const requestedX = Number.isFinite(camera.x) ? camera.x : 0;
+        const requestedY = Number.isFinite(camera.y) ? camera.y : 0;
         return {
-            x: Math.max(0, Math.min(camera.x, Math.max(0, mapWidth - canvasSize.width))),
-            y: Math.max(0, Math.min(camera.y, Math.max(0, mapHeight - canvasSize.height)))
+            x: Math.max(0, Math.min(requestedX, Math.max(0, mapWidth - viewportWidth))),
+            y: Math.max(0, Math.min(requestedY, Math.max(0, mapHeight - viewportHeight)))
         };
     }
 

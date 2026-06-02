@@ -136,9 +136,12 @@ export function createGameHeldItemRuntime(options: HeldItemRuntimeOptions) {
     }
 
     function getDroppedCollectableReleaseVelocity(): Position {
+        const transferredVelocityX = options.astronaut.velocity.x * options.movementSettings.droppedCollectableMomentumTransfer;
+        const transferredVelocityY = options.astronaut.velocity.y * options.movementSettings.droppedCollectableMomentumTransfer;
+        const dropMinFallSpeed = 1;
         return {
-            x: options.astronaut.velocity.x * options.movementSettings.droppedCollectableMomentumTransfer,
-            y: Math.max(0, options.astronaut.velocity.y * options.movementSettings.droppedCollectableMomentumTransfer)
+            x: Number.isFinite(transferredVelocityX) ? transferredVelocityX : 0,
+            y: Math.max(dropMinFallSpeed, Number.isFinite(transferredVelocityY) ? transferredVelocityY : 0)
         };
     }
 
@@ -280,20 +283,28 @@ export function createGameHeldItemRuntime(options: HeldItemRuntimeOptions) {
 
         const isThrown = velocity.x !== 0 || velocity.y !== 0;
         const releasePosition = getReleasedCollectablePosition(isThrown);
+        const safeReleasePosition = {
+            x: Number.isFinite(releasePosition.x) ? releasePosition.x : options.astronaut.position.x,
+            y: Number.isFinite(releasePosition.y) ? releasePosition.y : options.astronaut.position.y
+        };
         const releaseVelocity = isThrown ? velocity : getDroppedCollectableReleaseVelocity();
+        const safeReleaseVelocity = {
+            x: Number.isFinite(releaseVelocity.x) ? releaseVelocity.x : 0,
+            y: Number.isFinite(releaseVelocity.y) ? releaseVelocity.y : 0
+        };
         if (heldCollectable.creaturePayload) {
             options.restoreCreatureFromPayload(heldCollectable.creaturePayload, {
-                x: Math.round(releasePosition.x),
-                y: Math.round(releasePosition.y)
+                x: Math.round(safeReleasePosition.x),
+                y: Math.round(safeReleasePosition.y)
             });
             options.removeCollectableEntity(heldCollectable);
             options.setHeldCollectable(null);
             return;
         }
         heldCollectable.release(
-            releasePosition.x,
-            releasePosition.y,
-            releaseVelocity,
+            safeReleasePosition.x,
+            safeReleasePosition.y,
+            safeReleaseVelocity,
             isThrown ? 0 : options.movementSettings.droppedCollectableAstronautIgnoreFrames
         );
         if (options.isGrenadeCollectable(heldCollectable)) {

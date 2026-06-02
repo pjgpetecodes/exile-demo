@@ -345,8 +345,15 @@ export function createWorldDesignerInteractionHandlers(deps: WorldDesignerIntera
         const normalizedX = cssWidth > 0 ? x / cssWidth : 0;
         const normalizedY = cssHeight > 0 ? y / cssHeight : 0;
         const { width: mapWidth, height: mapHeight } = getMapBounds();
-        const worldX = clamp(normalizedX * mapWidth, 0, mapWidth);
-        const worldY = clamp(normalizedY * mapHeight, 0, mapHeight);
+        const viewportWidth = Math.max(0, host.canvas.width);
+        const viewportHeight = Math.max(0, host.canvas.height);
+        const maxCameraX = Math.max(0, mapWidth - viewportWidth);
+        const maxCameraY = Math.max(0, mapHeight - viewportHeight);
+        // Map overview pointer to reachable camera range so edge drags can still target map extremes.
+        const cameraX = normalizedX * maxCameraX;
+        const cameraY = normalizedY * maxCameraY;
+        const worldX = clamp(cameraX + viewportWidth / 2, 0, mapWidth);
+        const worldY = clamp(cameraY + viewportHeight / 2, 0, mapHeight);
         state.overviewHoverWorld = { x: worldX, y: worldY };
     }
 

@@ -9,6 +9,7 @@ type RuntimeStateAccessor = {
 type RuntimeStateAccessors = Record<string, RuntimeStateAccessor>;
 
 const INIT_RUNTIME_KEYS = [
+    'MAP_HEIGHT',
     'MAP_WIDTH',
     'STARFIELD_HEIGHT',
     'astronaut',
@@ -29,6 +30,7 @@ const INIT_RUNTIME_KEYS = [
     'afterWorldDataMutated',
     'canvas',
     'clampCamera',
+    'getMapBounds',
     'getAstronautStartPosition',
     'getEffectiveWindToggles',
     'getRawWorldData',

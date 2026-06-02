@@ -3,7 +3,17 @@ import { buildGameMainLoopStateAccessors } from './game-main-loop-runtime-builde
 type ValuePack = Record<string, any>;
 
 export function createSharedRuntimeContextFromState(state: ValuePack) {
+    const getMapBounds = typeof state.getMapBounds === 'function'
+        ? state.getMapBounds
+        : () => ({
+            width: state.MAP_WIDTH,
+            height: state.MAP_HEIGHT
+        });
     return {
+        MAP_HEIGHT: state.MAP_HEIGHT,
+        MAP_WIDTH: state.MAP_WIDTH,
+        STARFIELD_HEIGHT: state.STARFIELD_HEIGHT,
+        getMapBounds,
         astronaut: state.astronaut,
         movementSettings: state.movementSettings,
         creatureProjectileSettings: state.creatureProjectileSettings,

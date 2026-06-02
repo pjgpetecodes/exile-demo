@@ -458,6 +458,10 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         return;
     }
 
+    if (worldDesigner) {
+        worldDesigner.render(ctx!);
+    }
+
     // --- Controls: Upward and horizontal movement ---
     const updatePhaseStartMs = performanceInstrumentationEnabled ? performance.now() : 0;
     const movementStartX = gameState.astronaut.position.x;

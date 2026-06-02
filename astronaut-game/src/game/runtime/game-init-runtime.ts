@@ -32,6 +32,7 @@ export async function runGameInitRuntime(context: GameInitRuntimeContext) {
         afterWorldDataMutated,
         canvas,
         clampCamera,
+        getMapBounds,
         getAstronautStartPosition,
         getEffectiveWindToggles,
         getPaletteDefinitions,
@@ -88,7 +89,10 @@ export async function runGameInitRuntime(context: GameInitRuntimeContext) {
     await loadWindData();
     await loadAstronautStartPosition();
     await ensureMapChunksAroundWorldPosition(getAstronautStartPosition(), 1, true);
-    initStars(MAP_WIDTH, STARFIELD_HEIGHT);
+    const initialMapBounds = typeof getMapBounds === 'function'
+        ? getMapBounds()
+        : { width: MAP_WIDTH, height: MAP_HEIGHT };
+    initStars(initialMapBounds.width, STARFIELD_HEIGHT);
     const img = new Image();
     img.onload = () => {
         makeBlackTransparent(img, async (canvasWithTransparency: any) => {
@@ -251,7 +255,12 @@ export async function runGameInitRuntime(context: GameInitRuntimeContext) {
                     getPaletteDefinitions: () => deepClone(context.rawPaletteDefinitions),
                     getColorAliases: () => deepClone(context.colorAliases),
                     getPaletteCount: () => Math.max(context.remappedSpriteSheets.length, context.palettes.length, 1),
-                    getMapBounds: () => ({ width: MAP_WIDTH, height: MAP_HEIGHT }),
+                    getMapBounds: () => {
+                        if (typeof getMapBounds === 'function') {
+                            return getMapBounds();
+                        }
+                        return { width: MAP_WIDTH, height: MAP_HEIGHT };
+                    },
                     clampCamera,
                     ensureWorldBounds,
                     saveWorldData,

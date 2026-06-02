@@ -171,7 +171,7 @@ export function createGameCollectablePhysics(options: CollectablePhysicsFactoryO
         const windSettings = options.getWindSettings();
         const windDebugToggles = options.getWindDebugToggles();
         const windToggles = options.getEffectiveWindToggles(windSettings, windDebugToggles);
-        if (windToggles.windEnabled && !collectable.creatureProjectile) {
+        if (windToggles.windEnabled) {
             const allEmitters = options.getActiveWindEmittersNearAstronaut(now, windToggles);
             const emitterWind = windToggles.emittersEnabled
                 ? options.computeEmitterWindAccelerationAtPoint(collectable.x, collectable.y, now, allEmitters, 'looseObject')

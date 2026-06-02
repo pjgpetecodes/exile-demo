@@ -65,7 +65,11 @@ function buildWorldStateAccessors(context: ValuePack) {
 export function createGameMainInitFromContext(context: ValuePack) {
     return createGameMainInitRunner({
         runtimeValues: {
-            dimensions: { MAP_WIDTH: context.MAP_WIDTH, STARFIELD_HEIGHT: context.STARFIELD_HEIGHT },
+            dimensions: {
+                MAP_HEIGHT: context.MAP_HEIGHT,
+                MAP_WIDTH: context.MAP_WIDTH,
+                STARFIELD_HEIGHT: context.STARFIELD_HEIGHT
+            },
             entities: {
                 astronaut: context.astronaut,
                 buttonEntities: context.buttonEntities,
@@ -85,6 +89,7 @@ export function createGameMainInitFromContext(context: ValuePack) {
                 ensureWorldBounds: context.ensureWorldBounds,
                 afterWorldDataMutated: context.afterWorldDataMutated,
                 clampCamera: context.clampCamera,
+                getMapBounds: context.getMapBounds,
                 getAstronautStartPosition: context.getAstronautStartPosition,
                 getRawWorldData: context.getRawWorldData,
                 getRawWorldDataForSave: context.getRawWorldDataForSave,

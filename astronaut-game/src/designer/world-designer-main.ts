@@ -1321,9 +1321,13 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     function focusOnCurrentWorldPosition() {
         const focus = host.getFocusWorldPosition();
         const { width: mapWidth, height: mapHeight } = getMapBounds();
+        const safeFocusX = Number.isFinite(focus.x) ? focus.x : 0;
+        const safeFocusY = Number.isFinite(focus.y) ? focus.y : 0;
+        const safeMapWidth = Number.isFinite(mapWidth) ? mapWidth : host.canvas.width;
+        const safeMapHeight = Number.isFinite(mapHeight) ? mapHeight : host.canvas.height;
         state.overviewHoverWorld = {
-            x: clamp(focus.x, 0, mapWidth),
-            y: clamp(focus.y, 0, mapHeight)
+            x: clamp(safeFocusX, 0, safeMapWidth),
+            y: clamp(safeFocusY, 0, safeMapHeight)
         };
         moveCameraToWorldCenter(state.overviewHoverWorld.x, state.overviewHoverWorld.y);
         persistDesignerUiState();

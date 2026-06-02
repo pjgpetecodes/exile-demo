@@ -15,6 +15,37 @@ async function getRuntimeSnapshot(page: Page): Promise<RuntimeSnapshot> {
     return page.evaluate(() => (window as any).__exileDebug.getRuntimeSnapshot());
 }
 
+async function countPaintedPixelsForRole(page: Page, role: string): Promise<number> {
+    return page.evaluate((targetRole: string) => {
+        const OVERVIEW_BG = { r: 0x02, g: 0x06, b: 0x17 };
+        const MIN_COLOR_DELTA = 24;
+        const canvas = document.querySelector(`canvas[data-role="${targetRole}"]`) as HTMLCanvasElement | null;
+        if (!canvas) {
+            return 0;
+        }
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            return 0;
+        }
+        const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        let visible = 0;
+        for (let i = 0; i < data.length; i += 4) {
+            const alpha = data[i + 3];
+            if (alpha === 0) {
+                continue;
+            }
+            const delta =
+                Math.abs(data[i] - OVERVIEW_BG.r) +
+                Math.abs(data[i + 1] - OVERVIEW_BG.g) +
+                Math.abs(data[i + 2] - OVERVIEW_BG.b);
+            if (delta >= MIN_COLOR_DELTA) {
+                visible += 1;
+            }
+        }
+        return visible;
+    }, role);
+}
+
 test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
         window.localStorage.removeItem('exile.world-designer-state.v1');
@@ -84,25 +115,48 @@ test('designer recovers from persisted hidden layer visibility', async ({ page }
     await page.waitForTimeout(5000);
     await page.waitForFunction(() => (window as any).__exileDebug?.getRuntimeSnapshot?.()?.worldDesignerActive === true, { timeout: 15_000 });
 
-    const overviewPixels = await page.evaluate(() => {
-        const canvas = document.querySelector('canvas[data-role="overview"]') as HTMLCanvasElement | null;
-        if (!canvas) {
-            return 0;
-        }
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-            return 0;
-        }
-        const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-        let visible = 0;
-        for (let i = 0; i < data.length; i += 4) {
-            if (data[i + 3] > 0 && (data[i] > 8 || data[i + 1] > 8 || data[i + 2] > 8)) {
-                visible += 1;
+    const overviewPixels = await countPaintedPixelsForRole(page, 'overview');
+
+    expect(overviewPixels).toBeGreaterThan(150);
+});
+
+test('designer recovers when persisted world layer is hidden', async ({ page }) => {
+    await page.addInitScript(() => {
+        window.localStorage.setItem('exile.world-designer-state.v1', JSON.stringify({
+            active: true,
+            mode: 'edit',
+            layerVisibility: {
+                world: false,
+                buttons: true,
+                doors: true,
+                creatures: true,
+                collectables: true,
+                custom: true
             }
-        }
-        return visible;
+        }));
     });
 
+    await page.goto('/');
+    await page.waitForTimeout(5000);
+    await page.waitForFunction(() => (window as any).__exileDebug?.getRuntimeSnapshot?.()?.worldDesignerActive === true, { timeout: 15_000 });
+
+    const overviewPixels = await countPaintedPixelsForRole(page, 'overview');
+
+    expect(overviewPixels).toBeGreaterThan(150);
+});
+
+test('designer overview paints while hidden by default', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForFunction(() => {
+        const snapshot = (window as any).__exileDebug?.getRuntimeSnapshot?.();
+        return !!snapshot
+            && snapshot.mapLoaded === true
+            && snapshot.worldDesignerExists === true
+            && snapshot.worldDesignerActive === false;
+    }, { timeout: 20_000 });
+    await page.waitForTimeout(500);
+
+    const overviewPixels = await countPaintedPixelsForRole(page, 'overview');
     expect(overviewPixels).toBeGreaterThan(150);
 });
 
@@ -140,4 +194,96 @@ test('designer overview can navigate far right map regions', async ({ page }) =>
     expect(before.designerCamera).not.toBeNull();
     expect(after.designerCamera!.x).toBeGreaterThan(before.designerCamera!.x + 500);
     expect(after.designerCamera!.x).toBeGreaterThan((after.mapWidth - 2000) * 0.5);
+});
+
+test('designer overview can navigate to bottom map regions', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForTimeout(5000);
+    await page.keyboard.press('Backquote');
+    await page.waitForTimeout(1000);
+    await page.waitForFunction(() => {
+        const snapshot = (window as any).__exileDebug?.getRuntimeSnapshot?.();
+        return !!snapshot && snapshot.worldDesignerActive === true && snapshot.designerCamera !== null;
+    }, { timeout: 15_000 });
+    await page.evaluate(() => {
+        document.querySelectorAll('details').forEach((element) => {
+            (element as HTMLDetailsElement).open = true;
+        });
+    });
+
+    const before = await getRuntimeSnapshot(page);
+    const overview = page.locator('canvas[data-role="overview"]');
+    const overviewBox = await overview.boundingBox();
+    expect(overviewBox).not.toBeNull();
+    if (!overviewBox) {
+        return;
+    }
+
+    await page.mouse.move(overviewBox.x + overviewBox.width * 0.5, overviewBox.y + overviewBox.height * 0.98);
+    await page.mouse.down();
+    await page.waitForTimeout(200);
+    await page.mouse.up();
+    await page.waitForTimeout(400);
+
+    const viewport = await page.evaluate(() => {
+        const canvas = document.querySelector('#gameCanvas') as HTMLCanvasElement | null;
+        return canvas ? { width: canvas.width, height: canvas.height } : { width: 0, height: 0 };
+    });
+    const after = await getRuntimeSnapshot(page);
+    expect(after.designerCamera).not.toBeNull();
+    expect(before.designerCamera).not.toBeNull();
+    expect(after.designerCamera!.y).toBeGreaterThan(before.designerCamera!.y + 500);
+    const expectedBottomCameraY = Math.max(0, after.mapHeight - viewport.height);
+    expect(after.designerCamera!.y).toBeGreaterThan(expectedBottomCameraY - 500);
+});
+
+test('designer view remains visible after grenade drop flow', async ({ page }) => {
+    await page.goto('/');
+    await page.click('body');
+    await page.waitForFunction(() => {
+        const snapshot = (window as any).__exileDebug?.getRuntimeSnapshot?.();
+        return !!snapshot && snapshot.mapLoaded === true;
+    }, { timeout: 20_000 });
+
+    await page.evaluate(() => {
+        const debug = (window as any).__exileDebug;
+        debug.teleportAstronaut(8526, 1800);
+        debug.holdNearestGrenade();
+    });
+    await page.keyboard.press('m');
+    await page.waitForTimeout(300);
+    const beforeDesigner = await getRuntimeSnapshot(page);
+    expect(Number.isFinite(beforeDesigner.astronautPosition.x)).toBe(true);
+    expect(Number.isFinite(beforeDesigner.astronautPosition.y)).toBe(true);
+    expect(Number.isFinite(beforeDesigner.mapHeight)).toBe(true);
+    expect(Number.isFinite(beforeDesigner.mapWidth)).toBe(true);
+    await page.waitForTimeout(1000);
+    const beforeOpenWait = await getRuntimeSnapshot(page);
+    expect(Number.isFinite(beforeOpenWait.astronautPosition.y)).toBe(true);
+    await page.keyboard.press('Backquote');
+    await page.waitForTimeout(1000);
+
+    const gameVisiblePixels = await page.evaluate(() => {
+        const canvas = document.querySelector('#gameCanvas') as HTMLCanvasElement | null;
+        if (!canvas) {
+            return 0;
+        }
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            return 0;
+        }
+        const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        let visible = 0;
+        for (let i = 0; i < data.length; i += 4) {
+            if (data[i + 3] > 0 && (data[i] > 8 || data[i + 1] > 8 || data[i + 2] > 8)) {
+                visible += 1;
+            }
+        }
+        return visible;
+    });
+
+    const snapshot = await getRuntimeSnapshot(page);
+    expect(Number.isFinite(snapshot.designerCamera?.x)).toBe(true);
+    expect(Number.isFinite(snapshot.designerCamera?.y)).toBe(true);
+    expect(gameVisiblePixels).toBeGreaterThan(300);
 });

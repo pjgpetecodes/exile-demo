@@ -55,20 +55,72 @@ export function redrawOverviewBase(options: {
     const chunkedOverview = getChunkedWorldOverview();
 
     for (const [category, visible] of Object.entries(layerVisibility) as Array<[DesignerCategory, boolean]>) {
-        if (!visible) continue;
+        if (category !== 'world' && !visible) continue;
         const entities = getCategoryArray(category);
         ctx.fillStyle = colors[category];
         if (category === 'world') {
-            const worldTiles = chunkedOverview && overviewWorldTiles
+            const hasChunkOverview =
+                !!chunkedOverview &&
+                Array.isArray(chunkedOverview.chunks) &&
+                Number.isFinite(chunkedOverview.chunkWorldSize) &&
+                chunkedOverview.chunkWorldSize > 0;
+            const hasOverviewWorldTiles = Array.isArray(overviewWorldTiles) && overviewWorldTiles.length > 0;
+            const worldTiles = chunkedOverview && hasOverviewWorldTiles
                 ? overviewWorldTiles
                 : entities;
-            for (const tile of worldTiles) {
-                ctx.fillRect(
-                    Number(tile.x) * scaleX,
-                    Number(tile.y) * scaleY,
-                    Math.max(2, tileSize * scaleX),
-                    Math.max(2, tileSize * scaleY)
-                );
+
+            if (hasChunkOverview) {
+                const chunkWorldSize = Number(chunkedOverview.chunkWorldSize);
+                if (hasOverviewWorldTiles && Array.isArray(worldTiles)) {
+                    const coveredChunkKeys = new Set<string>();
+                    for (const tile of worldTiles) {
+                        const tileX = Number(tile.x);
+                        const tileY = Number(tile.y);
+                        if (!Number.isFinite(tileX) || !Number.isFinite(tileY)) {
+                            continue;
+                        }
+                        coveredChunkKeys.add(
+                            `${Math.floor(tileX / chunkWorldSize)}:${Math.floor(tileY / chunkWorldSize)}`
+                        );
+                    }
+                    for (const chunk of chunkedOverview.chunks) {
+                        const chunkX = Number(chunk.x);
+                        const chunkY = Number(chunk.y);
+                        if (!Number.isFinite(chunkX) || !Number.isFinite(chunkY)) {
+                            continue;
+                        }
+                        const key = `${chunkX}:${chunkY}`;
+                        if (coveredChunkKeys.has(key)) {
+                            continue;
+                        }
+                        ctx.fillRect(
+                            chunkX * chunkWorldSize * scaleX,
+                            chunkY * chunkWorldSize * scaleY,
+                            Math.max(2, chunkWorldSize * scaleX),
+                            Math.max(2, chunkWorldSize * scaleY)
+                        );
+                    }
+                } else {
+                    for (const chunk of chunkedOverview.chunks) {
+                        ctx.fillRect(
+                            Number(chunk.x) * chunkWorldSize * scaleX,
+                            Number(chunk.y) * chunkWorldSize * scaleY,
+                            Math.max(2, chunkWorldSize * scaleX),
+                            Math.max(2, chunkWorldSize * scaleY)
+                        );
+                    }
+                }
+            }
+
+            if (Array.isArray(worldTiles) && worldTiles.length > 0) {
+                for (const tile of worldTiles) {
+                    ctx.fillRect(
+                        Number(tile.x) * scaleX,
+                        Number(tile.y) * scaleY,
+                        Math.max(2, tileSize * scaleX),
+                        Math.max(2, tileSize * scaleY)
+                    );
+                }
             }
             continue;
         }

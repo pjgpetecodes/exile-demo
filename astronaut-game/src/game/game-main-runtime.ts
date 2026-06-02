@@ -1295,6 +1295,10 @@ const creatureOverlayRenderer = createCreatureOverlayRenderer({
 const drawCreatureOverlays = creatureOverlayRenderer.drawCreatureOverlays;
 
 const sharedRuntimeContext = createSharedRuntimeContextFromState({
+    MAP_HEIGHT,
+    MAP_WIDTH,
+    STARFIELD_HEIGHT,
+    getMapBounds: () => ({ width: MAP_WIDTH, height: MAP_HEIGHT }),
     astronaut,
     movementSettings: MOVEMENT_SETTINGS,
     creatureProjectileSettings: CREATURE_PROJECTILE_SETTINGS,
