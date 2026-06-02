@@ -403,17 +403,17 @@ export function createWorldDesignerContextMenu(deps: WorldDesignerContextMenuDep
 
     function floodFillWaterAtWorldPosition(world: Position) {
         const target = resolvePlacementPosition(world.x, world.y);
-        runMutation('Flood-filled connected world tiles with water (across/down only).', () => {
+        runMutation('Flood-filled connected transparent tiles with water (across/down only).', () => {
             const convertedCount = fillConnectedWorldWater(
                 host.getRawWorldData().worldMap as MapBlock[],
                 target,
                 TILE_SIZE
             );
             if (convertedCount === 0) {
-                setStatus('No additional connected world tiles were marked as water.', 'neutral');
+                setStatus('No additional connected transparent tiles were marked as water.', 'neutral');
             } else {
                 setStatus(
-                    `Marked ${convertedCount} connected world tile${convertedCount === 1 ? '' : 's'} as water.`,
+                    `Marked ${convertedCount} connected transparent tile${convertedCount === 1 ? '' : 's'} as water.`,
                     'success'
                 );
             }

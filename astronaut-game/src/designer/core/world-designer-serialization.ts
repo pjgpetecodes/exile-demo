@@ -129,7 +129,8 @@ export function toMapBlockData(block: MapBlock): MapBlock {
             }
             : {}),
         ...(block.paletteCycle ? { paletteCycle: deepClone(block.paletteCycle) } : {}),
-        ...(isWaterBlock(block) ? { water: true } : {})
+        ...(isWaterBlock(block) ? { water: true } : {}),
+        ...(block.waterOnly === true ? { waterOnly: true } : {})
     };
 }
 

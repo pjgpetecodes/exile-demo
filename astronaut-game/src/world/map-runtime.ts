@@ -48,6 +48,7 @@ export type MapBlock = {
     windAffectsLooseObjects?: boolean;
     windShowParticles?: boolean;
     water?: boolean;
+    waterOnly?: boolean;
 };
 
 export let mapBlocks: MapBlock[] = [];
@@ -80,6 +81,8 @@ const DEFAULT_CHUNK_WORLD_SIZE = 2048;
 const MUSHROOM_SPORE_FRAME_MS = 150;
 const MUSHROOM_SPORES_PER_FRAME = 10;
 const MUSHROOM_SIDE_SPILL_PIXELS_PER_FRAME = 4;
+const WATER_FILL_COLOR_ALIAS = 'Blue';
+const WATER_SURFACE_COLOR_ALIAS = 'Cyan';
 
 type MushroomPixelPoint = {
     x: number;
@@ -799,6 +802,10 @@ function resolveColor(color: string | [number, number, number]): [number, number
     return color;
 }
 
+function toCssRgbColor(color: [number, number, number]) {
+    return `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
+}
+
 export async function loadMapBlocks() {
     await loadColorAliases(); // Ensure color aliases are loaded
     const chunkEntries = await loadChunkedWorldMapBlocks();
@@ -989,6 +996,8 @@ export function drawMap(
     const drawNow = typeof now === 'number'
         ? now
         : (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    const waterFillColor = toCssRgbColor(resolveColor(WATER_FILL_COLOR_ALIAS));
+    const waterSurfaceColor = toCssRgbColor(resolveColor(WATER_SURFACE_COLOR_ALIAS));
 
     // Only draw blocks in camera viewport (+1 tile margin)
     const tileW = 32 * SPRITE_SCALE;
@@ -1000,6 +1009,19 @@ export function drawMap(
     const blocksToDraw = bucketMap
         ? getBucketedBlocksInViewport(bucketMap, camera, ctx.canvas.width, ctx.canvas.height, tileW, tileH)
         : (blocks || mapBlocks);
+    const waterSurfaceThickness = Math.max(1, Math.round(SPRITE_SCALE));
+    const waterBodyDrawWidth = Math.ceil(tileW) + 1;
+    const waterBodyDrawHeight = Math.ceil(tileH) + 1;
+    const waterCellKeys = new Set<string>();
+    for (const worldBlock of (blocks || mapBlocks)) {
+        if (worldBlock.water !== true) {
+            continue;
+        }
+        waterCellKeys.add(`${Math.round(worldBlock.x / tileW)}:${Math.round(worldBlock.y / tileH)}`);
+    }
+    const hasWaterAbove = (block: MapBlock) => waterCellKeys.has(
+        `${Math.round(block.x / tileW)}:${Math.round(block.y / tileH) - 1}`
+    );
 
     for (const block of blocksToDraw) {
         // Only draw visible blocks
@@ -1007,6 +1029,28 @@ export function drawMap(
             block.x + tileW < minX || block.x > maxX ||
             block.y + tileH < minY || block.y > maxY
         ) continue;
+
+        const drawX = block.x - camera.x;
+        const drawY = block.y - camera.y;
+        if (block.water === true) {
+            const snappedDrawX = Math.round(drawX);
+            const snappedDrawY = Math.round(drawY);
+            ctx.save();
+            ctx.fillStyle = waterFillColor;
+            ctx.fillRect(snappedDrawX, snappedDrawY, waterBodyDrawWidth, waterBodyDrawHeight);
+            if (!hasWaterAbove(block)) {
+                ctx.fillStyle = waterSurfaceColor;
+                ctx.fillRect(snappedDrawX, snappedDrawY, waterBodyDrawWidth, waterSurfaceThickness);
+            }
+            ctx.restore();
+            if (block.waterOnly === true) {
+                continue;
+            }
+        }
+
+        if (block.waterOnly === true) {
+            continue;
+        }
 
         // Fast rect lookup
         const rect = rectMap[block.type];
@@ -1022,8 +1066,6 @@ export function drawMap(
         );
 
         ctx.save();
-        const drawX = block.x - camera.x;
-        const drawY = block.y - camera.y;
         ctx.translate(drawX + tileW / 2, drawY + tileH / 2);
 
         const sheet = spriteSheets[paletteIdx] || spriteSheets[0];

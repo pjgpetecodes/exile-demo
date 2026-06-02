@@ -147,6 +147,19 @@ async function readExistingChunkManifestEntries() {
     }
 }
 
+function stableJsonStringify(value) {
+    return JSON.stringify(value);
+}
+
+async function hasJsonFileChanged(filePath, nextValue) {
+    try {
+        const existingValue = await readJsonFile(filePath);
+        return stableJsonStringify(existingValue) !== stableJsonStringify(nextValue);
+    } catch {
+        return true;
+    }
+}
+
 async function getChunkFileBlockCount(filePath, fallbackCount = 0) {
     try {
         const payload = await readJsonFile(filePath);
@@ -156,10 +169,32 @@ async function getChunkFileBlockCount(filePath, fallbackCount = 0) {
     }
 }
 
+function isSuspiciousChunkRegression(incomingCount, existingCount) {
+    if (!Number.isFinite(existingCount) || existingCount <= 0) {
+        return false;
+    }
+    if (!Number.isFinite(incomingCount)) {
+        return true;
+    }
+    if (incomingCount >= existingCount) {
+        return false;
+    }
+    if (incomingCount === 0) {
+        return true;
+    }
+    if (existingCount >= 100 && incomingCount <= Math.floor(existingCount * 0.2)) {
+        return true;
+    }
+    if (existingCount >= 20 && incomingCount <= 1) {
+        return true;
+    }
+    return false;
+}
+
 async function writeWorldMapChunks(worldMap) {
     await fs.mkdir(WORLD_CHUNK_DIR, { recursive: true });
     const existingManifestEntries = await readExistingChunkManifestEntries();
-    const chunkEntries = chunkWorldMapBlocks(worldMap).map((chunk) => {
+    const incomingChunkEntries = chunkWorldMapBlocks(worldMap).map((chunk) => {
         const file = `chunk_${chunk.x}_${chunk.y}.json`;
         return {
             ...chunk,
@@ -168,45 +203,75 @@ async function writeWorldMapChunks(worldMap) {
             count: chunk.blocks.length
         };
     });
-
-    await Promise.all(chunkEntries.map((entry) => writeJsonFile(entry.filePath, entry.blocks)));
-
-    const incomingChunkCount = chunkEntries.length;
+    const incomingChunkCount = incomingChunkEntries.length;
     const existingChunkCount = existingManifestEntries.length;
-    const incomingByFile = new Map(chunkEntries.map((entry) => [entry.file, entry]));
+    const incomingByFile = new Map(incomingChunkEntries.map((entry) => [entry.file, entry]));
+    const incomingTotalBlocks = incomingChunkEntries.reduce((sum, entry) => sum + (Number(entry.count) || 0), 0);
+    const existingTotalBlocks = existingManifestEntries.reduce((sum, entry) => sum + (Number(entry.count) || 0), 0);
     const shouldPreserveMissingExistingChunks =
         incomingChunkCount > 0 &&
         existingChunkCount > 0 &&
         incomingChunkCount < Math.floor(existingChunkCount * 0.8);
+    const shouldGuardAgainstMassiveRegression =
+        incomingChunkCount > 0 &&
+        existingChunkCount > 0 &&
+        existingTotalBlocks > 0 &&
+        incomingTotalBlocks < Math.floor(existingTotalBlocks * 0.8);
 
-    const preservedEntries = [];
-    if (shouldPreserveMissingExistingChunks) {
+    const mergedByFile = new Map(incomingChunkEntries.map((entry) => [entry.file, {
+        ...entry,
+        source: 'incoming'
+    }]));
+    if (shouldPreserveMissingExistingChunks || shouldGuardAgainstMassiveRegression) {
         for (const existingEntry of existingManifestEntries) {
-            if (incomingByFile.has(existingEntry.file)) {
-                continue;
-            }
             const existingFilePath = path.join(WORLD_CHUNK_DIR, existingEntry.file);
             try {
                 await fs.access(existingFilePath);
             } catch {
                 continue;
             }
-            preservedEntries.push({
+            const incomingEntry = incomingByFile.get(existingEntry.file);
+            const existingCount = Number(existingEntry.count) || 0;
+            const shouldPreserveEntry = !incomingEntry || (
+                shouldGuardAgainstMassiveRegression &&
+                isSuspiciousChunkRegression(Number(incomingEntry.count) || 0, existingCount)
+            );
+            if (!shouldPreserveEntry) {
+                continue;
+            }
+            mergedByFile.set(existingEntry.file, {
                 x: existingEntry.x,
                 y: existingEntry.y,
                 file: existingEntry.file,
                 filePath: existingFilePath,
-                count: await getChunkFileBlockCount(existingFilePath, Number(existingEntry.count) || 0)
+                count: await getChunkFileBlockCount(existingFilePath, existingCount),
+                source: 'existing'
             });
         }
     }
 
-    const mergedChunkEntries = [...chunkEntries, ...preservedEntries].sort((left, right) => {
+    const mergedChunkEntries = [...mergedByFile.values()].sort((left, right) => {
         if (left.y !== right.y) {
             return left.y - right.y;
         }
         return left.x - right.x;
     });
+
+    const changedChunkFiles = [];
+    const incomingWrites = mergedChunkEntries
+        .filter((entry) => entry.source === 'incoming')
+        .map(async (entry) => {
+            const incomingEntry = incomingByFile.get(entry.file);
+            if (!incomingEntry) {
+                return;
+            }
+            if (!await hasJsonFileChanged(entry.filePath, incomingEntry.blocks)) {
+                return;
+            }
+            await writeJsonFile(entry.filePath, incomingEntry.blocks);
+            changedChunkFiles.push(path.join('world_chunks', entry.file));
+        });
+    await Promise.all(incomingWrites);
 
     if (!shouldPreserveMissingExistingChunks) {
         const keepFiles = new Set(mergedChunkEntries.map((entry) => entry.file));
@@ -228,11 +293,14 @@ async function writeWorldMapChunks(worldMap) {
             count: entry.count
         }))
     };
-    await writeJsonFile(WORLD_CHUNK_MANIFEST_FILE, manifest);
+    const manifestChanged = await hasJsonFileChanged(WORLD_CHUNK_MANIFEST_FILE, manifest);
+    if (manifestChanged) {
+        await writeJsonFile(WORLD_CHUNK_MANIFEST_FILE, manifest);
+    }
 
     return [
-        path.join('world_chunks', path.basename(WORLD_CHUNK_MANIFEST_FILE)),
-        ...mergedChunkEntries.map((entry) => path.join('world_chunks', entry.file))
+        ...(manifestChanged ? [path.join('world_chunks', path.basename(WORLD_CHUNK_MANIFEST_FILE))] : []),
+        ...changedChunkFiles.sort()
     ];
 }
 

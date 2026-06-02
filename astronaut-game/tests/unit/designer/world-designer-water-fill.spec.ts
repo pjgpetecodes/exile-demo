@@ -12,6 +12,16 @@ function createWorldBlock(x: number, y: number): MapBlock {
     };
 }
 
+function createDiagonalWorldBlock(x: number, y: number): MapBlock {
+    return {
+        x,
+        y,
+        type: 'floor_diag_full',
+        collision: true,
+        palette: 0
+    };
+}
+
 describe('world designer water flood-fill', () => {
     it('fills across and down, but never upward from the seed row', () => {
         const tileSize = 32;
@@ -38,5 +48,48 @@ describe('world designer water flood-fill', () => {
         const convertedCount = fillConnectedWorldWater(worldMap, { x: 320, y: 320 }, 32);
         expect(convertedCount).toBe(0);
         expect(worldMap[0].water).not.toBe(true);
+    });
+
+    it('fills connected transparent tiles from an empty seed by creating water blocks', () => {
+        const tileSize = 32;
+        const worldMap: MapBlock[] = [
+            createWorldBlock(-tileSize, 0),
+            createWorldBlock(0, 0),
+            createWorldBlock(tileSize, 0),
+            createWorldBlock(-tileSize, tileSize),
+            createWorldBlock(tileSize, tileSize),
+            createWorldBlock(-tileSize, tileSize * 2),
+            createWorldBlock(0, tileSize * 2),
+            createWorldBlock(tileSize, tileSize * 2)
+        ];
+
+        const convertedCount = fillConnectedWorldWater(worldMap, { x: 0, y: tileSize }, tileSize);
+
+        expect(convertedCount).toBe(1);
+        const filledCell = worldMap.find((block) => block.x === 0 && block.y === tileSize && block.water === true);
+        expect(filledCell).toBeDefined();
+        expect(filledCell?.collision).toBe(false);
+        expect(filledCell?.type).toBe('floor_full');
+        expect(filledCell?.palette).toBe(14);
+        expect(filledCell?.waterOnly).toBe(true);
+    });
+
+    it('marks adjacent diagonal terrain as water to avoid transparent-edge gaps', () => {
+        const tileSize = 32;
+        const worldMap: MapBlock[] = [
+            createDiagonalWorldBlock(tileSize, 0),
+            createWorldBlock(tileSize * 2, 0),
+            createWorldBlock(tileSize, tileSize),
+            createWorldBlock(tileSize * 2, tileSize)
+        ];
+
+        const convertedCount = fillConnectedWorldWater(worldMap, { x: 0, y: 0 }, tileSize);
+
+        expect(convertedCount).toBeGreaterThanOrEqual(2);
+        const waterSeed = worldMap.find((block) => block.x === 0 && block.y === 0);
+        expect(waterSeed?.waterOnly).toBe(true);
+        const diagonalBoundary = worldMap.find((block) => block.x === tileSize && block.y === 0);
+        expect(diagonalBoundary?.water).toBe(true);
+        expect(diagonalBoundary?.waterOnly).not.toBe(true);
     });
 });
