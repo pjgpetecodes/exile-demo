@@ -30,7 +30,7 @@
       "x": 4,
       "y": 0,
       "file": "chunk_4_0.json",
-      "count": 229
+      "count": 230
     },
     {
       "x": 5,
@@ -60,13 +60,13 @@
       "x": 1,
       "y": 1,
       "file": "chunk_1_1.json",
-      "count": 621
+      "count": 623
     },
     {
       "x": 2,
       "y": 1,
       "file": "chunk_2_1.json",
-      "count": 705
+      "count": 707
     },
     {
       "x": 3,
@@ -78,7 +78,7 @@
       "x": 4,
       "y": 1,
       "file": "chunk_4_1.json",
-      "count": 611
+      "count": 617
     },
     {
       "x": 5,
@@ -120,7 +120,7 @@
       "x": 3,
       "y": 2,
       "file": "chunk_3_2.json",
-      "count": 1201
+      "count": 1203
     },
     {
       "x": 4,
@@ -132,7 +132,7 @@
       "x": 5,
       "y": 2,
       "file": "chunk_5_2.json",
-      "count": 702
+      "count": 704
     },
     {
       "x": 6,
@@ -162,7 +162,7 @@
       "x": 2,
       "y": 3,
       "file": "chunk_2_3.json",
-      "count": 730
+      "count": 731
     },
     {
       "x": 3,
@@ -198,7 +198,7 @@
       "x": 0,
       "y": 4,
       "file": "chunk_0_4.json",
-      "count": 644
+      "count": 645
     },
     {
       "x": 1,
@@ -258,7 +258,7 @@
       "x": 2,
       "y": 5,
       "file": "chunk_2_5.json",
-      "count": 785
+      "count": 794
     },
     {
       "x": 3,

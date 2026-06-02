@@ -270,6 +270,26 @@ export function createTeleporterPadRuntime(runtimeOptions: TeleporterPadRuntimeO
         })();
         const padAnchorOffsetX = padProbeAnchor.x - teleporter.baseX;
         const padAnchorOffsetY = padProbeAnchor.y - teleporter.baseY;
+        const topTransparentBandEnd = Math.min(tileBottom, baseVisibleTop);
+        const bottomTransparentBandStart = Math.max(tileTop, baseVisibleBottom);
+        const topTransparentBand = topTransparentBandEnd - tileTop >= 1
+            ? { start: tileTop, end: topTransparentBandEnd }
+            : null;
+        const bottomTransparentBand = tileBottom - bottomTransparentBandStart >= 1
+            ? { start: bottomTransparentBandStart, end: tileBottom }
+            : null;
+        const verticalSweepBand = sweepAxis === 'up'
+            ? (topTransparentBand ?? bottomTransparentBand)
+            : sweepAxis === 'down'
+                ? (bottomTransparentBand ?? topTransparentBand)
+                : (() => {
+                    if (topTransparentBand && bottomTransparentBand) {
+                        const topSpan = topTransparentBand.end - topTransparentBand.start;
+                        const bottomSpan = bottomTransparentBand.end - bottomTransparentBand.start;
+                        return topSpan >= bottomSpan ? topTransparentBand : bottomTransparentBand;
+                    }
+                    return topTransparentBand ?? bottomTransparentBand;
+                })();
 
         const sweepStart = (() => {
             if (sweepAxis === 'left') {
@@ -279,7 +299,13 @@ export function createTeleporterPadRuntime(runtimeOptions: TeleporterPadRuntimeO
                 return { x: tileLeft, y: tileCenterY };
             }
             if (sweepAxis === 'up') {
+                if (verticalSweepBand) {
+                    return { x: tileCenterX, y: verticalSweepBand.end };
+                }
                 return { x: tileCenterX, y: tileBottom };
+            }
+            if (verticalSweepBand) {
+                return { x: tileCenterX, y: verticalSweepBand.start };
             }
             return { x: tileCenterX, y: tileTop };
         })();
@@ -291,9 +317,23 @@ export function createTeleporterPadRuntime(runtimeOptions: TeleporterPadRuntimeO
                 return { x: Math.max(sweepStart.x, baseVisibleLeft), y: sweepStart.y };
             }
             if (sweepAxis === 'up') {
-                return { x: sweepStart.x, y: Math.min(sweepStart.y, baseVisibleBottom) };
+                if (verticalSweepBand) {
+                    return { x: sweepStart.x, y: verticalSweepBand.start };
+                }
+                const primaryTarget = Math.min(baseVisibleTop, baseVisibleBottom);
+                const alternateTarget = Math.max(baseVisibleTop, baseVisibleBottom);
+                const primarySpan = Math.abs(primaryTarget - sweepStart.y);
+                const alternateSpan = Math.abs(alternateTarget - sweepStart.y);
+                return { x: sweepStart.x, y: primarySpan >= alternateSpan ? primaryTarget : alternateTarget };
             }
-            return { x: sweepStart.x, y: Math.max(sweepStart.y, baseVisibleTop) };
+            if (verticalSweepBand) {
+                return { x: sweepStart.x, y: verticalSweepBand.end };
+            }
+            const primaryTarget = Math.max(baseVisibleTop, baseVisibleBottom);
+            const alternateTarget = Math.min(baseVisibleTop, baseVisibleBottom);
+            const primarySpan = Math.abs(primaryTarget - sweepStart.y);
+            const alternateSpan = Math.abs(alternateTarget - sweepStart.y);
+            return { x: sweepStart.x, y: primarySpan >= alternateSpan ? primaryTarget : alternateTarget };
         })();
         const fallbackSweepEnd = (() => {
             if (sweepAxis === 'left') {
@@ -303,9 +343,23 @@ export function createTeleporterPadRuntime(runtimeOptions: TeleporterPadRuntimeO
                 return { x: Math.min(tileRight, Math.max(baseVisibleLeft, tileLeft)), y: sweepStart.y };
             }
             if (sweepAxis === 'up') {
-                return { x: sweepStart.x, y: Math.max(tileTop, Math.min(baseVisibleBottom, tileBottom)) };
+                if (verticalSweepBand) {
+                    return { x: sweepStart.x, y: verticalSweepBand.start };
+                }
+                const primaryTarget = baseVisibleBottom;
+                const alternateTarget = baseVisibleTop;
+                const primarySpan = Math.abs(primaryTarget - sweepStart.y);
+                const alternateSpan = Math.abs(alternateTarget - sweepStart.y);
+                return { x: sweepStart.x, y: alternateSpan > primarySpan ? alternateTarget : primaryTarget };
             }
-            return { x: sweepStart.x, y: Math.min(tileBottom, Math.max(baseVisibleTop, tileTop)) };
+            if (verticalSweepBand) {
+                return { x: sweepStart.x, y: verticalSweepBand.end };
+            }
+            const primaryTarget = baseVisibleTop;
+            const alternateTarget = baseVisibleBottom;
+            const primarySpan = Math.abs(primaryTarget - sweepStart.y);
+            const alternateSpan = Math.abs(alternateTarget - sweepStart.y);
+            return { x: sweepStart.x, y: alternateSpan > primarySpan ? alternateTarget : primaryTarget };
         })();
         const usesVerticalAxis = sweepAxis === 'up' || sweepAxis === 'down';
         const primarySpan = usesVerticalAxis
@@ -316,10 +370,31 @@ export function createTeleporterPadRuntime(runtimeOptions: TeleporterPadRuntimeO
             x: sweepStart.x + (effectiveSweepEnd.x - sweepStart.x) * progress,
             y: sweepStart.y + (effectiveSweepEnd.y - sweepStart.y) * progress
         };
+        let nextX = desiredAnchor.x - padAnchorOffsetX;
+        let nextY = desiredAnchor.y - padAnchorOffsetY;
+        if (padProbe && padBounds) {
+            const padVisibleLeftOffset = (padProbe.drawX + padBounds.minX * runtimeOptions.spriteScale) - teleporter.baseX;
+            const padVisibleRightOffset = (padProbe.drawX + (padBounds.maxX + 1) * runtimeOptions.spriteScale) - teleporter.baseX;
+            const padVisibleTopOffset = (padProbe.drawY + padBounds.minY * runtimeOptions.spriteScale) - teleporter.baseY;
+            const padVisibleBottomOffset = (padProbe.drawY + (padBounds.maxY + 1) * runtimeOptions.spriteScale) - teleporter.baseY;
+            const minEntityX = tileLeft - padVisibleLeftOffset;
+            const maxEntityX = tileRight - padVisibleRightOffset;
+            const minEntityY = tileTop - padVisibleTopOffset;
+            const maxEntityY = tileBottom - padVisibleBottomOffset;
+
+            nextX = Math.min(Math.max(nextX, minEntityX), maxEntityX);
+            nextY = Math.min(Math.max(nextY, minEntityY), maxEntityY);
+
+            if (verticalSweepBand) {
+                const minBandEntityY = verticalSweepBand.start - padVisibleTopOffset;
+                const maxBandEntityY = verticalSweepBand.end - padVisibleBottomOffset;
+                nextY = Math.min(Math.max(nextY, minBandEntityY), maxBandEntityY);
+            }
+        }
 
         return {
-            x: desiredAnchor.x - padAnchorOffsetX,
-            y: desiredAnchor.y - padAnchorOffsetY
+            x: nextX,
+            y: nextY
         };
     }
 
