@@ -1730,17 +1730,6 @@
     "translation": "bottom"
   },
   {
-    "x": 4857,
-    "y": 6617,
-    "type": "teleporter_pad",
-    "collision": false,
-    "maskAstronaut": true,
-    "palette": 1,
-    "rotation": 1,
-    "translation": "bottom",
-    "teleporterId": "teleporter_4576_6899"
-  },
-  {
     "x": 4928,
     "y": 6617,
     "type": "tree",
@@ -1831,6 +1820,16 @@
     "translation": "bottom"
   },
   {
+    "x": 5983.6,
+    "y": 6617.6,
+    "type": "wall_thirds",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 13,
+    "rotation": 3,
+    "translation": "center"
+  },
+  {
     "x": 5562,
     "y": 6618,
     "type": "mushrooms",
@@ -1871,16 +1870,6 @@
     "translation": "left"
   },
   {
-    "x": 5983.6,
-    "y": 6617.6,
-    "type": "wall_thirds",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 13,
-    "rotation": 3,
-    "translation": "center"
-  },
-  {
     "x": 4153,
     "y": 6688,
     "type": "floor_full",
@@ -2809,25 +2798,6 @@
     "palette": 3,
     "rotation": 1,
     "translation": "center"
-  },
-  {
-    "x": 4576,
-    "y": 6899,
-    "type": "teleporter",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 0,
-    "rotation": 1,
-    "translation": "center",
-    "teleporterId": "teleporter_4576_6899",
-    "teleporterEnabled": true,
-    "teleporterRequiresKey": false,
-    "teleporterDestinationA": {
-      "x": 8754,
-      "y": 372
-    },
-    "teleporterDestinationB": null,
-    "teleporterActiveDestinationIndex": 0
   },
   {
     "x": 4717,
@@ -7318,5 +7288,24 @@
     "palette": 12,
     "rotation": 1,
     "translation": "center"
+  },
+  {
+    "x": 4576,
+    "y": 6899,
+    "type": "teleporter_pad",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 1,
+    "rotation": 2,
+    "translation": "left",
+    "teleporterId": "teleporter_13",
+    "teleporterEnabled": true,
+    "teleporterRequiresKey": false,
+    "teleporterDestinationA": {
+      "x": 8754,
+      "y": 372
+    },
+    "teleporterDestinationB": null,
+    "teleporterActiveDestinationIndex": 0
   }
 ]

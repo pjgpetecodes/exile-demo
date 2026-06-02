@@ -1127,8 +1127,7 @@
     "maskAstronaut": false,
     "palette": 14,
     "rotation": 1,
-    "translation": "center",
-    "water": true
+    "translation": "center"
   },
   {
     "x": 8025,

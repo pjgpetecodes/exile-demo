@@ -6,23 +6,24 @@ const { PNG } = require('pngjs');
 const PORT = 3001;
 const ROOT = __dirname;
 const MAX_REQUEST_BODY_BYTES = 50_000_000;
-const WORLD_CHUNK_DIR = path.join(ROOT, 'src', 'assets', 'world_chunks');
+const ASSET_DATA_DIR = path.join(ROOT, 'src', 'assets', 'data');
+const WORLD_CHUNK_DIR = path.join(ASSET_DATA_DIR, 'world_chunks');
 const WORLD_CHUNK_MANIFEST_FILE = path.join(WORLD_CHUNK_DIR, 'manifest.json');
 const WORLD_CHUNK_WORLD_SIZE = 2048;
 const NON_WORLD_ASSET_FILES = {
-    buttons: path.join(ROOT, 'src', 'assets', 'buttons.json'),
-    doors: path.join(ROOT, 'src', 'assets', 'doors.json'),
-    creatures: path.join(ROOT, 'src', 'assets', 'creatures.json'),
-    collectables: path.join(ROOT, 'src', 'assets', 'collectables.json'),
-    teleporters: path.join(ROOT, 'src', 'assets', 'teleporters.json'),
-    windEmitters: path.join(ROOT, 'src', 'assets', 'wind_emitters.json'),
-    windSettings: path.join(ROOT, 'src', 'assets', 'wind_settings.json'),
-    astronautStart: path.join(ROOT, 'src', 'assets', 'astronaut_start.json')
+    buttons: path.join(ASSET_DATA_DIR, 'buttons.json'),
+    doors: path.join(ASSET_DATA_DIR, 'doors.json'),
+    creatures: path.join(ASSET_DATA_DIR, 'creatures.json'),
+    collectables: path.join(ASSET_DATA_DIR, 'collectables.json'),
+    teleporters: path.join(ASSET_DATA_DIR, 'teleporters.json'),
+    windEmitters: path.join(ASSET_DATA_DIR, 'wind_emitters.json'),
+    windSettings: path.join(ASSET_DATA_DIR, 'wind_settings.json'),
+    astronautStart: path.join(ASSET_DATA_DIR, 'astronaut_start.json')
 };
-const PALETTES_FILE = path.join(ROOT, 'src', 'assets', 'palettes.json');
-const COLORS_FILE = path.join(ROOT, 'src', 'assets', 'colors.json');
-const SPRITE_MAP_FILE = path.join(ROOT, 'src', 'assets', 'exile_sprites_map.json');
-const SPRITE_SHEET_FILE = path.join(ROOT, 'src', 'assets', 'sprite_sheet.png');
+const PALETTES_FILE = path.join(ASSET_DATA_DIR, 'palettes.json');
+const COLORS_FILE = path.join(ASSET_DATA_DIR, 'colors.json');
+const SPRITE_MAP_FILE = path.join(ASSET_DATA_DIR, 'exile_sprites_map.json');
+const SPRITE_SHEET_FILE = path.join(ROOT, 'src', 'assets', 'images', 'sprites', 'sprite_sheet.png');
 const ATOMIC_WRITE_RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY']);
 const ATOMIC_WRITE_RETRY_ATTEMPTS = 8;
 
@@ -125,42 +126,113 @@ function chunkWorldMapBlocks(worldMap) {
     });
 }
 
+function isChunkManifestEntry(value) {
+    if (!value || typeof value !== 'object') {
+        return false;
+    }
+    return Number.isFinite(value.x)
+        && Number.isFinite(value.y)
+        && typeof value.file === 'string'
+        && value.file.trim().length > 0;
+}
+
+async function readExistingChunkManifestEntries() {
+    try {
+        const manifest = await readJsonFile(WORLD_CHUNK_MANIFEST_FILE);
+        return Array.isArray(manifest?.chunks)
+            ? manifest.chunks.filter(isChunkManifestEntry)
+            : [];
+    } catch {
+        return [];
+    }
+}
+
+async function getChunkFileBlockCount(filePath, fallbackCount = 0) {
+    try {
+        const payload = await readJsonFile(filePath);
+        return Array.isArray(payload) ? payload.length : fallbackCount;
+    } catch {
+        return fallbackCount;
+    }
+}
+
 async function writeWorldMapChunks(worldMap) {
     await fs.mkdir(WORLD_CHUNK_DIR, { recursive: true });
+    const existingManifestEntries = await readExistingChunkManifestEntries();
     const chunkEntries = chunkWorldMapBlocks(worldMap).map((chunk) => {
         const file = `chunk_${chunk.x}_${chunk.y}.json`;
         return {
             ...chunk,
             file,
-            filePath: path.join(WORLD_CHUNK_DIR, file)
+            filePath: path.join(WORLD_CHUNK_DIR, file),
+            count: chunk.blocks.length
         };
     });
 
     await Promise.all(chunkEntries.map((entry) => writeJsonFile(entry.filePath, entry.blocks)));
 
-    const keepFiles = new Set(chunkEntries.map((entry) => entry.file));
-    const existingFiles = await fs.readdir(WORLD_CHUNK_DIR);
-    const staleChunkFiles = existingFiles.filter((fileName) =>
-        /^chunk_-?\d+_-?\d+\.json$/i.test(fileName) &&
-        !keepFiles.has(fileName)
-    );
-    await Promise.all(staleChunkFiles.map((fileName) => fs.unlink(path.join(WORLD_CHUNK_DIR, fileName))));
+    const incomingChunkCount = chunkEntries.length;
+    const existingChunkCount = existingManifestEntries.length;
+    const incomingByFile = new Map(chunkEntries.map((entry) => [entry.file, entry]));
+    const shouldPreserveMissingExistingChunks =
+        incomingChunkCount > 0 &&
+        existingChunkCount > 0 &&
+        incomingChunkCount < Math.floor(existingChunkCount * 0.8);
+
+    const preservedEntries = [];
+    if (shouldPreserveMissingExistingChunks) {
+        for (const existingEntry of existingManifestEntries) {
+            if (incomingByFile.has(existingEntry.file)) {
+                continue;
+            }
+            const existingFilePath = path.join(WORLD_CHUNK_DIR, existingEntry.file);
+            try {
+                await fs.access(existingFilePath);
+            } catch {
+                continue;
+            }
+            preservedEntries.push({
+                x: existingEntry.x,
+                y: existingEntry.y,
+                file: existingEntry.file,
+                filePath: existingFilePath,
+                count: await getChunkFileBlockCount(existingFilePath, Number(existingEntry.count) || 0)
+            });
+        }
+    }
+
+    const mergedChunkEntries = [...chunkEntries, ...preservedEntries].sort((left, right) => {
+        if (left.y !== right.y) {
+            return left.y - right.y;
+        }
+        return left.x - right.x;
+    });
+
+    if (!shouldPreserveMissingExistingChunks) {
+        const keepFiles = new Set(mergedChunkEntries.map((entry) => entry.file));
+        const existingFiles = await fs.readdir(WORLD_CHUNK_DIR);
+        const staleChunkFiles = existingFiles.filter((fileName) =>
+            /^chunk_-?\d+_-?\d+\.json$/i.test(fileName) &&
+            !keepFiles.has(fileName)
+        );
+        await Promise.all(staleChunkFiles.map((fileName) => fs.unlink(path.join(WORLD_CHUNK_DIR, fileName))));
+    }
 
     const manifest = {
         version: 1,
         chunkWorldSize: WORLD_CHUNK_WORLD_SIZE,
-        chunks: chunkEntries.map((entry) => ({
+        chunks: mergedChunkEntries.map((entry) => ({
             x: entry.x,
             y: entry.y,
             file: entry.file,
-            count: entry.blocks.length
+            count: entry.count
         }))
     };
     await writeJsonFile(WORLD_CHUNK_MANIFEST_FILE, manifest);
 
     return [
         path.join('world_chunks', path.basename(WORLD_CHUNK_MANIFEST_FILE)),
-        ...chunkEntries.map((entry) => path.join('world_chunks', entry.file))
+        ...mergedChunkEntries.map((entry) => path.join('world_chunks', entry.file))
     ];
 }
 

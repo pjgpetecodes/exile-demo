@@ -249,16 +249,26 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
     }
 
     function getWorldSnapshotForSave() {
-        return state.mode === 'edit'
-            ? getWorldSnapshot()
-            : getAuthoredWorldSnapshot();
+        return getAuthoredWorldSnapshot();
     }
 
     async function getWorldSnapshotForValidationAndSave() {
         if (typeof host.getRawWorldDataForSave === 'function') {
             const rawWorldData = await host.getRawWorldDataForSave();
             reconcileTeleporterPairsForSave(rawWorldData, TILE_SIZE);
-            return serializeWorldData(rawWorldData);
+            const materializedWorldSnapshot = serializeWorldData(rawWorldData);
+            const authoredSnapshot = getAuthoredWorldSnapshot();
+            return serializeWorldData({
+                ...materializedWorldSnapshot,
+                buttons: authoredSnapshot.buttons,
+                doors: authoredSnapshot.doors,
+                creatures: authoredSnapshot.creatures,
+                collectables: authoredSnapshot.collectables,
+                teleporters: authoredSnapshot.teleporters,
+                windEmitters: authoredSnapshot.windEmitters,
+                windSettings: authoredSnapshot.windSettings,
+                astronautStart: authoredSnapshot.astronautStart
+            });
         }
         return getWorldSnapshotForSave();
     }

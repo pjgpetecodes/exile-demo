@@ -6260,25 +6260,6 @@
     "translation": "center"
   },
   {
-    "x": 704,
-    "y": 10137,
-    "type": "teleporter",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 0,
-    "rotation": 1,
-    "translation": "center",
-    "teleporterId": "teleporter_704_10137",
-    "teleporterEnabled": true,
-    "teleporterRequiresKey": false,
-    "teleporterDestinationA": {
-      "x": 8754,
-      "y": 372
-    },
-    "teleporterDestinationB": null,
-    "teleporterActiveDestinationIndex": 0
-  },
-  {
     "x": 774,
     "y": 10137,
     "type": "ship_8",
@@ -6447,5 +6428,24 @@
     "palette": 2,
     "rotation": 1,
     "translation": "center"
+  },
+  {
+    "x": 704,
+    "y": 10137,
+    "type": "teleporter_pad",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 1,
+    "rotation": 2,
+    "translation": "left",
+    "teleporterId": "teleporter_14",
+    "teleporterEnabled": true,
+    "teleporterRequiresKey": false,
+    "teleporterDestinationA": {
+      "x": 8754,
+      "y": 372
+    },
+    "teleporterDestinationB": null,
+    "teleporterActiveDestinationIndex": 0
   }
 ]
