@@ -1540,16 +1540,6 @@
     "translation": "center"
   },
   {
-    "x": 4787,
-    "y": 8941,
-    "type": "teleporter_pad",
-    "collision": false,
-    "maskAstronaut": true,
-    "palette": 1,
-    "rotation": 1,
-    "translation": "bottom"
-  },
-  {
     "x": 4928,
     "y": 8941,
     "type": "wall_diagnonal_half",
@@ -5868,16 +5858,6 @@
     "palette": 2,
     "rotation": 3,
     "translation": "center"
-  },
-  {
-    "x": 4646,
-    "y": 10137,
-    "type": "teleporter_pad",
-    "collision": false,
-    "maskAstronaut": true,
-    "palette": 9,
-    "rotation": 2,
-    "translation": "left"
   },
   {
     "x": 4717,

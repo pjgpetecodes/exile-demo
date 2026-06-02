@@ -92,7 +92,7 @@ export function createWorldDesignerTeleporterRuntime(deps: WorldDesignerTeleport
     function getTeleporterBaseRotationForPadRotation(padRotation: number) {
         const normalizedPadRotation = normalizeRotation(padRotation);
         if (normalizedPadRotation === 1) {
-            return 6;
+            return 5;
         }
         if (normalizedPadRotation === 3) {
             return 5;

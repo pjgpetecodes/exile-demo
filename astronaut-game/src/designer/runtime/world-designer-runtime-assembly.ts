@@ -149,6 +149,7 @@ export function initializeWorldDesignerRuntimeAssembly(context: any) {
         reorderSelections: context.selectionApi.reorderSelections,
         focusSelection: context.selectionApi.focusSelection,
         convertSelection: context.convertSelection,
+        floodFillWaterFromSelection: context.floodFillWaterFromSelection,
         placeAtWorld: context.selectionApi.placeAtWorld,
         closeContextMenu: context.selectionApi.closeContextMenu,
         openContextMenu: context.selectionApi.openContextMenu,

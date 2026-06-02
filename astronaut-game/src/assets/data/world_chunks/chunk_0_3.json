@@ -1500,16 +1500,6 @@
     "translation": "center"
   },
   {
-    "x": 634,
-    "y": 6899,
-    "type": "teleporter_pad",
-    "collision": false,
-    "maskAstronaut": true,
-    "palette": 9,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
     "x": 704,
     "y": 6899,
     "type": "bush",

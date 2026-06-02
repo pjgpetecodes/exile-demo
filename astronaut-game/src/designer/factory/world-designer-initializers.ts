@@ -370,6 +370,7 @@ export function initializeRuntimeAssembly(context: any) {
         closeModal: context.closeModal,
         modalCoordinator: context.modalCoordinator,
         convertSelection: context.convertSelection,
+        floodFillWaterFromSelection: context.floodFillWaterFromSelection,
         focusOnCurrentWorldPosition: context.focusOnCurrentWorldPosition,
         moveLiveAstronautToViewCenter: context.moveLiveAstronautToViewCenter,
         setAstronautStartToViewCenter: context.setAstronautStartToViewCenter,

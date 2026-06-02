@@ -99,6 +99,7 @@ import {
     getVisibleSpriteRect,
     resetVisibleSpriteRectResolverCache
 } from './preview/world-designer-visible-sprite-resolver.js';
+import { fillConnectedWorldWater } from './water/world-designer-water-fill.js';
 
 import type {
     ButtonSaveData,
@@ -1217,6 +1218,39 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         runMutation(getConvertActionMessage(targetCategory), () => {
             convertSelectionToCategory(state.selection!, targetCategory);
         });
+    }
+
+    function floodFillWaterFromSelection() {
+        const selectedWorld = getSelectedItems().find(
+            (selection) => selection.category === 'world'
+        );
+        if (!selectedWorld) {
+            setStatus('Select a world tile first, then run water flood-fill.', 'neutral');
+            return;
+        }
+        const seedX = Number(selectedWorld.entity.x);
+        const seedY = Number(selectedWorld.entity.y);
+        if (!Number.isFinite(seedX) || !Number.isFinite(seedY)) {
+            setStatus('Select a valid world tile first, then run water flood-fill.', 'error');
+            return;
+        }
+
+        runMutation('Flood-filled connected world tiles with water (across/down only).', () => {
+            const convertedCount = fillConnectedWorldWater(
+                getCategoryArray('world') as MapBlock[],
+                { x: seedX, y: seedY },
+                TILE_SIZE
+            );
+            if (convertedCount === 0) {
+                setStatus('No additional connected world tiles were marked as water.', 'neutral');
+            } else {
+                setStatus(
+                    `Marked ${convertedCount} connected world tile${convertedCount === 1 ? '' : 's'} as water.`,
+                    'success'
+                );
+            }
+        });
+        updateSelectionFromInspectorState();
     }
 
     function screenToWorld(x: number, y: number) {

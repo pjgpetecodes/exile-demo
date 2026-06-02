@@ -45,6 +45,21 @@
     "activeDestinationIndex": 0
   },
   {
+    "id": "teleporter_2675_2323",
+    "baseX": 2675,
+    "baseY": 2323,
+    "padX": 2746,
+    "padY": 2253,
+    "enabled": true,
+    "requiresKey": false,
+    "destinationA": {
+      "x": 8754,
+      "y": 372
+    },
+    "destinationB": null,
+    "activeDestinationIndex": 0
+  },
+  {
     "id": "teleporter_3",
     "baseX": 9223,
     "baseY": 2393,
@@ -72,6 +87,36 @@
     "requiresKey": false,
     "destinationA": {
       "x": 8736,
+      "y": 372
+    },
+    "destinationB": null,
+    "activeDestinationIndex": 0
+  },
+  {
+    "id": "teleporter_4576_6899",
+    "baseX": 4576,
+    "baseY": 6899,
+    "padX": 4857,
+    "padY": 6617,
+    "enabled": true,
+    "requiresKey": false,
+    "destinationA": {
+      "x": 8754,
+      "y": 372
+    },
+    "destinationB": null,
+    "activeDestinationIndex": 0
+  },
+  {
+    "id": "teleporter_4646_11475",
+    "baseX": 4646,
+    "baseY": 11475,
+    "padX": 4646,
+    "padY": 11334,
+    "enabled": true,
+    "requiresKey": false,
+    "destinationA": {
+      "x": 8754,
       "y": 372
     },
     "destinationB": null,
@@ -118,6 +163,21 @@
     "destinationA": {
       "x": 8773,
       "y": 380
+    },
+    "destinationB": null,
+    "activeDestinationIndex": 0
+  },
+  {
+    "id": "teleporter_704_10137",
+    "baseX": 704,
+    "baseY": 10137,
+    "padX": 704,
+    "padY": 10278,
+    "enabled": true,
+    "requiresKey": false,
+    "destinationA": {
+      "x": 8754,
+      "y": 372
     },
     "destinationB": null,
     "activeDestinationIndex": 0

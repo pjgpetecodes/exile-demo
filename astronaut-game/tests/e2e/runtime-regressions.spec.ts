@@ -287,3 +287,89 @@ test('designer view remains visible after grenade drop flow', async ({ page }) =
     expect(Number.isFinite(snapshot.designerCamera?.y)).toBe(true);
     expect(gameVisiblePixels).toBeGreaterThan(300);
 });
+
+test('designer water flood-fill marks connected world tiles without filling upward', async ({ page }) => {
+    await page.goto('/');
+    await page.click('body');
+    await page.waitForFunction(() => {
+        const snapshot = (window as any).__exileDebug?.getRuntimeSnapshot?.();
+        return !!snapshot && snapshot.mapLoaded === true;
+    }, { timeout: 20_000 });
+
+    await page.keyboard.press('Backquote');
+    await page.waitForFunction(() => {
+        const snapshot = (window as any).__exileDebug?.getRuntimeSnapshot?.();
+        return !!snapshot && snapshot.worldDesignerActive === true;
+    }, { timeout: 15_000 });
+    await page.evaluate(() => {
+        document.querySelectorAll('details').forEach((element) => {
+            (element as HTMLDetailsElement).open = true;
+        });
+    });
+
+    await page.locator('[data-role="mode"]').selectOption('edit');
+    await page.locator('[data-role="tool"]').selectOption('place');
+    await page.locator('[data-role="category"]').selectOption('world');
+    await page.locator('[data-role="type"]').selectOption('floor_full');
+    await page.locator('[data-role="palette"]').selectOption('0');
+
+    const canvas = page.locator('#gameCanvas');
+    const canvasBox = await canvas.boundingBox();
+    expect(canvasBox).not.toBeNull();
+    if (!canvasBox) {
+        return;
+    }
+
+    const placed: Array<{ x: number; y: number }> = [];
+    const step = 40;
+    const placeAndCapture = async (offsetX: number, offsetY: number) => {
+        await page.mouse.click(
+            canvasBox.x + canvasBox.width / 2 + offsetX,
+            canvasBox.y + canvasBox.height / 2 + offsetY
+        );
+        await page.waitForTimeout(80);
+        const selection = await page.evaluate(() => (window as any).__exileDebug.getSelectedDesignerSelection());
+        expect(selection?.category).toBe('world');
+        placed.push({ x: Number(selection.entity.x), y: Number(selection.entity.y) });
+    };
+
+    await placeAndCapture(-step, 0); // left
+    await placeAndCapture(step, 0); // right
+    await placeAndCapture(0, step); // down
+    await placeAndCapture(0, -step); // up (should remain non-water)
+    await placeAndCapture(0, 0); // center seed (selected)
+
+    await page.locator('[data-role="fill-water"]').click();
+    await page.waitForTimeout(100);
+    const statusText = await page.locator('[data-role="status"]').innerText();
+    expect(statusText).toContain('Flood-filled connected world tiles with water');
+    await page.locator('[data-role="save-preview"]').click();
+    await page.waitForSelector('.world-designer-modal h3');
+
+    const worldMapJson = await page.evaluate(() => {
+        const headings = Array.from(document.querySelectorAll('.world-designer-modal h3'));
+        for (const heading of headings) {
+            if (heading.textContent?.includes('world_chunks/manifest.json')) {
+                return (heading.nextElementSibling as HTMLElement | null)?.textContent ?? null;
+            }
+        }
+        return null;
+    });
+    expect(worldMapJson).not.toBeNull();
+    if (!worldMapJson) {
+        return;
+    }
+    const worldMap = JSON.parse(worldMapJson) as Array<{ x: number; y: number; water?: boolean }>;
+
+    const [, , , up, center] = placed;
+    const hasWaterExact = (point: { x: number; y: number }) => (
+        worldMap.some((block) =>
+            block.x === point.x &&
+            block.y === point.y &&
+            block.water === true
+        )
+    );
+
+    expect(hasWaterExact(center)).toBe(true);
+    expect(hasWaterExact(up)).toBe(false);
+});

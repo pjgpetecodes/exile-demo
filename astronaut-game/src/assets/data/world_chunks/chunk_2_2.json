@@ -2120,16 +2120,6 @@
     "translation": "bottom"
   },
   {
-    "x": 4857,
-    "y": 5210,
-    "type": "teleporter_pad",
-    "collision": false,
-    "maskAstronaut": true,
-    "palette": 1,
-    "rotation": 1,
-    "translation": "bottom"
-  },
-  {
     "x": 6054,
     "y": 5210,
     "type": "floor_diag_left",
@@ -3908,16 +3898,6 @@
     "palette": 3,
     "rotation": 1,
     "translation": "center"
-  },
-  {
-    "x": 6054,
-    "y": 5702,
-    "type": "teleporter_pad",
-    "collision": false,
-    "maskAstronaut": true,
-    "palette": 8,
-    "rotation": 1,
-    "translation": "bottom"
   },
   {
     "x": 4153,

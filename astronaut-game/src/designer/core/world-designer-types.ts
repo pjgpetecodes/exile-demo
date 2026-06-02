@@ -627,6 +627,7 @@ type ControlRefs = {
     focusButton: HTMLButtonElement;
     convertTargetSelect: HTMLSelectElement;
     convertButton: HTMLButtonElement;
+    fillWaterButton: HTMLButtonElement;
     focusAstronautButton: HTMLButtonElement;
     moveAstronautButton: HTMLButtonElement;
     expandViewportCheckbox: HTMLInputElement;

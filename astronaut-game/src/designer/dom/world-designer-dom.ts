@@ -121,6 +121,7 @@ export function createWorldDesignerDom({ magnifierSize, magnifierZoom }: CreateW
         focusButton: root.querySelector('[data-role="focus"]') as HTMLButtonElement,
         convertTargetSelect: root.querySelector('[data-role="convert-target"]') as HTMLSelectElement,
         convertButton: root.querySelector('[data-role="convert"]') as HTMLButtonElement,
+        fillWaterButton: root.querySelector('[data-role="fill-water"]') as HTMLButtonElement,
         focusAstronautButton: root.querySelector('[data-role="focus-astronaut"]') as HTMLButtonElement,
         moveAstronautButton: root.querySelector('[data-role="move-astronaut"]') as HTMLButtonElement,
         expandViewportCheckbox: root.querySelector('[data-role="expand-viewport"]') as HTMLInputElement,

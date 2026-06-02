@@ -53,6 +53,7 @@ export function bindWorldDesignerMainEventHandlers(deps: any) {
         reorderSelections: selection.reorderSelections,
         focusSelection: selection.focusSelection,
         convertSelection: selection.convertSelection,
+        floodFillWaterFromSelection: selection.floodFillWaterFromSelection,
         focusOnCurrentWorldPosition: navigation.focusOnCurrentWorldPosition,
         moveLiveAstronautToViewCenter: navigation.moveLiveAstronautToViewCenter,
         placeAtWorld: selection.placeAtWorld,

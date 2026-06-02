@@ -3525,8 +3525,8 @@
     "type": "teleporter",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 19,
-    "rotation": 5,
+    "palette": 0,
+    "rotation": 1,
     "translation": "center",
     "teleporterId": "teleporter_10",
     "teleporterEnabled": true,
@@ -3535,6 +3535,7 @@
       "x": 7556,
       "y": 3962
     },
+    "teleporterDestinationB": null,
     "teleporterActiveDestinationIndex": 0
   },
   {

@@ -8,6 +8,8 @@ import type {
     SpriteSheetNormalizationReport,
     WorldDesignerHost
 } from '../core/world-designer-types.js';
+import { TILE_SIZE } from '../config/world-designer-config.js';
+import { reconcileTeleporterPairsForSave } from '../teleporters/world-designer-teleporters.js';
 
 type CreateWorldDesignerSaveWorkflowContext = {
     refs: ControlRefs;
@@ -78,13 +80,17 @@ export function createWorldDesignerSaveWorkflow(context: CreateWorldDesignerSave
     function buildSavePreview(snapshot: RawWorldData, options?: { strictTeleporterValidation?: boolean }): SavePreviewState {
         const errors: string[] = [];
         const strictTeleporterValidation = options?.strictTeleporterValidation !== false;
+        const previewSnapshot = strictTeleporterValidation ? deepClone(snapshot) : snapshot;
+        if (strictTeleporterValidation) {
+            reconcileTeleporterPairsForSave(previewSnapshot, TILE_SIZE);
+        }
         const spriteTypeSet = new Set(spriteTypes);
         const paletteMax = getPaletteCount() - 1;
         const palettesChanged = !paletteDefinitionsEqual(state.paletteDefinitions, state.lastSavedPaletteDefinitions);
 
         const doorIds = new Set<number>();
         const duplicateDoorIds = new Set<number>();
-        for (const door of snapshot.doors) {
+        for (const door of previewSnapshot.doors) {
             const doorID = door.doorID ?? -1;
             if (doorIds.has(doorID)) duplicateDoorIds.add(doorID);
             doorIds.add(doorID);
@@ -107,8 +113,8 @@ export function createWorldDesignerSaveWorkflow(context: CreateWorldDesignerSave
             }
         };
 
-        snapshot.worldMap.forEach((entry, index) => validateSpriteAndPalette('World item', entry, index));
-        snapshot.buttons.forEach((entry, index) => {
+        previewSnapshot.worldMap.forEach((entry, index) => validateSpriteAndPalette('World item', entry, index));
+        previewSnapshot.buttons.forEach((entry, index) => {
             validateSpriteAndPalette('Button', entry, index);
             for (const linkedDoor of entry.linkedDoors ?? []) {
                 if (!doorIds.has(linkedDoor)) {
@@ -116,12 +122,12 @@ export function createWorldDesignerSaveWorkflow(context: CreateWorldDesignerSave
                 }
             }
         });
-        snapshot.doors.forEach((entry, index) => validateSpriteAndPalette('Door', entry, index));
-        snapshot.creatures.forEach((entry, index) => validateSpriteAndPalette('Creature', entry, index));
-        snapshot.collectables.forEach((entry, index) => validateSpriteAndPalette('Collectable', entry, index));
+        previewSnapshot.doors.forEach((entry, index) => validateSpriteAndPalette('Door', entry, index));
+        previewSnapshot.creatures.forEach((entry, index) => validateSpriteAndPalette('Creature', entry, index));
+        previewSnapshot.collectables.forEach((entry, index) => validateSpriteAndPalette('Collectable', entry, index));
         const teleporterIds = new Set<string>();
         const duplicateTeleporterIds = new Set<string>();
-        for (const teleporter of snapshot.teleporters) {
+        for (const teleporter of previewSnapshot.teleporters) {
             if (teleporterIds.has(teleporter.id)) {
                 duplicateTeleporterIds.add(teleporter.id);
             }
@@ -130,12 +136,9 @@ export function createWorldDesignerSaveWorkflow(context: CreateWorldDesignerSave
         if (duplicateTeleporterIds.size > 0) {
             errors.push(`Duplicate teleporter IDs: ${[...duplicateTeleporterIds].join(', ')}`);
         }
-        snapshot.teleporters.forEach((teleporter, index) => {
+        previewSnapshot.teleporters.forEach((teleporter, index) => {
             if (strictTeleporterValidation) {
-                if (!snapshot.worldMap.some((block) => block.x === teleporter.baseX && block.y === teleporter.baseY && block.type === 'teleporter')) {
-                    errors.push(`Teleporter #${index + 1} base sprite is missing at (${teleporter.baseX}, ${teleporter.baseY}).`);
-                }
-                if (!snapshot.worldMap.some((block) => block.x === teleporter.padX && block.y === teleporter.padY && block.type === 'teleporter_pad')) {
+                if (!previewSnapshot.worldMap.some((block) => block.x === teleporter.padX && block.y === teleporter.padY && block.type === 'teleporter_pad')) {
                     errors.push(`Teleporter #${index + 1} pad sprite is missing at (${teleporter.padX}, ${teleporter.padY}).`);
                 }
             }
@@ -149,19 +152,19 @@ export function createWorldDesignerSaveWorkflow(context: CreateWorldDesignerSave
                 errors.push(`Teleporter #${index + 1} is set to destination B but has no destination B.`);
             }
         });
-        snapshot.buttons.forEach((entry, index) => {
+        previewSnapshot.buttons.forEach((entry, index) => {
             for (const linkedTeleporterId of entry.linkedTeleporters ?? []) {
                 if (!teleporterIds.has(linkedTeleporterId)) {
                     errors.push(`Button #${index + 1} links to missing teleporter "${linkedTeleporterId}".`);
                 }
             }
         });
-        if (!Number.isFinite(snapshot.astronautStart.x) || !Number.isFinite(snapshot.astronautStart.y)) {
+        if (!Number.isFinite(previewSnapshot.astronautStart.x) || !Number.isFinite(previewSnapshot.astronautStart.y)) {
             errors.push('Astronaut start position must have numeric x and y values.');
         }
 
-        const files: SavePreviewFile[] = (Object.keys(snapshot) as Array<keyof RawWorldData>).map((key) => {
-            const currentJson = stableStringify(snapshot[key]);
+        const files: SavePreviewFile[] = (Object.keys(previewSnapshot) as Array<keyof RawWorldData>).map((key) => {
+            const currentJson = stableStringify(previewSnapshot[key]);
             const previousJson = stableStringify(state.lastSavedSnapshot[key]);
             return {
                 key,
@@ -180,11 +183,7 @@ export function createWorldDesignerSaveWorkflow(context: CreateWorldDesignerSave
         return { files, errors };
     }
 
-    async function renderSavePreview() {
-        refs.modalConfirm.disabled = true;
-        refs.modalBody.innerHTML = '<p>Preparing save preview…</p>';
-        const snapshot = getAuthoredWorldSnapshot();
-        const preview = buildSavePreview(snapshot, { strictTeleporterValidation: false });
+    function renderSavePreviewContent(preview: SavePreviewState, strictTeleporterValidation: boolean) {
         refs.modalBody.innerHTML = '';
 
         const summary = document.createElement('div');
@@ -192,7 +191,7 @@ export function createWorldDesignerSaveWorkflow(context: CreateWorldDesignerSave
         summary.innerHTML = `
             <p>${changedFiles.length === 0 ? 'No asset files have changed.' : `The following file(s) will be updated: <strong>${changedFiles.map((file) => file.label).join(', ')}</strong>.`}</p>
             <p>Use this dialog as a pre-save review. If the JSON looks right, confirm the save.</p>
-            <p>Full teleporter placement validation runs on save.</p>
+            <p>${strictTeleporterValidation ? 'Showing full teleporter placement validation results from the save check.' : 'Full teleporter placement validation runs on save.'}</p>
         `;
         refs.modalBody.appendChild(summary);
 
@@ -223,6 +222,17 @@ export function createWorldDesignerSaveWorkflow(context: CreateWorldDesignerSave
         }
 
         refs.modalConfirm.disabled = preview.errors.length > 0 || changedFiles.length === 0;
+    }
+
+    async function renderSavePreview(options?: { strictTeleporterValidation?: boolean }) {
+        refs.modalConfirm.disabled = true;
+        refs.modalBody.innerHTML = '<p>Preparing save preview…</p>';
+        const strictTeleporterValidation = options?.strictTeleporterValidation === true;
+        const snapshot = strictTeleporterValidation
+            ? await getWorldSnapshotForValidationAndSave()
+            : getAuthoredWorldSnapshot();
+        const preview = buildSavePreview(snapshot, { strictTeleporterValidation });
+        renderSavePreviewContent(preview, strictTeleporterValidation);
     }
 
     function renderSpriteSheetNormalizationPreview(report: SpriteSheetNormalizationReport) {
@@ -262,7 +272,7 @@ export function createWorldDesignerSaveWorkflow(context: CreateWorldDesignerSave
         const preview = buildSavePreview(snapshot, { strictTeleporterValidation: true });
         if (preview.errors.length > 0) {
             setStatus('Resolve the validation issues before saving.', 'error');
-            await renderSavePreview();
+            renderSavePreviewContent(preview, true);
             return;
         }
         const liveAstronautPosition = host.getFocusWorldPosition();

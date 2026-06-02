@@ -4730,16 +4730,6 @@
     "translation": "center"
   },
   {
-    "x": 11756,
-    "y": 9574,
-    "type": "teleporter_pad",
-    "collision": false,
-    "maskAstronaut": true,
-    "palette": 1,
-    "rotation": 1,
-    "translation": "bottom"
-  },
-  {
     "x": 10489,
     "y": 9645,
     "type": "floor_diag_left",

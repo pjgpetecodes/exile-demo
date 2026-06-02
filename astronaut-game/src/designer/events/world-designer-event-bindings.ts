@@ -43,6 +43,7 @@ export function bindWorldDesignerEventHandlers(context: any) {
         reorderSelections,
         focusSelection,
         convertSelection,
+        floodFillWaterFromSelection,
         focusOnCurrentWorldPosition,
         moveLiveAstronautToViewCenter,
         placeAtWorld,
@@ -370,6 +371,7 @@ export function bindWorldDesignerEventHandlers(context: any) {
     refs.bringToFrontButton.addEventListener('click', () => reorderSelections(true));
     refs.focusButton.addEventListener('click', focusSelection);
     refs.convertButton.addEventListener('click', convertSelection);
+    refs.fillWaterButton.addEventListener('click', floodFillWaterFromSelection);
     refs.focusAstronautButton.addEventListener('click', () => {
         focusOnCurrentWorldPosition();
         setStatus('Centered view on the astronaut.', 'neutral');

@@ -268,7 +268,8 @@ export function createRuntimeAssemblyMainContext(context: any) {
             getSelectionVisuals: resolve('getSelectionVisuals'),
             getPlacementPreviewType: resolve('getPlacementPreviewType'),
             updateSelectionFromInspectorState: resolve('updateSelectionFromInspectorState'),
-            convertSelection: resolve('convertSelection')
+            convertSelection: resolve('convertSelection'),
+            floodFillWaterFromSelection: resolve('floodFillWaterFromSelection')
         },
         customSprites: {
             getCustomSpriteDefinitionById: resolve('getCustomSpriteDefinitionById'),

@@ -87,6 +87,22 @@ function syncTeleporterMetadataToWorldBlocks(data: RawWorldData) {
     }
 }
 
+function toPositionOrNull(value: unknown) {
+    if (!value || typeof value !== 'object') {
+        return null;
+    }
+    const x = Math.round(Number((value as { x?: number }).x));
+    const y = Math.round(Number((value as { y?: number }).y));
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        return null;
+    }
+    return { x, y };
+}
+
+function toPointKey(x: number, y: number) {
+    return `${Math.round(x)}:${Math.round(y)}`;
+}
+
 export function reconcileTeleporterPairsForSave(data: RawWorldData, tileSize: number) {
     const teleporters = data.teleporters ?? [];
     const taggedTeleporterParts = new Map<string, { base?: MapBlock; pad?: MapBlock }>();
@@ -113,17 +129,6 @@ export function reconcileTeleporterPairsForSave(data: RawWorldData, tileSize: nu
         }
         const startX = Math.round(data.astronautStart.x);
         const startY = Math.round(data.astronautStart.y);
-        const toPositionOrNull = (value: unknown) => {
-            if (!value || typeof value !== 'object') {
-                return null;
-            }
-            const x = Math.round(Number((value as { x?: number }).x));
-            const y = Math.round(Number((value as { y?: number }).y));
-            if (!Number.isFinite(x) || !Number.isFinite(y)) {
-                return null;
-            }
-            return { x, y };
-        };
         for (const [id, parts] of taggedTeleporterParts.entries()) {
             if (!parts.base || !parts.pad) {
                 continue;
@@ -165,9 +170,6 @@ export function reconcileTeleporterPairsForSave(data: RawWorldData, tileSize: nu
                 });
             }
         }
-    }
-    if (teleporters.length === 0) {
-        return;
     }
     const correctionDistancePx = tileSize * 1.5;
     teleporters.forEach((teleporter) => {
@@ -238,5 +240,97 @@ export function reconcileTeleporterPairsForSave(data: RawWorldData, tileSize: nu
             }
         }
     });
+    const baseBlocks = data.worldMap.filter((block) => block.type === 'teleporter');
+    const padBlocks = data.worldMap.filter((block) => block.type === 'teleporter_pad');
+    const usedBaseKeys = new Set<string>();
+    const usedPadKeys = new Set<string>();
+    for (const teleporter of teleporters) {
+        usedBaseKeys.add(toPointKey(teleporter.baseX, teleporter.baseY));
+        usedPadKeys.add(toPointKey(teleporter.padX, teleporter.padY));
+    }
+    const teleporterIdSet = new Set(teleporters.map((teleporter) => teleporter.id));
+    const makeUniqueTeleporterId = (preferred: string) => {
+        let id = preferred;
+        let index = 1;
+        while (teleporterIdSet.has(id)) {
+            id = `${preferred}_${index}`;
+            index += 1;
+        }
+        teleporterIdSet.add(id);
+        return id;
+    };
+    const startX = Math.round(data.astronautStart.x);
+    const startY = Math.round(data.astronautStart.y);
+    for (const base of baseBlocks) {
+        const baseKey = toPointKey(base.x, base.y);
+        if (usedBaseKeys.has(baseKey)) {
+            continue;
+        }
+        const matchedById = base.teleporterId
+            ? teleporters.find((teleporter) => teleporter.id === base.teleporterId)
+            : null;
+        const existing = matchedById ?? teleporters.find((teleporter) => toPointKey(teleporter.baseX, teleporter.baseY) === baseKey) ?? null;
+        if (existing) {
+            existing.baseX = Math.round(base.x);
+            existing.baseY = Math.round(base.y);
+            base.teleporterId = existing.id;
+            usedBaseKeys.add(baseKey);
+            continue;
+        }
+        let pad = (base.teleporterId
+            ? padBlocks.find((candidate) =>
+                candidate.teleporterId === base.teleporterId &&
+                !usedPadKeys.has(toPointKey(candidate.x, candidate.y))
+            )
+            : null) ?? null;
+        if (!pad) {
+            pad = findNearestWorldBlockByType(
+                padBlocks.filter((candidate) => !usedPadKeys.has(toPointKey(candidate.x, candidate.y))),
+                'teleporter_pad',
+                base.x,
+                base.y,
+                correctionDistancePx * 4
+            );
+        }
+        if (!pad) {
+            pad = {
+                ...base,
+                type: 'teleporter_pad'
+            };
+            data.worldMap.push(pad);
+            padBlocks.push(pad);
+        }
+        const preferredId = String(base.teleporterId ?? '').trim() || `teleporter_${Math.round(base.x)}_${Math.round(base.y)}`;
+        const id = makeUniqueTeleporterId(preferredId);
+        const destinationA = toPositionOrNull(base.teleporterDestinationA)
+            ?? toPositionOrNull(pad.teleporterDestinationA)
+            ?? { x: startX, y: startY };
+        const destinationB = toPositionOrNull(base.teleporterDestinationB)
+            ?? toPositionOrNull(pad.teleporterDestinationB);
+        const created: TeleporterSaveData = {
+            id,
+            baseX: Math.round(base.x),
+            baseY: Math.round(base.y),
+            padX: Math.round(pad.x),
+            padY: Math.round(pad.y),
+            enabled: (base.teleporterEnabled ?? pad.teleporterEnabled) !== false,
+            requiresKey: (base.teleporterRequiresKey ?? pad.teleporterRequiresKey) === true,
+            destinationA,
+            destinationB,
+            activeDestinationIndex:
+                ((base.teleporterActiveDestinationIndex ?? pad.teleporterActiveDestinationIndex) === 1 && destinationB)
+                    ? 1
+                    : 0
+        };
+        teleporters.push(created);
+        base.teleporterId = id;
+        pad.teleporterId = id;
+        usedBaseKeys.add(baseKey);
+        usedPadKeys.add(toPointKey(pad.x, pad.y));
+    }
+    const validPadKeys = new Set(teleporters.map((teleporter) => toPointKey(teleporter.padX, teleporter.padY)));
+    data.worldMap = data.worldMap.filter((block) =>
+        block.type !== 'teleporter_pad' || validPadKeys.has(toPointKey(block.x, block.y))
+    );
     syncTeleporterMetadataToWorldBlocks(data);
 }

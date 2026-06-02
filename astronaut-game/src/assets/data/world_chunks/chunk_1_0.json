@@ -10,16 +10,6 @@
     "translation": "bottom"
   },
   {
-    "x": 2675,
-    "y": 1690,
-    "type": "teleporter_pad",
-    "collision": false,
-    "maskAstronaut": true,
-    "palette": 9,
-    "rotation": 2,
-    "translation": "left"
-  },
-  {
     "x": 3238,
     "y": 1690,
     "type": "floor_grass",

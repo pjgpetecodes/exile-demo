@@ -55,6 +55,7 @@ export function bindWorldDesignerMainEventHandlersFromContext(context: any) {
             reorderSelections: context.reorderSelections,
             focusSelection: context.focusSelection,
             convertSelection: context.convertSelection,
+            floodFillWaterFromSelection: context.floodFillWaterFromSelection,
             placeAtWorld: context.placeAtWorld,
             closeContextMenu: context.closeContextMenu,
             openContextMenu: context.openContextMenu,

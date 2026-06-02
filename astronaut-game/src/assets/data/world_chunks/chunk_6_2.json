@@ -480,36 +480,6 @@
     "translation": "center"
   },
   {
-    "x": 12742,
-    "y": 4294,
-    "type": "teleporter_pad",
-    "collision": false,
-    "maskAstronaut": true,
-    "palette": 26,
-    "rotation": 2,
-    "translation": "center"
-  },
-  {
-    "x": 12812,
-    "y": 4294,
-    "type": "teleporter_pad",
-    "collision": false,
-    "maskAstronaut": true,
-    "palette": 26,
-    "rotation": 2,
-    "translation": "left"
-  },
-  {
-    "x": 12883,
-    "y": 4294,
-    "type": "teleporter_pad",
-    "collision": false,
-    "maskAstronaut": true,
-    "palette": 26,
-    "rotation": 2,
-    "translation": "bottom"
-  },
-  {
     "x": 12953,
     "y": 4294,
     "type": "floor_full",

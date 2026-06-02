@@ -217,7 +217,8 @@
     "maskAstronaut": true,
     "palette": 9,
     "rotation": 2,
-    "translation": "center"
+    "translation": "center",
+    "teleporterId": "teleporter_2675_2323"
   },
   {
     "x": 2816,
@@ -228,16 +229,6 @@
     "palette": 2,
     "rotation": 3,
     "translation": "center"
-  },
-  {
-    "x": 2886,
-    "y": 2253,
-    "type": "teleporter_pad",
-    "collision": false,
-    "maskAstronaut": true,
-    "palette": 14,
-    "rotation": 1,
-    "translation": "bottom"
   },
   {
     "x": 3238,
@@ -395,9 +386,18 @@
     "type": "teleporter",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 4,
+    "palette": 0,
     "rotation": 1,
-    "translation": "center"
+    "translation": "center",
+    "teleporterId": "teleporter_2675_2323",
+    "teleporterEnabled": true,
+    "teleporterRequiresKey": false,
+    "teleporterDestinationA": {
+      "x": 8754,
+      "y": 372
+    },
+    "teleporterDestinationB": null,
+    "teleporterActiveDestinationIndex": 0
   },
   {
     "x": 2816,

@@ -6265,9 +6265,18 @@
     "type": "teleporter",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 19,
+    "palette": 0,
     "rotation": 1,
-    "translation": "center"
+    "translation": "center",
+    "teleporterId": "teleporter_704_10137",
+    "teleporterEnabled": true,
+    "teleporterRequiresKey": false,
+    "teleporterDestinationA": {
+      "x": 8754,
+      "y": 372
+    },
+    "teleporterDestinationB": null,
+    "teleporterActiveDestinationIndex": 0
   },
   {
     "x": 774,
@@ -6418,16 +6427,6 @@
     "palette": 2,
     "rotation": 6,
     "translation": "center"
-  },
-  {
-    "x": 986,
-    "y": 10208,
-    "type": "teleporter_pad",
-    "collision": false,
-    "maskAstronaut": true,
-    "palette": 9,
-    "rotation": 1,
-    "translation": "bottom"
   },
   {
     "x": 1056,

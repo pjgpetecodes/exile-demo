@@ -4540,16 +4540,6 @@
     "translation": "bottom"
   },
   {
-    "x": 13798,
-    "y": 9433,
-    "type": "teleporter_pad",
-    "collision": false,
-    "maskAstronaut": true,
-    "palette": 1,
-    "rotation": 2,
-    "translation": "left"
-  },
-  {
     "x": 13939,
     "y": 9433,
     "type": "bush",
@@ -4840,16 +4830,6 @@
     "translation": "center"
   },
   {
-    "x": 12672,
-    "y": 9574,
-    "type": "teleporter_pad",
-    "collision": false,
-    "maskAstronaut": true,
-    "palette": 9,
-    "rotation": 1,
-    "translation": "right"
-  },
-  {
     "x": 12742,
     "y": 9574,
     "type": "floor_full",
@@ -5048,16 +5028,6 @@
     "palette": 10,
     "rotation": 3,
     "translation": "center"
-  },
-  {
-    "x": 12742,
-    "y": 9645,
-    "type": "teleporter_pad",
-    "collision": false,
-    "maskAstronaut": true,
-    "palette": 9,
-    "rotation": 1,
-    "translation": "right"
   },
   {
     "x": 12812,
@@ -5326,16 +5296,6 @@
     "collision": false,
     "maskAstronaut": false,
     "palette": 3,
-    "rotation": 1,
-    "translation": "bottom"
-  },
-  {
-    "x": 13728,
-    "y": 9715,
-    "type": "teleporter_pad",
-    "collision": false,
-    "maskAstronaut": true,
-    "palette": 9,
     "rotation": 1,
     "translation": "bottom"
   },

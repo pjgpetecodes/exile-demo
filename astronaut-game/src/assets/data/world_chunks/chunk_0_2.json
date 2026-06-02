@@ -7730,16 +7730,6 @@
     "translation": "top"
   },
   {
-    "x": 1690,
-    "y": 6054,
-    "type": "teleporter_pad",
-    "collision": false,
-    "maskAstronaut": true,
-    "palette": 11,
-    "rotation": 1,
-    "translation": "right"
-  },
-  {
     "x": 1971,
     "y": 6054,
     "type": "floor_full",

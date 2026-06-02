@@ -57,7 +57,8 @@
     "maskAstronaut": true,
     "palette": 1,
     "rotation": 2,
-    "translation": "left"
+    "translation": "left",
+    "teleporterId": "teleporter_704_10137"
   },
   {
     "x": 774,
@@ -160,16 +161,6 @@
     "translation": "center"
   },
   {
-    "x": 634,
-    "y": 10349,
-    "type": "teleporter_pad",
-    "collision": false,
-    "maskAstronaut": true,
-    "palette": 11,
-    "rotation": 2,
-    "translation": "center"
-  },
-  {
     "x": 704,
     "y": 10349,
     "type": "ship_11",
@@ -210,16 +201,6 @@
     "translation": "top"
   },
   {
-    "x": 986,
-    "y": 10349,
-    "type": "teleporter_pad",
-    "collision": false,
-    "maskAstronaut": true,
-    "palette": 9,
-    "rotation": 1,
-    "translation": "right"
-  },
-  {
     "x": 1056,
     "y": 10349,
     "type": "thruster",
@@ -228,16 +209,6 @@
     "palette": 13,
     "rotation": 6,
     "translation": "top"
-  },
-  {
-    "x": 1126,
-    "y": 10349,
-    "type": "teleporter_pad",
-    "collision": false,
-    "maskAstronaut": true,
-    "palette": 9,
-    "rotation": 1,
-    "translation": "center"
   },
   {
     "x": 0,

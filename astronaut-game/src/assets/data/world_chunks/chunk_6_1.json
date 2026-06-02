@@ -5790,16 +5790,6 @@
     "translation": "center"
   },
   {
-    "x": 13094,
-    "y": 3802,
-    "type": "teleporter_pad",
-    "collision": false,
-    "maskAstronaut": true,
-    "palette": 26,
-    "rotation": 2,
-    "translation": "bottom"
-  },
-  {
     "x": 13164,
     "y": 3802,
     "type": "grass",
@@ -6310,16 +6300,6 @@
     "translation": "center"
   },
   {
-    "x": 13164,
-    "y": 3942,
-    "type": "teleporter_pad",
-    "collision": false,
-    "maskAstronaut": true,
-    "palette": 26,
-    "rotation": 2,
-    "translation": "bottom"
-  },
-  {
     "x": 13235,
     "y": 3942,
     "type": "floor_full",
@@ -6458,16 +6438,6 @@
     "palette": 26,
     "rotation": 3,
     "translation": "center"
-  },
-  {
-    "x": 12742,
-    "y": 4013,
-    "type": "teleporter_pad",
-    "collision": false,
-    "maskAstronaut": true,
-    "palette": 26,
-    "rotation": 2,
-    "translation": "left"
   },
   {
     "x": 12812,

@@ -30,8 +30,20 @@ export function createOverviewWorldTileLoader({
     invalidateOverviewBase
 }: CreateOverviewWorldTileLoaderContext) {
     let overviewWorldTiles: OverviewWorldTile[] | null = null;
+    let overviewWorldTilesSignature = '';
     let overviewWorldTilesLoading = false;
     let nextOverviewWorldTilesRetryAtMs = 0;
+
+    function computeWorldTileSignature(worldTiles: OverviewWorldTile[]) {
+        let hash = 2166136261;
+        for (const tile of worldTiles) {
+            hash ^= Number(tile.x) | 0;
+            hash = Math.imul(hash, 16777619);
+            hash ^= Number(tile.y) | 0;
+            hash = Math.imul(hash, 16777619);
+        }
+        return `${worldTiles.length}:${hash >>> 0}`;
+    }
 
     function getExpectedWorldTileCount(chunkedOverview: unknown): number | null {
         if (!chunkedOverview || !Array.isArray((chunkedOverview as ChunkedOverviewLike).chunks)) {
@@ -83,18 +95,27 @@ export function createOverviewWorldTileLoader({
                     nextOverviewWorldTilesRetryAtMs = Date.now() + 1000;
                     return;
                 }
-                if (!overviewWorldTiles || worldTiles.length !== overviewWorldTiles.length) {
+                const hasPreviousTiles = Array.isArray(overviewWorldTiles) && overviewWorldTiles.length > 0;
+                const expectedUnderfilled = expectedWorldTileCount !== null && worldTiles.length < expectedWorldTileCount;
+                const looksLikePartialShrink =
+                    hasPreviousTiles &&
+                    expectedUnderfilled &&
+                    worldTiles.length + 16 < (overviewWorldTiles?.length ?? 0);
+                if (!looksLikePartialShrink) {
+                    const nextSignature = computeWorldTileSignature(worldTiles);
+                    const tilesChanged = nextSignature !== overviewWorldTilesSignature;
                     overviewWorldTiles = worldTiles;
-                    invalidateOverviewBase();
-                } else {
-                    overviewWorldTiles = worldTiles;
+                    overviewWorldTilesSignature = nextSignature;
+                    if (tilesChanged) {
+                        invalidateOverviewBase();
+                    }
                 }
                 if (
                     expectedWorldTileCount !== null &&
                     worldTiles.length < expectedWorldTileCount
                 ) {
-                    // Snapshot is still partial; keep refreshing so overview fills in progressively.
-                    nextOverviewWorldTilesRetryAtMs = Date.now() + 500;
+                    // Snapshot is still partial; refresh, but back off when results are not improving.
+                    nextOverviewWorldTilesRetryAtMs = Date.now() + (looksLikePartialShrink ? 2000 : 500);
                 }
             })
             .catch(() => {

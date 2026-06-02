@@ -3200,16 +3200,6 @@
     "translation": "center"
   },
   {
-    "x": 13798,
-    "y": 7181,
-    "type": "teleporter_pad",
-    "collision": false,
-    "maskAstronaut": true,
-    "palette": 1,
-    "rotation": 2,
-    "translation": "left"
-  },
-  {
     "x": 13868,
     "y": 7181,
     "type": "tree",

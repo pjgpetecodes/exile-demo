@@ -239,7 +239,7 @@ export function createTeleporterPadRuntime(runtimeOptions: TeleporterPadRuntimeO
         const normalizedRotation = Math.round(padRender.rotation);
         const sweepAxis = normalizedRotation === 2
             ? 'left'
-            : normalizedRotation === 3
+            : normalizedRotation === 1 || normalizedRotation === 3
                 ? 'up'
                 : normalizedRotation === 4
                     ? 'right'
