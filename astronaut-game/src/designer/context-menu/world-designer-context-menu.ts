@@ -407,7 +407,8 @@ export function createWorldDesignerContextMenu(deps: WorldDesignerContextMenuDep
             const convertedCount = fillConnectedWorldWater(
                 host.getRawWorldData().worldMap as MapBlock[],
                 target,
-                TILE_SIZE
+                TILE_SIZE,
+                { mode: 'transparent' }
             );
             if (convertedCount === 0) {
                 setStatus('No additional connected transparent tiles were marked as water.', 'neutral');

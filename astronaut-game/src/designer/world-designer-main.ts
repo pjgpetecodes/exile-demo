@@ -1249,7 +1249,8 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
             const convertedCount = fillConnectedWorldWater(
                 getCategoryArray('world') as MapBlock[],
                 { x: seedX, y: seedY },
-                TILE_SIZE
+                TILE_SIZE,
+                { mode: 'terrain' }
             );
             if (convertedCount === 0) {
                 setStatus('No additional connected world tiles were marked as water.', 'neutral');

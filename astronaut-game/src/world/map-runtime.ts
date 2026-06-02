@@ -1012,15 +1012,17 @@ export function drawMap(
     const waterSurfaceThickness = Math.max(1, Math.round(SPRITE_SCALE));
     const waterBodyDrawWidth = Math.ceil(tileW) + 1;
     const waterBodyDrawHeight = Math.ceil(tileH) + 1;
+    const toWaterGridCoordinate = (value: number) => Math.round(value / MAP_BLOCK_TILE_SIZE);
+    const toWaterGridKey = (x: number, y: number) => `${toWaterGridCoordinate(x)}:${toWaterGridCoordinate(y)}`;
     const waterCellKeys = new Set<string>();
-    for (const worldBlock of (blocks || mapBlocks)) {
+    for (const worldBlock of mapBlocks) {
         if (worldBlock.water !== true) {
             continue;
         }
-        waterCellKeys.add(`${Math.round(worldBlock.x / tileW)}:${Math.round(worldBlock.y / tileH)}`);
+        waterCellKeys.add(toWaterGridKey(worldBlock.x, worldBlock.y));
     }
     const hasWaterAbove = (block: MapBlock) => waterCellKeys.has(
-        `${Math.round(block.x / tileW)}:${Math.round(block.y / tileH) - 1}`
+        `${toWaterGridCoordinate(block.x)}:${toWaterGridCoordinate(block.y) - 1}`
     );
 
     for (const block of blocksToDraw) {

@@ -1520,6 +1520,114 @@
     "translation": "center"
   },
   {
+    "x": 2323.2000000000003,
+    "y": 10700.800000000001,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
+    "x": 2393.6000000000004,
+    "y": 10700.800000000001,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
+    "x": 2464,
+    "y": 10700.800000000001,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
+    "x": 2534.4,
+    "y": 10700.800000000001,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
+    "x": 2604.8,
+    "y": 10700.800000000001,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
+    "x": 2675.2000000000003,
+    "y": 10700.800000000001,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
+    "x": 2745.6000000000004,
+    "y": 10700.800000000001,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
+    "x": 2816,
+    "y": 10700.800000000001,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
+    "x": 2886.4,
+    "y": 10700.800000000001,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
     "x": 2112,
     "y": 10701,
     "type": "floor_full",
@@ -1557,7 +1665,8 @@
     "maskAstronaut": false,
     "palette": 2,
     "rotation": 3,
-    "translation": "center"
+    "translation": "center",
+    "water": true
   },
   {
     "x": 3027,
@@ -1928,6 +2037,102 @@
     "palette": 22,
     "rotation": 1,
     "translation": "center"
+  },
+  {
+    "x": 2323.2000000000003,
+    "y": 10771.2,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
+    "x": 2393.6000000000004,
+    "y": 10771.2,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
+    "x": 2464,
+    "y": 10771.2,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
+    "x": 2534.4,
+    "y": 10771.2,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
+    "x": 2604.8,
+    "y": 10771.2,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
+    "x": 2675.2000000000003,
+    "y": 10771.2,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
+    "x": 2745.6000000000004,
+    "y": 10771.2,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
+    "x": 2816,
+    "y": 10771.2,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
   },
   {
     "x": 2112,
@@ -1967,7 +2172,8 @@
     "maskAstronaut": false,
     "palette": 2,
     "rotation": 3,
-    "translation": "center"
+    "translation": "center",
+    "water": true
   },
   {
     "x": 2886,
@@ -2150,6 +2356,90 @@
     "translation": "center"
   },
   {
+    "x": 2323.2000000000003,
+    "y": 10841.6,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
+    "x": 2393.6000000000004,
+    "y": 10841.6,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
+    "x": 2464,
+    "y": 10841.6,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
+    "x": 2534.4,
+    "y": 10841.6,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
+    "x": 2604.8,
+    "y": 10841.6,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
+    "x": 2675.2000000000003,
+    "y": 10841.6,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
+    "x": 2745.6000000000004,
+    "y": 10841.6,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
     "x": 2112,
     "y": 10912,
     "type": "floor_full",
@@ -2180,6 +2470,78 @@
     "translation": "center"
   },
   {
+    "x": 2323.2000000000003,
+    "y": 10912,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
+    "x": 2393.6000000000004,
+    "y": 10912,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
+    "x": 2464,
+    "y": 10912,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
+    "x": 2534.4,
+    "y": 10912,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
+    "x": 2604.8,
+    "y": 10912,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
+    "x": 2675.2000000000003,
+    "y": 10912,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
     "x": 2746,
     "y": 10912,
     "type": "wall_diagnonal_half",
@@ -2187,7 +2549,8 @@
     "maskAstronaut": false,
     "palette": 2,
     "rotation": 3,
-    "translation": "center"
+    "translation": "center",
+    "water": true
   },
   {
     "x": 2816,
@@ -2417,7 +2780,8 @@
     "maskAstronaut": false,
     "palette": 2,
     "rotation": 6,
-    "translation": "center"
+    "translation": "center",
+    "water": true
   },
   {
     "x": 2464,
@@ -2427,7 +2791,8 @@
     "maskAstronaut": false,
     "palette": 2,
     "rotation": 5,
-    "translation": "center"
+    "translation": "center",
+    "water": true
   },
   {
     "x": 2534,
@@ -2660,6 +3025,42 @@
     "translation": "center"
   },
   {
+    "x": 2393.6000000000004,
+    "y": 10982.400000000001,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
+    "x": 2393.6000000000004,
+    "y": 11052.800000000001,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
+    "x": 2464,
+    "y": 11052.800000000001,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
+  },
+  {
     "x": 2112,
     "y": 11053,
     "type": "floor_full",
@@ -2707,7 +3108,8 @@
     "maskAstronaut": false,
     "palette": 2,
     "rotation": 5,
-    "translation": "center"
+    "translation": "center",
+    "water": true
   },
   {
     "x": 2605,
@@ -2977,7 +3379,8 @@
     "maskAstronaut": false,
     "palette": 13,
     "rotation": 6,
-    "translation": "center"
+    "translation": "center",
+    "water": true
   },
   {
     "x": 2534,
@@ -3208,6 +3611,18 @@
     "palette": 22,
     "rotation": 1,
     "translation": "center"
+  },
+  {
+    "x": 2393.6000000000004,
+    "y": 11123.2,
+    "type": "floor_full",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 14,
+    "rotation": 1,
+    "translation": "center",
+    "water": true,
+    "waterOnly": true
   },
   {
     "x": 2112,
