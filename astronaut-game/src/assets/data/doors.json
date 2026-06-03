@@ -321,5 +321,43 @@
     "destructible": true,
     "destructionHealth": 24,
     "destructionSource": "any_explosion"
+  },
+  {
+    "x": 4806,
+    "y": 11715,
+    "z": 0,
+    "type": "wall_left_quarter",
+    "palette": 28,
+    "rotation": 1,
+    "translation": "center",
+    "name": "wall_left_quarter_11",
+    "doorID": 17,
+    "locked": false,
+    "open": false,
+    "palette_locked": null,
+    "palette_unlocked": null,
+    "collision": true,
+    "destructible": true,
+    "destructionHealth": 64,
+    "destructionSource": "coronium_explosion"
+  },
+  {
+    "x": 4741,
+    "y": 11632,
+    "z": 0,
+    "type": "wall_left_quarter",
+    "palette": 28,
+    "rotation": 1,
+    "translation": "center",
+    "name": "wall_left_quarter_11",
+    "doorID": 18,
+    "locked": false,
+    "open": false,
+    "palette_locked": null,
+    "palette_unlocked": null,
+    "collision": true,
+    "destructible": true,
+    "destructionHealth": 64,
+    "destructionSource": "coronium_explosion"
   }
 ]
