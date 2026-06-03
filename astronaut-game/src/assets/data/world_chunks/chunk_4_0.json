@@ -390,6 +390,24 @@
     "y": 1337,
     "type": "teleporter_pad",
     "collision": false,
+    "maskAstronaut": true,
+    "palette": 1,
+    "rotation": 2,
+    "translation": "left",
+    "teleporterId": "teleporter_1",
+    "teleporterEnabled": true,
+    "teleporterRequiresKey": false,
+    "teleporterDestinationA": {
+      "x": 400,
+      "y": 7780
+    },
+    "teleporterActiveDestinationIndex": 0
+  },
+  {
+    "x": 8872,
+    "y": 1337,
+    "type": "teleporter_pad",
+    "collision": false,
     "maskAstronaut": false,
     "palette": 9,
     "rotation": 1,
