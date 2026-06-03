@@ -41,6 +41,7 @@ export function createGameMainRuntimeBootstrapFromContext(context: ValuePack) {
         },
         geometry: {
             getAstronautRect: context.getAstronautRect,
+            getWaterSubmersionRatioForRect: context.getWaterSubmersionRatioForRect,
             getAstronautAimPoint: context.getAstronautAimPoint,
             getAstronautRenderedWorldSprite: context.getAstronautRenderedWorldSprite,
             getEntityCollisionBounds: context.getEntityCollisionBounds,
@@ -86,6 +87,7 @@ export function createGameMainRuntimeBootstrapFromContext(context: ValuePack) {
             assignEntityId: context.assignEntityId,
             getSound: context.getSound,
             saveSound: context.saveSound,
+            emitFlaskSpillParticles: context.emitFlaskSpillParticles,
             isCreatureProjectileCollectable: context.isCreatureProjectileCollectable,
             getCollectablePhysicsSettings: context.getCollectablePhysicsSettings,
             moveCollectableHorizontally: context.moveCollectableHorizontally,

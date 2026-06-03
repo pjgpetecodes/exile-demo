@@ -67,6 +67,7 @@ export function initializeGameEntityRuntimes(options: RuntimeInitializerOptions)
         getEntityCollisionBounds: options.getEntityCollisionBounds,
         getEntityRect: options.getEntityRect,
         getEntityCenter: options.getEntityCenter,
+        getWaterSubmersionRatioForRect: options.getWaterSubmersionRatioForRect,
         getAstronautRenderedWorldSprite: options.getAstronautRenderedWorldSprite,
         getRenderedEntityWorldSprite: options.getRenderedEntityWorldSprite,
         getSpriteVisibleBounds: options.getSpriteVisibleBounds,
@@ -92,7 +93,8 @@ export function initializeGameEntityRuntimes(options: RuntimeInitializerOptions)
             options.getCreatureEntities().push(restoredCreature);
         },
         getSound: options.getSound,
-        saveSound: options.saveSound
+        saveSound: options.saveSound,
+        emitFlaskSpillParticles: options.emitFlaskSpillParticles
     });
 
     const throwGuideRuntime = createGameThrowGuideRuntime({
@@ -118,6 +120,7 @@ export function initializeGameEntityRuntimes(options: RuntimeInitializerOptions)
         getAstronautRect: options.getAstronautRect,
         getEntityCollisionBounds: options.getEntityCollisionBounds,
         getEntityRect: options.getEntityRect,
+        getWaterSubmersionRatioForRect: options.getWaterSubmersionRatioForRect,
         doRenderedSpritesOverlap: options.doRenderedSpritesOverlap,
         getRenderedEntityWorldSprite: options.getRenderedEntityWorldSprite,
         getCollectablePhysicsSettings: options.getCollectablePhysicsSettings,
@@ -159,7 +162,8 @@ export function initializeGameEntityRuntimes(options: RuntimeInitializerOptions)
         shouldRunChunkBandUpdate: options.shouldRunChunkBandUpdate,
         getChunkActivityForEntityPosition: options.getChunkActivityForEntityPosition,
         projectileChunkCadence: options.projectileChunkCadence,
-        collectableChunkCadence: options.collectableChunkCadence
+        collectableChunkCadence: options.collectableChunkCadence,
+        emitFlaskSpillParticles: options.emitFlaskSpillParticles
     });
 
     creatureProjectileRuntime = createCreatureProjectileRuntime({

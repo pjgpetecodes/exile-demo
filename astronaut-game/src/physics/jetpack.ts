@@ -88,13 +88,14 @@ export function emitJetpackDots(params: {
 export function updateAndDrawJetpackDots(
     ctx: CanvasRenderingContext2D,
     camera: { x: number, y: number },
-    MAP_HEIGHT: number
+    _mapHeight: number
 ) {
     jetpackDots.forEach(dot => {
         dot.y += dot.vy;
         dot.alpha -= 0.025;
     });
-    jetpackDots = jetpackDots.filter(dot => dot.y < MAP_HEIGHT && dot.alpha > 0);
+    // Do not clamp by world height: deep/designer-expanded worlds can exceed initial map bounds.
+    jetpackDots = jetpackDots.filter(dot => Number.isFinite(dot.y) && dot.alpha > 0);
 
     jetpackDots.forEach(dot => {
         ctx.save();

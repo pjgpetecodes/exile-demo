@@ -64,6 +64,16 @@ export type WindParticle = {
     color?: string;
 };
 
+export type FlaskSpillParticle = {
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    life: number;
+    maxLife: number;
+    size: number;
+};
+
 export type DestructibleRuntimeEntity = {
     x: number;
     y: number;

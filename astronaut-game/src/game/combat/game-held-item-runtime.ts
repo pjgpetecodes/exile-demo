@@ -1,5 +1,19 @@
 import type { Position } from '../../types/index.js';
 import type { Collectable } from '../../entities/collectable.js';
+import {
+    clearFlaskFillAttempt,
+    clearHeldFlaskMotion,
+    getFlaskFillStartedAt,
+    isFlaskFillCommitted,
+    isFlaskCollectable,
+    isFlaskFull,
+    markFlaskFillCommitted,
+    setFlaskPaletteFull,
+    startFlaskFillAttempt,
+    syncFlaskSpillFlash,
+    triggerFlaskSpillFlash,
+    updateHeldFlaskMotionAndGetImpactSpeed
+} from '../collectables/game-flask-runtime.js';
 
 type EntityRect = { left: number; right: number; top: number; bottom: number };
 type CollisionBounds = EntityRect;
@@ -15,6 +29,12 @@ type HeldItemRuntimeOptions = {
         collectablePickupRange: number;
         collectableInventoryLimit: number;
         throwVelocity: number;
+        flaskFillDurationMs: number;
+        flaskFillMinSubmersionRatio: number;
+        flaskFillTopCoverageMinRatio: number;
+        flaskSpillFlashMs: number;
+        flaskCarryBangDeltaSpeed: number;
+        flaskImpactSpillMinSpeed: number;
     };
     heldCollectableHandInset: number;
     heldCollectableHandOverlap: number;
@@ -28,6 +48,7 @@ type HeldItemRuntimeOptions = {
     getEntityCollisionBounds: (entity: any) => CollisionBounds;
     getEntityRect: (x: number, y: number, bounds: CollisionBounds) => EntityRect;
     getEntityCenter: (x: number, y: number, bounds: CollisionBounds) => Position;
+    getWaterSubmersionRatioForRect: (rect: EntityRect) => number;
     getAstronautRenderedWorldSprite: () => { canvas: HTMLCanvasElement; drawX: number; drawY: number } | null;
     getRenderedEntityWorldSprite: (entity: any) => { canvas: HTMLCanvasElement; drawX: number; drawY: number } | null;
     getSpriteVisibleBounds: (canvas: HTMLCanvasElement | null) => { minX: number; minY: number; maxX: number; maxY: number } | null;
@@ -50,6 +71,7 @@ type HeldItemRuntimeOptions = {
     restoreCreatureFromPayload: (payload: Record<string, any>, position: Position) => void;
     getSound: HTMLAudioElement;
     saveSound: HTMLAudioElement;
+    emitFlaskSpillParticles: (x: number, y: number, count?: number) => void;
 };
 
 export function createGameHeldItemRuntime(options: HeldItemRuntimeOptions) {
@@ -157,6 +179,47 @@ export function createGameHeldItemRuntime(options: HeldItemRuntimeOptions) {
         heldCollectable.velocity.x = 0;
         heldCollectable.velocity.y = 0;
         heldCollectable.isGrounded = false;
+
+        if (!isFlaskCollectable(heldCollectable)) {
+            return;
+        }
+
+        const now = performance.now();
+        syncFlaskSpillFlash(heldCollectable, now);
+        const collisionBounds = options.getEntityCollisionBounds(heldCollectable);
+        const heldRect = options.getEntityRect(heldPosition.x, heldPosition.y, collisionBounds);
+        const spillOriginX = Math.round((heldRect.left + heldRect.right) / 2);
+        const spillOriginY = heldRect.top;
+
+        const submergedForFill = options.getWaterSubmersionRatioForRect(heldRect) > 0;
+        if (submergedForFill) {
+            setFlaskPaletteFull(heldCollectable);
+            if (!isFlaskFillCommitted(heldCollectable)) {
+                const fillStartedAt = startFlaskFillAttempt(heldCollectable, now);
+                if (now - fillStartedAt >= options.movementSettings.flaskFillDurationMs) {
+                    markFlaskFillCommitted(heldCollectable);
+                }
+            }
+        } else {
+            const fillStartedAt = getFlaskFillStartedAt(heldCollectable);
+            if (typeof fillStartedAt === 'number' && !isFlaskFillCommitted(heldCollectable)) {
+                clearFlaskFillAttempt(heldCollectable);
+                if (now - fillStartedAt < options.movementSettings.flaskFillDurationMs) {
+                    triggerFlaskSpillFlash(heldCollectable, now, options.movementSettings.flaskSpillFlashMs);
+                    options.emitFlaskSpillParticles(spillOriginX, spillOriginY, 18);
+                    return;
+                }
+            }
+        }
+
+        if (isFlaskFull(heldCollectable)) {
+            const heldImpactSpeed = updateHeldFlaskMotionAndGetImpactSpeed(heldCollectable, options.astronaut.velocity);
+            if (heldImpactSpeed >= options.movementSettings.flaskImpactSpillMinSpeed) {
+                triggerFlaskSpillFlash(heldCollectable, now, options.movementSettings.flaskSpillFlashMs);
+                options.emitFlaskSpillParticles(spillOriginX, spillOriginY, 20);
+                return;
+            }
+        }
     }
 
     function isLooseCollectable(collectable: Collectable) {
@@ -281,6 +344,11 @@ export function createGameHeldItemRuntime(options: HeldItemRuntimeOptions) {
             return;
         }
 
+        if (isFlaskCollectable(heldCollectable)) {
+            clearFlaskFillAttempt(heldCollectable);
+            clearHeldFlaskMotion(heldCollectable);
+        }
+
         const isThrown = velocity.x !== 0 || velocity.y !== 0;
         const releasePosition = getReleasedCollectablePosition(isThrown);
         const safeReleasePosition = {
@@ -327,6 +395,9 @@ export function createGameHeldItemRuntime(options: HeldItemRuntimeOptions) {
                     } catch {}
                 } else {
                     pickupTarget.hold(options.getFacingLeft());
+                    if (isFlaskCollectable(pickupTarget)) {
+                        clearHeldFlaskMotion(pickupTarget);
+                    }
                     options.setHeldCollectable(pickupTarget);
                 }
             } else {
@@ -335,6 +406,9 @@ export function createGameHeldItemRuntime(options: HeldItemRuntimeOptions) {
                     const proxy = options.spawnCreatureCarryProxy(pickupCreature);
                     options.creatureRuntime.removeCreatureEntity(pickupCreature);
                     proxy.hold(options.getFacingLeft());
+                    if (isFlaskCollectable(proxy)) {
+                        clearHeldFlaskMotion(proxy);
+                    }
                     options.setHeldCollectable(proxy);
                 }
             }

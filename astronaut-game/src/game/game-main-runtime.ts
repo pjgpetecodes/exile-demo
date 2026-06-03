@@ -178,6 +178,7 @@ import {
     type ProjectileImpactEffect,
     type DoorDestructionEffect,
     type BulletImpactParticle,
+    type FlaskSpillParticle,
     type WindParticle,
     type DestructibleRuntimeEntity
 } from './runtime/game-main-effect-types.js';
@@ -195,6 +196,7 @@ import {
 import { createSpawnCreatureCarryProxy } from './runtime/game-creature-carry-proxy.js';
 import { createGameWindHelpers } from './wind/game-wind-helpers.js';
 import { createGameDestructionEffects } from './effects/game-destruction-effects.js';
+import { createFlaskSpillParticlesRuntime } from './effects/game-flask-spill-particles.js';
 import { createGameCombatHelpers } from './combat/game-combat-helpers.js';
 import { createAstronautImpactHelpers } from './combat/game-astronaut-impact-helpers.js';
 import { createGameCreatureRenderTargetHelpers } from './creatures/game-creature-render-target-helpers.js';
@@ -202,6 +204,7 @@ import { createGameCollectableRemovalHelpers } from './collectables/game-collect
 import { createGameCreatureTargetingHelpers } from './creatures/game-creature-targeting-helpers.js';
 import { createProjectileImpactRuntime } from './projectiles/game-projectile-impact-runtime.js';
 import { createCollectablePhysicsRuntime } from './projectiles/game-collectable-physics-settings.js';
+import { getWaterSubmersionRatioForRect as getWaterSubmersionRatioForRectRuntime } from './water/game-water-medium-runtime.js';
 import {
     createChunkActivityTuningController
 } from './chunk-activity/chunk-activity-tuning.js';
@@ -491,6 +494,7 @@ let throwGuideDotEmitTimer = 0;
 let projectileImpactEffects: ProjectileImpactEffect[] = [];
 let doorDestructionEffects: DoorDestructionEffect[] = [];
 let bulletImpactParticles: BulletImpactParticle[] = [];
+let flaskSpillParticles: FlaskSpillParticle[] = [];
 let windParticles: WindParticle[] = [];
 let destructibleDamageByEntity = new WeakMap<object, number>();
 let bulletImpactAudioSettings: BulletImpactAudioSettings = { ...BULLET_IMPACT_AUDIO_SETTINGS };
@@ -993,6 +997,9 @@ const {
     getWorldMapBoundingBoxes: () => worldMapBoundingBoxes
 });
 
+const getWaterSubmersionRatioForRect = (rect: { left: number; right: number; top: number; bottom: number }) =>
+    getWaterSubmersionRatioForRectRuntime(rect, SPRITE_SCALE, mapBlocks);
+
 const {
     getActiveWindEmittersNearAstronaut,
     computeAstronautWindAcceleration,
@@ -1027,6 +1034,14 @@ const {
     setCachedNearbyBlockWindEmitters: (emitters) => { cachedNearbyBlockWindEmitters = emitters; },
     getCachedNearbyBlockWindSample: () => cachedNearbyBlockWindSample,
     setCachedNearbyBlockWindSample: (sample) => { cachedNearbyBlockWindSample = sample; }
+});
+
+const {
+    emitFlaskSpillParticles,
+    updateAndDrawFlaskSpillParticles
+} = createFlaskSpillParticlesRuntime({
+    particles: flaskSpillParticles,
+    getRandom: () => Math.random()
 });
 
 const {
@@ -1331,6 +1346,7 @@ const sharedRuntimeContext = createSharedRuntimeContextFromState({
     getDoorCount: () => doorEntities.length,
     getBulletImpactAudioSettings: () => bulletImpactAudioSettings,
     getAstronautRect,
+    getWaterSubmersionRatioForRect,
     getAstronautAimPoint,
     getAstronautRenderedWorldSprite,
     getEntityCollisionBounds,
@@ -1372,6 +1388,7 @@ const sharedRuntimeContext = createSharedRuntimeContextFromState({
     assignEntityId,
     getSound,
     saveSound,
+    emitFlaskSpillParticles,
     isCreatureProjectileCollectable,
     getCollectablePhysicsSettings,
     moveCollectableHorizontally,
@@ -1723,6 +1740,7 @@ const extraRuntimeContext = createExtraRuntimeContextFromState({
     astronautRenderer,
     getAstronautSpriteSource: () => astronautSpriteSource,
     bulletImpactParticles,
+    flaskSpillParticles,
     projectileImpactEffects,
     windParticles,
     buttonEntities,
@@ -1758,6 +1776,7 @@ const extraRuntimeContext = createExtraRuntimeContextFromState({
     getChunkActivityForWorldPosition,
     getCreatureProjectileCollectables,
     getCurrentAstronautCollisionProfile,
+    getWaterSubmersionRatioForRect,
     getDesignerRenderableCollectables,
     getDirectDownTransitionSequence,
     getEffectiveViewportState,
@@ -1786,6 +1805,7 @@ const extraRuntimeContext = createExtraRuntimeContextFromState({
     syncButtonStatesToDoors,
     syncMapChunksForViewport,
     updateAndDrawBulletImpactParticles,
+    updateAndDrawFlaskSpillParticles,
     updateAndDrawJetpackDots,
     updateAndDrawStars,
     updateAndDrawWindParticles,

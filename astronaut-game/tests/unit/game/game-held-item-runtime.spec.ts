@@ -130,3 +130,326 @@ describe('held item runtime positioning', () => {
         expect(target.x).toBeGreaterThan(100);
     });
 });
+
+describe('held flask fill and spill behavior', () => {
+    it('switches to full palette immediately on submersion and spills if removed too soon', () => {
+        const flask = {
+            type: 'pipe_down_half',
+            palette: 30,
+            x: 0,
+            y: 0,
+            velocity: { x: 0, y: 0 },
+            setHeldFacing: vi.fn()
+        };
+        let now = 1000;
+        const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => now);
+        let waterRatio = 0;
+        const emitSpill = vi.fn();
+        const runtime = createGameHeldItemRuntime({
+            astronaut: { position: { x: 100, y: 120 }, velocity: { x: 0, y: 0 } },
+            movementSettings: {
+                heldCollectableVerticalOffset: -6,
+                droppedCollectableForwardOffset: 24,
+                heldCollectableForwardOffset: 28,
+                droppedCollectableMomentumTransfer: 0.75,
+                droppedCollectableAstronautIgnoreFrames: 18,
+                collectablePickupRange: 52,
+                collectableInventoryLimit: 5,
+                throwVelocity: 5.6,
+                flaskFillDurationMs: 2000,
+                flaskFillMinSubmersionRatio: 0.8,
+                flaskFillTopCoverageMinRatio: 0.35,
+                flaskSpillFlashMs: 180,
+                flaskCarryBangDeltaSpeed: 10,
+                flaskImpactSpillMinSpeed: 1.9
+            },
+            heldCollectableHandInset: 8,
+            heldCollectableHandOverlap: -12,
+            spriteScale: 2,
+            keys: {},
+            getPrevKeys: () => ({}),
+            getFacingLeft: () => false,
+            getFacingSign: () => 1,
+            getThrowAngleDegrees: () => 20,
+            getAstronautRect: () => ({ left: 80, right: 120, top: 90, bottom: 130 }),
+            getEntityCollisionBounds: () => ({ left: -8, right: 8, top: -8, bottom: 8 }),
+            getEntityRect: (x, y, bounds) => ({ left: x + bounds.left, right: x + bounds.right, top: y + bounds.top, bottom: y + bounds.bottom }),
+            getEntityCenter: (x, y, bounds) => ({ x: x + (bounds.left + bounds.right) / 2, y: y + (bounds.top + bounds.bottom) / 2 }),
+            getWaterSubmersionRatioForRect: () => waterRatio,
+            getAstronautRenderedWorldSprite: () => null,
+            getRenderedEntityWorldSprite: () => null,
+            getSpriteVisibleBounds: () => null,
+            getCollectableEntities: () => [flask as any],
+            getHeldCollectable: () => flask as any,
+            setHeldCollectable: () => {},
+            getStoredCollectables: () => [],
+            getInventoryCycleIndex: () => -1,
+            setInventoryCycleIndex: () => {},
+            creatureRuntime: {
+                getNearestPickupCreature: () => null,
+                removeCreatureEntity: () => {}
+            },
+            spawnCreatureCarryProxy: () => ({} as any),
+            markCollectableCollected: () => {},
+            isCollectableCollected: () => false,
+            isGrenadeCollectable: () => false,
+            setGrenadeCollectableArmedState: () => {},
+            removeCollectableEntity: () => {},
+            restoreCreatureFromPayload: () => {},
+            getSound: { currentTime: 0, play: vi.fn(() => Promise.resolve()) } as any,
+            saveSound: { currentTime: 0, play: vi.fn(() => Promise.resolve()) } as any,
+            emitFlaskSpillParticles: emitSpill
+        });
+
+        waterRatio = 0.4;
+        runtime.updateHeldCollectablePosition();
+        expect(flask.palette).toBe(10);
+
+        now += 800;
+        waterRatio = 0;
+        runtime.updateHeldCollectablePosition();
+        expect(emitSpill).toHaveBeenCalledTimes(1);
+        nowSpy.mockRestore();
+    });
+
+    it('keeps full palette when leaving water after 2 seconds', () => {
+        const flask = {
+            type: 'pipe_down_half',
+            palette: 30,
+            x: 0,
+            y: 0,
+            velocity: { x: 0, y: 0 },
+            setHeldFacing: vi.fn()
+        };
+        let now = 500;
+        const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => now);
+        let waterRatio = 0;
+        const emitSpill = vi.fn();
+        const runtime = createGameHeldItemRuntime({
+            astronaut: { position: { x: 100, y: 120 }, velocity: { x: 0, y: 0 } },
+            movementSettings: {
+                heldCollectableVerticalOffset: -6,
+                droppedCollectableForwardOffset: 24,
+                heldCollectableForwardOffset: 28,
+                droppedCollectableMomentumTransfer: 0.75,
+                droppedCollectableAstronautIgnoreFrames: 18,
+                collectablePickupRange: 52,
+                collectableInventoryLimit: 5,
+                throwVelocity: 5.6,
+                flaskFillDurationMs: 2000,
+                flaskFillMinSubmersionRatio: 0.8,
+                flaskFillTopCoverageMinRatio: 0.35,
+                flaskSpillFlashMs: 180,
+                flaskCarryBangDeltaSpeed: 10,
+                flaskImpactSpillMinSpeed: 1.9
+            },
+            heldCollectableHandInset: 8,
+            heldCollectableHandOverlap: -12,
+            spriteScale: 2,
+            keys: {},
+            getPrevKeys: () => ({}),
+            getFacingLeft: () => false,
+            getFacingSign: () => 1,
+            getThrowAngleDegrees: () => 20,
+            getAstronautRect: () => ({ left: 80, right: 120, top: 90, bottom: 130 }),
+            getEntityCollisionBounds: () => ({ left: -8, right: 8, top: -8, bottom: 8 }),
+            getEntityRect: (x, y, bounds) => ({ left: x + bounds.left, right: x + bounds.right, top: y + bounds.top, bottom: y + bounds.bottom }),
+            getEntityCenter: (x, y, bounds) => ({ x: x + (bounds.left + bounds.right) / 2, y: y + (bounds.top + bounds.bottom) / 2 }),
+            getWaterSubmersionRatioForRect: () => waterRatio,
+            getAstronautRenderedWorldSprite: () => null,
+            getRenderedEntityWorldSprite: () => null,
+            getSpriteVisibleBounds: () => null,
+            getCollectableEntities: () => [flask as any],
+            getHeldCollectable: () => flask as any,
+            setHeldCollectable: () => {},
+            getStoredCollectables: () => [],
+            getInventoryCycleIndex: () => -1,
+            setInventoryCycleIndex: () => {},
+            creatureRuntime: {
+                getNearestPickupCreature: () => null,
+                removeCreatureEntity: () => {}
+            },
+            spawnCreatureCarryProxy: () => ({} as any),
+            markCollectableCollected: () => {},
+            isCollectableCollected: () => false,
+            isGrenadeCollectable: () => false,
+            setGrenadeCollectableArmedState: () => {},
+            removeCollectableEntity: () => {},
+            restoreCreatureFromPayload: () => {},
+            getSound: { currentTime: 0, play: vi.fn(() => Promise.resolve()) } as any,
+            saveSound: { currentTime: 0, play: vi.fn(() => Promise.resolve()) } as any,
+            emitFlaskSpillParticles: emitSpill
+        });
+
+        waterRatio = 0.5;
+        runtime.updateHeldCollectablePosition();
+        now += 2200;
+        runtime.updateHeldCollectablePosition();
+        // Temporary non-water overlap after commitment must not spill.
+        now += 30;
+        waterRatio = 0;
+        runtime.updateHeldCollectablePosition();
+        expect(flask.palette).toBe(10);
+        expect(emitSpill).not.toHaveBeenCalled();
+        // Re-entering water should not restart a spill-prone timer.
+        now += 30;
+        waterRatio = 0.5;
+        runtime.updateHeldCollectablePosition();
+        waterRatio = 0;
+        now += 10;
+        runtime.updateHeldCollectablePosition();
+
+        expect(flask.palette).toBe(10);
+        expect(emitSpill).not.toHaveBeenCalled();
+        nowSpy.mockRestore();
+    });
+
+    it('does not spill immediately when dropping a full flask', () => {
+        const flask = {
+            type: 'pipe_down_half',
+            palette: 10,
+            x: 0,
+            y: 0,
+            velocity: { x: 0, y: 0 },
+            setHeldFacing: vi.fn(),
+            release: vi.fn()
+        };
+        const emitSpill = vi.fn();
+        let held: any = flask;
+        const runtime = createGameHeldItemRuntime({
+            astronaut: { position: { x: 100, y: 120 }, velocity: { x: 0, y: 0 } },
+            movementSettings: {
+                heldCollectableVerticalOffset: -6,
+                droppedCollectableForwardOffset: 24,
+                heldCollectableForwardOffset: 28,
+                droppedCollectableMomentumTransfer: 0.75,
+                droppedCollectableAstronautIgnoreFrames: 18,
+                collectablePickupRange: 52,
+                collectableInventoryLimit: 5,
+                throwVelocity: 5.6,
+                flaskFillDurationMs: 2000,
+                flaskFillMinSubmersionRatio: 0.8,
+                flaskFillTopCoverageMinRatio: 0.35,
+                flaskSpillFlashMs: 180,
+                flaskCarryBangDeltaSpeed: 10,
+                flaskImpactSpillMinSpeed: 1.9
+            },
+            heldCollectableHandInset: 8,
+            heldCollectableHandOverlap: -12,
+            spriteScale: 2,
+            keys: {},
+            getPrevKeys: () => ({}),
+            getFacingLeft: () => false,
+            getFacingSign: () => 1,
+            getThrowAngleDegrees: () => 20,
+            getAstronautRect: () => ({ left: 80, right: 120, top: 90, bottom: 130 }),
+            getEntityCollisionBounds: () => ({ left: -8, right: 8, top: -8, bottom: 8 }),
+            getEntityRect: (x, y, bounds) => ({ left: x + bounds.left, right: x + bounds.right, top: y + bounds.top, bottom: y + bounds.bottom }),
+            getEntityCenter: (x, y, bounds) => ({ x: x + (bounds.left + bounds.right) / 2, y: y + (bounds.top + bounds.bottom) / 2 }),
+            getWaterSubmersionRatioForRect: () => 0,
+            getAstronautRenderedWorldSprite: () => null,
+            getRenderedEntityWorldSprite: () => null,
+            getSpriteVisibleBounds: () => null,
+            getCollectableEntities: () => [flask as any],
+            getHeldCollectable: () => held,
+            setHeldCollectable: (value) => { held = value; },
+            getStoredCollectables: () => [],
+            getInventoryCycleIndex: () => -1,
+            setInventoryCycleIndex: () => {},
+            creatureRuntime: {
+                getNearestPickupCreature: () => null,
+                removeCreatureEntity: () => {}
+            },
+            spawnCreatureCarryProxy: () => ({} as any),
+            markCollectableCollected: () => {},
+            isCollectableCollected: () => false,
+            isGrenadeCollectable: () => false,
+            setGrenadeCollectableArmedState: () => {},
+            removeCollectableEntity: () => {},
+            restoreCreatureFromPayload: () => {},
+            getSound: { currentTime: 0, play: vi.fn(() => Promise.resolve()) } as any,
+            saveSound: { currentTime: 0, play: vi.fn(() => Promise.resolve()) } as any,
+            emitFlaskSpillParticles: emitSpill
+        });
+
+        runtime.releaseHeldCollectable();
+        expect(emitSpill).not.toHaveBeenCalled();
+    });
+
+    it('spills while held only when impact speed exceeds threshold', () => {
+        const flask = {
+            type: 'pipe_down_half',
+            palette: 10,
+            x: 0,
+            y: 0,
+            velocity: { x: 0, y: 0 },
+            setHeldFacing: vi.fn()
+        };
+        const astronautVelocity = { x: 4.2, y: 0 };
+        const emitSpill = vi.fn();
+        const runtime = createGameHeldItemRuntime({
+            astronaut: { position: { x: 100, y: 120 }, velocity: astronautVelocity },
+            movementSettings: {
+                heldCollectableVerticalOffset: -6,
+                droppedCollectableForwardOffset: 24,
+                heldCollectableForwardOffset: 28,
+                droppedCollectableMomentumTransfer: 0.75,
+                droppedCollectableAstronautIgnoreFrames: 18,
+                collectablePickupRange: 52,
+                collectableInventoryLimit: 5,
+                throwVelocity: 5.6,
+                flaskFillDurationMs: 2000,
+                flaskFillMinSubmersionRatio: 0.8,
+                flaskFillTopCoverageMinRatio: 0.35,
+                flaskSpillFlashMs: 180,
+                flaskCarryBangDeltaSpeed: 10,
+                flaskImpactSpillMinSpeed: 1.9
+            },
+            heldCollectableHandInset: 8,
+            heldCollectableHandOverlap: -12,
+            spriteScale: 2,
+            keys: {},
+            getPrevKeys: () => ({}),
+            getFacingLeft: () => false,
+            getFacingSign: () => 1,
+            getThrowAngleDegrees: () => 20,
+            getAstronautRect: () => ({ left: 80, right: 120, top: 90, bottom: 130 }),
+            getEntityCollisionBounds: () => ({ left: -8, right: 8, top: -8, bottom: 8 }),
+            getEntityRect: (x, y, bounds) => ({ left: x + bounds.left, right: x + bounds.right, top: y + bounds.top, bottom: y + bounds.bottom }),
+            getEntityCenter: (x, y, bounds) => ({ x: x + (bounds.left + bounds.right) / 2, y: y + (bounds.top + bounds.bottom) / 2 }),
+            getWaterSubmersionRatioForRect: () => 0,
+            getAstronautRenderedWorldSprite: () => null,
+            getRenderedEntityWorldSprite: () => null,
+            getSpriteVisibleBounds: () => null,
+            getCollectableEntities: () => [flask as any],
+            getHeldCollectable: () => flask as any,
+            setHeldCollectable: () => {},
+            getStoredCollectables: () => [],
+            getInventoryCycleIndex: () => -1,
+            setInventoryCycleIndex: () => {},
+            creatureRuntime: {
+                getNearestPickupCreature: () => null,
+                removeCreatureEntity: () => {}
+            },
+            spawnCreatureCarryProxy: () => ({} as any),
+            markCollectableCollected: () => {},
+            isCollectableCollected: () => false,
+            isGrenadeCollectable: () => false,
+            setGrenadeCollectableArmedState: () => {},
+            removeCollectableEntity: () => {},
+            restoreCreatureFromPayload: () => {},
+            getSound: { currentTime: 0, play: vi.fn(() => Promise.resolve()) } as any,
+            saveSound: { currentTime: 0, play: vi.fn(() => Promise.resolve()) } as any,
+            emitFlaskSpillParticles: emitSpill
+        });
+
+        runtime.updateHeldCollectablePosition();
+        astronautVelocity.x = 3.4;
+        runtime.updateHeldCollectablePosition();
+        expect(emitSpill).toHaveBeenCalledTimes(0);
+
+        astronautVelocity.x = 0;
+        runtime.updateHeldCollectablePosition();
+        expect(emitSpill).toHaveBeenCalledTimes(1);
+    });
+});

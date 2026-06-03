@@ -100,7 +100,28 @@ export const MOVEMENT_SETTINGS = {
     surfaceWindDefaultLeftStartX: 6850,
     surfaceWindDefaultLeftLimitX: 5300,
     surfaceWindDefaultRightStartX: 11360,
-    surfaceWindDefaultRightLimitX: 12400
+    surfaceWindDefaultRightLimitX: 12400,
+    waterDragMultiplierAstronaut: 0.965,
+    waterBuoyancyAstronaut: 0.055,
+    waterDiveResistanceAcceleration: 0.04,
+    waterDownwardTerminalVelocityScaleAstronaut: 0.6,
+    waterMaxRiseSpeedAstronaut: 2.4,
+    waterDragMultiplierLooseObject: 0.955,
+    waterBuoyancyLooseObject: 0.085,
+    waterBuoyancyWeightResistancePerUnit: 2,
+    waterDownwardTerminalVelocityScaleLooseObject: 0.55,
+    waterMaxRiseSpeedLooseObject: 1.9,
+    flaskFillDurationMs: 2000,
+    flaskFillMinSubmersionRatio: 0.8,
+    flaskFillTopCoverageMinRatio: 0.35,
+    flaskSpillFlashMs: 180,
+    flaskCarryBangDeltaSpeed: 2.6,
+    flaskImpactSpillMinSpeed: 1.9,
+    flaskWaterEffectiveWeight: 0.02,
+    flaskWaterFloatLift: 0.12,
+    flaskSurfaceSearchDistance: 52,
+    flaskSurfaceSnapDistance: 3,
+    flaskSurfaceApproachStrength: 0.16
 } as const;
 
 export const VIEWPORT_SETTINGS = {

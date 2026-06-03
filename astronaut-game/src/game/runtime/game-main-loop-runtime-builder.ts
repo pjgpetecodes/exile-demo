@@ -36,6 +36,7 @@ function buildLoopSystems(context: ValuePack) {
         astronautRenderer: context.astronautRenderer,
         astronautSpriteSource: context.getAstronautSpriteSource(),
         bulletImpactParticles: context.bulletImpactParticles,
+        flaskSpillParticles: context.flaskSpillParticles,
         buttonEntities: typeof context.getButtonEntities === 'function'
             ? context.getButtonEntities()
             : context.buttonEntities,
@@ -79,6 +80,7 @@ function buildLoopSystems(context: ValuePack) {
         getChunkActivityForWorldPosition: context.getChunkActivityForWorldPosition,
         getCreatureProjectileCollectables: context.getCreatureProjectileCollectables,
         getCurrentAstronautCollisionProfile: context.getCurrentAstronautCollisionProfile,
+        getWaterSubmersionRatioForRect: context.getWaterSubmersionRatioForRect,
         getDesignerRenderableCollectables: context.getDesignerRenderableCollectables,
         getDirectDownTransitionSequence: context.getDirectDownTransitionSequence,
         getEffectiveViewportState: context.getEffectiveViewportState,
@@ -129,6 +131,7 @@ function buildLoopSystems(context: ValuePack) {
             ? context.getTeleporterEntities()
             : context.teleporterEntities,
         updateAndDrawBulletImpactParticles: context.updateAndDrawBulletImpactParticles,
+        updateAndDrawFlaskSpillParticles: context.updateAndDrawFlaskSpillParticles,
         updateAndDrawJetpackDots: context.updateAndDrawJetpackDots,
         updateAndDrawStars: context.updateAndDrawStars,
         updateAndDrawThrowGuide: context.updateAndDrawThrowGuide,

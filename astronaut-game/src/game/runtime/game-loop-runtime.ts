@@ -42,6 +42,7 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         astronautSpriteSource,
         blockInstanceRotatedBoundingBoxes,
         bulletImpactParticles,
+        flaskSpillParticles,
         buttonEntities,
         buttonOnSound,
         buttonPressTimestamps,
@@ -95,6 +96,7 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         getChunkActivityForWorldPosition,
         getCreatureProjectileCollectables,
         getCurrentAstronautCollisionProfile,
+        getWaterSubmersionRatioForRect,
         getDesignerRenderableCollectables,
         getDirectDownTransitionSequence,
         getEffectiveViewportState,
@@ -175,6 +177,7 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         teleporting,
         upPressed,
         updateAndDrawBulletImpactParticles,
+        updateAndDrawFlaskSpillParticles,
         updateAndDrawJetpackDots,
         updateAndDrawStars,
         updateAndDrawThrowGuide,
@@ -433,6 +436,9 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         if (bulletImpactParticles.length > 0) {
             updateAndDrawBulletImpactParticles(layerVisibility.creatures ? ctx! : null, camera);
         }
+        if (flaskSpillParticles.length > 0) {
+            updateAndDrawFlaskSpillParticles(layerVisibility.collectables ? ctx! : null, camera);
+        }
         if (windParticles.length > 0) {
             updateAndDrawWindParticles(layerVisibility.world ? ctx! : null, camera);
         }
@@ -538,6 +544,30 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
     astronaut.velocity.y += windAcceleration.y;
     applySurfaceWindCarryToAstronaut(frameNow);
     lastAstronautWindAcceleration = windAcceleration;
+    const astronautCollisionOffsets = getAstronautCollisionOffsets(activeAstronautCollisionProfile);
+    const astronautWaterSubmersion = getWaterSubmersionRatioForRect({
+        left: astronaut.position.x + astronautCollisionOffsets.left,
+        right: astronaut.position.x + astronautCollisionOffsets.right,
+        top: astronaut.position.y + astronautCollisionOffsets.top,
+        bottom: astronaut.position.y + astronautCollisionOffsets.bottom
+    });
+    if (astronautWaterSubmersion > 0) {
+        const waterDragMultiplier = 1 - (1 - MOVEMENT_SETTINGS.waterDragMultiplierAstronaut) * astronautWaterSubmersion;
+        astronaut.velocity.x *= waterDragMultiplier;
+        astronaut.velocity.y *= waterDragMultiplier;
+        astronaut.velocity.y -= MOVEMENT_SETTINGS.waterBuoyancyAstronaut * astronautWaterSubmersion;
+        if (currentControlState.downPressed) {
+            astronaut.velocity.y -= MOVEMENT_SETTINGS.waterDiveResistanceAcceleration * astronautWaterSubmersion;
+        }
+        const waterDownwardTerminalVelocity = (currentControlState.downPressed
+            ? MOVEMENT_SETTINGS.flyDownTerminalVelocity
+            : MOVEMENT_SETTINGS.fallTerminalVelocity) * movementModifiers.terminalVelocityScale *
+            (1 - astronautWaterSubmersion * (1 - MOVEMENT_SETTINGS.waterDownwardTerminalVelocityScaleAstronaut));
+        astronaut.velocity.y = Math.max(
+            -MOVEMENT_SETTINGS.waterMaxRiseSpeedAstronaut,
+            Math.min(astronaut.velocity.y, waterDownwardTerminalVelocity)
+        );
+    }
     const wasLanded = gameState.astronaut.isLanded;
     const horizontalVelocityBeforeResolution = astronaut.velocity.x;
     const verticalVelocityBeforeResolution = astronaut.velocity.y;
@@ -1079,6 +1109,9 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         }
         if (bulletImpactParticles.length > 0) {
             updateAndDrawBulletImpactParticles(layerVisibility.creatures ? ctx! : null, camera);
+        }
+        if (flaskSpillParticles.length > 0) {
+            updateAndDrawFlaskSpillParticles(layerVisibility.collectables ? ctx! : null, camera);
         }
         if (windParticles.length > 0) {
             updateAndDrawWindParticles(layerVisibility.world ? ctx! : null, camera);

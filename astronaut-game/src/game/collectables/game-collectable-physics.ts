@@ -1,5 +1,11 @@
 import type { DynamicObjectPhysicsSettings } from '../../physics/object-physics.js';
 import type { Collectable } from '../../entities/collectable.js';
+import {
+    isFlaskCollectable,
+    isFlaskFull,
+    syncFlaskSpillFlash,
+    triggerFlaskSpillFlash
+} from './game-flask-runtime.js';
 
 type CollectablePhysicsFactoryOptions = {
     getAstronautRenderedWorldSprite: () => { canvas: HTMLCanvasElement; drawX: number; drawY: number } | null;
@@ -9,6 +15,7 @@ type CollectablePhysicsFactoryOptions = {
     getAstronautRect: () => { left: number; right: number; top: number; bottom: number };
     getEntityCollisionBounds: (entity: any) => { left: number; right: number; top: number; bottom: number };
     getEntityRect: (x: number, y: number, bounds: { left: number; right: number; top: number; bottom: number }) => { left: number; right: number; top: number; bottom: number };
+    getWaterSubmersionRatioForRect: (rect: { left: number; right: number; top: number; bottom: number }) => number;
     doRenderedSpritesOverlap: (
         left: { canvas: HTMLCanvasElement; drawX: number; drawY: number } | null,
         right: { canvas: HTMLCanvasElement; drawX: number; drawY: number } | null
@@ -90,9 +97,28 @@ type CollectablePhysicsFactoryOptions = {
     getChunkActivityForEntityPosition: (entity: { x: number; y: number }, now: number) => any;
     projectileChunkCadence: any;
     collectableChunkCadence: any;
+    emitFlaskSpillParticles: (x: number, y: number, count?: number) => void;
 };
 
 export function createGameCollectablePhysics(options: CollectablePhysicsFactoryOptions) {
+    function isWaterAtWorldPoint(x: number, y: number) {
+        return options.getWaterSubmersionRatioForRect({ left: x, right: x, top: y, bottom: y }) > 0.5;
+    }
+
+    function findWaterSurfaceYAtX(x: number, startY: number, endY: number) {
+        const minY = Math.min(startY, endY);
+        const maxY = Math.max(startY, endY);
+        for (let y = minY; y <= maxY; y++) {
+            if (!isWaterAtWorldPoint(x, y)) {
+                continue;
+            }
+            if (!isWaterAtWorldPoint(x, y - 1)) {
+                return y;
+            }
+        }
+        return null;
+    }
+
     function resolveAstronautCollectableCollisions(horizontalMovement: number, verticalMovement: number) {
         const astronautRendered = options.getAstronautRenderedWorldSprite();
         for (const collectable of options.getCollectableEntities()) {
@@ -174,6 +200,48 @@ export function createGameCollectablePhysics(options: CollectablePhysicsFactoryO
         }
 
         const collisionBounds = options.getEntityCollisionBounds(collectable);
+        const collectableRect = options.getEntityRect(collectable.x, collectable.y, collisionBounds);
+        const waterSubmersion = options.getWaterSubmersionRatioForRect(collectableRect);
+        syncFlaskSpillFlash(collectable, now);
+        if (waterSubmersion > 0) {
+            const dragMultiplier = 1 - (1 - options.movementSettings.waterDragMultiplierLooseObject) * waterSubmersion;
+            collectable.velocity.x *= dragMultiplier;
+            collectable.velocity.y *= dragMultiplier;
+            let effectiveWeight = Math.max(0, Number(collectable.weight) || 0);
+            if (isFlaskCollectable(collectable)) {
+                effectiveWeight = Math.min(effectiveWeight, options.movementSettings.flaskWaterEffectiveWeight);
+                collectable.velocity.y -= options.movementSettings.flaskWaterFloatLift * waterSubmersion;
+            }
+            const buoyancyWeightScale = 1 / (1 + effectiveWeight * options.movementSettings.waterBuoyancyWeightResistancePerUnit);
+            collectable.velocity.y -= options.movementSettings.waterBuoyancyLooseObject * waterSubmersion * buoyancyWeightScale;
+            const downwardTerminalVelocity = physicsSettings.terminalVelocity * (
+                1 - waterSubmersion * (1 - options.movementSettings.waterDownwardTerminalVelocityScaleLooseObject)
+            );
+            collectable.velocity.y = options.clampToRange(
+                collectable.velocity.y,
+                -options.movementSettings.waterMaxRiseSpeedLooseObject,
+                downwardTerminalVelocity
+            );
+
+            if (isFlaskCollectable(collectable)) {
+                const centerX = Math.round((collectableRect.left + collectableRect.right) / 2);
+                const surfaceY = findWaterSurfaceYAtX(
+                    centerX,
+                    Math.floor(collectableRect.top - options.movementSettings.flaskSurfaceSearchDistance),
+                    Math.ceil(collectableRect.bottom + options.movementSettings.flaskSurfaceSearchDistance)
+                );
+                if (typeof surfaceY === 'number') {
+                    const targetY = surfaceY - collisionBounds.top;
+                    const correction = targetY - collectable.y;
+                    if (Math.abs(correction) <= options.movementSettings.flaskSurfaceSnapDistance) {
+                        collectable.y = targetY;
+                        collectable.velocity.y = Math.min(collectable.velocity.y, 0);
+                    } else if (correction < 0) {
+                        collectable.velocity.y += correction * options.movementSettings.flaskSurfaceApproachStrength;
+                    }
+                }
+            }
+        }
         const windSettings = options.getWindSettings();
         const windDebugToggles = options.getWindDebugToggles();
         const windToggles = options.getEffectiveWindToggles(windSettings, windDebugToggles);
@@ -207,6 +275,7 @@ export function createGameCollectablePhysics(options: CollectablePhysicsFactoryO
         let grounded = false;
         let bounced = false;
         let hitWorld = false;
+        let collisionImpactSpeed = 0;
 
         for (let step = 0; step < steps; step++) {
             const stepTargetX = collectable.x + ((targetX - collectable.x) * (step + 1)) / steps;
@@ -218,6 +287,7 @@ export function createGameCollectablePhysics(options: CollectablePhysicsFactoryO
                     nextX = stepTargetX;
                 } else {
                     hitWorld = true;
+                    collisionImpactSpeed = Math.max(collisionImpactSpeed, Math.abs(collectable.velocity.x));
                     if (updateOptions.bounceHorizontally) {
                         const bounceRestitution = options.applyDynamicObjectBounceRestitution(collectable, Math.abs(collectable.velocity.x), physicsSettings);
                         if (bounceRestitution > 0) {
@@ -238,6 +308,7 @@ export function createGameCollectablePhysics(options: CollectablePhysicsFactoryO
                     nextY = stepTargetY;
                 } else {
                     hitWorld = true;
+                    collisionImpactSpeed = Math.max(collisionImpactSpeed, Math.abs(collectable.velocity.y));
                     if (verticalDirection === 'bottom') {
                         const impactSpeed = collectable.velocity.y;
                         const bounceRestitution = options.applyDynamicObjectBounceRestitution(collectable, impactSpeed, physicsSettings);
@@ -262,6 +333,7 @@ export function createGameCollectablePhysics(options: CollectablePhysicsFactoryO
             if (snapAmount > 0) {
                 hitWorld = true;
                 const snapImpactSpeed = collectable.velocity.y + snapAmount * physicsSettings.gravity * 2;
+                collisionImpactSpeed = Math.max(collisionImpactSpeed, Math.abs(snapImpactSpeed));
                 const bounceRestitution = options.applyDynamicObjectBounceRestitution(collectable, snapImpactSpeed, physicsSettings);
                 nextY += snapAmount;
                 if (bounceRestitution > 0) {
@@ -280,6 +352,20 @@ export function createGameCollectablePhysics(options: CollectablePhysicsFactoryO
         if (grounded) {
             options.applyDynamicObjectGroundFriction(collectable, physicsSettings, updateOptions.groundFrictionStopThreshold);
         }
+
+        if (
+            isFlaskCollectable(collectable) &&
+            isFlaskFull(collectable) &&
+            collisionImpactSpeed >= options.movementSettings.flaskImpactSpillMinSpeed
+        ) {
+            triggerFlaskSpillFlash(collectable, now, options.movementSettings.flaskSpillFlashMs);
+            options.emitFlaskSpillParticles(
+                Math.round((collectableRect.left + collectableRect.right) / 2),
+                collectableRect.top,
+                16
+            );
+        }
+
         return { hitWorld, bounced, grounded };
     }
 
