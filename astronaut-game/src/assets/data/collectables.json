@@ -210,6 +210,94 @@
     "astronautCollisionIgnoreFrames": 0
   },
   {
+    "x": 4150,
+    "y": 9761,
+    "type": "shrub",
+    "palette": 7,
+    "rotation": 1,
+    "collected": false,
+    "name": "shrub",
+    "weight": 0.2,
+    "pickupEnabled": true,
+    "storable": true,
+    "affectsAstronaut": true,
+    "collision": true,
+    "held": false,
+    "stored": false,
+    "isGrounded": false,
+    "velocity": {
+      "x": 0,
+      "y": 0
+    },
+    "astronautCollisionIgnoreFrames": 0
+  },
+  {
+    "x": 5002,
+    "y": 9762,
+    "type": "shrub",
+    "palette": 7,
+    "rotation": 1,
+    "collected": false,
+    "name": "shrub",
+    "weight": 0.2,
+    "pickupEnabled": true,
+    "storable": true,
+    "affectsAstronaut": true,
+    "collision": true,
+    "held": false,
+    "stored": false,
+    "isGrounded": false,
+    "velocity": {
+      "x": 0,
+      "y": 0
+    },
+    "astronautCollisionIgnoreFrames": 0
+  },
+  {
+    "x": 5939,
+    "y": 9762,
+    "type": "shrub",
+    "palette": 0,
+    "rotation": 1,
+    "collected": false,
+    "name": "shrub",
+    "weight": 0.2,
+    "pickupEnabled": true,
+    "storable": true,
+    "affectsAstronaut": true,
+    "collision": true,
+    "held": false,
+    "stored": false,
+    "isGrounded": false,
+    "velocity": {
+      "x": 0,
+      "y": 0
+    },
+    "astronautCollisionIgnoreFrames": 0
+  },
+  {
+    "x": 5033,
+    "y": 10513,
+    "type": "shrub",
+    "palette": 7,
+    "rotation": 6,
+    "collected": false,
+    "name": "shrub",
+    "weight": 0.2,
+    "pickupEnabled": true,
+    "storable": true,
+    "affectsAstronaut": true,
+    "collision": true,
+    "held": false,
+    "stored": false,
+    "isGrounded": false,
+    "velocity": {
+      "x": 0,
+      "y": 0
+    },
+    "astronautCollisionIgnoreFrames": 0
+  },
+  {
     "x": 4892,
     "y": 11855,
     "type": "shrub",

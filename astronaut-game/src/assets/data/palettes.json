@@ -366,5 +366,35 @@
       "from": "Green",
       "to": "Yellow"
     }
+  ],
+  [
+    {
+      "from": "Red",
+      "to": "Magenta"
+    },
+    {
+      "from": "White",
+      "to": "Red"
+    }
+  ],
+  [
+    {
+      "from": "White",
+      "to": "Blue"
+    },
+    {
+      "from": "Green",
+      "to": "Yellow"
+    }
+  ],
+  [
+    {
+      "from": "White",
+      "to": "Black"
+    },
+    {
+      "from": "Green",
+      "to": "Yellow"
+    }
   ]
 ]

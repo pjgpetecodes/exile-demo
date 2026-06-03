@@ -24,6 +24,55 @@ type EntityGeometryDependencies = {
 
 // Geometry helpers are extracted so the world designer orchestration stays easier to follow.
 export function createDesignerEntityGeometryHelpers(dependencies: EntityGeometryDependencies) {
+    function getButtonPartRect(part: {
+        x: number;
+        y: number;
+        type: string;
+        palette?: number;
+        rotation?: number;
+        cropLeftHalf?: boolean;
+        cropRightHalf?: boolean;
+    }) {
+        const palette = typeof part.palette === 'number' ? part.palette : 0;
+        const rotation = dependencies.normalizeRotation(part.rotation);
+        const visibleRect = dependencies.getVisibleSpriteRect(part.type, palette, rotation, 'center');
+        if (!visibleRect) {
+            const width = (part.cropLeftHalf || part.cropRightHalf)
+                ? Math.floor(dependencies.tileSize / 2)
+                : dependencies.tileSize;
+            return {
+                left: part.x,
+                top: part.y,
+                right: part.x + width,
+                bottom: part.y + dependencies.tileSize
+            };
+        }
+
+        let clippedLeft = visibleRect.left;
+        let clippedWidth = visibleRect.width;
+        if (part.cropLeftHalf || part.cropRightHalf) {
+            const halfWidth = Math.max(1, Math.floor(dependencies.tileSize / 2));
+            const cropStart = part.cropRightHalf
+                ? Math.max(0, dependencies.tileSize - halfWidth)
+                : 0;
+            const cropEnd = cropStart + halfWidth;
+            const visibleRight = visibleRect.left + visibleRect.width;
+            const croppedLeft = Math.max(visibleRect.left, cropStart);
+            const croppedRight = Math.min(visibleRight, cropEnd);
+            if (croppedRight > croppedLeft) {
+                clippedLeft = croppedLeft;
+                clippedWidth = croppedRight - croppedLeft;
+            }
+        }
+
+        return {
+            left: part.x + clippedLeft,
+            top: part.y + visibleRect.top,
+            right: part.x + clippedLeft + clippedWidth,
+            bottom: part.y + visibleRect.top + visibleRect.height
+        };
+    }
+
     function getRectAtPosition(x: number, y: number, category: DesignerCategory) {
         const width = category === 'buttons'
             ? dependencies.tileSize + 14
@@ -78,12 +127,7 @@ export function createDesignerEntityGeometryHelpers(dependencies: EntityGeometry
         height: number;
     } {
         if (category === 'buttons' && entity instanceof Button) {
-            const partRects = entity.getRenderParts().map((part) => ({
-                left: part.x,
-                top: part.y,
-                right: part.x + ((part.cropLeftHalf || part.cropRightHalf) ? dependencies.tileSize / 2 : dependencies.tileSize),
-                bottom: part.y + dependencies.tileSize
-            }));
+            const partRects = entity.getRenderParts().map((part) => getButtonPartRect(part));
             const left = Math.min(...partRects.map((rect) => rect.left));
             const top = Math.min(...partRects.map((rect) => rect.top));
             const right = Math.max(...partRects.map((rect) => rect.right));

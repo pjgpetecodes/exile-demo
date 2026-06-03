@@ -65,7 +65,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -75,7 +75,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -85,7 +85,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -95,7 +95,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -105,7 +105,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -115,7 +115,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -125,7 +125,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -135,7 +135,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -145,7 +145,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -155,7 +155,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -165,7 +165,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -175,7 +175,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -185,7 +185,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -195,7 +195,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -205,7 +205,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -215,7 +215,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -225,7 +225,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -235,7 +235,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -245,7 +245,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -255,7 +255,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -305,7 +305,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -315,7 +315,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -325,7 +325,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -335,7 +335,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -345,7 +345,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -355,7 +355,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -365,7 +365,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -375,7 +375,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -385,7 +385,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -395,7 +395,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -405,7 +405,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -415,7 +415,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -425,7 +425,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -435,7 +435,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -445,7 +445,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -455,7 +455,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -465,7 +465,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -475,7 +475,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -485,7 +485,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -495,7 +495,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -575,7 +575,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -585,7 +585,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -595,7 +595,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -605,7 +605,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -615,7 +615,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -625,7 +625,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -635,7 +635,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -645,7 +645,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -655,7 +655,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -665,7 +665,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -675,7 +675,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -685,7 +685,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -695,7 +695,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -705,7 +705,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -715,7 +715,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -725,7 +725,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -735,7 +735,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -745,7 +745,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -755,7 +755,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -765,7 +765,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -835,7 +835,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -845,7 +845,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -855,7 +855,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -865,7 +865,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -875,7 +875,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -885,7 +885,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -895,7 +895,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -905,7 +905,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -915,7 +915,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -925,7 +925,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -935,7 +935,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -945,7 +945,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -955,7 +955,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -965,7 +965,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -975,7 +975,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -985,7 +985,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -995,7 +995,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1005,7 +1005,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1015,7 +1015,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1025,7 +1025,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1105,7 +1105,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1115,7 +1115,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1125,7 +1125,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1135,7 +1135,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1145,7 +1145,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1155,7 +1155,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1165,7 +1165,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1175,7 +1175,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1185,7 +1185,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1195,7 +1195,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1205,7 +1205,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1215,7 +1215,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1225,7 +1225,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1235,7 +1235,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1245,7 +1245,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1255,7 +1255,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1265,7 +1265,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1275,7 +1275,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1285,7 +1285,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1295,7 +1295,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1375,7 +1375,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1385,7 +1385,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1395,7 +1395,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1405,7 +1405,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1415,7 +1415,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1425,7 +1425,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1435,7 +1435,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1445,7 +1445,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1455,7 +1455,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1465,7 +1465,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1475,7 +1475,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1485,7 +1485,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1495,7 +1495,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1505,7 +1505,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1515,7 +1515,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1525,7 +1525,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1535,7 +1535,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1545,7 +1545,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1555,7 +1555,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1565,7 +1565,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1635,7 +1635,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1645,7 +1645,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1655,7 +1655,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1665,7 +1665,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1675,7 +1675,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1685,7 +1685,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1695,7 +1695,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1705,7 +1705,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1715,7 +1715,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1725,7 +1725,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1735,7 +1735,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1745,7 +1745,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1755,7 +1755,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1765,7 +1765,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1775,7 +1775,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1785,7 +1785,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1795,7 +1795,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1805,7 +1805,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1815,7 +1815,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -1825,763 +1825,13 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
   {
     "x": 6336,
     "y": 8729,
-    "type": "wall_plant",
-    "collision": false,
-    "maskAstronaut": true,
-    "palette": 12,
-    "rotation": 6,
-    "translation": "right"
-  },
-  {
-    "x": 6406,
-    "y": 8729,
-    "type": "wall_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 12,
-    "rotation": 5,
-    "translation": "center"
-  },
-  {
-    "x": 6477,
-    "y": 8729,
-    "type": "wall_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 12,
-    "rotation": 5,
-    "translation": "center"
-  },
-  {
-    "x": 6547,
-    "y": 8729,
-    "type": "wall_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 12,
-    "rotation": 5,
-    "translation": "center"
-  },
-  {
-    "x": 6617,
-    "y": 8729,
-    "type": "wall_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 12,
-    "rotation": 5,
-    "translation": "center"
-  },
-  {
-    "x": 6688,
-    "y": 8729,
-    "type": "wall_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 12,
-    "rotation": 5,
-    "translation": "center"
-  },
-  {
-    "x": 6758,
-    "y": 8729,
-    "type": "wall_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 12,
-    "rotation": 5,
-    "translation": "center"
-  },
-  {
-    "x": 6829,
-    "y": 8729,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 6899,
-    "y": 8729,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 6969,
-    "y": 8729,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7040,
-    "y": 8729,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7110,
-    "y": 8729,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7181,
-    "y": 8729,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7251,
-    "y": 8729,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7321,
-    "y": 8729,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7392,
-    "y": 8729,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7462,
-    "y": 8729,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7533,
-    "y": 8729,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7603,
-    "y": 8729,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7673,
-    "y": 8729,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7744,
-    "y": 8729,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7814,
-    "y": 8729,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7885,
-    "y": 8729,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7955,
-    "y": 8729,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 8025,
-    "y": 8729,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 8096,
-    "y": 8729,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 8166,
-    "y": 8729,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 6195,
-    "y": 8800,
-    "type": "wall_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 12,
-    "rotation": 5,
-    "translation": "center"
-  },
-  {
-    "x": 6406,
-    "y": 8800,
-    "type": "wall_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 12,
-    "rotation": 5,
-    "translation": "center"
-  },
-  {
-    "x": 6477,
-    "y": 8800,
-    "type": "wall_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 12,
-    "rotation": 5,
-    "translation": "center"
-  },
-  {
-    "x": 6547,
-    "y": 8800,
-    "type": "wall_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 12,
-    "rotation": 5,
-    "translation": "center"
-  },
-  {
-    "x": 6617,
-    "y": 8800,
-    "type": "wall_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 12,
-    "rotation": 5,
-    "translation": "center"
-  },
-  {
-    "x": 6688,
-    "y": 8800,
-    "type": "wall_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 12,
-    "rotation": 5,
-    "translation": "center"
-  },
-  {
-    "x": 6758,
-    "y": 8800,
-    "type": "wall_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 12,
-    "rotation": 5,
-    "translation": "center"
-  },
-  {
-    "x": 6829,
-    "y": 8800,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 6899,
-    "y": 8800,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 6969,
-    "y": 8800,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7040,
-    "y": 8800,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7110,
-    "y": 8800,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7181,
-    "y": 8800,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7251,
-    "y": 8800,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7321,
-    "y": 8800,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7392,
-    "y": 8800,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7462,
-    "y": 8800,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7533,
-    "y": 8800,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7603,
-    "y": 8800,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7673,
-    "y": 8800,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7744,
-    "y": 8800,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7814,
-    "y": 8800,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7885,
-    "y": 8800,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7955,
-    "y": 8800,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 8025,
-    "y": 8800,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 8096,
-    "y": 8800,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 8166,
-    "y": 8800,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 6829,
-    "y": 8870,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 6899,
-    "y": 8870,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 6969,
-    "y": 8870,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7040,
-    "y": 8870,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7110,
-    "y": 8870,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7181,
-    "y": 8870,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7251,
-    "y": 8870,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7321,
-    "y": 8870,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7392,
-    "y": 8870,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7462,
-    "y": 8870,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7533,
-    "y": 8870,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7603,
-    "y": 8870,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7673,
-    "y": 8870,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7744,
-    "y": 8870,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7814,
-    "y": 8870,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7885,
-    "y": 8870,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 7955,
-    "y": 8870,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 8025,
-    "y": 8870,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 8096,
-    "y": 8870,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 8166,
-    "y": 8870,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 10,
-    "rotation": 1,
-    "translation": "center"
-  },
-  {
-    "x": 6195,
-    "y": 8941,
-    "type": "wall_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 2,
-    "rotation": 5,
-    "translation": "center"
-  },
-  {
-    "x": 6336,
-    "y": 8941,
     "type": "wall_plant",
     "collision": false,
     "maskAstronaut": true,
@@ -2591,11 +1841,761 @@
   },
   {
     "x": 6406,
+    "y": 8729,
+    "type": "wall_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 12,
+    "rotation": 5,
+    "translation": "center"
+  },
+  {
+    "x": 6477,
+    "y": 8729,
+    "type": "wall_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 12,
+    "rotation": 5,
+    "translation": "center"
+  },
+  {
+    "x": 6547,
+    "y": 8729,
+    "type": "wall_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 12,
+    "rotation": 5,
+    "translation": "center"
+  },
+  {
+    "x": 6617,
+    "y": 8729,
+    "type": "wall_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 12,
+    "rotation": 5,
+    "translation": "center"
+  },
+  {
+    "x": 6688,
+    "y": 8729,
+    "type": "wall_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 12,
+    "rotation": 5,
+    "translation": "center"
+  },
+  {
+    "x": 6758,
+    "y": 8729,
+    "type": "wall_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 12,
+    "rotation": 5,
+    "translation": "center"
+  },
+  {
+    "x": 6829,
+    "y": 8729,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 6899,
+    "y": 8729,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 6969,
+    "y": 8729,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7040,
+    "y": 8729,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7110,
+    "y": 8729,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7181,
+    "y": 8729,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7251,
+    "y": 8729,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7321,
+    "y": 8729,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7392,
+    "y": 8729,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7462,
+    "y": 8729,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7533,
+    "y": 8729,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7603,
+    "y": 8729,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7673,
+    "y": 8729,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7744,
+    "y": 8729,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7814,
+    "y": 8729,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7885,
+    "y": 8729,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7955,
+    "y": 8729,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 8025,
+    "y": 8729,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 8096,
+    "y": 8729,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 8166,
+    "y": 8729,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 6195,
+    "y": 8800,
+    "type": "wall_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 12,
+    "rotation": 5,
+    "translation": "center"
+  },
+  {
+    "x": 6406,
+    "y": 8800,
+    "type": "wall_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 12,
+    "rotation": 5,
+    "translation": "center"
+  },
+  {
+    "x": 6477,
+    "y": 8800,
+    "type": "wall_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 12,
+    "rotation": 5,
+    "translation": "center"
+  },
+  {
+    "x": 6547,
+    "y": 8800,
+    "type": "wall_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 12,
+    "rotation": 5,
+    "translation": "center"
+  },
+  {
+    "x": 6617,
+    "y": 8800,
+    "type": "wall_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 12,
+    "rotation": 5,
+    "translation": "center"
+  },
+  {
+    "x": 6688,
+    "y": 8800,
+    "type": "wall_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 12,
+    "rotation": 5,
+    "translation": "center"
+  },
+  {
+    "x": 6758,
+    "y": 8800,
+    "type": "wall_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 12,
+    "rotation": 5,
+    "translation": "center"
+  },
+  {
+    "x": 6829,
+    "y": 8800,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 6899,
+    "y": 8800,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 6969,
+    "y": 8800,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7040,
+    "y": 8800,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7110,
+    "y": 8800,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7181,
+    "y": 8800,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7251,
+    "y": 8800,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7321,
+    "y": 8800,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7392,
+    "y": 8800,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7462,
+    "y": 8800,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7533,
+    "y": 8800,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7603,
+    "y": 8800,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7673,
+    "y": 8800,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7744,
+    "y": 8800,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7814,
+    "y": 8800,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7885,
+    "y": 8800,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7955,
+    "y": 8800,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 8025,
+    "y": 8800,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 8096,
+    "y": 8800,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 8166,
+    "y": 8800,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 6829,
+    "y": 8870,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 6899,
+    "y": 8870,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 6969,
+    "y": 8870,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7040,
+    "y": 8870,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7110,
+    "y": 8870,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7181,
+    "y": 8870,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7251,
+    "y": 8870,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7321,
+    "y": 8870,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7392,
+    "y": 8870,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7462,
+    "y": 8870,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7533,
+    "y": 8870,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7603,
+    "y": 8870,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7673,
+    "y": 8870,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7744,
+    "y": 8870,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7814,
+    "y": 8870,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7885,
+    "y": 8870,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 7955,
+    "y": 8870,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 8025,
+    "y": 8870,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 8096,
+    "y": 8870,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 8166,
+    "y": 8870,
+    "type": "floor_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 36,
+    "rotation": 1,
+    "translation": "center"
+  },
+  {
+    "x": 6195,
     "y": 8941,
     "type": "wall_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
+    "rotation": 5,
+    "translation": "center"
+  },
+  {
+    "x": 6336,
+    "y": 8941,
+    "type": "wall_plant",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 12,
+    "rotation": 6,
+    "translation": "right"
+  },
+  {
+    "x": 6406,
+    "y": 8941,
+    "type": "wall_full",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -2605,7 +2605,7 @@
     "type": "wall_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -2615,7 +2615,7 @@
     "type": "wall_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -2625,7 +2625,7 @@
     "type": "wall_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -2635,7 +2635,7 @@
     "type": "wall_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -2645,7 +2645,7 @@
     "type": "wall_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -2655,7 +2655,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -2665,7 +2665,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -2675,7 +2675,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -2685,7 +2685,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -2695,7 +2695,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -2705,7 +2705,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -2715,7 +2715,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -2725,7 +2725,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -2735,7 +2735,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -2745,7 +2745,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -2755,7 +2755,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -2765,7 +2765,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -2775,7 +2775,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -2785,7 +2785,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -2795,7 +2795,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -2805,7 +2805,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -2815,7 +2815,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -2825,7 +2825,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -2835,7 +2835,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -2845,7 +2845,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -2855,7 +2855,7 @@
     "type": "wall_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -2865,7 +2865,7 @@
     "type": "wall_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -2875,7 +2875,7 @@
     "type": "wall_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -2885,7 +2885,7 @@
     "type": "wall_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -2895,7 +2895,7 @@
     "type": "wall_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -2905,7 +2905,7 @@
     "type": "wall_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -2915,7 +2915,7 @@
     "type": "wall_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -2925,7 +2925,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -2935,7 +2935,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -2945,7 +2945,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -2955,7 +2955,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -2965,7 +2965,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -2975,7 +2975,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -2985,7 +2985,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -2995,7 +2995,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3005,7 +3005,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3015,7 +3015,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3025,7 +3025,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3035,7 +3035,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3045,7 +3045,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3055,7 +3055,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3065,7 +3065,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3075,7 +3075,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3085,7 +3085,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3095,7 +3095,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3105,7 +3105,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3115,7 +3115,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3125,7 +3125,7 @@
     "type": "wall_diagnonal_half",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -3145,7 +3145,7 @@
     "type": "wall_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -3155,7 +3155,7 @@
     "type": "wall_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -3165,7 +3165,7 @@
     "type": "wall_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -3175,7 +3175,7 @@
     "type": "wall_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -3185,7 +3185,7 @@
     "type": "wall_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -3195,7 +3195,7 @@
     "type": "wall_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -3205,7 +3205,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3215,7 +3215,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3225,7 +3225,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3235,7 +3235,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3245,7 +3245,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3255,7 +3255,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3265,7 +3265,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3275,7 +3275,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3285,7 +3285,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3295,7 +3295,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3305,7 +3305,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3315,7 +3315,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3325,7 +3325,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3335,7 +3335,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3345,7 +3345,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3355,7 +3355,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3365,7 +3365,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3375,7 +3375,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3385,7 +3385,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3395,7 +3395,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3415,7 +3415,7 @@
     "type": "wall_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -3425,7 +3425,7 @@
     "type": "wall_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -3435,7 +3435,7 @@
     "type": "wall_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -3445,7 +3445,7 @@
     "type": "wall_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -3455,7 +3455,7 @@
     "type": "wall_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -3465,7 +3465,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3475,7 +3475,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3485,7 +3485,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3495,7 +3495,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3505,7 +3505,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3515,7 +3515,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3525,7 +3525,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3535,7 +3535,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3545,7 +3545,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3555,7 +3555,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3565,7 +3565,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3575,7 +3575,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3585,7 +3585,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3595,7 +3595,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3605,7 +3605,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3615,7 +3615,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3625,7 +3625,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3635,7 +3635,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3645,7 +3645,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3655,7 +3655,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3665,7 +3665,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3675,7 +3675,7 @@
     "type": "wall_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -3685,7 +3685,7 @@
     "type": "wall_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -3695,7 +3695,7 @@
     "type": "wall_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -3705,7 +3705,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3715,7 +3715,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3725,7 +3725,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3735,7 +3735,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3745,7 +3745,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3755,7 +3755,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3765,7 +3765,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3775,7 +3775,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3785,7 +3785,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3795,7 +3795,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3805,7 +3805,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3815,7 +3815,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3825,7 +3825,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3835,7 +3835,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3845,7 +3845,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3855,7 +3855,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3865,7 +3865,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3875,7 +3875,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3885,7 +3885,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3895,7 +3895,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3905,7 +3905,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3915,7 +3915,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3925,7 +3925,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3935,7 +3935,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3955,7 +3955,7 @@
     "type": "wall_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 2,
+    "palette": 37,
     "rotation": 5,
     "translation": "center"
   },
@@ -3965,7 +3965,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3975,7 +3975,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3985,7 +3985,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -3995,7 +3995,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4005,7 +4005,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4015,7 +4015,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4025,7 +4025,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4035,7 +4035,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4045,7 +4045,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4055,7 +4055,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4065,7 +4065,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4075,7 +4075,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4085,7 +4085,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4095,7 +4095,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4105,7 +4105,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4115,7 +4115,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4125,7 +4125,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4135,7 +4135,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4145,7 +4145,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4155,7 +4155,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4165,7 +4165,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4175,7 +4175,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4185,7 +4185,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4195,7 +4195,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4205,7 +4205,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4215,7 +4215,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4225,7 +4225,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4235,7 +4235,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4245,7 +4245,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4255,7 +4255,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4265,7 +4265,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4275,7 +4275,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4285,7 +4285,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4295,7 +4295,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4305,7 +4305,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4315,7 +4315,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4325,7 +4325,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4335,7 +4335,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4345,7 +4345,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4355,7 +4355,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4365,7 +4365,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4375,7 +4375,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4385,7 +4385,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4395,7 +4395,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4405,7 +4405,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4415,7 +4415,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4425,7 +4425,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4435,7 +4435,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4445,7 +4445,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4455,7 +4455,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4465,7 +4465,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4475,7 +4475,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4485,7 +4485,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4495,7 +4495,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4505,7 +4505,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4515,7 +4515,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4525,7 +4525,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4535,7 +4535,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4545,7 +4545,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4555,7 +4555,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4565,7 +4565,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4575,7 +4575,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4585,7 +4585,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4595,7 +4595,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4605,7 +4605,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4615,7 +4615,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4625,7 +4625,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4635,7 +4635,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4645,7 +4645,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4655,7 +4655,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4665,7 +4665,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4675,7 +4675,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4685,7 +4685,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4695,7 +4695,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4705,7 +4705,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4715,7 +4715,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4725,7 +4725,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4735,7 +4735,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4745,7 +4745,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4755,7 +4755,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4765,7 +4765,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4775,7 +4775,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4785,7 +4785,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4795,7 +4795,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4805,7 +4805,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4815,7 +4815,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4825,7 +4825,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4835,7 +4835,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4845,7 +4845,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4855,7 +4855,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4865,7 +4865,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4875,7 +4875,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4885,7 +4885,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4895,7 +4895,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4905,7 +4905,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4915,7 +4915,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4925,7 +4925,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4935,7 +4935,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4945,7 +4945,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4955,7 +4955,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4965,7 +4965,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4975,7 +4975,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4985,7 +4985,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -4995,7 +4995,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5005,7 +5005,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5015,7 +5015,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5025,7 +5025,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5035,7 +5035,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5045,7 +5045,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5055,7 +5055,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5065,7 +5065,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5075,7 +5075,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5085,7 +5085,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5095,7 +5095,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5105,7 +5105,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5115,7 +5115,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5125,7 +5125,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5135,7 +5135,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5145,7 +5145,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5155,7 +5155,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5165,7 +5165,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5175,7 +5175,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5185,7 +5185,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5195,7 +5195,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5205,7 +5205,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5215,7 +5215,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5225,7 +5225,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5235,7 +5235,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5245,7 +5245,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5255,7 +5255,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5265,7 +5265,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5275,7 +5275,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5285,7 +5285,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5295,7 +5295,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5305,7 +5305,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5315,7 +5315,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5325,7 +5325,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5335,7 +5335,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5345,7 +5345,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5355,7 +5355,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5365,7 +5365,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5375,7 +5375,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5385,7 +5385,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5395,7 +5395,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5405,7 +5405,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
@@ -5535,7 +5535,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 10,
+    "palette": 36,
     "rotation": 1,
     "translation": "center"
   },
