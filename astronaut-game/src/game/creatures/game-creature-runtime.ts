@@ -116,6 +116,7 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
             const runtimeState = creature.state ?? {};
             const authoredType = options.getCreatureAuthoredType(creature.type, runtimeState);
             runtimeState.authoredType = authoredType;
+            const robotLike = creature.archetype === 'robot' || /^robot/i.test(authoredType);
             const bird = options.isBirdCreature(creature, authoredType);
             const authoredRotation = typeof runtimeState.authoredRotation === 'number'
                 ? Math.round(Number(runtimeState.authoredRotation))
@@ -127,8 +128,11 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
             const dy = astronautCenter.y - creatureCenter.y;
             const distanceToAstronaut = Math.hypot(dx, dy);
             const trackRange = Math.max(creature.trackRange ?? 0, creature.followRange ?? 0);
+            const trackingDistance = creature.movementMode === 'hover'
+                ? Math.abs(dx)
+                : distanceToAstronaut;
             const wasTrackingAstronaut = runtimeState.followingAstronaut === true;
-            const shouldTrackAstronaut = distanceToAstronaut <= trackRange || (
+            const shouldTrackAstronaut = trackingDistance <= trackRange || (
                 bird &&
                 wasTrackingAstronaut &&
                 distanceToAstronaut <= Math.max(
@@ -240,6 +244,10 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
                     }
                 }
             } else if (creature.movementMode === 'fly' || creature.movementMode === 'hover') {
+                const hoverRobotTracking = creature.movementMode === 'hover' &&
+                    robotLike &&
+                    creature.followsAstronaut &&
+                    shouldTrackAstronaut;
                 if (creature.followsAstronaut && shouldTrackAstronaut) {
                     if (bird) {
                         const normalizedDistance = distanceToAstronaut > 0.001 ? distanceToAstronaut : 1;
@@ -253,7 +261,7 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
                             creature.patrolMinX,
                             creature.patrolMaxX
                         );
-                        if (creature.movementMode === 'fly') {
+                        if (creature.movementMode === 'fly' || hoverRobotTracking) {
                             nextY = options.clampToRange(
                                 creature.y + (Math.sign(dy) || 0) * Math.max(0.5, speed * 0.75),
                                 creature.patrolMinY,
@@ -280,7 +288,7 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
                 const nextHoverPhase = hoverPhase + Math.max(0.02, speed * 0.04);
                 runtimeState.hoverPhase = nextHoverPhase;
 
-                if (creature.movementMode === 'hover') {
+                if (creature.movementMode === 'hover' && !hoverRobotTracking) {
                     nextY = options.clampToRange(
                         creature.homeY + Math.sin(nextHoverPhase) * creature.hoverAmplitude,
                         creature.patrolMinY,

@@ -972,6 +972,7 @@ const {
     getEntityRenderOffset,
     getEntityCollisionBounds,
     getRenderedEntityWorldSprite,
+    getRenderedSpriteOpaqueSamples,
     isRenderedSpriteOpaqueAtWorld,
     doRenderedSpritesOverlap,
     getRenderedSpriteWorldCenter,
@@ -1121,6 +1122,9 @@ const {
         doorEntities,
         buttonEntities
     ),
+    getRenderedEntityWorldSprite,
+    getRenderedSpriteOpaqueSamples,
+    spriteScale: SPRITE_SCALE,
     clampToRange,
     mapWidth: MAP_WIDTH,
     mapHeight: MAP_HEIGHT,
@@ -1492,6 +1496,14 @@ if (debugRuntime) {
         releaseHeldCollectable();
         return heldCollectable === null;
     };
+    debugRuntime.dropHeldCollectableUnarmed = () => {
+        const dropping = heldCollectable;
+        releaseHeldCollectable();
+        if (dropping && isGrenadeCollectable(dropping)) {
+            setGrenadeCollectableArmedState(dropping, false);
+        }
+        return heldCollectable === null;
+    };
     debugRuntime.getNearestGrenadeDebugSnapshot = () => {
         let best: Collectable | null = null;
         let bestDistance = Number.POSITIVE_INFINITY;
@@ -1537,6 +1549,80 @@ if (debugRuntime) {
             isGrounded: collectable.isGrounded,
             armed: collectable.armed,
             type: collectable.type
+        };
+    };
+    debugRuntime.getCollectableSupportDebug = (entityId: number | null) => {
+        if (typeof entityId !== 'number') {
+            return null;
+        }
+        const collectable = collectableEntities.find((candidate) => candidate.entityId === entityId);
+        if (!collectable) {
+            return null;
+        }
+
+        const rendered = getRenderedEntityWorldSprite(collectable);
+        const spriteScale = SPRITE_SCALE;
+        const supportSamples: Array<{
+            x: number;
+            y: number;
+            supportX: number;
+            supportY: number;
+            hit: boolean;
+            hitType: string | null;
+            hitCollision: boolean | null;
+        }> = [];
+
+        if (rendered) {
+            const opaquePoints = getRenderedSpriteOpaqueSamples(rendered.canvas);
+            if (opaquePoints.length > 0) {
+                const bottomByColumn = new Map<number, number>();
+                for (const point of opaquePoints) {
+                    const existing = bottomByColumn.get(point.x);
+                    if (typeof existing !== 'number' || point.y > existing) {
+                        bottomByColumn.set(point.x, point.y);
+                    }
+                }
+                const contour = [...bottomByColumn.entries()]
+                    .map(([x, y]) => ({ x, y }))
+                    .sort((a, b) => a.x - b.x);
+                const stride = contour.length > 24 ? Math.ceil(contour.length / 24) : 1;
+                for (let index = 0; index < contour.length; index += stride) {
+                    const point = contour[index];
+                    const worldX = rendered.drawX + (point.x + 0.5) * spriteScale;
+                    const worldY = rendered.drawY + (point.y + 0.5) * spriteScale;
+                    const supportX = worldX;
+                    const supportY = worldY + 1;
+                    const hitEntity = getSolidBlockAtWorld(
+                        supportX,
+                        supportY,
+                        spriteMap,
+                        SPRITE_SCALE,
+                        mapBlocks,
+                        doorEntities,
+                        buttonEntities
+                    );
+                    supportSamples.push({
+                        x: worldX,
+                        y: worldY,
+                        supportX,
+                        supportY,
+                        hit: !!hitEntity,
+                        hitType: hitEntity?.type ?? null,
+                        hitCollision: typeof hitEntity?.collision === 'boolean' ? hitEntity.collision : null
+                    });
+                }
+            }
+        }
+
+        return {
+            entityId: collectable.entityId ?? null,
+            type: collectable.type,
+            x: collectable.x,
+            y: collectable.y,
+            velocity: { ...collectable.velocity },
+            isGrounded: collectable.isGrounded,
+            supportHits: supportSamples.filter((sample) => sample.hit).length,
+            supportSamples
         };
     };
     debugRuntime.explodeNearestGrenade = () => {

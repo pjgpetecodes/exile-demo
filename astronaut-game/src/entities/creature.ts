@@ -38,6 +38,9 @@ export function inferCreatureArchetype(type: string): CreatureArchetype {
     if (/^(bee|wasp)/i.test(type)) {
         return 'bee';
     }
+    if (/^robot/i.test(type)) {
+        return 'robot';
+    }
     if (/^turret/i.test(type)) {
         return 'turret';
     }
@@ -143,12 +146,14 @@ export function createCreatureSaveData(data: Partial<CreatureSaveData> & Pick<Cr
         ? 'fly'
         : archetype === 'bee'
             ? 'hover'
+            : archetype === 'robot'
+                ? 'hover'
             : archetype === 'turret'
                 ? 'turret'
                 : DEFAULT_CREATURE_MOVEMENT_MODE;
     const movementMode = normalizeMovementMode(data.movementMode ?? defaultMovementMode);
-    const defaultCollision = archetype === 'monkey' || archetype === 'turret';
-    const defaultTrackRange = archetype === 'turret' ? 224 : archetype === 'bee' ? 96 : 160;
+    const defaultCollision = archetype === 'monkey' || archetype === 'robot' || archetype === 'turret';
+    const defaultTrackRange = archetype === 'turret' ? 224 : archetype === 'bee' ? 96 : archetype === 'robot' ? 192 : 160;
     const defaultPatrolHorizontal = archetype === 'bird' ? 128 : 96;
     const defaultPatrolVertical = archetype === 'bird' ? 48 : 32;
     const defaultFireCooldownVarianceMs = archetype === 'turret' ? 180 : 0;

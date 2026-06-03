@@ -40,6 +40,42 @@
     "y": 4153,
     "type": "teleporter_pad",
     "collision": false,
+    "maskAstronaut": true,
+    "palette": 1,
+    "rotation": 2,
+    "translation": "left",
+    "teleporterId": "teleporter_10",
+    "teleporterEnabled": false,
+    "teleporterRequiresKey": false,
+    "teleporterDestinationA": {
+      "x": 8773,
+      "y": 380
+    },
+    "teleporterActiveDestinationIndex": 0
+  },
+  {
+    "x": 7462,
+    "y": 4153,
+    "type": "teleporter_pad",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 1,
+    "rotation": 2,
+    "translation": "left",
+    "teleporterId": "teleporter_10",
+    "teleporterEnabled": false,
+    "teleporterRequiresKey": false,
+    "teleporterDestinationA": {
+      "x": 8773,
+      "y": 380
+    },
+    "teleporterActiveDestinationIndex": 0
+  },
+  {
+    "x": 7462,
+    "y": 4153,
+    "type": "teleporter_pad",
+    "collision": false,
     "maskAstronaut": false,
     "palette": 2,
     "rotation": 1,

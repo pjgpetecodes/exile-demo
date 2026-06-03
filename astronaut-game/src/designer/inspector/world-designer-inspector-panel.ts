@@ -179,6 +179,80 @@ export function createWorldDesignerInspectorPanel(context: WorldDesignerInspecto
         isGrenadeCollectableType,
         getDefaultGrenadeExplosionPower
     } = context;
+    const defaultCreatureSoundOptions: InspectorOption[] = [
+        { value: '', label: 'No sound' },
+        ...CREATURE_SOUND_MANIFEST.map((entry) => ({
+            value: entry.key,
+            label: entry.label
+        }))
+    ];
+    let creatureSoundOptions = defaultCreatureSoundOptions;
+    let creatureSoundOptionsRequestInFlight: Promise<void> | null = null;
+    let creatureSoundOptionsLoaded = false;
+
+    function isCreatureSelectionActive() {
+        return state.selection?.category === 'creatures' && getSelectedItems().length === 1;
+    }
+
+    function normalizeCreatureSoundOptions(
+        sounds: unknown
+    ): InspectorOption[] {
+        if (!Array.isArray(sounds)) {
+            return defaultCreatureSoundOptions;
+        }
+        const seen = new Set<string>();
+        const mapped = sounds
+            .map((entry) => {
+                if (!entry || typeof entry !== 'object') {
+                    return null;
+                }
+                const key = typeof (entry as { key?: unknown }).key === 'string'
+                    ? (entry as { key: string }).key.trim()
+                    : '';
+                const label = typeof (entry as { label?: unknown }).label === 'string'
+                    ? (entry as { label: string }).label.trim()
+                    : '';
+                if (!key || !label || seen.has(key)) {
+                    return null;
+                }
+                seen.add(key);
+                return { value: key, label };
+            })
+            .filter((entry): entry is InspectorOption => !!entry);
+        if (mapped.length === 0) {
+            return defaultCreatureSoundOptions;
+        }
+        return [
+            { value: '', label: 'No sound' },
+            ...mapped
+        ];
+    }
+
+    async function ensureCreatureSoundOptionsLoaded() {
+        if (creatureSoundOptionsLoaded || creatureSoundOptionsRequestInFlight) {
+            return;
+        }
+        creatureSoundOptionsRequestInFlight = (async () => {
+            let nextOptions = defaultCreatureSoundOptions;
+            try {
+                const response = await fetch('http://localhost:3001/creature-sounds');
+                if (response.ok) {
+                    const payload = await response.json() as { sounds?: unknown };
+                    nextOptions = normalizeCreatureSoundOptions(payload?.sounds);
+                }
+            } catch {
+                // Local save server may be unavailable; fallback manifest remains valid.
+            } finally {
+                const didChange = JSON.stringify(nextOptions) !== JSON.stringify(creatureSoundOptions);
+                creatureSoundOptions = nextOptions;
+                creatureSoundOptionsLoaded = true;
+                creatureSoundOptionsRequestInFlight = null;
+                if (didChange && isCreatureSelectionActive()) {
+                    refreshInspector();
+                }
+            }
+        })();
+    }
 
     function updateSelectionSummary() {
         const resetConvertControls = () => {
@@ -902,6 +976,7 @@ export function createWorldDesignerInspectorPanel(context: WorldDesignerInspecto
                 { value: 'monkey', label: 'Monkey' },
                 { value: 'bird', label: 'Bird' },
                 { value: 'bee', label: 'Bee / wasp' },
+                { value: 'robot', label: 'Robot' },
                 { value: 'turret', label: 'Turret' }
             ];
             const movementModeOptions = [
@@ -917,13 +992,8 @@ export function createWorldDesignerInspectorPanel(context: WorldDesignerInspecto
                 { value: 'plasma_grenades', label: 'Plasma grenades' },
                 { value: 'energy_pods', label: 'Energy pods' }
             ];
-            const soundOptions = [
-                { value: '', label: 'No sound' },
-                ...CREATURE_SOUND_MANIFEST.map((entry) => ({
-                    value: entry.key,
-                    label: entry.label
-                }))
-            ];
+            void ensureCreatureSoundOptionsLoaded();
+            const soundOptions = creatureSoundOptions;
             addOptionSelectInspector(container, 'Archetype', entity.archetype ?? 'custom', archetypeOptions, (value) => {
                 runMutation('Updated creature archetype.', () => {
                     entity.archetype = value as Creature['archetype'];

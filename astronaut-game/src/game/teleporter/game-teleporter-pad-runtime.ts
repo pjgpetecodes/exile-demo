@@ -43,8 +43,6 @@ type TeleporterDrawEntity = {
 
 type TeleporterBlockIndex = {
     version: number;
-    baseBlocksById: Map<string, MapBlock>;
-    padBlocksById: Map<string, MapBlock>;
     baseBlocksByPosition: Map<string, MapBlock>;
     padBlocksByPosition: Map<string, MapBlock>;
 };
@@ -106,6 +104,36 @@ export function createTeleporterPadRuntime(runtimeOptions: TeleporterPadRuntimeO
         return `${x},${y}`;
     }
 
+    function getTeleporterPadBlockPreferenceScore(block: MapBlock) {
+        let score = 0;
+        // Teleporter pads are rendered separately; non-masking pads are typically the authored/runtime truth.
+        if (block.maskAstronaut === false) {
+            score += 2;
+        }
+        if (block.translation === 'center') {
+            score += 1;
+        }
+        return score;
+    }
+
+    function choosePreferredBlock(existing: MapBlock | undefined, candidate: MapBlock, type: 'teleporter' | 'teleporter_pad') {
+        if (!existing) {
+            return candidate;
+        }
+        if (type === 'teleporter') {
+            return candidate;
+        }
+        const existingScore = getTeleporterPadBlockPreferenceScore(existing);
+        const candidateScore = getTeleporterPadBlockPreferenceScore(candidate);
+        if (candidateScore > existingScore) {
+            return candidate;
+        }
+        if (candidateScore < existingScore) {
+            return existing;
+        }
+        return candidate;
+    }
+
     function invalidateCaches() {
         teleporterPadCacheVersion += 1;
         teleporterPadSweepPositionCache.clear();
@@ -118,37 +146,25 @@ export function createTeleporterPadRuntime(runtimeOptions: TeleporterPadRuntimeO
             return teleporterBlockIndexCache;
         }
 
-        const baseBlocksById = new Map<string, MapBlock>();
-        const padBlocksById = new Map<string, MapBlock>();
         const baseBlocksByPosition = new Map<string, MapBlock>();
         const padBlocksByPosition = new Map<string, MapBlock>();
         for (const block of runtimeOptions.getMapBlocks()) {
             if (block.type === 'teleporter') {
-                baseBlocksByPosition.set(makeTeleporterPositionKey(block.x, block.y), block);
+                const key = makeTeleporterPositionKey(block.x, block.y);
+                const existing = baseBlocksByPosition.get(key);
+                baseBlocksByPosition.set(key, choosePreferredBlock(existing, block, 'teleporter'));
             } else if (block.type === 'teleporter_pad') {
-                padBlocksByPosition.set(makeTeleporterPositionKey(block.x, block.y), block);
+                const key = makeTeleporterPositionKey(block.x, block.y);
+                const existing = padBlocksByPosition.get(key);
+                padBlocksByPosition.set(key, choosePreferredBlock(existing, block, 'teleporter_pad'));
             } else {
                 continue;
             }
 
-            if (!block.teleporterId) {
-                continue;
-            }
-            const id = String(block.teleporterId).trim();
-            if (!id) {
-                continue;
-            }
-            if (block.type === 'teleporter') {
-                baseBlocksById.set(id, block);
-            } else {
-                padBlocksById.set(id, block);
-            }
         }
 
         teleporterBlockIndexCache = {
             version: teleporterPadCacheVersion,
-            baseBlocksById,
-            padBlocksById,
             baseBlocksByPosition,
             padBlocksByPosition
         };
@@ -173,17 +189,112 @@ export function createTeleporterPadRuntime(runtimeOptions: TeleporterPadRuntimeO
     }
 
     function getTeleporterBaseBlock(teleporter: TeleporterRuntime) {
-        const block = getTeleporterBlockIndex()
-            .baseBlocksByPosition
-            .get(makeTeleporterPositionKey(teleporter.baseX, teleporter.baseY));
-        return block ?? null;
+        const blockIndex = getTeleporterBlockIndex();
+        const block = blockIndex.baseBlocksByPosition.get(makeTeleporterPositionKey(teleporter.baseX, teleporter.baseY))
+            ?? findNearestTeleporterBlockById('teleporter', teleporter)
+            ?? findNearestUnclaimedTeleporterBlock('teleporter', teleporter);
+        return adoptTeleporterBlock(teleporter, block, 'teleporter');
     }
 
     function getTeleporterPadBlock(teleporter: TeleporterRuntime) {
-        const block = getTeleporterBlockIndex()
-            .padBlocksByPosition
-            .get(makeTeleporterPositionKey(teleporter.padX, teleporter.padY));
-        return block ?? null;
+        const blockIndex = getTeleporterBlockIndex();
+        const block = blockIndex.padBlocksByPosition.get(makeTeleporterPositionKey(teleporter.padX, teleporter.padY))
+            ?? findNearestTeleporterBlockById('teleporter_pad', teleporter)
+            ?? findNearestUnclaimedTeleporterBlock('teleporter_pad', teleporter);
+        return adoptTeleporterBlock(teleporter, block, 'teleporter_pad');
+    }
+
+    function findNearestTeleporterBlockById(
+        type: 'teleporter' | 'teleporter_pad',
+        teleporter: TeleporterRuntime
+    ) {
+        const targetX = type === 'teleporter' ? teleporter.baseX : teleporter.padX;
+        const targetY = type === 'teleporter' ? teleporter.baseY : teleporter.padY;
+        let nearestMatchingId: { block: MapBlock; distanceSquared: number } | null = null;
+        for (const block of runtimeOptions.getMapBlocks()) {
+            if (block.type !== type) {
+                continue;
+            }
+            const blockTeleporterId = typeof block.teleporterId === 'string'
+                ? block.teleporterId.trim()
+                : '';
+            if (blockTeleporterId !== teleporter.id) {
+                continue;
+            }
+            const dx = block.x - targetX;
+            const dy = block.y - targetY;
+            const distanceSquared = dx * dx + dy * dy;
+            if (!nearestMatchingId || distanceSquared < nearestMatchingId.distanceSquared) {
+                nearestMatchingId = { block, distanceSquared };
+            }
+        }
+        return nearestMatchingId?.block ?? null;
+    }
+
+    function findNearestUnclaimedTeleporterBlock(
+        type: 'teleporter' | 'teleporter_pad',
+        teleporter: TeleporterRuntime
+    ) {
+        const targetX = type === 'teleporter' ? teleporter.baseX : teleporter.padX;
+        const targetY = type === 'teleporter' ? teleporter.baseY : teleporter.padY;
+        const maxDistance = teleporterTileSize * 1.5;
+        const maxDistanceSquared = maxDistance * maxDistance;
+        let nearestMatchingId: { block: MapBlock; distanceSquared: number } | null = null;
+        let nearestUnclaimed: { block: MapBlock; distanceSquared: number } | null = null;
+        for (const block of runtimeOptions.getMapBlocks()) {
+            if (block.type !== type) {
+                continue;
+            }
+            const blockTeleporterId = typeof block.teleporterId === 'string'
+                ? block.teleporterId.trim()
+                : '';
+            const dx = block.x - targetX;
+            const dy = block.y - targetY;
+            const distanceSquared = dx * dx + dy * dy;
+            if (blockTeleporterId === teleporter.id) {
+                if (!nearestMatchingId || distanceSquared < nearestMatchingId.distanceSquared) {
+                    nearestMatchingId = { block, distanceSquared };
+                }
+                continue;
+            }
+            if (blockTeleporterId || distanceSquared > maxDistanceSquared) {
+                continue;
+            }
+            if (!nearestUnclaimed || distanceSquared < nearestUnclaimed.distanceSquared) {
+                nearestUnclaimed = { block, distanceSquared };
+            }
+        }
+        return nearestMatchingId?.block ?? nearestUnclaimed?.block ?? null;
+    }
+
+    function adoptTeleporterBlock(
+        teleporter: TeleporterRuntime,
+        block: MapBlock | null,
+        type: 'teleporter' | 'teleporter_pad'
+    ) {
+        if (!block) {
+            return null;
+        }
+        let changed = false;
+        if (block.teleporterId !== teleporter.id) {
+            block.teleporterId = teleporter.id;
+            changed = true;
+        }
+        if (type === 'teleporter') {
+            if (teleporter.baseX !== block.x || teleporter.baseY !== block.y) {
+                teleporter.baseX = block.x;
+                teleporter.baseY = block.y;
+                changed = true;
+            }
+        } else if (teleporter.padX !== block.x || teleporter.padY !== block.y) {
+            teleporter.padX = block.x;
+            teleporter.padY = block.y;
+            changed = true;
+        }
+        if (changed) {
+            invalidateCaches();
+        }
+        return block;
     }
 
     function getTeleporterPadSweepPosition(
@@ -449,7 +560,6 @@ export function createTeleporterPadRuntime(runtimeOptions: TeleporterPadRuntimeO
                 const frameIndex = Math.floor(now / TELEPORTER_PAD_SWEEP_FRAME_MS) % TELEPORTER_PAD_SWEEP_PHASES.length;
                 return TELEPORTER_PAD_SWEEP_PHASES[frameIndex];
             })();
-        const { baseBlocksById, padBlocksById } = getTeleporterBlockIndex();
         for (const teleporter of runtimeOptions.getTeleporters()) {
             if (renderOptions?.viewport && !isTeleporterInViewport(teleporter, renderOptions.viewport)) {
                 continue;
@@ -464,10 +574,8 @@ export function createTeleporterPadRuntime(runtimeOptions: TeleporterPadRuntimeO
             if (renderOptions?.inactiveOnly && active) {
                 continue;
             }
-            const baseBlock = baseBlocksById.get(teleporter.id)
-                ?? getTeleporterBaseBlock(teleporter);
-            const padBlock = padBlocksById.get(teleporter.id)
-                ?? getTeleporterPadBlock(teleporter);
+            const baseBlock = getTeleporterBaseBlock(teleporter);
+            const padBlock = getTeleporterPadBlock(teleporter);
             const palette = typeof padBlock?.palette === 'number'
                 ? padBlock.palette
                 : (typeof baseBlock?.palette === 'number' ? baseBlock.palette : 0);
@@ -483,7 +591,7 @@ export function createTeleporterPadRuntime(runtimeOptions: TeleporterPadRuntimeO
                 ? `${paletteCycle.intervalMs ?? 0}:${paletteCycle.palettes.join(',')}`
                 : 'none';
             const progress = !active && !renderOptions?.activeOnly
-                ? 1
+                ? 0
                 : sweepProgress;
             const progressBucketForPad = Math.round(progress * 1000);
             const positionCacheKey = [
@@ -534,6 +642,11 @@ export function createTeleporterPadRuntime(runtimeOptions: TeleporterPadRuntimeO
         }
         const keys = new Set<string>();
         for (const teleporter of runtimeOptions.getTeleporters()) {
+            const padBlock = getTeleporterPadBlock(teleporter);
+            if (padBlock) {
+                keys.add(makeTeleporterPositionKey(padBlock.x, padBlock.y));
+                continue;
+            }
             keys.add(makeTeleporterPositionKey(teleporter.padX, teleporter.padY));
         }
         teleporterPadKeyCache = { version: teleporterPadCacheVersion, keys };

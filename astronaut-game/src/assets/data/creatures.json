@@ -240,7 +240,7 @@
     }
   },
   {
-    "x": 9127,
+    "x": 9032,
     "y": 3720,
     "type": "robot1",
     "palette": 33,
@@ -262,7 +262,7 @@
     "patrolMaxY": 3752,
     "hoverAmplitude": 0,
     "trackRange": 160,
-    "fireMode": "none",
+    "fireMode": "bullets",
     "homingBullets": false,
     "fireCooldownMs": 1200,
     "fireCooldownVarianceMs": 0,

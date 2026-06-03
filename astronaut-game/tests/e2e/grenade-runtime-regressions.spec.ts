@@ -29,7 +29,7 @@ test('dropped grenades fall and exploded grenades are removed', async ({ page })
 
     const heldResult = await page.evaluate(() => {
         const debug = (window as any).__exileDebug;
-        debug.teleportAstronaut(8526, 1800);
+        debug.teleportAstronaut(8526, 2101);
         const held = debug.holdNearestGrenade();
         const snapshot = debug.getNearestGrenadeDebugSnapshot();
         return { held, snapshot };
@@ -37,7 +37,7 @@ test('dropped grenades fall and exploded grenades are removed', async ({ page })
     expect(heldResult.held).toBe(true);
     const trackedEntityId = heldResult.snapshot?.entityId ?? null;
     expect(typeof trackedEntityId).toBe('number');
-    const dropped = await page.evaluate(() => (window as any).__exileDebug.dropHeldCollectable());
+    const dropped = await page.evaluate(() => (window as any).__exileDebug.dropHeldCollectableUnarmed());
     expect(dropped).toBe(true);
 
     const droppedSnapshot = await page.evaluate((entityId) => (window as any).__exileDebug.getCollectableDebugSnapshot(entityId), trackedEntityId);
@@ -95,6 +95,48 @@ test('keyboard grenade drop releases hold and falls', async ({ page }) => {
     expect(ySamples.length).toBeGreaterThan(3);
     expect(Math.max(...ySamples) - Math.min(...ySamples)).toBeGreaterThan(0);
     expect(ySamples.some((y) => y > startY)).toBe(true);
+});
+
+test('grounded grenade has visible-pixel support beneath it', async ({ page }) => {
+    await page.goto('/');
+    await page.click('body');
+    await page.waitForFunction(() => {
+        const snapshot = (window as any).__exileDebug?.getRuntimeSnapshot?.();
+        return !!snapshot && snapshot.mapLoaded === true;
+    }, { timeout: 20_000 });
+
+    const heldResult = await page.evaluate(() => {
+        const debug = (window as any).__exileDebug;
+        debug.teleportAstronaut(8526, 2101);
+        const held = debug.holdNearestGrenade();
+        const snapshot = debug.getNearestGrenadeDebugSnapshot();
+        return { held, snapshot };
+    });
+    expect(heldResult.held).toBe(true);
+    const trackedEntityId = heldResult.snapshot?.entityId ?? null;
+    expect(typeof trackedEntityId).toBe('number');
+    const dropped = await page.evaluate(() => (window as any).__exileDebug.dropHeldCollectableUnarmed());
+    expect(dropped).toBe(true);
+
+    let groundedSupportCheck: { supportHits: number } | null = null;
+    let latestSnapshot: any = null;
+    let vanished = false;
+    for (let i = 0; i < 80; i += 1) {
+        await page.waitForTimeout(100);
+        const snapshot = await page.evaluate((entityId) => (window as any).__exileDebug.getCollectableDebugSnapshot(entityId), trackedEntityId);
+        latestSnapshot = snapshot;
+        if (!snapshot) {
+            vanished = true;
+            break;
+        }
+        if (snapshot.isGrounded === true) {
+            groundedSupportCheck = await page.evaluate((entityId) => (window as any).__exileDebug.getCollectableSupportDebug(entityId), trackedEntityId);
+            break;
+        }
+    }
+
+    expect(groundedSupportCheck, JSON.stringify({ latestSnapshot, vanished })).not.toBeNull();
+    expect(groundedSupportCheck!.supportHits, JSON.stringify(groundedSupportCheck)).toBeGreaterThan(0);
 });
 
 test('damage emergency teleport falls back to astronaut start with no remembered locations', async ({ page }) => {

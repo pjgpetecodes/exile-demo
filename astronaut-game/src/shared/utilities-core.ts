@@ -476,13 +476,6 @@ export function getSpriteTranslationOffset(
     }
 }
 
-function getEntityRotation(entity: any): number {
-    if (typeof entity.rotation !== 'number') {
-        return 1;
-    }
-    return entity.rotation;
-}
-
 function isEntitySolid(entity: any): boolean {
     if (entity.collision === false) {
         return false;
@@ -493,32 +486,6 @@ function isEntitySolid(entity: any): boolean {
     return true;
 }
 
-function getEntitySpriteGeometry(
-    entity: any,
-    rect: { x: number; y: number; w: number; h: number },
-    SPRITE_SCALE: number
-) {
-    const halfWidth = Math.floor(rect.w / 2);
-    const cropHalf = entity.cropLeftHalf || entity.cropRightHalf;
-    const sourceX = entity.cropRightHalf
-        ? rect.x + rect.w - halfWidth
-        : rect.x;
-    const sourceY = rect.y;
-    const sourceW = cropHalf ? halfWidth : rect.w;
-    const sourceH = rect.h;
-    const drawW = sourceW * SPRITE_SCALE;
-    const drawH = sourceH * SPRITE_SCALE;
-
-    return {
-        sourceX,
-        sourceY,
-        sourceW,
-        sourceH,
-        drawW,
-        drawH
-    };
-}
-
 function isSolidSpritePixelAtWorld(
     x: number,
     y: number,
@@ -527,85 +494,46 @@ function isSolidSpritePixelAtWorld(
     SPRITE_SCALE: number,
     spriteSheetCtx?: CanvasRenderingContext2D
 ): boolean {
-    // Convert world coordinate -> local sprite pixel, accounting for crop/rotation
-    // so collision probing can stay pixel-accurate across entity variants.
-    const geometry = getEntitySpriteGeometry(entity, rect, SPRITE_SCALE);
-    const transformedSprite = spriteSheetCtx
-        ? getTransformedSpriteCanvas(
-            spriteSheetCtx.canvas,
-            {
-                x: geometry.sourceX,
-                y: geometry.sourceY,
-                w: geometry.sourceW,
-                h: geometry.sourceH
-            },
-            getEntityRotation(entity)
-        )
+    const renderedSprite = spriteSheetCtx
+        ? getRenderedEntitySpriteCanvas(spriteSheetCtx.canvas, rect, entity)
         : null;
+    const spriteCanvas = renderedSprite?.canvas ?? null;
     const translationOffset = getSpriteTranslationOffset(
-        transformedSprite,
+        spriteCanvas,
         entity.translation,
         SPRITE_SCALE
     );
-    const centerX = entity.x + translationOffset.x + geometry.drawW / 2;
-    const centerY = entity.y + translationOffset.y + geometry.drawH / 2;
+    const drawX = entity.x + (renderedSprite?.offsetX ?? 0) * SPRITE_SCALE + translationOffset.x;
+    const drawY = entity.y + (renderedSprite?.offsetY ?? 0) * SPRITE_SCALE + translationOffset.y;
 
-    let localX = x - centerX;
-    let localY = y - centerY;
-    const rotation = getEntityRotation(entity);
-
-    if (rotation >= 2 && rotation <= 4) {
-        const angle = -((rotation - 1) * Math.PI / 2);
-        const cos = Math.cos(angle);
-        const sin = Math.sin(angle);
-        const rotatedX = localX * cos - localY * sin;
-        const rotatedY = localX * sin + localY * cos;
-        localX = rotatedX;
-        localY = rotatedY;
-    } else if (rotation === 5) {
-        localX = -localX;
-    } else if (rotation === 6) {
-        localY = -localY;
-    } else if (rotation === 7) {
-        localX = -localX;
-        localY = -localY;
-    } else if (rotation === 8 || rotation === 9) {
-        const angle = rotation === 8 ? -(Math.PI / 2) : -((3 * Math.PI) / 2);
-        const cos = Math.cos(angle);
-        const sin = Math.sin(angle);
-        const rotatedX = localX * cos - localY * sin;
-        const rotatedY = localX * sin + localY * cos;
-        localX = -rotatedX;
-        localY = rotatedY;
-    }
-
-    const drawX = localX + geometry.drawW / 2;
-    const drawY = localY + geometry.drawH / 2;
+    const localDrawX = x - drawX;
+    const localDrawY = y - drawY;
     if (
-        drawX < 0 ||
-        drawX >= geometry.drawW ||
-        drawY < 0 ||
-        drawY >= geometry.drawH
+        localDrawX < 0 ||
+        localDrawY < 0 ||
+        !spriteCanvas ||
+        localDrawX >= spriteCanvas.width * SPRITE_SCALE ||
+        localDrawY >= spriteCanvas.height * SPRITE_SCALE
     ) {
         return false;
     }
 
-    const pixelX = Math.floor(drawX / SPRITE_SCALE);
-    const pixelY = Math.floor(drawY / SPRITE_SCALE);
+    const pixelX = Math.floor(localDrawX / SPRITE_SCALE);
+    const pixelY = Math.floor(localDrawY / SPRITE_SCALE);
     if (
         pixelX < 0 ||
-        pixelX >= geometry.sourceW ||
+        pixelX >= spriteCanvas.width ||
         pixelY < 0 ||
-        pixelY >= geometry.sourceH
+        pixelY >= spriteCanvas.height
     ) {
         return false;
     }
 
-    if (!spriteSheetCtx) {
-        return true;
+    const spriteCtx = spriteCanvas.getContext('2d');
+    if (!spriteCtx) {
+        return false;
     }
-
-    const alpha = spriteSheetCtx.getImageData(geometry.sourceX + pixelX, geometry.sourceY + pixelY, 1, 1).data[3];
+    const alpha = spriteCtx.getImageData(pixelX, pixelY, 1, 1).data[3];
     return alpha > 0;
 }
 

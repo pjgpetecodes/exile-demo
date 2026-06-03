@@ -20,6 +20,11 @@ export type AxisMovementResult = {
 type EnvironmentCollisionOptions = {
     getEntityCollisionBounds: (entity: Collectable | Creature) => CollisionBounds;
     isSolidAtWorld: (x: number, y: number) => boolean;
+    getRenderedEntityWorldSprite?: (
+        entity: Collectable | Creature
+    ) => { canvas: HTMLCanvasElement; drawX: number; drawY: number } | null;
+    getRenderedSpriteOpaqueSamples?: (canvas: HTMLCanvasElement) => Array<{ x: number; y: number }>;
+    spriteScale?: number;
     clampToRange: (value: number, minimum: number, maximum: number) => number;
     mapWidth: number;
     mapHeight: number;
@@ -29,6 +34,16 @@ type EnvironmentCollisionOptions = {
 
 // Extracts side-probe collision movement from game runtime to keep orchestration compact.
 export function createEnvironmentCollisionHelpers(options: EnvironmentCollisionOptions) {
+    const opaqueEdgeSampleCache = new WeakMap<
+        HTMLCanvasElement,
+        {
+            left: Array<{ x: number; y: number }>;
+            right: Array<{ x: number; y: number }>;
+            top: Array<{ x: number; y: number }>;
+            bottom: Array<{ x: number; y: number }>;
+        }
+    >();
+
     function getCollectableEdgeSamples(
         entityX: number,
         entityY: number,
@@ -60,12 +75,121 @@ export function createEnvironmentCollisionHelpers(options: EnvironmentCollisionO
         return sampleEdge(left + 1, right - 1).map((x) => ({ x, y }));
     }
 
-    function collidesAtSide(
+    function getOpaqueEdgeSamples(canvas: HTMLCanvasElement) {
+        const cached = opaqueEdgeSampleCache.get(canvas);
+        if (cached) {
+            return cached;
+        }
+        if (!options.getRenderedSpriteOpaqueSamples) {
+            return null;
+        }
+        const points = options.getRenderedSpriteOpaqueSamples(canvas);
+        if (!points.length) {
+            return null;
+        }
+
+        const leftByRow = new Map<number, number>();
+        const rightByRow = new Map<number, number>();
+        const topByColumn = new Map<number, number>();
+        const bottomByColumn = new Map<number, number>();
+        for (const point of points) {
+            const existingLeft = leftByRow.get(point.y);
+            if (typeof existingLeft !== 'number' || point.x < existingLeft) {
+                leftByRow.set(point.y, point.x);
+            }
+            const existingRight = rightByRow.get(point.y);
+            if (typeof existingRight !== 'number' || point.x > existingRight) {
+                rightByRow.set(point.y, point.x);
+            }
+            const existingTop = topByColumn.get(point.x);
+            if (typeof existingTop !== 'number' || point.y < existingTop) {
+                topByColumn.set(point.x, point.y);
+            }
+            const existingBottom = bottomByColumn.get(point.x);
+            if (typeof existingBottom !== 'number' || point.y > existingBottom) {
+                bottomByColumn.set(point.x, point.y);
+            }
+        }
+
+        const edges = {
+            left: [...leftByRow.entries()]
+                .map(([y, x]) => ({ x, y }))
+                .sort((a, b) => a.y - b.y),
+            right: [...rightByRow.entries()]
+                .map(([y, x]) => ({ x, y }))
+                .sort((a, b) => a.y - b.y),
+            top: [...topByColumn.entries()]
+                .map(([x, y]) => ({ x, y }))
+                .sort((a, b) => a.x - b.x),
+            bottom: [...bottomByColumn.entries()]
+                .map(([x, y]) => ({ x, y }))
+                .sort((a, b) => a.x - b.x)
+        };
+        opaqueEdgeSampleCache.set(canvas, edges);
+        return edges;
+    }
+
+    function compactSamples(samples: Array<{ x: number; y: number }>, maxSamples: number) {
+        if (samples.length <= maxSamples) {
+            return samples;
+        }
+        const stride = Math.ceil(samples.length / maxSamples);
+        const compacted: Array<{ x: number; y: number }> = [];
+        for (let index = 0; index < samples.length; index += stride) {
+            compacted.push(samples[index]);
+        }
+        return compacted;
+    }
+
+    function getRenderedCollectableSideSamples(
+        collectable: Collectable,
         entityX: number,
         entityY: number,
         collisionBounds: CollisionBounds,
         side: 'left' | 'right' | 'top' | 'bottom'
     ) {
+        const rendered = options.getRenderedEntityWorldSprite?.(collectable) ?? null;
+        if (!rendered) {
+            return getCollectableEdgeSamples(entityX, entityY, collisionBounds, side);
+        }
+        const opaqueEdges = getOpaqueEdgeSamples(rendered.canvas);
+        if (!opaqueEdges) {
+            return getCollectableEdgeSamples(entityX, entityY, collisionBounds, side);
+        }
+        const spriteScale = options.spriteScale ?? 1;
+        const deltaX = entityX - collectable.x;
+        const deltaY = entityY - collectable.y;
+        return compactSamples(opaqueEdges[side], 24).map((point) => ({
+            x: rendered.drawX + deltaX + (point.x + 0.5) * spriteScale,
+            y: rendered.drawY + deltaY + (point.y + 0.5) * spriteScale
+        }));
+    }
+
+    function collidesCollectableAtSide(
+        collectable: Collectable,
+        entityX: number,
+        entityY: number,
+        collisionBounds: CollisionBounds,
+        side: 'left' | 'right' | 'top' | 'bottom'
+    ) {
+        const samples = getRenderedCollectableSideSamples(collectable, entityX, entityY, collisionBounds, side);
+        const probeOffset = side === 'right' || side === 'bottom' ? 1 : -1;
+        return samples.some((sample) => options.isSolidAtWorld(
+            sample.x + (side === 'left' || side === 'right' ? probeOffset : 0),
+            sample.y + (side === 'top' || side === 'bottom' ? probeOffset : 0)
+        ));
+    }
+
+    function collidesAtSide(
+        entityX: number,
+        entityY: number,
+        collisionBounds: CollisionBounds,
+        side: 'left' | 'right' | 'top' | 'bottom',
+        collectable?: Collectable
+    ) {
+        if (collectable) {
+            return collidesCollectableAtSide(collectable, entityX, entityY, collisionBounds, side);
+        }
         const samples = getCollectableEdgeSamples(entityX, entityY, collisionBounds, side);
         const probeOffset = side === 'right' || side === 'bottom' ? 1 : -1;
         return samples.some((sample) => options.isSolidAtWorld(
@@ -158,9 +282,16 @@ export function createEnvironmentCollisionHelpers(options: EnvironmentCollisionO
         return bestResult;
     }
 
-    function getFloorSnapAmount(entityX: number, entityY: number, collisionBounds: CollisionBounds) {
+    function getFloorSnapAmount(
+        entityX: number,
+        entityY: number,
+        collisionBounds: CollisionBounds,
+        collectable?: Collectable
+    ) {
         for (let distance = 1; distance <= options.collectableGroundSnapDistance; distance++) {
-            const samples = getCollectableEdgeSamples(entityX, entityY + distance, collisionBounds, 'bottom');
+            const samples = collectable
+                ? getRenderedCollectableSideSamples(collectable, entityX, entityY + distance, collisionBounds, 'bottom')
+                : getCollectableEdgeSamples(entityX, entityY + distance, collisionBounds, 'bottom');
             const supported = samples.some((sample) => options.isSolidAtWorld(sample.x, sample.y + 1));
             if (supported) {
                 return distance;
@@ -181,17 +312,17 @@ export function createEnvironmentCollisionHelpers(options: EnvironmentCollisionO
 
         for (let step = 0; step < Math.abs(amount); step++) {
             const nextX = collectable.x + direction;
-            if (collidesAtSide(nextX, collectable.y, collisionBounds, side)) {
+            if (collidesCollectableAtSide(collectable, nextX, collectable.y, collisionBounds, side)) {
                 let steppedUp = false;
                 for (let stepHeight = 1; stepHeight <= options.collectablePushStepUpHeight; stepHeight++) {
                     const candidateY = collectable.y - stepHeight;
-                    if (collidesAtSide(nextX, candidateY, collisionBounds, side)) {
+                    if (collidesCollectableAtSide(collectable, nextX, candidateY, collisionBounds, side)) {
                         continue;
                     }
-                    if (collidesAtSide(nextX, candidateY, collisionBounds, 'top')) {
+                    if (collidesCollectableAtSide(collectable, nextX, candidateY, collisionBounds, 'top')) {
                         continue;
                     }
-                    if (!collidesAtSide(nextX, candidateY, collisionBounds, 'bottom')) {
+                    if (!collidesCollectableAtSide(collectable, nextX, candidateY, collisionBounds, 'bottom')) {
                         continue;
                     }
 
@@ -227,7 +358,7 @@ export function createEnvironmentCollisionHelpers(options: EnvironmentCollisionO
 
         for (let step = 0; step < Math.abs(amount); step++) {
             const nextY = collectable.y + direction;
-            if (collidesAtSide(collectable.x, nextY, collisionBounds, side)) {
+            if (collidesCollectableAtSide(collectable, collectable.x, nextY, collisionBounds, side)) {
                 break;
             }
             collectable.y = nextY;

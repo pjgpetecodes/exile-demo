@@ -53,9 +53,15 @@ type CollectablePhysicsFactoryOptions = {
         x: number,
         y: number,
         bounds: { left: number; right: number; top: number; bottom: number },
-        side: 'left' | 'right' | 'top' | 'bottom'
+        side: 'left' | 'right' | 'top' | 'bottom',
+        collectable?: Collectable
     ) => boolean;
-    getFloorSnapAmount: (x: number, y: number, bounds: { left: number; right: number; top: number; bottom: number }) => number;
+    getFloorSnapAmount: (
+        x: number,
+        y: number,
+        bounds: { left: number; right: number; top: number; bottom: number },
+        collectable?: Collectable
+    ) => number;
     applyDynamicObjectBounceRestitution: (
         body: Collectable,
         speed: number,
@@ -208,7 +214,7 @@ export function createGameCollectablePhysics(options: CollectablePhysicsFactoryO
 
             if (stepTargetX !== nextX) {
                 const horizontalDirection = stepTargetX > nextX ? 'right' : 'left';
-                if (!options.collidesAtSide(stepTargetX, nextY, collisionBounds, horizontalDirection)) {
+                if (!options.collidesAtSide(stepTargetX, nextY, collisionBounds, horizontalDirection, collectable)) {
                     nextX = stepTargetX;
                 } else {
                     hitWorld = true;
@@ -228,7 +234,7 @@ export function createGameCollectablePhysics(options: CollectablePhysicsFactoryO
 
             if (stepTargetY !== nextY) {
                 const verticalDirection = stepTargetY > nextY ? 'bottom' : 'top';
-                if (!options.collidesAtSide(nextX, stepTargetY, collisionBounds, verticalDirection)) {
+                if (!options.collidesAtSide(nextX, stepTargetY, collisionBounds, verticalDirection, collectable)) {
                     nextY = stepTargetY;
                 } else {
                     hitWorld = true;
@@ -252,7 +258,7 @@ export function createGameCollectablePhysics(options: CollectablePhysicsFactoryO
         }
 
         if (!grounded && !bounced && collectable.velocity.y >= 0) {
-            const snapAmount = options.getFloorSnapAmount(nextX, nextY, collisionBounds);
+            const snapAmount = options.getFloorSnapAmount(nextX, nextY, collisionBounds, collectable);
             if (snapAmount > 0) {
                 hitWorld = true;
                 const snapImpactSpeed = collectable.velocity.y + snapAmount * physicsSettings.gravity * 2;

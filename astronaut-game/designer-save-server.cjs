@@ -7,6 +7,7 @@ const PORT = 3001;
 const ROOT = __dirname;
 const MAX_REQUEST_BODY_BYTES = 50_000_000;
 const ASSET_DATA_DIR = path.join(ROOT, 'src', 'assets', 'data');
+const ASSET_AUDIO_DIR = path.join(ROOT, 'src', 'assets', 'audio');
 const WORLD_CHUNK_DIR = path.join(ASSET_DATA_DIR, 'world_chunks');
 const WORLD_CHUNK_MANIFEST_FILE = path.join(WORLD_CHUNK_DIR, 'manifest.json');
 const WORLD_CHUNK_WORLD_SIZE = 2048;
@@ -26,6 +27,7 @@ const SPRITE_MAP_FILE = path.join(ASSET_DATA_DIR, 'exile_sprites_map.json');
 const SPRITE_SHEET_FILE = path.join(ROOT, 'src', 'assets', 'images', 'sprites', 'sprite_sheet.png');
 const ATOMIC_WRITE_RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY']);
 const ATOMIC_WRITE_RETRY_ATTEMPTS = 8;
+const CREATURE_SOUND_EXTENSIONS = new Set(['.wav', '.mp3', '.ogg', '.m4a', '.aac', '.flac']);
 
 function delay(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -489,6 +491,39 @@ async function processSpriteSheetNormalization(dryRun) {
     return report;
 }
 
+function toCreatureSoundLabel(fileName) {
+    const extension = path.extname(fileName);
+    const stem = extension.length > 0
+        ? fileName.slice(0, -extension.length)
+        : fileName;
+    const normalized = stem.replace(/[_-]+/g, ' ').trim();
+    if (!normalized) {
+        return stem;
+    }
+    return normalized.replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+async function listCreatureSoundManifest() {
+    const entries = await fs.readdir(ASSET_AUDIO_DIR, { withFileTypes: true });
+    return entries
+        .filter((entry) => entry.isFile())
+        .map((entry) => entry.name)
+        .filter((fileName) => CREATURE_SOUND_EXTENSIONS.has(path.extname(fileName).toLowerCase()))
+        .sort((left, right) => left.localeCompare(right))
+        .map((fileName) => {
+            const extension = path.extname(fileName);
+            const key = extension.length > 0
+                ? fileName.slice(0, -extension.length)
+                : fileName;
+            return {
+                key,
+                label: toCreatureSoundLabel(fileName),
+                fileName,
+                path: `./src/assets/audio/${fileName}`
+            };
+        });
+}
+
 const server = http.createServer(async (req, res) => {
     if (!req.url) {
         sendJson(res, 400, { error: 'Missing request URL.' });
@@ -507,6 +542,18 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && req.url === '/health') {
         sendJson(res, 200, { ok: true });
+        return;
+    }
+
+    if (req.method === 'GET' && req.url === '/creature-sounds') {
+        try {
+            const sounds = await listCreatureSoundManifest();
+            sendJson(res, 200, { ok: true, sounds });
+        } catch (error) {
+            sendJson(res, 500, {
+                error: error instanceof Error ? error.message : 'Failed to enumerate creature sounds.'
+            });
+        }
         return;
     }
 

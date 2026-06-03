@@ -2113,8 +2113,8 @@
     "x": 7674,
     "y": 2676,
     "type": "column",
-    "collision": true,
-    "maskAstronaut": false,
+    "collision": false,
+    "maskAstronaut": true,
     "palette": 1,
     "rotation": 1,
     "translation": "center"
@@ -2123,8 +2123,8 @@
     "x": 7884,
     "y": 2676,
     "type": "column",
-    "collision": true,
-    "maskAstronaut": false,
+    "collision": false,
+    "maskAstronaut": true,
     "palette": 1,
     "rotation": 1,
     "translation": "center"
