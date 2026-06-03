@@ -43,6 +43,7 @@ export function createSharedRuntimeContextFromState(state: ValuePack) {
         getBulletImpactAudioSettings: state.getBulletImpactAudioSettings,
         getAstronautRect: state.getAstronautRect,
         getWaterSubmersionRatioForRect: state.getWaterSubmersionRatioForRect,
+        getIsWorldPointInWater: state.getIsWorldPointInWater,
         getAstronautAimPoint: state.getAstronautAimPoint,
         getAstronautRenderedWorldSprite: state.getAstronautRenderedWorldSprite,
         getEntityCollisionBounds: state.getEntityCollisionBounds,

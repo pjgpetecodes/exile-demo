@@ -452,4 +452,100 @@ describe('held flask fill and spill behavior', () => {
         runtime.updateHeldCollectablePosition();
         expect(emitSpill).toHaveBeenCalledTimes(1);
     });
+
+    it('fills only when all opaque flask pixels are underwater and spills if any exit before 2s', () => {
+        const flask = {
+            type: 'pipe_down_half',
+            palette: 30,
+            x: 0,
+            y: 0,
+            velocity: { x: 0, y: 0 },
+            setHeldFacing: vi.fn()
+        };
+        let now = 100;
+        const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => now);
+        let waterMode: 'partial' | 'full' = 'partial';
+        const canvas = {
+            width: 2,
+            height: 1,
+            getContext: () => ({
+                getImageData: () => ({
+                    data: new Uint8ClampedArray([
+                        0, 0, 0, 255,
+                        0, 0, 0, 255
+                    ])
+                })
+            })
+        } as unknown as HTMLCanvasElement;
+        const emitSpill = vi.fn();
+        const runtime = createGameHeldItemRuntime({
+            astronaut: { position: { x: 100, y: 120 }, velocity: { x: 0, y: 0 } },
+            movementSettings: {
+                heldCollectableVerticalOffset: -6,
+                droppedCollectableForwardOffset: 24,
+                heldCollectableForwardOffset: 28,
+                droppedCollectableMomentumTransfer: 0.75,
+                droppedCollectableAstronautIgnoreFrames: 18,
+                collectablePickupRange: 52,
+                collectableInventoryLimit: 5,
+                throwVelocity: 5.6,
+                flaskFillDurationMs: 2000,
+                flaskFillMinSubmersionRatio: 0.8,
+                flaskFillTopCoverageMinRatio: 0.35,
+                flaskSpillFlashMs: 180,
+                flaskCarryBangDeltaSpeed: 10,
+                flaskImpactSpillMinSpeed: 1.9
+            },
+            heldCollectableHandInset: 8,
+            heldCollectableHandOverlap: -12,
+            spriteScale: 1,
+            keys: {},
+            getPrevKeys: () => ({}),
+            getFacingLeft: () => false,
+            getFacingSign: () => 1,
+            getThrowAngleDegrees: () => 20,
+            getAstronautRect: () => ({ left: 80, right: 120, top: 90, bottom: 130 }),
+            getEntityCollisionBounds: () => ({ left: -8, right: 8, top: -8, bottom: 8 }),
+            getEntityRect: (x, y, bounds) => ({ left: x + bounds.left, right: x + bounds.right, top: y + bounds.top, bottom: y + bounds.bottom }),
+            getEntityCenter: (x, y, bounds) => ({ x: x + (bounds.left + bounds.right) / 2, y: y + (bounds.top + bounds.bottom) / 2 }),
+            getWaterSubmersionRatioForRect: () => 1,
+            getIsWorldPointInWater: (x) => waterMode === 'full' || x < 1,
+            getAstronautRenderedWorldSprite: () => null,
+            getRenderedEntityWorldSprite: () => ({ canvas, drawX: 0, drawY: 0 }),
+            getSpriteVisibleBounds: () => null,
+            getCollectableEntities: () => [flask as any],
+            getHeldCollectable: () => flask as any,
+            setHeldCollectable: () => {},
+            getStoredCollectables: () => [],
+            getInventoryCycleIndex: () => -1,
+            setInventoryCycleIndex: () => {},
+            creatureRuntime: {
+                getNearestPickupCreature: () => null,
+                removeCreatureEntity: () => {}
+            },
+            spawnCreatureCarryProxy: () => ({} as any),
+            markCollectableCollected: () => {},
+            isCollectableCollected: () => false,
+            isGrenadeCollectable: () => false,
+            setGrenadeCollectableArmedState: () => {},
+            removeCollectableEntity: () => {},
+            restoreCreatureFromPayload: () => {},
+            getSound: { currentTime: 0, play: vi.fn(() => Promise.resolve()) } as any,
+            saveSound: { currentTime: 0, play: vi.fn(() => Promise.resolve()) } as any,
+            emitFlaskSpillParticles: emitSpill
+        });
+
+        runtime.updateHeldCollectablePosition();
+        expect(flask.palette).toBe(30);
+
+        waterMode = 'full';
+        runtime.updateHeldCollectablePosition();
+        expect(flask.palette).toBe(10);
+
+        now += 500;
+        waterMode = 'partial';
+        runtime.updateHeldCollectablePosition();
+        expect(emitSpill).toHaveBeenCalledTimes(1);
+        nowSpy.mockRestore();
+    });
 });

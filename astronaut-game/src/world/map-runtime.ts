@@ -1046,6 +1046,8 @@ export function drawMap(
             ctx.fillStyle = waterFillColor;
             ctx.fillRect(snappedDrawX, snappedDrawY, waterBodyDrawWidth, waterBodyDrawHeight);
             if (!hasWaterAbove(block)) {
+                // Draw the surface line over the water body so it remains visible.
+                ctx.globalCompositeOperation = 'source-over';
                 ctx.fillStyle = waterSurfaceColor;
                 ctx.fillRect(snappedDrawX, snappedDrawY, waterBodyDrawWidth, waterSurfaceThickness);
             }

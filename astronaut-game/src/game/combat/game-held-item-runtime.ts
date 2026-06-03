@@ -49,6 +49,7 @@ type HeldItemRuntimeOptions = {
     getEntityRect: (x: number, y: number, bounds: CollisionBounds) => EntityRect;
     getEntityCenter: (x: number, y: number, bounds: CollisionBounds) => Position;
     getWaterSubmersionRatioForRect: (rect: EntityRect) => number;
+    getIsWorldPointInWater?: (x: number, y: number) => boolean;
     getAstronautRenderedWorldSprite: () => { canvas: HTMLCanvasElement; drawX: number; drawY: number } | null;
     getRenderedEntityWorldSprite: (entity: any) => { canvas: HTMLCanvasElement; drawX: number; drawY: number } | null;
     getSpriteVisibleBounds: (canvas: HTMLCanvasElement | null) => { minX: number; minY: number; maxX: number; maxY: number } | null;
@@ -76,6 +77,45 @@ type HeldItemRuntimeOptions = {
 
 export function createGameHeldItemRuntime(options: HeldItemRuntimeOptions) {
     const swallowAutoplayRejection = () => {};
+    const isWorldPointInWater = typeof options.getIsWorldPointInWater === 'function'
+        ? options.getIsWorldPointInWater
+        : (x: number, y: number) => options.getWaterSubmersionRatioForRect({
+            left: x,
+            right: x,
+            top: y,
+            bottom: y
+        }) >= 1;
+
+    function isHeldFlaskFullySubmerged(
+        collectable: Collectable,
+        heldRect: EntityRect
+    ) {
+        const rendered = options.getRenderedEntityWorldSprite(collectable);
+        if (!rendered) {
+            return options.getWaterSubmersionRatioForRect(heldRect) >= 1;
+        }
+        const spriteContext = rendered.canvas.getContext('2d');
+        if (!spriteContext) {
+            return options.getWaterSubmersionRatioForRect(heldRect) >= 1;
+        }
+        const imageData = spriteContext.getImageData(0, 0, rendered.canvas.width, rendered.canvas.height).data;
+        let opaquePixelCount = 0;
+        for (let y = 0; y < rendered.canvas.height; y += 1) {
+            for (let x = 0; x < rendered.canvas.width; x += 1) {
+                const alpha = imageData[(y * rendered.canvas.width + x) * 4 + 3];
+                if (alpha <= 0) {
+                    continue;
+                }
+                opaquePixelCount += 1;
+                const worldX = rendered.drawX + (x + 0.5) * options.spriteScale;
+                const worldY = rendered.drawY + (y + 0.5) * options.spriteScale;
+                if (!isWorldPointInWater(worldX, worldY)) {
+                    return false;
+                }
+            }
+        }
+        return opaquePixelCount > 0;
+    }
 
     function getHeldCollectableTargetPosition(): Position {
         const heldCollectable = options.getHeldCollectable();
@@ -191,7 +231,7 @@ export function createGameHeldItemRuntime(options: HeldItemRuntimeOptions) {
         const spillOriginX = Math.round((heldRect.left + heldRect.right) / 2);
         const spillOriginY = heldRect.top;
 
-        const submergedForFill = options.getWaterSubmersionRatioForRect(heldRect) > 0;
+        const submergedForFill = isHeldFlaskFullySubmerged(heldCollectable, heldRect);
         if (submergedForFill) {
             setFlaskPaletteFull(heldCollectable);
             if (!isFlaskFillCommitted(heldCollectable)) {

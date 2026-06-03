@@ -43,6 +43,18 @@ function isPointInWater(
     return false;
 }
 
+export function isWorldPointInWater(
+    x: number,
+    y: number,
+    spriteScale: number,
+    mapBlocks: MapBlock[]
+) {
+    if (!Array.isArray(mapBlocks) || mapBlocks.length === 0) {
+        return false;
+    }
+    return isPointInWater(x, y, spriteScale, mapBlocks);
+}
+
 export function getWaterSubmersionRatioForRect(
     rect: WaterRect,
     spriteScale: number,

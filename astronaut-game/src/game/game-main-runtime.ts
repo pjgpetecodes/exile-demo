@@ -204,7 +204,10 @@ import { createGameCollectableRemovalHelpers } from './collectables/game-collect
 import { createGameCreatureTargetingHelpers } from './creatures/game-creature-targeting-helpers.js';
 import { createProjectileImpactRuntime } from './projectiles/game-projectile-impact-runtime.js';
 import { createCollectablePhysicsRuntime } from './projectiles/game-collectable-physics-settings.js';
-import { getWaterSubmersionRatioForRect as getWaterSubmersionRatioForRectRuntime } from './water/game-water-medium-runtime.js';
+import {
+    getWaterSubmersionRatioForRect as getWaterSubmersionRatioForRectRuntime,
+    isWorldPointInWater as isWorldPointInWaterRuntime
+} from './water/game-water-medium-runtime.js';
 import {
     createChunkActivityTuningController
 } from './chunk-activity/chunk-activity-tuning.js';
@@ -999,6 +1002,8 @@ const {
 
 const getWaterSubmersionRatioForRect = (rect: { left: number; right: number; top: number; bottom: number }) =>
     getWaterSubmersionRatioForRectRuntime(rect, SPRITE_SCALE, mapBlocks);
+const getIsWorldPointInWater = (x: number, y: number) =>
+    isWorldPointInWaterRuntime(x, y, SPRITE_SCALE, mapBlocks);
 
 const {
     getActiveWindEmittersNearAstronaut,
@@ -1347,6 +1352,7 @@ const sharedRuntimeContext = createSharedRuntimeContextFromState({
     getBulletImpactAudioSettings: () => bulletImpactAudioSettings,
     getAstronautRect,
     getWaterSubmersionRatioForRect,
+    getIsWorldPointInWater,
     getAstronautAimPoint,
     getAstronautRenderedWorldSprite,
     getEntityCollisionBounds,

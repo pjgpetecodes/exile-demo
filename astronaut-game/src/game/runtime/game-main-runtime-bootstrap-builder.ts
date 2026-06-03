@@ -42,6 +42,7 @@ export function createGameMainRuntimeBootstrapFromContext(context: ValuePack) {
         geometry: {
             getAstronautRect: context.getAstronautRect,
             getWaterSubmersionRatioForRect: context.getWaterSubmersionRatioForRect,
+            getIsWorldPointInWater: context.getIsWorldPointInWater,
             getAstronautAimPoint: context.getAstronautAimPoint,
             getAstronautRenderedWorldSprite: context.getAstronautRenderedWorldSprite,
             getEntityCollisionBounds: context.getEntityCollisionBounds,
