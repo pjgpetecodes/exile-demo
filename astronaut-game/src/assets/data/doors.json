@@ -323,13 +323,13 @@
     "destructionSource": "any_explosion"
   },
   {
-    "x": 5066,
-    "y": 11365,
+    "x": 5210,
+    "y": 11828,
     "z": 0,
     "type": "wall_left_quarter",
     "palette": 28,
     "rotation": 1,
-    "translation": "center",
+    "translation": "right",
     "name": "wall_left_quarter_11",
     "doorID": 17,
     "locked": false,
@@ -342,8 +342,8 @@
     "destructionSource": "coronium_explosion"
   },
   {
-    "x": 5350,
-    "y": 12039,
+    "x": 5351,
+    "y": 12037,
     "z": 0,
     "type": "wall_left_quarter",
     "palette": 28,

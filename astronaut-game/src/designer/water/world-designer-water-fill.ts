@@ -24,7 +24,7 @@ function toCellKey(gridX: number, gridY: number) {
 }
 
 function hasSolidTerrainBlock(blocks: MapBlock[] | undefined) {
-    return (blocks ?? []).some((block) => block.waterOnly !== true);
+    return (blocks ?? []).some((block) => block.waterOnly !== true && block.collision === true);
 }
 
 function isTraversableWaterSpace(blocks: MapBlock[] | undefined) {
@@ -33,7 +33,7 @@ function isTraversableWaterSpace(blocks: MapBlock[] | undefined) {
 
 function isLikelyTransparentEdgeTerrain(block: MapBlock) {
     const type = typeof block.type === 'string' ? block.type.toLowerCase() : '';
-    return type.includes('diag') || type.includes('half');
+    return type.includes('diag') || type.includes('diagonal') || type.includes('diagnonal');
 }
 
 function createWaterBlockAtGrid(grid: GridPoint, tileSize: number): MapBlock {

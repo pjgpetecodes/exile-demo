@@ -481,7 +481,10 @@ export function getMapBlocksNearWorldPoint(
     return nearbyBlocks;
 }
 
-export function shouldMaskAstronaut(block: Pick<MapBlock, 'type' | 'collision' | 'maskAstronaut'>) {
+export function shouldMaskAstronaut(block: Pick<MapBlock, 'type' | 'collision' | 'maskAstronaut' | 'water' | 'waterOnly'>) {
+    if (block.water === true || block.waterOnly === true) {
+        return false;
+    }
     if (typeof block.maskAstronaut === 'boolean') {
         return block.maskAstronaut;
     }
@@ -1038,6 +1041,8 @@ export function drawMap(
             const snappedDrawX = Math.round(drawX);
             const snappedDrawY = Math.round(drawY);
             ctx.save();
+            // Water is always a background layer; never paint it over already-rendered entities.
+            ctx.globalCompositeOperation = 'destination-over';
             ctx.fillStyle = waterFillColor;
             ctx.fillRect(snappedDrawX, snappedDrawY, waterBodyDrawWidth, waterBodyDrawHeight);
             if (!hasWaterAbove(block)) {
