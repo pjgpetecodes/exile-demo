@@ -60,13 +60,13 @@
       "x": 1,
       "y": 1,
       "file": "chunk_1_1.json",
-      "count": 624
+      "count": 625
     },
     {
       "x": 2,
       "y": 1,
       "file": "chunk_2_1.json",
-      "count": 1415
+      "count": 1416
     },
     {
       "x": 3,
@@ -120,7 +120,7 @@
       "x": 3,
       "y": 2,
       "file": "chunk_3_2.json",
-      "count": 607
+      "count": 608
     },
     {
       "x": 4,
@@ -162,7 +162,7 @@
       "x": 2,
       "y": 3,
       "file": "chunk_2_3.json",
-      "count": 1467
+      "count": 1468
     },
     {
       "x": 3,
