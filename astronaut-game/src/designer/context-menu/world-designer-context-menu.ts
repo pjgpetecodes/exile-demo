@@ -12,6 +12,7 @@ import type {
     Selection,
     WorldDesignerHost
 } from '../core/world-designer-types.js';
+import { fillConnectedPalette } from '../palette/world-designer-palette-flood-fill.js';
 import {
     clearSingleWaterTile,
     fillConnectedWorldWater,
@@ -65,6 +66,7 @@ type WorldDesignerContextMenuDeps = {
     getContextMenuSelectedTeleporterPair: () => ContextMenuTeleporterPair | null;
     convertTeleporterWorldPair: (base: any, pad: any) => void;
     canConvertCustomSpriteToButton: (instance: CustomSpriteInstance) => boolean;
+    getCategoryArray: (category: DesignerCategory) => any[];
     resolvePlacementPosition: (worldX: number, worldY: number) => Position;
     createPastedSelections: (entries: ClipboardEntry[], offsetX: number, offsetY: number) => Selection[];
 };
@@ -113,6 +115,7 @@ export function createWorldDesignerContextMenu(deps: WorldDesignerContextMenuDep
         getContextMenuSelectedTeleporterPair,
         convertTeleporterWorldPair,
         canConvertCustomSpriteToButton,
+        getCategoryArray,
         resolvePlacementPosition,
         createPastedSelections
     } = deps;
@@ -334,6 +337,84 @@ export function createWorldDesignerContextMenu(deps: WorldDesignerContextMenuDep
         }, disabled);
     }
 
+    function addContextMenuPaletteFloodFillSubmenu(disabled = false) {
+        const selection = state.contextMenu.primarySelection;
+        if (!selection || selection.category === 'custom' || !('palette' in selection.entity)) {
+            return;
+        }
+        const currentPalette = typeof selection.entity.palette === 'number'
+            ? selection.entity.palette
+            : 0;
+        const previewType = selection.entity.type ?? getCurrentType();
+        const previewRotation = selection.entity.rotation ?? state.rotation;
+        const previewTranslation = selection.category === 'world'
+            ? normalizeSpriteTranslation(selection.entity.translation)
+            : (state.category === 'world' ? state.translation : 'center');
+
+        addContextMenuSubmenu(`Flood fill (${currentPalette})`, (body) => {
+            for (let palette = 0; palette < paletteCount; palette += 1) {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'world-designer-context-palette-option';
+                if (palette === currentPalette) {
+                    button.classList.add('selected');
+                }
+
+                const canvas = document.createElement('canvas');
+                canvas.className = 'world-designer-context-palette-canvas';
+                canvas.width = 36;
+                canvas.height = 36;
+                renderSpritePreviewCanvas(
+                    canvas,
+                    previewType,
+                    palette,
+                    normalizeRotation(previewRotation),
+                    previewTranslation
+                );
+                button.appendChild(canvas);
+
+                const label = document.createElement('span');
+                label.className = 'world-designer-context-palette-label';
+                label.textContent = `Palette ${palette}`;
+                button.appendChild(label);
+
+                button.addEventListener('click', () => {
+                    closeContextMenu();
+                    const clampedPalette = clamp(palette, 0, paletteCount - 1);
+                    const targetCategoryItems = getCategoryArray(selection.category) as Array<{
+                        x: number;
+                        y: number;
+                        type: string;
+                        palette?: number;
+                    }>;
+                    runMutation(`Flood-filled palette to ${clampedPalette}.`, () => {
+                        const changedCount = fillConnectedPalette({
+                            items: targetCategoryItems,
+                            seed: selection.entity as {
+                                x: number;
+                                y: number;
+                                type: string;
+                                palette?: number;
+                            },
+                            tileSize: TILE_SIZE,
+                            toPalette: clampedPalette
+                        });
+                        if (changedCount === 0) {
+                            setStatus('No connected sprites matched this palette flood-fill.', 'neutral');
+                        } else {
+                            setStatus(
+                                `Flood-filled palette on ${changedCount} sprite${changedCount === 1 ? '' : 's'}.`,
+                                'success'
+                            );
+                        }
+                    });
+                    updateSelectionFromInspectorState();
+                });
+                body.appendChild(button);
+            }
+        }, disabled);
+    }
+
     function setContextMenuSelectionCollision(enabled: boolean) {
         const selection = getContextMenuTargetSelection();
         if (!selection || !('collision' in selection.entity)) return;
@@ -545,6 +626,7 @@ export function createWorldDesignerContextMenu(deps: WorldDesignerContextMenuDep
         }, !selection);
 
         addContextMenuPaletteSubmenu(selectedItems.length === 0 || selection.category === 'custom');
+        addContextMenuPaletteFloodFillSubmenu(selection.category === 'custom');
 
         if ('collision' in selection.entity || selection.category === 'world') {
             addContextMenuSubmenu('Properties', (body) => {

@@ -5365,7 +5365,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 1,
     "translation": "center"
   },
@@ -5375,7 +5375,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 1,
     "translation": "center"
   },
@@ -5385,7 +5385,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 1,
     "translation": "center"
   },
@@ -5395,7 +5395,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 1,
     "translation": "center"
   },
@@ -5405,7 +5405,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 1,
     "translation": "center"
   },
@@ -5415,7 +5415,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 1,
     "translation": "center"
   },
@@ -5425,7 +5425,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 1,
     "translation": "center"
   },
@@ -5455,7 +5455,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -5655,7 +5655,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 1,
     "translation": "center"
   },
@@ -5665,7 +5665,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 1,
     "translation": "center"
   },
@@ -5675,7 +5675,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 1,
     "translation": "center"
   },
@@ -5685,7 +5685,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 1,
     "translation": "center"
   },
@@ -5695,7 +5695,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 1,
     "translation": "center"
   },
@@ -5705,7 +5705,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -5715,7 +5715,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -5725,7 +5725,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -5735,7 +5735,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -5745,7 +5745,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -5947,7 +5947,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 1,
     "translation": "center"
   },
@@ -5957,7 +5957,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 1,
     "translation": "center"
   },
@@ -5967,7 +5967,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 1,
     "translation": "center"
   },
@@ -5977,7 +5977,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -5987,7 +5987,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -5997,7 +5997,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -6007,7 +6007,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -6017,7 +6017,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -6027,7 +6027,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -6037,7 +6037,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -6239,7 +6239,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 1,
     "translation": "center"
   },
@@ -6249,7 +6249,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 1,
     "translation": "center"
   },
@@ -6270,7 +6270,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -6280,7 +6280,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -6290,7 +6290,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -6300,7 +6300,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -6310,7 +6310,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -6320,7 +6320,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -6330,7 +6330,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -6532,7 +6532,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 1,
     "translation": "center"
   },
@@ -6542,7 +6542,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 1,
     "translation": "center"
   },
@@ -6563,7 +6563,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -6573,7 +6573,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -6583,7 +6583,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -6593,7 +6593,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -6603,7 +6603,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -6613,7 +6613,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -6623,7 +6623,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -6825,7 +6825,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 1,
     "translation": "center"
   },
@@ -6835,7 +6835,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -6856,7 +6856,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -6866,7 +6866,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -6876,7 +6876,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -6886,7 +6886,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -6896,7 +6896,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -6906,7 +6906,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -6916,7 +6916,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -7118,7 +7118,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -7128,7 +7128,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -7149,7 +7149,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -7159,7 +7159,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -7169,7 +7169,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -7179,7 +7179,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -7189,7 +7189,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -7199,7 +7199,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },
@@ -7209,7 +7209,7 @@
     "type": "floor_full",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 22,
+    "palette": 34,
     "rotation": 3,
     "translation": "center"
   },

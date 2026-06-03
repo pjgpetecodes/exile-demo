@@ -98,6 +98,7 @@ export function createInteractionCoordinatorFromContext(context: any) {
             getContextMenuSelectedTeleporterPair: context.getContextMenuSelectedTeleporterPair,
             convertTeleporterWorldPair: context.convertTeleporterWorldPair,
             canConvertCustomSpriteToButton: context.canConvertCustomSpriteToButton,
+            getCategoryArray: context.getCategoryArray,
             createPastedSelections: context.createPastedSelections
         }
     });
