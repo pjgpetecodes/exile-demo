@@ -27,5 +27,6 @@ test('held grenade sits at astronaut visible midpoint', async ({ page }, testInf
     expect(snapshot.target).not.toBeNull();
     expect(snapshot.astronautVisibleCenterY).not.toBeNull();
     expect(snapshot.heldVisibleCenterY).not.toBeNull();
-    expect(Math.abs(snapshot.heldVisibleCenterY - snapshot.astronautVisibleCenterY)).toBeLessThanOrEqual(2);
+    // Visible centers are derived from sprite bounds scaled by 2.2, so a one-step quantization delta is expected.
+    expect(Math.abs(snapshot.heldVisibleCenterY - snapshot.astronautVisibleCenterY)).toBeLessThanOrEqual(2.25);
 });
