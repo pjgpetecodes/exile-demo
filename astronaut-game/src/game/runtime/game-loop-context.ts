@@ -49,8 +49,16 @@ type RuntimeLoopStateBindings = {
     setSimulationFrameCounter: (value: number) => void;
     getTeleportAnimFrame: () => number;
     setTeleportAnimFrame: (value: number) => void;
+    getTeleportFlipSprite: () => boolean;
+    setTeleportFlipSprite: (value: boolean) => void;
+    getTeleportFlipVertical: () => boolean;
+    setTeleportFlipVertical: (value: boolean) => void;
+    getTeleportLocations: () => any[];
+    setTeleportLocations: (value: any[]) => void;
     getTeleportPhase: () => any;
     setTeleportPhase: (value: any) => void;
+    getTeleportSpriteCol: () => number;
+    setTeleportSpriteCol: (value: number) => void;
     getTeleportSlot: () => number;
     setTeleportSlot: (value: number) => void;
     getTeleportTarget: () => any;
@@ -92,7 +100,11 @@ export function createGameLoopRuntimeContext(runtimeContext: Record<string, any>
         pronePoseActive: { enumerable: true, get: () => state.getPronePoseActive(), set: (value) => { state.setPronePoseActive(value); } },
         simulationFrameCounter: { enumerable: true, get: () => state.getSimulationFrameCounter(), set: (value) => { state.setSimulationFrameCounter(value); } },
         teleportAnimFrame: { enumerable: true, get: () => state.getTeleportAnimFrame(), set: (value) => { state.setTeleportAnimFrame(value); } },
+        teleportFlipSprite: { enumerable: true, get: () => state.getTeleportFlipSprite(), set: (value) => { state.setTeleportFlipSprite(value); } },
+        teleportFlipVertical: { enumerable: true, get: () => state.getTeleportFlipVertical(), set: (value) => { state.setTeleportFlipVertical(value); } },
+        teleportLocations: { enumerable: true, get: () => state.getTeleportLocations(), set: (value) => { state.setTeleportLocations(value); } },
         teleportPhase: { enumerable: true, get: () => state.getTeleportPhase(), set: (value) => { state.setTeleportPhase(value); } },
+        teleportSpriteCol: { enumerable: true, get: () => state.getTeleportSpriteCol(), set: (value) => { state.setTeleportSpriteCol(value); } },
         teleportSlot: { enumerable: true, get: () => state.getTeleportSlot(), set: (value) => { state.setTeleportSlot(value); } },
         teleportTarget: { enumerable: true, get: () => state.getTeleportTarget(), set: (value) => { state.setTeleportTarget(value); } },
         teleporting: { enumerable: true, get: () => state.getTeleporting(), set: (value) => { state.setTeleporting(value); } },

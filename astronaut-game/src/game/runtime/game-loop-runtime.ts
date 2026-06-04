@@ -1169,7 +1169,11 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         context.pronePoseActive = pronePoseActive;
         context.simulationFrameCounter = simulationFrameCounter;
         context.teleportAnimFrame = teleportAnimFrame;
+        context.teleportFlipSprite = teleportFlipSprite;
+        context.teleportFlipVertical = teleportFlipVertical;
+        context.teleportLocations = teleportLocations;
         context.teleportPhase = teleportPhase;
+        context.teleportSpriteCol = teleportSpriteCol;
         context.teleportSlot = teleportSlot;
         context.teleportTarget = teleportTarget;
         context.teleporting = teleporting;

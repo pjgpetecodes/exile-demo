@@ -1986,8 +1986,25 @@ loopStateAccessors = createLoopStateAccessorsFromState({
     setSimulationFrameCounter: (value: any) => { simulationFrameCounter = value; },
     getTeleportAnimFrame: () => teleportAnimFrame,
     setTeleportAnimFrame: (value: any) => { teleportAnimFrame = value; },
+    getTeleportFlipSprite: () => teleportFlipSprite,
+    setTeleportFlipSprite: (value: any) => { teleportFlipSprite = !!value; },
+    getTeleportFlipVertical: () => teleportFlipVertical,
+    setTeleportFlipVertical: (value: any) => { teleportFlipVertical = !!value; },
+    getTeleportLocations: () => teleportLocations,
+    setTeleportLocations: (value: any) => {
+        if (Array.isArray(value)) {
+            teleportLocations.length = 0;
+            teleportLocations.push(...value);
+        }
+    },
     getTeleportPhase: () => teleportPhase,
     setTeleportPhase: (value: any) => { teleportPhase = value; },
+    getTeleportSpriteCol: () => teleportSpriteCol,
+    setTeleportSpriteCol: (value: any) => {
+        if (Number.isFinite(Number(value))) {
+            teleportSpriteCol = Number(value);
+        }
+    },
     getTeleportSlot: () => teleportSlot,
     setTeleportSlot: (value: any) => { teleportSlot = value; },
     getTeleportTarget: () => teleportTarget,
