@@ -30,8 +30,8 @@
         },
         "background": {
           "activeOnStart": true,
-          "beginsPattern": ".",
-          "endsPattern": "\\[Browsersync\\] Access URLs:"
+          "beginsPattern": "(?:\\[0\\]\\s*)?\\d{1,2}:\\d{2}:\\d{2}\\s*-\\s*Starting compilation in watch mode\\.\\.\\.",
+          "endsPattern": "(?:\\[0\\]\\s*)?\\d{1,2}:\\d{2}:\\d{2}\\s*-\\s*Found \\d+ errors?\\. Watching for file changes\\."
         }
       }
     },

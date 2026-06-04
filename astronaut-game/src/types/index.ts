@@ -56,7 +56,7 @@ export interface PaletteCycleSettings {
 export type CreatureMovementMode = 'ground' | 'fly' | 'hover' | 'turret';
 export type CreatureFireMode = 'none' | 'bullets' | 'grenades' | 'plasma_grenades' | 'energy_pods';
 export type CreatureProjectileKind = 'bullet' | 'grenade' | 'plasma_grenade' | 'energy_pod';
-export type CreatureArchetype = 'custom' | 'monkey' | 'bird' | 'bee' | 'turret';
+export type CreatureArchetype = 'custom' | 'monkey' | 'bird' | 'bee' | 'robot' | 'turret';
 
 export interface ProjectileImpactAnimationSettings {
     frames: string[];
@@ -91,6 +91,7 @@ export interface CreatureProjectileRuntimeData {
     remainingFrames: number;
     damage: number;
     sourceEntityId?: number;
+    impacted?: boolean;
 }
 
 export interface CreatureSoundSettings {

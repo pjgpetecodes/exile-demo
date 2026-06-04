@@ -6,25 +6,28 @@ const { PNG } = require('pngjs');
 const PORT = 3001;
 const ROOT = __dirname;
 const MAX_REQUEST_BODY_BYTES = 50_000_000;
-const WORLD_CHUNK_DIR = path.join(ROOT, 'src', 'assets', 'world_chunks');
+const ASSET_DATA_DIR = path.join(ROOT, 'src', 'assets', 'data');
+const ASSET_AUDIO_DIR = path.join(ROOT, 'src', 'assets', 'audio');
+const WORLD_CHUNK_DIR = path.join(ASSET_DATA_DIR, 'world_chunks');
 const WORLD_CHUNK_MANIFEST_FILE = path.join(WORLD_CHUNK_DIR, 'manifest.json');
 const WORLD_CHUNK_WORLD_SIZE = 2048;
 const NON_WORLD_ASSET_FILES = {
-    buttons: path.join(ROOT, 'src', 'assets', 'buttons.json'),
-    doors: path.join(ROOT, 'src', 'assets', 'doors.json'),
-    creatures: path.join(ROOT, 'src', 'assets', 'creatures.json'),
-    collectables: path.join(ROOT, 'src', 'assets', 'collectables.json'),
-    teleporters: path.join(ROOT, 'src', 'assets', 'teleporters.json'),
-    windEmitters: path.join(ROOT, 'src', 'assets', 'wind_emitters.json'),
-    windSettings: path.join(ROOT, 'src', 'assets', 'wind_settings.json'),
-    astronautStart: path.join(ROOT, 'src', 'assets', 'astronaut_start.json')
+    buttons: path.join(ASSET_DATA_DIR, 'buttons.json'),
+    doors: path.join(ASSET_DATA_DIR, 'doors.json'),
+    creatures: path.join(ASSET_DATA_DIR, 'creatures.json'),
+    collectables: path.join(ASSET_DATA_DIR, 'collectables.json'),
+    teleporters: path.join(ASSET_DATA_DIR, 'teleporters.json'),
+    windEmitters: path.join(ASSET_DATA_DIR, 'wind_emitters.json'),
+    windSettings: path.join(ASSET_DATA_DIR, 'wind_settings.json'),
+    astronautStart: path.join(ASSET_DATA_DIR, 'astronaut_start.json')
 };
-const PALETTES_FILE = path.join(ROOT, 'src', 'assets', 'palettes.json');
-const COLORS_FILE = path.join(ROOT, 'src', 'assets', 'colors.json');
-const SPRITE_MAP_FILE = path.join(ROOT, 'src', 'assets', 'exile_sprites_map.json');
-const SPRITE_SHEET_FILE = path.join(ROOT, 'src', 'assets', 'sprite_sheet.png');
+const PALETTES_FILE = path.join(ASSET_DATA_DIR, 'palettes.json');
+const COLORS_FILE = path.join(ASSET_DATA_DIR, 'colors.json');
+const SPRITE_MAP_FILE = path.join(ASSET_DATA_DIR, 'exile_sprites_map.json');
+const SPRITE_SHEET_FILE = path.join(ROOT, 'src', 'assets', 'images', 'sprites', 'sprite_sheet.png');
 const ATOMIC_WRITE_RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY']);
 const ATOMIC_WRITE_RETRY_ATTEMPTS = 8;
+const CREATURE_SOUND_EXTENSIONS = new Set(['.wav', '.mp3', '.ogg', '.m4a', '.aac', '.flac']);
 
 function delay(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -125,42 +128,181 @@ function chunkWorldMapBlocks(worldMap) {
     });
 }
 
+function isChunkManifestEntry(value) {
+    if (!value || typeof value !== 'object') {
+        return false;
+    }
+    return Number.isFinite(value.x)
+        && Number.isFinite(value.y)
+        && typeof value.file === 'string'
+        && value.file.trim().length > 0;
+}
+
+async function readExistingChunkManifestEntries() {
+    try {
+        const manifest = await readJsonFile(WORLD_CHUNK_MANIFEST_FILE);
+        return Array.isArray(manifest?.chunks)
+            ? manifest.chunks.filter(isChunkManifestEntry)
+            : [];
+    } catch {
+        return [];
+    }
+}
+
+function stableJsonStringify(value) {
+    return JSON.stringify(value);
+}
+
+async function hasJsonFileChanged(filePath, nextValue) {
+    try {
+        const existingValue = await readJsonFile(filePath);
+        return stableJsonStringify(existingValue) !== stableJsonStringify(nextValue);
+    } catch {
+        return true;
+    }
+}
+
+async function getChunkFileBlockCount(filePath, fallbackCount = 0) {
+    try {
+        const payload = await readJsonFile(filePath);
+        return Array.isArray(payload) ? payload.length : fallbackCount;
+    } catch {
+        return fallbackCount;
+    }
+}
+
+function isSuspiciousChunkRegression(incomingCount, existingCount) {
+    if (!Number.isFinite(existingCount) || existingCount <= 0) {
+        return false;
+    }
+    if (!Number.isFinite(incomingCount)) {
+        return true;
+    }
+    if (incomingCount >= existingCount) {
+        return false;
+    }
+    if (incomingCount === 0) {
+        return true;
+    }
+    if (existingCount >= 100 && incomingCount <= Math.floor(existingCount * 0.2)) {
+        return true;
+    }
+    if (existingCount >= 20 && incomingCount <= 1) {
+        return true;
+    }
+    return false;
+}
+
 async function writeWorldMapChunks(worldMap) {
     await fs.mkdir(WORLD_CHUNK_DIR, { recursive: true });
-    const chunkEntries = chunkWorldMapBlocks(worldMap).map((chunk) => {
+    const existingManifestEntries = await readExistingChunkManifestEntries();
+    const incomingChunkEntries = chunkWorldMapBlocks(worldMap).map((chunk) => {
         const file = `chunk_${chunk.x}_${chunk.y}.json`;
         return {
             ...chunk,
             file,
-            filePath: path.join(WORLD_CHUNK_DIR, file)
+            filePath: path.join(WORLD_CHUNK_DIR, file),
+            count: chunk.blocks.length
         };
     });
+    const incomingChunkCount = incomingChunkEntries.length;
+    const existingChunkCount = existingManifestEntries.length;
+    const incomingByFile = new Map(incomingChunkEntries.map((entry) => [entry.file, entry]));
+    const incomingTotalBlocks = incomingChunkEntries.reduce((sum, entry) => sum + (Number(entry.count) || 0), 0);
+    const existingTotalBlocks = existingManifestEntries.reduce((sum, entry) => sum + (Number(entry.count) || 0), 0);
+    const shouldPreserveMissingExistingChunks =
+        incomingChunkCount > 0 &&
+        existingChunkCount > 0 &&
+        incomingChunkCount < Math.floor(existingChunkCount * 0.8);
+    const shouldGuardAgainstMassiveRegression =
+        incomingChunkCount > 0 &&
+        existingChunkCount > 0 &&
+        existingTotalBlocks > 0 &&
+        incomingTotalBlocks < Math.floor(existingTotalBlocks * 0.8);
 
-    await Promise.all(chunkEntries.map((entry) => writeJsonFile(entry.filePath, entry.blocks)));
+    const mergedByFile = new Map(incomingChunkEntries.map((entry) => [entry.file, {
+        ...entry,
+        source: 'incoming'
+    }]));
+    if (shouldPreserveMissingExistingChunks || shouldGuardAgainstMassiveRegression) {
+        for (const existingEntry of existingManifestEntries) {
+            const existingFilePath = path.join(WORLD_CHUNK_DIR, existingEntry.file);
+            try {
+                await fs.access(existingFilePath);
+            } catch {
+                continue;
+            }
+            const incomingEntry = incomingByFile.get(existingEntry.file);
+            const existingCount = Number(existingEntry.count) || 0;
+            const shouldPreserveEntry = !incomingEntry || (
+                shouldGuardAgainstMassiveRegression &&
+                isSuspiciousChunkRegression(Number(incomingEntry.count) || 0, existingCount)
+            );
+            if (!shouldPreserveEntry) {
+                continue;
+            }
+            mergedByFile.set(existingEntry.file, {
+                x: existingEntry.x,
+                y: existingEntry.y,
+                file: existingEntry.file,
+                filePath: existingFilePath,
+                count: await getChunkFileBlockCount(existingFilePath, existingCount),
+                source: 'existing'
+            });
+        }
+    }
 
-    const keepFiles = new Set(chunkEntries.map((entry) => entry.file));
-    const existingFiles = await fs.readdir(WORLD_CHUNK_DIR);
-    const staleChunkFiles = existingFiles.filter((fileName) =>
-        /^chunk_-?\d+_-?\d+\.json$/i.test(fileName) &&
-        !keepFiles.has(fileName)
-    );
-    await Promise.all(staleChunkFiles.map((fileName) => fs.unlink(path.join(WORLD_CHUNK_DIR, fileName))));
+    const mergedChunkEntries = [...mergedByFile.values()].sort((left, right) => {
+        if (left.y !== right.y) {
+            return left.y - right.y;
+        }
+        return left.x - right.x;
+    });
+
+    const changedChunkFiles = [];
+    const incomingWrites = mergedChunkEntries
+        .filter((entry) => entry.source === 'incoming')
+        .map(async (entry) => {
+            const incomingEntry = incomingByFile.get(entry.file);
+            if (!incomingEntry) {
+                return;
+            }
+            if (!await hasJsonFileChanged(entry.filePath, incomingEntry.blocks)) {
+                return;
+            }
+            await writeJsonFile(entry.filePath, incomingEntry.blocks);
+            changedChunkFiles.push(path.join('world_chunks', entry.file));
+        });
+    await Promise.all(incomingWrites);
+
+    if (!shouldPreserveMissingExistingChunks) {
+        const keepFiles = new Set(mergedChunkEntries.map((entry) => entry.file));
+        const existingFiles = await fs.readdir(WORLD_CHUNK_DIR);
+        const staleChunkFiles = existingFiles.filter((fileName) =>
+            /^chunk_-?\d+_-?\d+\.json$/i.test(fileName) &&
+            !keepFiles.has(fileName)
+        );
+        await Promise.all(staleChunkFiles.map((fileName) => fs.unlink(path.join(WORLD_CHUNK_DIR, fileName))));
+    }
 
     const manifest = {
         version: 1,
         chunkWorldSize: WORLD_CHUNK_WORLD_SIZE,
-        chunks: chunkEntries.map((entry) => ({
+        chunks: mergedChunkEntries.map((entry) => ({
             x: entry.x,
             y: entry.y,
             file: entry.file,
-            count: entry.blocks.length
+            count: entry.count
         }))
     };
-    await writeJsonFile(WORLD_CHUNK_MANIFEST_FILE, manifest);
+    const manifestChanged = await hasJsonFileChanged(WORLD_CHUNK_MANIFEST_FILE, manifest);
+    if (manifestChanged) {
+        await writeJsonFile(WORLD_CHUNK_MANIFEST_FILE, manifest);
+    }
 
     return [
-        path.join('world_chunks', path.basename(WORLD_CHUNK_MANIFEST_FILE)),
-        ...chunkEntries.map((entry) => path.join('world_chunks', entry.file))
+        ...(manifestChanged ? [path.join('world_chunks', path.basename(WORLD_CHUNK_MANIFEST_FILE))] : []),
+        ...changedChunkFiles.sort()
     ];
 }
 
@@ -349,6 +491,39 @@ async function processSpriteSheetNormalization(dryRun) {
     return report;
 }
 
+function toCreatureSoundLabel(fileName) {
+    const extension = path.extname(fileName);
+    const stem = extension.length > 0
+        ? fileName.slice(0, -extension.length)
+        : fileName;
+    const normalized = stem.replace(/[_-]+/g, ' ').trim();
+    if (!normalized) {
+        return stem;
+    }
+    return normalized.replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+async function listCreatureSoundManifest() {
+    const entries = await fs.readdir(ASSET_AUDIO_DIR, { withFileTypes: true });
+    return entries
+        .filter((entry) => entry.isFile())
+        .map((entry) => entry.name)
+        .filter((fileName) => CREATURE_SOUND_EXTENSIONS.has(path.extname(fileName).toLowerCase()))
+        .sort((left, right) => left.localeCompare(right))
+        .map((fileName) => {
+            const extension = path.extname(fileName);
+            const key = extension.length > 0
+                ? fileName.slice(0, -extension.length)
+                : fileName;
+            return {
+                key,
+                label: toCreatureSoundLabel(fileName),
+                fileName,
+                path: `./src/assets/audio/${fileName}`
+            };
+        });
+}
+
 const server = http.createServer(async (req, res) => {
     if (!req.url) {
         sendJson(res, 400, { error: 'Missing request URL.' });
@@ -367,6 +542,18 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && req.url === '/health') {
         sendJson(res, 200, { ok: true });
+        return;
+    }
+
+    if (req.method === 'GET' && req.url === '/creature-sounds') {
+        try {
+            const sounds = await listCreatureSoundManifest();
+            sendJson(res, 200, { ok: true, sounds });
+        } catch (error) {
+            sendJson(res, 500, {
+                error: error instanceof Error ? error.message : 'Failed to enumerate creature sounds.'
+            });
+        }
         return;
     }
 

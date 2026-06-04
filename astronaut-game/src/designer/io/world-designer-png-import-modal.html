@@ -1,0 +1,232 @@
+<div class="world-designer-summary">
+    Create a rough draft of <strong>world items only</strong> by matching PNG pixels against the currently authored world sprite set. This modal now has two separate paths: <strong>Single PNG</strong> for direct small-region imports, and <strong>Chunk folder</strong> for rebuilding larger areas from exported chunks.
+</div>
+<div class="world-designer-import-layout">
+    <div class="world-designer-import-sidebar">
+        <div class="world-designer-import-card">
+            <h3>Choose an import path</h3>
+            <div class="world-designer-import-paths">
+                <button type="button" class="world-designer-import-path" data-role="png-import-mode-single">
+                    <strong>Single PNG</strong>
+                    <span>Import one PNG or one cropped section directly.</span>
+                </button>
+                <button type="button" class="world-designer-import-path" data-role="png-import-mode-folder">
+                    <strong>Chunk folder</strong>
+                    <span>Rebuild a larger area from exported chunks.</span>
+                </button>
+            </div>
+            <div class="world-designer-summary">
+                Pick <strong>Single PNG</strong> for fast small-area imports. Pick <strong>Chunk folder</strong> for staged large-map reconstruction.
+            </div>
+        </div>
+        <div class="world-designer-import-card">
+            <div class="world-designer-import-tabs">
+                <button type="button" class="world-designer-import-tab" data-role="png-import-tab-import">Import</button>
+                <button type="button" class="world-designer-import-tab" data-role="png-import-tab-export">Chunk export</button>
+            </div>
+            <div class="world-designer-summary" data-role="png-import-tab-summary">
+                Import mode previews matched world blocks before they touch the live world.
+            </div>
+        </div>
+        <div class="world-designer-import-card" data-role="png-import-single-source">
+            <div class="world-designer-grid">
+                <label class="world-designer-field world-designer-grid-wide">PNG file or URL
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <input type="text" data-role="png-import-url" value="__PNG_IMPORT_DEFAULT_URL__" style="flex:1 1 auto;" />
+                        <button type="button" class="world-designer-button-secondary" data-role="png-import-browse">Browse…</button>
+                    </div>
+                    <input type="file" data-role="png-import-file" accept=".png,image/png" style="display:none;" />
+                </label>
+            </div>
+        </div>
+        <div class="world-designer-import-card" data-role="png-import-folder-source" hidden>
+            <h3>Exported chunk folder</h3>
+            <div class="world-designer-actions">
+                <button type="button" class="world-designer-button-secondary" data-role="png-import-folder-browse">Choose folder…</button>
+            </div>
+            <div class="world-designer-grid" style="margin-top:8px;">
+                <label class="world-designer-field world-designer-grid-wide">Selected folder
+                    <input type="text" data-role="png-import-folder-name" value="No folder selected" readonly />
+                </label>
+                <label class="world-designer-field">Chunk column from
+                    <input type="number" data-role="png-import-folder-min-column" value="1" min="1" step="1" />
+                </label>
+                <label class="world-designer-field">Chunk column to
+                    <input type="number" data-role="png-import-folder-max-column" value="1" min="1" step="1" />
+                </label>
+                <label class="world-designer-field">Chunk row from
+                    <input type="number" data-role="png-import-folder-min-row" value="1" min="1" step="1" />
+                </label>
+                <label class="world-designer-field">Chunk row to
+                    <input type="number" data-role="png-import-folder-max-row" value="1" min="1" step="1" />
+                </label>
+                <label class="world-designer-field">Max chunks
+                    <input type="number" data-role="png-import-folder-max-chunks" value="0" min="0" step="1" />
+                </label>
+            </div>
+            <label class="world-designer-checkbox">
+                <input type="checkbox" data-role="png-import-folder-fit-target" checked />
+                Keep the world span matched to the selected chunk range
+            </label>
+            <div class="world-designer-summary" data-role="png-import-folder-meta">
+                Choose an exported chunk folder to reconstruct a larger map region.
+            </div>
+        </div>
+        <div class="world-designer-import-card" data-role="png-import-source-crop">
+            <h3>PNG crop in the source image</h3>
+            <div class="world-designer-grid">
+                <label class="world-designer-field">Crop left (px)
+                    <input type="number" data-role="png-import-source-x" value="0" step="1" />
+                </label>
+                <label class="world-designer-field">Crop top (px)
+                    <input type="number" data-role="png-import-source-y" value="0" step="1" />
+                </label>
+                <label class="world-designer-field">Crop width (px)
+                    <input type="number" data-role="png-import-source-width" value="0" step="1" />
+                </label>
+                <label class="world-designer-field">Crop height (px)
+                    <input type="number" data-role="png-import-source-height" value="0" step="1" />
+                </label>
+            </div>
+            <div class="world-designer-actions">
+                <button type="button" class="world-designer-button-subtle" data-role="png-import-snap">Snap crop to 32px tiles</button>
+            </div>
+        </div>
+        <div class="world-designer-import-card" data-role="png-import-export-card">
+            <h3>Split PNG into import chunks</h3>
+            <div class="world-designer-grid">
+                <label class="world-designer-field">Chunk preset
+                    <select data-role="png-import-export-preset">
+                        <option value="4x4">4 x 4 tiles</option>
+                        <option value="8x8">8 x 8 tiles</option>
+                        <option value="16x16" selected>16 x 16 tiles</option>
+                        <option value="24x16">24 x 16 tiles</option>
+                        <option value="16x24">16 x 24 tiles</option>
+                        <option value="custom">Custom</option>
+                    </select>
+                </label>
+                <label class="world-designer-field">Chunk width (tiles)
+                    <input type="number" data-role="png-import-export-width" value="16" min="1" step="1" />
+                </label>
+                <label class="world-designer-field">Chunk height (tiles)
+                    <input type="number" data-role="png-import-export-height" value="16" min="1" step="1" />
+                </label>
+            </div>
+            <label class="world-designer-checkbox">
+                <input type="checkbox" data-role="png-import-export-skip-empty" checked />
+                Skip fully empty / black chunk PNGs
+            </label>
+            <div class="world-designer-actions">
+                <button type="button" class="world-designer-button-secondary" data-role="png-import-export">Export chunks…</button>
+            </div>
+            <div class="world-designer-summary" data-role="png-import-export-meta">
+                Export chunk PNGs with stable names and a manifest so the folder importer can reconstruct the larger map later.
+            </div>
+        </div>
+        <div class="world-designer-import-card" data-role="png-import-progress-card" hidden>
+            <h3 data-role="png-import-progress-title">Progress</h3>
+            <div class="world-designer-import-progress" data-role="png-import-progress">
+                <progress data-role="png-import-progress-bar" max="1" value="0"></progress>
+                <div class="world-designer-summary" data-role="png-import-progress-label">Preparing…</div>
+                <div class="world-designer-summary" data-role="png-import-progress-detail"></div>
+                <div class="world-designer-import-progress-actions">
+                    <button type="button" class="world-designer-button-secondary" data-role="png-import-progress-cancel" hidden>Cancel chunk export</button>
+                </div>
+            </div>
+        </div>
+        <div class="world-designer-import-card" data-role="png-import-world-card">
+            <h3>Place matched blocks in the world</h3>
+            <div class="world-designer-grid">
+                <label class="world-designer-field">World left
+                    <input type="number" data-role="png-import-world-x" value="__WORLD_X__" step="1" />
+                </label>
+                <label class="world-designer-field">World top
+                    <input type="number" data-role="png-import-world-y" value="__WORLD_Y__" step="1" />
+                </label>
+                <label class="world-designer-field">World span width
+                    <input type="number" data-role="png-import-world-width" value="__WORLD_WIDTH__" step="1" />
+                </label>
+                <label class="world-designer-field">World span height
+                    <input type="number" data-role="png-import-world-height" value="__WORLD_HEIGHT__" step="1" />
+                </label>
+            </div>
+            <div class="world-designer-summary" data-role="png-import-world-meta">
+                In chunk-folder mode, world left/top is the origin for the exported crop and the folder preview keeps the selected chunk range aligned relative to that origin.
+            </div>
+            <label class="world-designer-checkbox">
+                <input type="checkbox" data-role="png-import-replace" checked />
+                Replace existing world items inside the target area before importing
+            </label>
+            <label class="world-designer-checkbox">
+                <input type="checkbox" data-role="png-import-clear-all" />
+                Clear all existing world items and collectibles before importing
+            </label>
+        </div>
+        <div class="world-designer-import-card" data-role="png-import-action-card">
+            <div class="world-designer-actions">
+                <button type="button" class="world-designer-button-primary" data-role="png-import-preview">Preview blocks</button>
+                <button type="button" class="world-designer-button-secondary" data-role="png-import-direct-folder" hidden>Try folder import now</button>
+            </div>
+            <div class="world-designer-summary" data-role="png-import-meta">
+                Loading PNG metadata…
+            </div>
+        </div>
+    </div>
+    <div class="world-designer-import-main" data-role="png-import-main">
+        <div class="world-designer-import-card" data-role="png-import-preview-card">
+            <div class="world-designer-import-toolbar">
+                <div class="world-designer-summary">
+                    Preview the matched world blocks before importing. Click a tile below to edit its type, palette, rotation, or translation.
+                </div>
+                <div class="world-designer-import-zoom-controls">
+                    <button type="button" class="world-designer-button-subtle" data-role="png-import-zoom-out">−</button>
+                    <button type="button" class="world-designer-button-subtle" data-role="png-import-zoom-fit">Fit</button>
+                    <button type="button" class="world-designer-button-subtle" data-role="png-import-zoom-reset">100%</button>
+                    <button type="button" class="world-designer-button-subtle" data-role="png-import-zoom-in">+</button>
+                    <span class="world-designer-import-zoom-label" data-role="png-import-zoom-label">100%</span>
+                </div>
+            </div>
+            <div class="world-designer-png-preview-frame" data-role="png-import-preview-frame">
+                <canvas class="world-designer-png-preview-canvas" data-role="png-import-preview-canvas" width="32" height="32"></canvas>
+            </div>
+            <div class="world-designer-summary" data-role="png-import-preview-meta">
+                Preview not generated yet.
+            </div>
+        </div>
+        <div class="world-designer-import-card" data-role="png-import-editor-card">
+            <div class="world-designer-grid">
+                <label class="world-designer-field world-designer-grid-wide">Selected preview tile
+                    <input type="text" data-role="png-import-selected-tile" value="No tile selected" readonly />
+                </label>
+                <div class="world-designer-grid-wide">
+                    <div class="world-designer-sprite-preview">
+                        <canvas class="world-designer-sprite-canvas" data-role="png-import-selected-type-preview" width="72" height="72"></canvas>
+                        <div class="world-designer-sprite-meta" data-role="png-import-selected-type-meta">No sprite selected</div>
+                    </div>
+                    <details class="world-designer-sprite-picker" data-role="png-import-type-picker">
+                        <summary>Choose replacement sprite</summary>
+                        <div class="world-designer-sprite-picker-body">
+                            <label class="world-designer-field">
+                                Filter sprites
+                                <input type="text" data-role="png-import-type-filter" placeholder="Filter sprite names" />
+                            </label>
+                            <div class="world-designer-sprite-picker-grid" data-role="png-import-type-grid"></div>
+                        </div>
+                    </details>
+                </div>
+                <label class="world-designer-field">Palette
+                    <input type="number" data-role="png-import-selected-palette" value="0" min="0" step="1" />
+                </label>
+                <label class="world-designer-field">Rotation
+                    <select data-role="png-import-selected-rotation">__ROTATION_OPTIONS__</select>
+                </label>
+                <label class="world-designer-field">Translation
+                    <select data-role="png-import-selected-translation">__TRANSLATION_OPTIONS__</select>
+                </label>
+            </div>
+            <div class="world-designer-actions">
+                <button type="button" class="world-designer-button-subtle" data-role="png-import-reset-tile">Reset selected tile</button>
+            </div>
+        </div>
+    </div>
+</div>

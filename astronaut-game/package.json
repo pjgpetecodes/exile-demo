@@ -4,11 +4,18 @@
   "description": "A simple 2D game featuring an astronaut character with flying mechanics and weak gravity.",
   "main": "src/game.ts",
   "scripts": {
-    "start": "node static-server.cjs",
+    "clean:dist": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
+    "start": "npm run build:clean && node static-server.cjs",
     "save-server": "node designer-save-server.cjs",
     "build": "tsc",
+    "build:clean": "npm run clean:dist && npm run build",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test": "npm run test:unit && npm run test:e2e",
     "extract-bbc-audio": "node tools/extract-bbc-audio.cjs",
-    "dev": "concurrently \"tsc --watch\" \"lite-server --config bs-config.js --no-open\" \"node designer-save-server.cjs\""
+    "dev": "npm run build:clean && concurrently \"tsc --watch\" \"lite-server --config bs-config.js --no-open\" \"node designer-save-server.cjs\""
   },
   "dependencies": {
     "pngjs": "^7.0.0",
@@ -16,6 +23,7 @@
     "typescript": "^4.5.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.54.1",
     "concurrently": "^8.2.0",
     "eslint": "^7.32.0",
     "eslint-config-airbnb-typescript": "^14.0.1",
@@ -23,7 +31,8 @@
     "eslint-plugin-react": "^7.28.0",
     "eslint-plugin-react-hooks": "^4.3.0",
     "lite-server": "^2.6.1",
-    "serve": "^14.2.0"
+    "serve": "^14.2.0",
+    "vitest": "^3.2.4"
   },
   "keywords": [
     "game",
