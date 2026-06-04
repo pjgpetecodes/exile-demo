@@ -78,9 +78,13 @@ test('keyboard grenade drop releases hold and falls', async ({ page }) => {
     expect(typeof trackedEntityId).toBe('number');
 
     await page.keyboard.press('m');
-    await page.waitForTimeout(120);
+    await page.waitForFunction((entityId) => {
+        const snapshot = (window as any).__exileDebug.getCollectableDebugSnapshot(entityId);
+        return !!snapshot && snapshot.held === false;
+    }, trackedEntityId, { timeout: 5_000 });
 
     const droppedSnapshot = await page.evaluate((entityId) => (window as any).__exileDebug.getCollectableDebugSnapshot(entityId), trackedEntityId);
+    expect(droppedSnapshot).not.toBeNull();
     expect(droppedSnapshot?.held).toBe(false);
 
     const startY = droppedSnapshot?.y ?? 0;
