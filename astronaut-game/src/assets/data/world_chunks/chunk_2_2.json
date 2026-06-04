@@ -7280,23 +7280,13 @@
     "translation": "center"
   },
   {
-    "x": 6125,
+    "x": 6124,
     "y": 5632,
-    "type": "wall_half",
+    "type": "wall_diagnonal_thirds",
     "collision": true,
     "maskAstronaut": false,
     "palette": 12,
-    "rotation": 6,
-    "translation": "center"
-  },
-  {
-    "x": 6125,
-    "y": 5632,
-    "type": "wall_half",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 12,
-    "rotation": 6,
+    "rotation": 5,
     "translation": "center"
   },
   {
@@ -7798,6 +7788,26 @@
     "palette": 3,
     "rotation": 1,
     "translation": "center"
+  },
+  {
+    "x": 6054,
+    "y": 5702,
+    "type": "robot4",
+    "collision": true,
+    "maskAstronaut": false,
+    "palette": 1,
+    "rotation": 1,
+    "translation": "bottom"
+  },
+  {
+    "x": 5843,
+    "y": 5772,
+    "type": "column",
+    "collision": false,
+    "maskAstronaut": true,
+    "palette": 1,
+    "rotation": 1,
+    "translation": "right"
   },
   {
     "x": 4153,
@@ -8140,24 +8150,14 @@
     "translation": "center"
   },
   {
-    "x": 5702,
+    "x": 5703,
     "y": 5773,
-    "type": "grass",
+    "type": "wall_bush",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 1,
-    "rotation": 1,
-    "translation": "bottom"
-  },
-  {
-    "x": 5702,
-    "y": 5773,
-    "type": "grass",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 1,
-    "rotation": 1,
-    "translation": "bottom"
+    "palette": 13,
+    "rotation": 7,
+    "translation": "right"
   },
   {
     "x": 5773,
@@ -8178,26 +8178,6 @@
     "palette": 3,
     "rotation": 1,
     "translation": "center"
-  },
-  {
-    "x": 5843,
-    "y": 5773,
-    "type": "grass",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 1,
-    "rotation": 3,
-    "translation": "left"
-  },
-  {
-    "x": 5843,
-    "y": 5773,
-    "type": "grass",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 1,
-    "rotation": 3,
-    "translation": "left"
   },
   {
     "x": 5913,
@@ -8222,22 +8202,22 @@
   {
     "x": 6054,
     "y": 5773,
-    "type": "grass",
-    "collision": true,
-    "maskAstronaut": false,
+    "type": "column",
+    "collision": false,
+    "maskAstronaut": true,
     "palette": 1,
-    "rotation": 3,
+    "rotation": 1,
     "translation": "left"
   },
   {
-    "x": 6054,
-    "y": 5773,
-    "type": "grass",
+    "x": 6009,
+    "y": 5799,
+    "type": "shrub",
     "collision": true,
     "maskAstronaut": false,
-    "palette": 1,
-    "rotation": 3,
-    "translation": "left"
+    "palette": 18,
+    "rotation": 1,
+    "translation": "bottom"
   },
   {
     "x": 4153,
@@ -8780,23 +8760,13 @@
     "translation": "center"
   },
   {
-    "x": 6125,
+    "x": 6124,
     "y": 5843,
-    "type": "wall_half",
+    "type": "wall_diagnonal_thirds",
     "collision": true,
     "maskAstronaut": false,
     "palette": 12,
-    "rotation": 3,
-    "translation": "center"
-  },
-  {
-    "x": 6125,
-    "y": 5843,
-    "type": "wall_half",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 12,
-    "rotation": 3,
+    "rotation": 1,
     "translation": "center"
   },
   {
@@ -9842,21 +9812,11 @@
   {
     "x": 5984,
     "y": 5984,
-    "type": "wall_half",
+    "type": "wall_diagnonal_thirds",
     "collision": true,
     "maskAstronaut": false,
     "palette": 12,
-    "rotation": 3,
-    "translation": "center"
-  },
-  {
-    "x": 5984,
-    "y": 5984,
-    "type": "wall_half",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 12,
-    "rotation": 3,
+    "rotation": 1,
     "translation": "center"
   },
   {
@@ -10670,33 +10630,13 @@
     "translation": "center"
   },
   {
-    "x": 5773,
-    "y": 6125,
-    "type": "floor_full",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 3,
-    "rotation": 3,
-    "translation": "center"
-  },
-  {
     "x": 5843,
     "y": 6125,
-    "type": "wall_half",
+    "type": "wall_diagnonal_thirds",
     "collision": true,
     "maskAstronaut": false,
     "palette": 12,
-    "rotation": 3,
-    "translation": "center"
-  },
-  {
-    "x": 5843,
-    "y": 6125,
-    "type": "wall_half",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 12,
-    "rotation": 3,
+    "rotation": 1,
     "translation": "center"
   },
   {

@@ -450,16 +450,6 @@
     "translation": "center"
   },
   {
-    "x": 5773,
-    "y": 6195,
-    "type": "floor_diag_left",
-    "collision": true,
-    "maskAstronaut": false,
-    "palette": 3,
-    "rotation": 3,
-    "translation": "center"
-  },
-  {
     "x": 5913,
     "y": 6195,
     "type": "floor_grass",
