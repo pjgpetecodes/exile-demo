@@ -268,18 +268,21 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
 
     // --- Teleport memory logic ---
     if (!isDesignerOpen() && keys['r'] && !prevKeys['r']) {
-        // Save up to 6 locations, overwrite oldest if full
-        if (teleportLocations.length < 6) {
-            teleportLocations.push({ x: astronaut.position.x, y: astronaut.position.y });
-        } else {
-            teleportLocations[teleportSlot] = { x: astronaut.position.x, y: astronaut.position.y };
+        const rememberedLocations = Array.isArray(teleportLocations) ? teleportLocations : null;
+        if (rememberedLocations) {
+            // Save up to 6 locations, overwrite oldest if full
+            if (rememberedLocations.length < 6) {
+                rememberedLocations.push({ x: astronaut.position.x, y: astronaut.position.y });
+            } else {
+                rememberedLocations[teleportSlot] = { x: astronaut.position.x, y: astronaut.position.y };
+            }
+            teleportSlot = (teleportSlot + 1) % 6;
+            // Play remember sound
+            try {
+                rememberSound.currentTime = 0;
+                void rememberSound.play().catch(swallowAutoplayRejection);
+            } catch {}
         }
-        teleportSlot = (teleportSlot + 1) % 6;
-        // Play remember sound
-        try {
-            rememberSound.currentTime = 0;
-            void rememberSound.play().catch(swallowAutoplayRejection);
-        } catch {}
     }
     if (
         !isDesignerOpen() &&
