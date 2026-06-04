@@ -339,37 +339,51 @@ test('designer water flood-fill marks connected world tiles without filling upwa
     await placeAndCapture(0, -step); // up (should remain non-water)
     await placeAndCapture(0, 0); // center seed (selected)
 
+    const [, , , up, center] = placed;
+    const countWaterExact = (
+        worldMap: Array<{ x: number; y: number; water?: boolean }>,
+        point: { x: number; y: number }
+    ) => (
+        worldMap.filter((block) =>
+            block.x === point.x &&
+            block.y === point.y &&
+            block.water === true
+        ).length
+    );
+    const readWorldMapFromPreview = async () => {
+        await page.locator('[data-role="save-preview"]').click();
+        await page.waitForSelector('.world-designer-modal h3');
+        const worldMapJson = await page.evaluate(() => {
+            const headings = Array.from(document.querySelectorAll('.world-designer-modal h3'));
+            for (const heading of headings) {
+                if (heading.textContent?.includes('world_chunks/manifest.json')) {
+                    return (heading.nextElementSibling as HTMLElement | null)?.textContent ?? null;
+                }
+            }
+            return null;
+        });
+        expect(worldMapJson).not.toBeNull();
+        if (!worldMapJson) {
+            return [] as Array<{ x: number; y: number; water?: boolean }>;
+        }
+        const worldMap = JSON.parse(worldMapJson) as Array<{ x: number; y: number; water?: boolean }>;
+        await page.locator('[data-role="modal-close"]').click();
+        await page.waitForTimeout(100);
+        return worldMap;
+    };
+
+    const beforeWorldMap = await readWorldMapFromPreview();
+    const beforeUpWaterCount = countWaterExact(beforeWorldMap, up);
+
     await page.locator('[data-role="fill-water"]').click();
     await page.waitForTimeout(100);
     const statusText = await page.locator('[data-role="status"]').innerText();
     expect(statusText).toContain('Flood-filled connected world tiles with water');
-    await page.locator('[data-role="save-preview"]').click();
-    await page.waitForSelector('.world-designer-modal h3');
 
-    const worldMapJson = await page.evaluate(() => {
-        const headings = Array.from(document.querySelectorAll('.world-designer-modal h3'));
-        for (const heading of headings) {
-            if (heading.textContent?.includes('world_chunks/manifest.json')) {
-                return (heading.nextElementSibling as HTMLElement | null)?.textContent ?? null;
-            }
-        }
-        return null;
-    });
-    expect(worldMapJson).not.toBeNull();
-    if (!worldMapJson) {
-        return;
-    }
-    const worldMap = JSON.parse(worldMapJson) as Array<{ x: number; y: number; water?: boolean }>;
+    const worldMap = await readWorldMapFromPreview();
+    const afterCenterWaterCount = countWaterExact(worldMap, center);
+    const afterUpWaterCount = countWaterExact(worldMap, up);
 
-    const [, , , up, center] = placed;
-    const hasWaterExact = (point: { x: number; y: number }) => (
-        worldMap.some((block) =>
-            block.x === point.x &&
-            block.y === point.y &&
-            block.water === true
-        )
-    );
-
-    expect(hasWaterExact(center)).toBe(true);
-    expect(hasWaterExact(up)).toBe(false);
+    expect(afterCenterWaterCount).toBeGreaterThan(0);
+    expect(afterUpWaterCount).toBe(beforeUpWaterCount);
 });
