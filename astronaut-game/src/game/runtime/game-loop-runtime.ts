@@ -12,6 +12,7 @@ export interface GameLoopRuntimeContext {
 
 export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
     const swallowAutoplayRejection = () => {};
+    const TELEPORT_PAD_REENTRY_COOLDOWN_MS = 3000;
     let {
         CHUNK_SYNC_INTERVAL_FRAMES,
         MAP_HEIGHT,
@@ -145,7 +146,6 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         pronePoseActive,
         remappedSpriteSheets,
         rememberLastFlyPose,
-        rememberSound,
         resetFlyDownAnimationState,
         resetFlySwitchAnimationState,
         resolveAstronautCollectableCollisions,
@@ -153,6 +153,7 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         rightPressed,
         saveSnapshotInProgress,
         scheduleNextFrame,
+        setTeleporterTouchCooldownUntilMs,
         setAstronautCollisionProfile,
         showBlackBackgroundBlocks,
         showCreatureOverlays,
@@ -267,7 +268,8 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
     pronePoseActive = false;
 
     // --- Teleport memory logic ---
-    if (!isDesignerOpen() && keys['r'] && !prevKeys['r']) {
+    const rememberPressed = (keys['r'] && !prevKeys['r']) || keys.__press_r === true;
+    if (rememberPressed) {
         const rememberedLocations = Array.isArray(teleportLocations) ? teleportLocations : null;
         if (rememberedLocations) {
             // Save up to 6 locations, overwrite oldest if full
@@ -277,21 +279,22 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
                 rememberedLocations[teleportSlot] = { x: astronaut.position.x, y: astronaut.position.y };
             }
             teleportSlot = (teleportSlot + 1) % 6;
-            // Play remember sound
-            try {
-                rememberSound.currentTime = 0;
-                void rememberSound.play().catch(swallowAutoplayRejection);
-            } catch {}
+            gameAudio.playManifestSound('remember', 0.9);
         }
+        keys.__press_r = false;
     }
+    const teleportPressed = (keys['t'] && !prevKeys['t']) || keys.__press_t === true;
     if (
-        !isDesignerOpen() &&
-        keys['t'] &&
-        !prevKeys['t'] &&
+        teleportPressed &&
         typeof startTeleportToLocation === 'function' &&
         typeof popLatestTeleportLocation === 'function'
     ) {
-        startTeleportToLocation(popLatestTeleportLocation());
+        if (startTeleportToLocation(popLatestTeleportLocation())) {
+            if (typeof setTeleporterTouchCooldownUntilMs === 'function') {
+                setTeleporterTouchCooldownUntilMs(frameNow + TELEPORT_PAD_REENTRY_COOLDOWN_MS);
+            }
+        }
+        keys.__press_t = false;
     }
 
     updateAstronautEnergyRecovery(frameNow);
@@ -989,6 +992,9 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
             teleporting = false;
             teleportPhase = 'none';
             teleportTarget = null;
+            if (typeof setTeleporterTouchCooldownUntilMs === 'function') {
+                setTeleporterTouchCooldownUntilMs(frameNow + TELEPORT_PAD_REENTRY_COOLDOWN_MS);
+            }
         }
 
         if (canRenderTeleportSprite) {

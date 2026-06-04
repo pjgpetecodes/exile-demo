@@ -117,6 +117,7 @@ function buildLoopSystems(context: ValuePack) {
         resolveAstronautCollectableCollisions: context.resolveAstronautCollectableCollisions,
         resolveAstronautCreatureCollisions: context.resolveAstronautCreatureCollisions,
         scheduleNextFrame: context.scheduleNextFrame,
+        setTeleporterTouchCooldownUntilMs: context.setTeleporterTouchCooldownUntilMs,
         setAstronautCollisionProfile: context.setAstronautCollisionProfile,
         showBlackBackgroundBlocks: context.showBlackBackgroundBlocks,
         spawnWindParticlesNearAstronaut: context.spawnWindParticlesNearAstronaut,

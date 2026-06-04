@@ -19,6 +19,59 @@ test('teleport key without remembered slots does not throw', async ({ page }) =>
     expect(pageErrors.some((message) => message.includes('popLatestTeleportLocation'))).toBe(false);
 });
 
+test('remember and teleport keys return astronaut to remembered position', async ({ page }) => {
+    await page.goto('/');
+    await page.click('body');
+    await page.waitForFunction(() => {
+        const snapshot = (window as any).__exileDebug?.getRuntimeSnapshot?.();
+        return !!snapshot && snapshot.mapLoaded === true;
+    }, { timeout: 20_000 });
+
+    await page.evaluate(() => {
+        const debug = (window as any).__exileDebug;
+        debug.teleportAstronaut(8526, 2101);
+    });
+
+    await page.keyboard.press('r');
+    await page.waitForTimeout(120);
+    const afterRemember = await page.evaluate(() => (window as any).__exileDebug.getTeleportMemoryDebug());
+    expect(afterRemember.teleportLocations.length, JSON.stringify(afterRemember)).toBeGreaterThan(0);
+    const remembered = afterRemember.teleportLocations[afterRemember.teleportLocations.length - 1];
+
+    await page.evaluate(() => {
+        const debug = (window as any).__exileDebug;
+        debug.teleportAstronaut(9000, 1800);
+    });
+    await page.waitForTimeout(120);
+
+    await page.keyboard.press('t');
+    await page.waitForTimeout(120);
+
+    let latestState: any = null;
+    let firstTeleportState: any = null;
+    let reachedRemembered = false;
+    for (let i = 0; i < 120; i += 1) {
+        await page.waitForTimeout(100);
+        latestState = await page.evaluate(() => (window as any).__exileDebug.getTeleportDebugState());
+        if (!firstTeleportState && (latestState.teleporting || latestState.teleportTarget)) {
+            firstTeleportState = latestState;
+        }
+        const atRemembered = Math.abs(latestState.astronautPosition.x - remembered.x) <= 2
+            && Math.abs(latestState.astronautPosition.y - remembered.y) <= 2;
+        if (atRemembered) {
+            reachedRemembered = true;
+        }
+        if (atRemembered && !latestState.teleporting) {
+            break;
+        }
+    }
+
+    expect(
+        reachedRemembered,
+        JSON.stringify({ latestState, remembered, afterRemember, firstTeleportState })
+    ).toBe(true);
+});
+
 test('dropped grenades fall and exploded grenades are removed', async ({ page }) => {
     await page.goto('/');
     await page.click('body');

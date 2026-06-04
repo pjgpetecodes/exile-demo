@@ -17,6 +17,18 @@ export function attachGameWindowInput(options: GameWindowInputOptions) {
         if (options.blockBrowserShortcut(event) || options.shouldPreventGameplayDefault(event, options.isDesignerOpen())) {
             event.preventDefault();
         }
+        const key = options.getInputKey(event);
+        options.onInputKeyChanged(key, true);
+        options.requestImmediateFrame();
+    }, { capture: true });
+
+    document.addEventListener('keyup', (event) => {
+        if (options.shouldPreventGameplayDefault(event, options.isDesignerOpen())) {
+            event.preventDefault();
+        }
+        const key = options.getInputKey(event);
+        options.onInputKeyChanged(key, false);
+        options.requestImmediateFrame();
     }, { capture: true });
 
     window.addEventListener('keydown', (event) => {

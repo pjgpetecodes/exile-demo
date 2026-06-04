@@ -181,6 +181,7 @@ export const LOOP_RUNTIME_KEYS = [
     'rightPressed',
     'saveSnapshotInProgress',
     'scheduleNextFrame',
+    'setTeleporterTouchCooldownUntilMs',
     'setAstronautCollisionProfile',
     'showBlackBackgroundBlocks',
     'showCreatureOverlays',

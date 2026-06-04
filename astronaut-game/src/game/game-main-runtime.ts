@@ -415,6 +415,9 @@ attachGameWindowInput({
     requestImmediateFrame,
     onInputKeyChanged: (key, pressed) => {
         keys[key] = pressed;
+        if (pressed && (key === 'r' || key === 't')) {
+            keys[`__press_${key}`] = true;
+        }
     },
     onMouseMoved: (x, y) => {
         mouseScreen.x = x;
@@ -1440,6 +1443,8 @@ const sharedRuntimeContext = createSharedRuntimeContextFromState({
     isCoroniumExplosionAtCenter,
     applyExplosionDamageToDestructibles,
     convertProjectileToEnergyPodCollectable,
+    popLatestTeleportLocation,
+    startTeleportToLocation,
     triggerAstronautEmergencyTeleport,
     spawnGrenadeExplosionEffect,
     getSolidBlockAtWorld,
@@ -1492,6 +1497,27 @@ if (debugRuntime) {
         teleportTarget: teleportTarget ? { ...teleportTarget } : null,
         astronautPosition: { x: astronaut.position.x, y: astronaut.position.y }
     });
+    debugRuntime.getTeleportMemoryDebug = () => ({
+        teleportLocations: teleportLocations.map((entry) => ({ x: entry.x, y: entry.y })),
+        teleportSlot,
+        teleporterTouchCooldownUntilMs,
+        keyR: !!keys.r,
+        keyT: !!keys.t,
+        keyPressR: keys.__press_r === true,
+        keyPressT: keys.__press_t === true,
+        prevKeyR: !!prevKeys.r,
+        prevKeyT: !!prevKeys.t,
+        designerOpen: isDesignerOpen()
+    });
+    debugRuntime.getLoopTeleportRuntimeDebug = () => {
+        const loopValues = typeof getLoopRuntimeValues === 'function'
+            ? getLoopRuntimeValues()
+            : null;
+        return {
+            hasLoopStartTeleport: typeof loopValues?.startTeleportToLocation === 'function',
+            hasLoopPopTeleport: typeof loopValues?.popLatestTeleportLocation === 'function'
+        };
+    };
     debugRuntime.holdNearestGrenade = () => {
         let best: Collectable | null = null;
         let bestDistance = Number.POSITIVE_INFINITY;
@@ -1800,14 +1826,17 @@ const extraRuntimeContext = createExtraRuntimeContextFromState({
     mouseScreen,
     mouseWorld,
     performanceTracker,
+    popLatestTeleportLocation,
     rememberLastFlyPose,
     resetFlyDownAnimationState,
     resetFlySwitchAnimationState,
     resolveAstronautCreatureCollisions,
     scheduleNextFrame,
+    setTeleporterTouchCooldownUntilMs: (value: number) => { teleporterTouchCooldownUntilMs = value; },
     setAstronautCollisionProfile,
     showBlackBackgroundBlocks,
     spawnWindParticlesNearAstronaut,
+    startTeleportToLocation,
     syncButtonStatesToDoors,
     syncMapChunksForViewport,
     teleportLocations,
@@ -1993,8 +2022,15 @@ loopStateAccessors = createLoopStateAccessorsFromState({
     getTeleportLocations: () => teleportLocations,
     setTeleportLocations: (value: any) => {
         if (Array.isArray(value)) {
+            if (value === teleportLocations) {
+                return;
+            }
+            const nextLocations = value.map((entry) => ({
+                x: Number(entry?.x) || 0,
+                y: Number(entry?.y) || 0
+            }));
             teleportLocations.length = 0;
-            teleportLocations.push(...value);
+            teleportLocations.push(...nextLocations);
         }
     },
     getTeleportPhase: () => teleportPhase,

@@ -20,6 +20,12 @@ export function getInputKey(event: KeyboardEvent) {
     if (event.code === 'Space') {
         return ' ';
     }
+    if (event.code === 'KeyR') {
+        return 'r';
+    }
+    if (event.code === 'KeyT') {
+        return 't';
+    }
     if (event.code === 'ArrowLeft') {
         return 'q';
     }
