@@ -321,7 +321,7 @@ test('designer water flood-fill marks connected world tiles without filling upwa
     }
 
     const placed: Array<{ x: number; y: number }> = [];
-    const step = 40;
+    const step = 120;
     const placeAndCapture = async (offsetX: number, offsetY: number) => {
         await page.mouse.click(
             canvasBox.x + canvasBox.width / 2 + offsetX,
@@ -339,7 +339,7 @@ test('designer water flood-fill marks connected world tiles without filling upwa
     await placeAndCapture(0, -step); // up (should remain non-water)
     await placeAndCapture(0, 0); // center seed (selected)
 
-    const [, , down, , center] = placed;
+    const [, , down, up, center] = placed;
     const countWaterExact = (
         worldMap: Array<{ x: number; y: number; water?: boolean }>,
         point: { x: number; y: number }
@@ -372,19 +372,11 @@ test('designer water flood-fill marks connected world tiles without filling upwa
         return worldMap;
     };
 
+    expect(up.y).toBeLessThan(center.y);
+    expect(down.y).toBeGreaterThan(center.y);
+
     const beforeWorldMap = await readWorldMapFromPreview();
-    const countWaterByCell = (worldMap: Array<{ x: number; y: number; water?: boolean }>) => {
-        const counts = new Map<string, number>();
-        for (const block of worldMap) {
-            if (block.water !== true) {
-                continue;
-            }
-            const key = `${block.x}:${block.y}`;
-            counts.set(key, (counts.get(key) ?? 0) + 1);
-        }
-        return counts;
-    };
-    const beforeWaterCounts = countWaterByCell(beforeWorldMap);
+    const beforeUpWaterCount = countWaterExact(beforeWorldMap, up);
 
     await page.locator('[data-role="fill-water"]').click();
     await page.waitForTimeout(100);
@@ -393,21 +385,8 @@ test('designer water flood-fill marks connected world tiles without filling upwa
 
     const worldMap = await readWorldMapFromPreview();
     const afterCenterWaterCount = countWaterExact(worldMap, center);
-    const afterWaterCounts = countWaterByCell(worldMap);
-    const upwardThresholdY = Math.min(center.y, down.y);
-    let addedWaterAboveSeed = 0;
-    for (const [key, afterCount] of afterWaterCounts.entries()) {
-        const [, yText] = key.split(':');
-        const y = Number(yText);
-        if (!Number.isFinite(y) || y >= upwardThresholdY) {
-            continue;
-        }
-        const beforeCount = beforeWaterCounts.get(key) ?? 0;
-        if (afterCount > beforeCount) {
-            addedWaterAboveSeed += afterCount - beforeCount;
-        }
-    }
+    const afterUpWaterCount = countWaterExact(worldMap, up);
 
     expect(afterCenterWaterCount).toBeGreaterThan(0);
-    expect(addedWaterAboveSeed).toBe(0);
+    expect(afterUpWaterCount).toBe(beforeUpWaterCount);
 });
