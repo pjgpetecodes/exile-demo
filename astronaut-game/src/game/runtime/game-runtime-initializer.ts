@@ -69,6 +69,7 @@ export function initializeGameEntityRuntimes(options: RuntimeInitializerOptions)
         getEntityCenter: options.getEntityCenter,
         getWaterSubmersionRatioForRect: options.getWaterSubmersionRatioForRect,
         getIsWorldPointInWater: options.getIsWorldPointInWater,
+        collidesAtSide: options.collidesAtSide,
         getAstronautRenderedWorldSprite: options.getAstronautRenderedWorldSprite,
         getRenderedEntityWorldSprite: options.getRenderedEntityWorldSprite,
         getSpriteVisibleBounds: options.getSpriteVisibleBounds,

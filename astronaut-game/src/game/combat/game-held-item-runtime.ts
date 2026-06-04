@@ -50,6 +50,13 @@ type HeldItemRuntimeOptions = {
     getEntityCenter: (x: number, y: number, bounds: CollisionBounds) => Position;
     getWaterSubmersionRatioForRect: (rect: EntityRect) => number;
     getIsWorldPointInWater?: (x: number, y: number) => boolean;
+    collidesAtSide?: (
+        x: number,
+        y: number,
+        bounds: CollisionBounds,
+        side: 'left' | 'right' | 'top' | 'bottom',
+        collectable?: Collectable
+    ) => boolean;
     getAstronautRenderedWorldSprite: () => { canvas: HTMLCanvasElement; drawX: number; drawY: number } | null;
     getRenderedEntityWorldSprite: (entity: any) => { canvas: HTMLCanvasElement; drawX: number; drawY: number } | null;
     getSpriteVisibleBounds: (canvas: HTMLCanvasElement | null) => { minX: number; minY: number; maxX: number; maxY: number } | null;
@@ -207,6 +214,28 @@ export function createGameHeldItemRuntime(options: HeldItemRuntimeOptions) {
         };
     }
 
+    function resolveHeldCollectableSolidOverlap(heldCollectable: Collectable, collisionBounds: CollisionBounds) {
+        if (typeof options.collidesAtSide !== 'function') {
+            return;
+        }
+
+        const blockedSide: 'left' | 'right' = options.getFacingLeft() ? 'left' : 'right';
+        if (!options.collidesAtSide(heldCollectable.x, heldCollectable.y, collisionBounds, blockedSide)) {
+            return;
+        }
+
+        const retreatDirection = options.getFacingLeft() ? 1 : -1;
+        const width = Math.max(1, collisionBounds.right - collisionBounds.left + 1);
+        const maxRetreat = Math.max(2, Math.ceil(width / 2));
+        for (let retreat = 1; retreat <= maxRetreat; retreat++) {
+            const candidateX = heldCollectable.x + retreatDirection * retreat;
+            if (!options.collidesAtSide(candidateX, heldCollectable.y, collisionBounds, blockedSide)) {
+                heldCollectable.x = candidateX;
+                return;
+            }
+        }
+    }
+
     function updateHeldCollectablePosition() {
         const heldCollectable = options.getHeldCollectable();
         if (!heldCollectable) {
@@ -219,6 +248,8 @@ export function createGameHeldItemRuntime(options: HeldItemRuntimeOptions) {
         heldCollectable.velocity.x = 0;
         heldCollectable.velocity.y = 0;
         heldCollectable.isGrounded = false;
+        const collisionBounds = options.getEntityCollisionBounds(heldCollectable);
+        resolveHeldCollectableSolidOverlap(heldCollectable, collisionBounds);
 
         if (!isFlaskCollectable(heldCollectable)) {
             return;
@@ -226,8 +257,7 @@ export function createGameHeldItemRuntime(options: HeldItemRuntimeOptions) {
 
         const now = performance.now();
         syncFlaskSpillFlash(heldCollectable, now);
-        const collisionBounds = options.getEntityCollisionBounds(heldCollectable);
-        const heldRect = options.getEntityRect(heldPosition.x, heldPosition.y, collisionBounds);
+        const heldRect = options.getEntityRect(heldCollectable.x, heldCollectable.y, collisionBounds);
         const spillOriginX = Math.round((heldRect.left + heldRect.right) / 2);
         const spillOriginY = heldRect.top;
 

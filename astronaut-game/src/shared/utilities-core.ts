@@ -664,8 +664,10 @@ export function getSolidBlockAtWorld(
             if (!pointWithinExpandedTileBounds(x, y, part.x, part.y, tileW, tileH)) {
                 continue;
             }
-            const rect = getSpriteRectByType(spriteMap, part.type);
-            if (rect && isSolidSpritePixelAtWorld(x, y, part, rect, SPRITE_SCALE, spriteSheetCtx)) {
+            if (
+                x >= part.x && x < part.x + tileW &&
+                y >= part.y && y < part.y + tileH
+            ) {
                 return btn;
             }
         }
