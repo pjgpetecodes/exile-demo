@@ -56,6 +56,7 @@ type RenderedEntityWorldSprite = {
 type TeleporterPadRuntimeOptions = {
     spriteScale: number;
     getMapBlocks: () => MapBlock[];
+    getMapBlocksRevision?: () => number;
     getTeleporters: () => TeleporterRuntime[];
     getCanvasSize: () => { width: number; height: number };
     getRenderedEntityWorldSprite: (entity: {
@@ -98,15 +99,28 @@ export function createTeleporterPadRuntime(runtimeOptions: TeleporterPadRuntimeO
     let teleporterPadKeyCache: { version: number; keys: Set<string> } = { version: -1, keys: new Set<string>() };
     const teleporterPadFilteredMapCache = new WeakMap<MapBlock[], { version: number; filtered: MapBlock[] }>();
     let teleporterBlockIndexCache: TeleporterBlockIndex | null = null;
+    let lastSeenMapBlocksRevision = Number.NaN;
     const teleporterPadDrawEntities: TeleporterDrawEntity[] = [];
 
     function makeTeleporterPositionKey(x: number, y: number) {
         return `${x},${y}`;
     }
 
-    function getTeleporterPadBlockPreferenceScore(block: MapBlock) {
+    function getTeleporterBlockPreferenceScore(block: MapBlock, type: 'teleporter' | 'teleporter_pad') {
         let score = 0;
-        // Teleporter pads are rendered separately; non-masking pads are typically the authored/runtime truth.
+        if (type === 'teleporter') {
+            if (block.collision !== false) {
+                score += 2;
+            }
+            if (block.maskAstronaut === false) {
+                score += 1;
+            }
+            if (block.translation === 'center') {
+                score += 1;
+            }
+            return score;
+        }
+        // Teleporter pads are rendered separately; non-masking centered pads are typically authored/runtime truth.
         if (block.maskAstronaut === false) {
             score += 2;
         }
@@ -120,11 +134,8 @@ export function createTeleporterPadRuntime(runtimeOptions: TeleporterPadRuntimeO
         if (!existing) {
             return candidate;
         }
-        if (type === 'teleporter') {
-            return candidate;
-        }
-        const existingScore = getTeleporterPadBlockPreferenceScore(existing);
-        const candidateScore = getTeleporterPadBlockPreferenceScore(candidate);
+        const existingScore = getTeleporterBlockPreferenceScore(existing, type);
+        const candidateScore = getTeleporterBlockPreferenceScore(candidate, type);
         if (candidateScore > existingScore) {
             return candidate;
         }
@@ -142,6 +153,11 @@ export function createTeleporterPadRuntime(runtimeOptions: TeleporterPadRuntimeO
     }
 
     function getTeleporterBlockIndex() {
+        const nextRevision = runtimeOptions.getMapBlocksRevision?.();
+        if (typeof nextRevision === 'number' && Number.isFinite(nextRevision) && nextRevision !== lastSeenMapBlocksRevision) {
+            lastSeenMapBlocksRevision = nextRevision;
+            invalidateCaches();
+        }
         if (teleporterBlockIndexCache && teleporterBlockIndexCache.version === teleporterPadCacheVersion) {
             return teleporterBlockIndexCache;
         }
@@ -224,7 +240,14 @@ export function createTeleporterPadRuntime(runtimeOptions: TeleporterPadRuntimeO
             const dx = block.x - targetX;
             const dy = block.y - targetY;
             const distanceSquared = dx * dx + dy * dy;
-            if (!nearestMatchingId || distanceSquared < nearestMatchingId.distanceSquared) {
+            if (
+                !nearestMatchingId
+                || distanceSquared < nearestMatchingId.distanceSquared
+                || (
+                    distanceSquared === nearestMatchingId.distanceSquared
+                    && choosePreferredBlock(nearestMatchingId.block, block, type) === block
+                )
+            ) {
                 nearestMatchingId = { block, distanceSquared };
             }
         }
@@ -252,7 +275,14 @@ export function createTeleporterPadRuntime(runtimeOptions: TeleporterPadRuntimeO
             const dy = block.y - targetY;
             const distanceSquared = dx * dx + dy * dy;
             if (blockTeleporterId === teleporter.id) {
-                if (!nearestMatchingId || distanceSquared < nearestMatchingId.distanceSquared) {
+                if (
+                    !nearestMatchingId
+                    || distanceSquared < nearestMatchingId.distanceSquared
+                    || (
+                        distanceSquared === nearestMatchingId.distanceSquared
+                        && choosePreferredBlock(nearestMatchingId.block, block, type) === block
+                    )
+                ) {
                     nearestMatchingId = { block, distanceSquared };
                 }
                 continue;
@@ -260,7 +290,14 @@ export function createTeleporterPadRuntime(runtimeOptions: TeleporterPadRuntimeO
             if (blockTeleporterId || distanceSquared > maxDistanceSquared) {
                 continue;
             }
-            if (!nearestUnclaimed || distanceSquared < nearestUnclaimed.distanceSquared) {
+            if (
+                !nearestUnclaimed
+                || distanceSquared < nearestUnclaimed.distanceSquared
+                || (
+                    distanceSquared === nearestUnclaimed.distanceSquared
+                    && choosePreferredBlock(nearestUnclaimed.block, block, type) === block
+                )
+            ) {
                 nearestUnclaimed = { block, distanceSquared };
             }
         }
@@ -549,6 +586,14 @@ export function createTeleporterPadRuntime(runtimeOptions: TeleporterPadRuntimeO
         return false;
     }
 
+    function normalizePadRotationForRender(rotation: number) {
+        const normalizedRotation = Math.round(rotation);
+        if (normalizedRotation === 2 || normalizedRotation === 8) {
+            return 1;
+        }
+        return normalizedRotation;
+    }
+
     function getRenderPads(
         now: number,
         renderOptions?: RenderPadOptions
@@ -579,9 +624,10 @@ export function createTeleporterPadRuntime(runtimeOptions: TeleporterPadRuntimeO
             const palette = typeof padBlock?.palette === 'number'
                 ? padBlock.palette
                 : (typeof baseBlock?.palette === 'number' ? baseBlock.palette : 0);
-            const rotation = typeof padBlock?.rotation === 'number'
+            const authoredPadRotation = typeof padBlock?.rotation === 'number'
                 ? padBlock.rotation
                 : (typeof baseBlock?.rotation === 'number' ? baseBlock.rotation : 1);
+            const rotation = normalizePadRotationForRender(authoredPadRotation);
             const translation = runtimeOptions.normalizeSpriteTranslation(padBlock?.translation ?? baseBlock?.translation);
             const paletteCycle = padBlock?.paletteCycle;
             const baseRotation = typeof baseBlock?.rotation === 'number' ? baseBlock.rotation : 1;

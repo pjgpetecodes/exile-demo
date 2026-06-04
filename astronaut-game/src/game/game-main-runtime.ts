@@ -39,6 +39,7 @@ import {
     getMushroomBlocks,
     getRenderableMapBlocks,
     getChunkedWorldOverview,
+    getMapBlocksRevision,
     isWorldPositionChunkLoaded,
     rebuildMapBlockRenderCache,
     materializeAllMapChunksForSave,
@@ -528,6 +529,7 @@ let lastAstronautWindAcceleration = { x: 0, y: 0, activeEmitterCount: 0 };
 const teleporterPadRuntime = createTeleporterPadRuntime({
     spriteScale: SPRITE_SCALE,
     getMapBlocks: () => mapBlocks,
+    getMapBlocksRevision,
     getTeleporters: () => teleporterEntities,
     getCanvasSize: () => ({ width: canvas.width, height: canvas.height }),
     getRenderedEntityWorldSprite: (entity) => getRenderedEntityWorldSprite(entity),
@@ -1518,6 +1520,84 @@ if (debugRuntime) {
         return {
             hasLoopStartTeleport: typeof loopValues?.startTeleportToLocation === 'function',
             hasLoopPopTeleport: typeof loopValues?.popLatestTeleportLocation === 'function'
+        };
+    };
+    debugRuntime.getTeleporterPadDebug = (teleporterIdOrX?: string | number, yArg?: number) => {
+        const candidateId = typeof teleporterIdOrX === 'string' ? teleporterIdOrX.trim() : '';
+        const candidateX = typeof teleporterIdOrX === 'number' && Number.isFinite(teleporterIdOrX)
+            ? Math.round(teleporterIdOrX)
+            : null;
+        const candidateY = Number.isFinite(yArg) ? Math.round(yArg!) : null;
+        const teleporter = candidateId.length > 0
+            ? (teleporterEntities.find((entry) => entry.id === candidateId) ?? null)
+            : (candidateX !== null && candidateY !== null
+                ? (
+                    teleporterEntities.find((entry) =>
+                        (entry.baseX === candidateX && entry.baseY === candidateY)
+                        || (entry.padX === candidateX && entry.padY === candidateY)
+                    ) ?? null
+                )
+                : null);
+        const targetId = teleporter?.id ?? (candidateId.length > 0 ? candidateId : null);
+        const targetX = teleporter?.padX ?? candidateX;
+        const targetY = teleporter?.padY ?? candidateY;
+        const matchingBlocks = mapBlocks
+            .filter((block) =>
+                (targetId && block.teleporterId === targetId)
+                || (
+                    targetX !== null
+                    && targetY !== null
+                    && block.x === targetX
+                    && block.y === targetY
+                    && (block.type === 'teleporter' || block.type === 'teleporter_pad')
+                )
+            )
+            .map((block) => ({
+                type: block.type,
+                x: block.x,
+                y: block.y,
+                rotation: block.rotation,
+                translation: block.translation,
+                palette: block.palette,
+                collision: block.collision,
+                maskAstronaut: block.maskAstronaut,
+                teleporterId: block.teleporterId
+            }));
+        const proximity = targetX !== null && targetY !== null
+            ? { x: targetX + TELEPORTER_TILE_SIZE / 2, y: targetY + TELEPORTER_TILE_SIZE / 2, radius: TELEPORTER_TILE_SIZE * 3 }
+            : { x: astronaut.position.x, y: astronaut.position.y, radius: TELEPORTER_TILE_SIZE * 8 };
+        const renderPads = teleporterPadRuntime
+            .getRenderPads(performance.now(), {
+                ignoreKeyRequirement: true,
+                proximity
+            })
+            .filter((entry) => !targetId || entry.teleporter.id === targetId)
+            .map((entry) => ({
+                id: entry.teleporter.id,
+                active: entry.active,
+                x: entry.x,
+                y: entry.y,
+                rotation: entry.rotation,
+                translation: entry.translation,
+                palette: entry.palette
+            }));
+        return {
+            targetId,
+            teleporter: teleporter
+                ? {
+                    id: teleporter.id,
+                    baseX: teleporter.baseX,
+                    baseY: teleporter.baseY,
+                    padX: teleporter.padX,
+                    padY: teleporter.padY,
+                    enabled: teleporter.enabled,
+                    requiresKey: teleporter.requiresKey,
+                    activeDestinationIndex: teleporter.activeDestinationIndex
+                }
+                : null,
+            matchingBlocks,
+            renderPads,
+            mapBlocksRevision: getMapBlocksRevision()
         };
     };
     debugRuntime.holdNearestGrenade = () => {

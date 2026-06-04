@@ -410,4 +410,59 @@ describe('createTeleporterPadRuntime', () => {
         expect(pad.translation).toBe('center');
         expect(pad.palette).toBe(2);
     });
+
+    it('normalizes sideways pad rotations (2/8) to up-facing render rotation', () => {
+        for (const sidewaysRotation of [2, 8]) {
+            const teleporter: TeleporterRuntime = {
+                id: `teleporter_sideways_${sidewaysRotation}`,
+                baseX: 100,
+                baseY: 100,
+                padX: 100,
+                padY: 100,
+                enabled: true,
+                requiresKey: false,
+                destinationA: { x: 0, y: 0 },
+                destinationB: null,
+                activeDestinationIndex: 0
+            };
+            const mapBlocks: MapBlock[] = [
+                {
+                    x: 100,
+                    y: 100,
+                    type: 'teleporter',
+                    rotation: 6,
+                    palette: 2,
+                    translation: 'center',
+                    collision: true,
+                    maskAstronaut: false,
+                    teleporterId: teleporter.id
+                },
+                {
+                    x: 100,
+                    y: 100,
+                    type: 'teleporter_pad',
+                    rotation: sidewaysRotation as MapBlock['rotation'],
+                    palette: 2,
+                    translation: 'center',
+                    collision: false,
+                    maskAstronaut: false,
+                    teleporterId: teleporter.id
+                }
+            ];
+            const runtime = createTeleporterPadRuntime({
+                spriteScale: 1,
+                getMapBlocks: () => mapBlocks,
+                getTeleporters: () => [teleporter],
+                getCanvasSize: () => ({ width: 640, height: 480 }),
+                getRenderedEntityWorldSprite: () => null,
+                normalizeSpriteTranslation: (translation) => (translation ?? 'center'),
+                getSpriteVisibleBounds: () => null,
+                drawEntities: () => undefined
+            });
+
+            const [pad] = runtime.getRenderPads(0, { activeOnly: true, fixedProgress: 1, ignoreKeyRequirement: true });
+            expect(pad.rotation).toBe(1);
+        }
+    });
+
 });

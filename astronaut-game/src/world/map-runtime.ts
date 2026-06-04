@@ -53,6 +53,7 @@ export type MapBlock = {
 
 export let mapBlocks: MapBlock[] = [];
 export let mapLoaded = false;
+let mapBlocksRevision = 0;
 
 type BlockBucketMap = Map<string, MapBlock[]>;
 
@@ -524,6 +525,61 @@ type ChunkCacheEntry = {
     loadPromise: Promise<void> | null;
 };
 
+function getTeleporterBlockPreferenceScore(block: MapBlock) {
+    let score = 0;
+    if (block.type === 'teleporter') {
+        if (block.collision !== false) {
+            score += 2;
+        }
+        if (block.maskAstronaut === false) {
+            score += 1;
+        }
+        if (block.translation === 'center') {
+            score += 1;
+        }
+        return score;
+    }
+    if (block.type === 'teleporter_pad') {
+        if (block.maskAstronaut === false) {
+            score += 2;
+        }
+        if (block.translation === 'center') {
+            score += 1;
+        }
+    }
+    return score;
+}
+
+function normalizeChunkTeleporterBlocks(blocks: MapBlock[]) {
+    if (blocks.length === 0) {
+        return blocks;
+    }
+    const preferredByTypeAndPosition = new Map<string, MapBlock>();
+    for (const block of blocks) {
+        if (block.type !== 'teleporter' && block.type !== 'teleporter_pad') {
+            continue;
+        }
+        const key = `${block.type}:${block.x},${block.y}`;
+        const existing = preferredByTypeAndPosition.get(key);
+        if (!existing) {
+            preferredByTypeAndPosition.set(key, block);
+            continue;
+        }
+        const existingScore = getTeleporterBlockPreferenceScore(existing);
+        const candidateScore = getTeleporterBlockPreferenceScore(block);
+        if (candidateScore > existingScore) {
+            preferredByTypeAndPosition.set(key, block);
+        }
+    }
+    return blocks.filter((block) => {
+        if (block.type !== 'teleporter' && block.type !== 'teleporter_pad') {
+            return true;
+        }
+        const key = `${block.type}:${block.x},${block.y}`;
+        return preferredByTypeAndPosition.get(key) === block;
+    });
+}
+
 function getChunkCacheKey(chunkX: number, chunkY: number) {
     return `${chunkX},${chunkY}`;
 }
@@ -537,6 +593,7 @@ let lastViewportSyncedChunkKeys = new Set<string>();
 
 function setMapBlocks(nextBlocks: MapBlock[]) {
     mapBlocks.splice(0, mapBlocks.length, ...nextBlocks);
+    mapBlocksRevision += 1;
 }
 
 function removeChunkBlocksFromMap(chunkKey: string) {
@@ -560,7 +617,12 @@ function addChunkBlocksToMap(blocks: MapBlock[]) {
         return false;
     }
     mapBlocks.push(...additions);
+    mapBlocksRevision += 1;
     return true;
+}
+
+export function getMapBlocksRevision() {
+    return mapBlocksRevision;
 }
 
 function deactivateChunk(chunkKey: string) {
@@ -675,8 +737,11 @@ async function ensureChunkLoaded(chunkKey: string): Promise<ChunkCacheEntry | nu
             if (!Array.isArray(chunkPayload)) {
                 throw new Error('Invalid world chunk payload. Each chunk file must contain an array of map blocks.');
             }
-            cacheEntry!.blocks = chunkPayload.map((block: any) => {
-                const assignedBlock = assignEntityId(normalizeWaterBlock(block as MapBlock)) as MapBlock;
+            const normalizedBlocks = normalizeChunkTeleporterBlocks(
+                chunkPayload.map((block: any) => normalizeWaterBlock(block as MapBlock))
+            );
+            cacheEntry!.blocks = normalizedBlocks.map((block: MapBlock) => {
+                const assignedBlock = assignEntityId(block) as MapBlock;
                 mapBlockChunkKeyLookup.set(assignedBlock, chunkKey);
                 return assignedBlock;
             });
