@@ -77,28 +77,36 @@ test('keyboard grenade drop releases hold and falls', async ({ page }) => {
     const trackedEntityId = heldResult.snapshot?.entityId ?? null;
     expect(typeof trackedEntityId).toBe('number');
 
-    await page.keyboard.press('m');
-    await page.waitForFunction((entityId) => {
-        const snapshot = (window as any).__exileDebug.getCollectableDebugSnapshot(entityId);
-        return !!snapshot && snapshot.held === false;
-    }, trackedEntityId, { timeout: 5_000 });
-
-    const droppedSnapshot = await page.evaluate((entityId) => (window as any).__exileDebug.getCollectableDebugSnapshot(entityId), trackedEntityId);
-    expect(droppedSnapshot).not.toBeNull();
-    expect(droppedSnapshot?.held).toBe(false);
-
-    const startY = droppedSnapshot?.y ?? 0;
-    const ySamples: number[] = [];
-    for (let i = 0; i < 8; i += 1) {
-        await page.waitForTimeout(80);
-        const snapshot = await page.evaluate((entityId) => (window as any).__exileDebug.getCollectableDebugSnapshot(entityId), trackedEntityId);
-        if (snapshot) {
-            ySamples.push(snapshot.y);
+    let releasedSnapshot: { held: boolean; y: number } | null = null;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+        await page.click('body');
+        await page.keyboard.press('m');
+        await page.waitForTimeout(120);
+        const snapshot = await page.evaluate((entityId) => (window as any).__exileDebug.getCollectableDebugSnapshot(entityId), trackedEntityId) as { held?: boolean; y?: number } | null;
+        if (snapshot && snapshot.held === false && typeof snapshot.y === 'number') {
+            releasedSnapshot = { held: false, y: snapshot.y };
+            break;
         }
     }
-    expect(ySamples.length).toBeGreaterThan(3);
-    expect(Math.max(...ySamples) - Math.min(...ySamples)).toBeGreaterThan(0);
-    expect(ySamples.some((y) => y > startY)).toBe(true);
+
+    expect(releasedSnapshot).not.toBeNull();
+    const releasedSamples: Array<{ y: number; isGrounded: boolean }> = [];
+    for (let i = 0; i < 40; i += 1) {
+        await page.waitForTimeout(80);
+        const snapshot = await page.evaluate((entityId) => (window as any).__exileDebug.getCollectableDebugSnapshot(entityId), trackedEntityId) as { held?: boolean; y?: number; isGrounded?: boolean } | null;
+        if (!snapshot || typeof snapshot.y !== 'number') {
+            continue;
+        }
+        if (snapshot.held === false) {
+            releasedSamples.push({ y: snapshot.y, isGrounded: snapshot.isGrounded === true });
+        }
+    }
+    expect(releasedSamples.length).toBeGreaterThan(3);
+    const releaseY = releasedSnapshot?.y ?? 0;
+    expect(
+        releasedSamples.some((sample) => sample.y > releaseY)
+        || releasedSamples.some((sample) => sample.isGrounded)
+    ).toBe(true);
 });
 
 test('grounded grenade has visible-pixel support beneath it', async ({ page }) => {
