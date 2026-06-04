@@ -44,4 +44,5 @@ describe('environment collision helpers', () => {
         expect(moved).toBe(0);
         expect(collectable.y).toBe(10);
     });
+
 });

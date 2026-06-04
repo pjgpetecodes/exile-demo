@@ -22,6 +22,7 @@ type CollectablePhysicsFactoryOptions = {
     ) => boolean;
     getRenderedEntityWorldSprite: (entity: any) => { canvas: HTMLCanvasElement; drawX: number; drawY: number } | null;
     getCollectablePhysicsSettings: (collectable: Collectable) => DynamicObjectPhysicsSettings;
+    isWorldPositionChunkLoaded: (position: { x: number; y: number }) => boolean;
     moveCollectableHorizontally: (collectable: Collectable, amount: number) => number;
     moveCollectableVertically: (collectable: Collectable, amount: number) => number;
     getGameState: () => any;
@@ -376,6 +377,13 @@ export function createGameCollectablePhysics(options: CollectablePhysicsFactoryO
                 const collectableChunkActivity = options.getChunkActivityForEntityPosition(collectable, now);
                 if (!options.shouldRunChunkBandUpdate(collectableChunkActivity, options.projectileChunkCadence, simulationFrame)) continue;
                 options.updateCreatureProjectileCollectable(collectable);
+                continue;
+            }
+            const collectableChunkActivity = options.getChunkActivityForEntityPosition(collectable, now);
+            if (!options.shouldRunChunkBandUpdate(collectableChunkActivity, options.collectableChunkCadence, simulationFrame)) {
+                continue;
+            }
+            if (!options.isWorldPositionChunkLoaded(collectable)) {
                 continue;
             }
             options.syncGrenadeFuseState(collectable, now);

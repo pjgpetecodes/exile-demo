@@ -859,6 +859,16 @@ export function prefetchMapChunksAroundWorldPosition(position: Position, radiusC
     void ensureMapChunksAroundWorldPosition(position, radiusChunks, false);
 }
 
+export function isWorldPositionChunkLoaded(position: Position) {
+    if (!chunkedWorldMapEnabled) {
+        return true;
+    }
+    const { x, y } = getChunkCoordinatesForWorldPosition(position);
+    const chunkKey = getChunkCacheKey(x, y);
+    const cacheEntry = chunkCacheByKey.get(chunkKey);
+    return !!cacheEntry && cacheEntry.active && Array.isArray(cacheEntry.blocks);
+}
+
 export function syncMapChunksForViewport(
     camera: Position,
     viewportWidth: number,
@@ -884,18 +894,21 @@ export function syncMapChunksForViewport(
     }
     lastViewportSyncedChunkKeys = new Set(requiredChunkKeys);
     desiredActiveChunkKeys = requiredChunkKeys;
-    let mapChanged = false;
-    for (const activeChunkKey of [...chunkCacheByKey.keys()]) {
-        if (!requiredChunkKeys.has(activeChunkKey)) {
-            if (deactivateChunk(activeChunkKey)) {
-                mapChanged = true;
+    void ensureChunksLoaded(requiredChunkKeys, true).then(() => {
+        // Keep previously active chunks visible until required chunks finish loading
+        // so designer camera movement does not render an empty world between loads.
+        let mapChanged = false;
+        for (const activeChunkKey of [...chunkCacheByKey.keys()]) {
+            if (!desiredActiveChunkKeys.has(activeChunkKey)) {
+                if (deactivateChunk(activeChunkKey)) {
+                    mapChanged = true;
+                }
             }
         }
-    }
-    if (mapChanged) {
-        rebuildMapBlockRenderCache();
-    }
-    void ensureChunksLoaded(requiredChunkKeys, true);
+        if (mapChanged) {
+            rebuildMapBlockRenderCache();
+        }
+    });
 }
 
 export async function materializeAllMapChunksForSave() {

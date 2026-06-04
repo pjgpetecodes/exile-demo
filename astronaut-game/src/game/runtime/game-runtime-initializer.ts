@@ -126,6 +126,7 @@ export function initializeGameEntityRuntimes(options: RuntimeInitializerOptions)
         doRenderedSpritesOverlap: options.doRenderedSpritesOverlap,
         getRenderedEntityWorldSprite: options.getRenderedEntityWorldSprite,
         getCollectablePhysicsSettings: options.getCollectablePhysicsSettings,
+        isWorldPositionChunkLoaded: options.isWorldPositionChunkLoaded,
         moveCollectableHorizontally: options.moveCollectableHorizontally,
         moveCollectableVertically: options.moveCollectableVertically,
         getGameState: options.getGameState,

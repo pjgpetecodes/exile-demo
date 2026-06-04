@@ -69,10 +69,8 @@ export function createOverviewWorldTileLoader({
         if (
             overviewWorldTiles &&
             overviewWorldTiles.length > 0 &&
-            (
-                expectedWorldTileCount === null ||
-                overviewWorldTiles.length >= expectedWorldTileCount
-            )
+            expectedWorldTileCount !== null &&
+            overviewWorldTiles.length >= expectedWorldTileCount
         ) {
             return;
         }
@@ -116,6 +114,11 @@ export function createOverviewWorldTileLoader({
                 ) {
                     // Snapshot is still partial; refresh, but back off when results are not improving.
                     nextOverviewWorldTilesRetryAtMs = Date.now() + (looksLikePartialShrink ? 2000 : 500);
+                } else if (expectedWorldTileCount === null) {
+                    // Some chunk manifests omit per-chunk tile counts.
+                    // Keep refreshing periodically so an early partial snapshot
+                    // doesn't get stuck as the permanent overview.
+                    nextOverviewWorldTilesRetryAtMs = Date.now() + 1000;
                 }
             })
             .catch(() => {

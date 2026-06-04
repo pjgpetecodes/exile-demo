@@ -91,6 +91,7 @@ export function createGameMainRuntimeBootstrapFromContext(context: ValuePack) {
             emitFlaskSpillParticles: context.emitFlaskSpillParticles,
             isCreatureProjectileCollectable: context.isCreatureProjectileCollectable,
             getCollectablePhysicsSettings: context.getCollectablePhysicsSettings,
+            isWorldPositionChunkLoaded: context.isWorldPositionChunkLoaded,
             moveCollectableHorizontally: context.moveCollectableHorizontally,
             moveCollectableVertically: context.moveCollectableVertically,
             getMushroomBlocks: context.getMushroomBlocks,

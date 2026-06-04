@@ -269,9 +269,10 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
 
     // --- Teleport memory logic ---
     const rememberPressed = (keys['r'] && !prevKeys['r']) || keys.__press_r === true;
+    const designerActiveForRemember = worldDesigner?.isActive() === true;
     if (rememberPressed) {
         const rememberedLocations = Array.isArray(teleportLocations) ? teleportLocations : null;
-        if (rememberedLocations) {
+        if (rememberedLocations && !designerActiveForRemember) {
             // Save up to 6 locations, overwrite oldest if full
             if (rememberedLocations.length < 6) {
                 rememberedLocations.push({ x: astronaut.position.x, y: astronaut.position.y });

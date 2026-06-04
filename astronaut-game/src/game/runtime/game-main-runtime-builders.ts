@@ -31,6 +31,7 @@ const INIT_RUNTIME_KEYS = [
     'canvas',
     'clampCamera',
     'getMapBounds',
+    'isWorldPositionChunkLoaded',
     'getAstronautStartPosition',
     'getEffectiveWindToggles',
     'getRawWorldData',

@@ -88,6 +88,7 @@ export function createSharedRuntimeContextFromState(state: ValuePack) {
         emitFlaskSpillParticles: state.emitFlaskSpillParticles,
         isCreatureProjectileCollectable: state.isCreatureProjectileCollectable,
         getCollectablePhysicsSettings: state.getCollectablePhysicsSettings,
+        isWorldPositionChunkLoaded: state.isWorldPositionChunkLoaded,
         moveCollectableHorizontally: state.moveCollectableHorizontally,
         moveCollectableVertically: state.moveCollectableVertically,
         getMushroomBlocks: state.getMushroomBlocks,

@@ -115,7 +115,20 @@ export function createGameMainWorldRuntime(options: {
 
     async function loadCollectables() {
         const arr = await options.fetchFreshJson<any[]>('./src/assets/data/collectables.json');
-        options.setCollectables(arr.map((data: any) => options.assignEntityId(options.createCollectable(data))));
+        const maxX = Math.max(0, Math.round(options.getMapWidth()));
+        const maxY = Math.max(0, Math.round(options.getMapHeight()));
+        const sanitizedCollectables = arr.map((data: any) => {
+            const x = Number.isFinite(Number(data?.x)) ? Math.round(Number(data.x)) : 0;
+            const y = Number.isFinite(Number(data?.y)) ? Math.round(Number(data.y)) : 0;
+            return {
+                ...data,
+                x: Math.max(0, Math.min(x, maxX)),
+                y: Math.max(0, Math.min(y, maxY))
+            };
+        });
+        options.setCollectables(
+            sanitizedCollectables.map((data: any) => options.assignEntityId(options.createCollectable(data)))
+        );
         options.setCollectedCollectableEntityIds(new Set());
         syncCollectableRuntimeState();
     }
@@ -207,12 +220,11 @@ export function createGameMainWorldRuntime(options: {
             }
         };
 
-        const { mapBlocks, doors, buttons, creatures, collectables } = options.getEntityLists();
+        const { mapBlocks, doors, buttons, creatures } = options.getEntityLists();
         considerEntities(mapBlocks);
         considerEntities(doors);
         considerEntities(buttons);
         considerEntities(creatures);
-        considerEntities(collectables);
 
         const astronautStart = options.getAstronautStartPosition();
         if (Number.isFinite(astronautStart.x) && Number.isFinite(astronautStart.y)) {
