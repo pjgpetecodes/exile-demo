@@ -215,6 +215,7 @@ export function createExtraRuntimeContextFromState(state: ValuePack) {
         getHorizontalTravelDirection: state.getHorizontalTravelDirection,
         getMapBlocksBehindAstronaut: state.getMapBlocksBehindAstronaut,
         getMapBlocksMaskAstronaut: state.getMapBlocksMaskAstronaut,
+        getMapChunkPerfTraceSnapshot: state.getMapChunkPerfTraceSnapshot,
         getRenderableCollectables: state.getRenderableCollectables,
         getRenderableMapBlocks: state.getRenderableMapBlocks,
         getSpriteSheet: state.getSpriteSheet,

@@ -72,6 +72,7 @@ let mapBlocksBehindAstronautWithoutBlackBackground: MapBlock[] = [];
 let mapBlocksMaskAstronaut: MapBlock[] = [];
 let blackBackgroundBlocks: MapBlock[] = [];
 let mushroomBlocks: MapBlock[] = [];
+let mapWaterCellKeys = new Set<string>();
 let allMapBlockBuckets: BlockBucketMap = new Map();
 let mapBlocksWithoutBlackBackgroundBuckets: BlockBucketMap = new Map();
 let mapBlocksBehindAstronautBuckets: BlockBucketMap = new Map();
@@ -103,6 +104,14 @@ const FIRE_EMBER_STEP_MS = 70;
 const FIRE_EMBER_LIFETIME_STEPS = 12;
 const FIRE_EMBER_ALPHA_FALLOFF = 1.2;
 const FIRE_GLOBAL_EMBER_BUDGET_PER_FRAME = 96;
+
+function toWaterGridCoordinate(value: number) {
+    return Math.round(value / MAP_BLOCK_TILE_SIZE);
+}
+
+function toWaterGridKey(x: number, y: number) {
+    return `${toWaterGridCoordinate(x)}:${toWaterGridCoordinate(y)}`;
+}
 
 type MushroomPixelPoint = {
     x: number;
@@ -482,6 +491,7 @@ function addBlockToBucketMap(buckets: BlockBucketMap, bucketKey: string, block: 
 }
 
 export function rebuildMapBlockRenderCache() {
+    const rebuildStartedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
     mushroomSporeFrameCache.clear();
     mushroomTransparentPixelCache.clear();
     mushroomBlocks = [];
@@ -491,6 +501,7 @@ export function rebuildMapBlockRenderCache() {
     mapBlocksBehindAstronautWithoutBlackBackground = [];
     mapBlocksMaskAstronaut = [];
     blackBackgroundBlocks = [];
+    mapWaterCellKeys = new Set<string>();
 
     allMapBlockBuckets = new Map();
     mapBlocksWithoutBlackBackgroundBuckets = new Map();
@@ -503,6 +514,9 @@ export function rebuildMapBlockRenderCache() {
         mapBlockPositionLookup.set(getMapBlockPositionKey(block.x, block.y), block);
         if (isMushroomType(block.type)) {
             mushroomBlocks.push(block);
+        }
+        if (block.water === true) {
+            mapWaterCellKeys.add(toWaterGridKey(block.x, block.y));
         }
 
         const isBlackBackground = block.type === 'black_background';
@@ -678,6 +692,15 @@ type ChunkCacheEntry = {
     loadPromise: Promise<void> | null;
 };
 
+type MapChunkPerfTraceSnapshot = {
+    lastRebuildMapBlockRenderCacheMs: number;
+    lastEnsureChunksLoadedMs: number;
+    lastEnsureChunksLoadedCount: number;
+    lastEnsureChunksActivatedCount: number;
+    lastViewportSyncCallMs: number;
+    lastViewportPostLoadDeactivateMs: number;
+};
+
 function getTeleporterBlockPreferenceScore(block: MapBlock) {
     let score = 0;
     if (block.type === 'teleporter') {
@@ -743,6 +766,14 @@ let desiredActiveChunkKeys = new Set<string>();
 let chunkManifestEntriesByKey = new Map<string, WorldChunkManifestEntry>();
 let chunkCacheByKey = new Map<string, ChunkCacheEntry>();
 let lastViewportSyncedChunkKeys = new Set<string>();
+let mapChunkPerfTraceSnapshot: MapChunkPerfTraceSnapshot = {
+    lastRebuildMapBlockRenderCacheMs: 0,
+    lastEnsureChunksLoadedMs: 0,
+    lastEnsureChunksLoadedCount: 0,
+    lastEnsureChunksActivatedCount: 0,
+    lastViewportSyncCallMs: 0,
+    lastViewportPostLoadDeactivateMs: 0
+};
 
 function setMapBlocks(nextBlocks: MapBlock[]) {
     mapBlocks.splice(0, mapBlocks.length, ...nextBlocks);
@@ -909,7 +940,9 @@ async function ensureChunkLoaded(chunkKey: string): Promise<ChunkCacheEntry | nu
 }
 
 async function ensureChunksLoaded(chunkKeys: Set<string>, activateLoadedChunks: boolean) {
+    const ensureStartedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
     let mapChanged = false;
+    let activatedChunkCount = 0;
     const loadPromises = [...chunkKeys].map(async (chunkKey) => {
         const cacheEntry = await ensureChunkLoaded(chunkKey);
         if (!cacheEntry) {
@@ -919,6 +952,7 @@ async function ensureChunksLoaded(chunkKeys: Set<string>, activateLoadedChunks: 
         if (activateLoadedChunks && desiredActiveChunkKeys.has(chunkKey)) {
             if (activateChunk(chunkKey)) {
                 mapChanged = true;
+                activatedChunkCount += 1;
             }
         }
     });
@@ -927,6 +961,11 @@ async function ensureChunksLoaded(chunkKeys: Set<string>, activateLoadedChunks: 
     if (mapChanged) {
         rebuildMapBlockRenderCache();
     }
+    mapChunkPerfTraceSnapshot.lastEnsureChunksLoadedMs = (
+        (typeof performance !== 'undefined' ? performance.now() : Date.now()) - ensureStartedAt
+    );
+    mapChunkPerfTraceSnapshot.lastEnsureChunksLoadedCount = chunkKeys.size;
+    mapChunkPerfTraceSnapshot.lastEnsureChunksActivatedCount = activatedChunkCount;
 }
 
 function areSetsEqual(left: Set<string>, right: Set<string>) {
@@ -1095,6 +1134,7 @@ export function syncMapChunksForViewport(
     zoom: number = 1,
     forceSync: boolean = false
 ) {
+    const syncStartedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
     if (!chunkedWorldMapEnabled) {
         return;
     }
@@ -1113,6 +1153,7 @@ export function syncMapChunksForViewport(
     lastViewportSyncedChunkKeys = new Set(requiredChunkKeys);
     desiredActiveChunkKeys = requiredChunkKeys;
     void ensureChunksLoaded(requiredChunkKeys, true).then(() => {
+        const postLoadStartedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
         // Keep previously active chunks visible until required chunks finish loading
         // so designer camera movement does not render an empty world between loads.
         let mapChanged = false;
@@ -1126,7 +1167,17 @@ export function syncMapChunksForViewport(
         if (mapChanged) {
             rebuildMapBlockRenderCache();
         }
+        mapChunkPerfTraceSnapshot.lastViewportPostLoadDeactivateMs = (
+            (typeof performance !== 'undefined' ? performance.now() : Date.now()) - postLoadStartedAt
+        );
     });
+    mapChunkPerfTraceSnapshot.lastViewportSyncCallMs = (
+        (typeof performance !== 'undefined' ? performance.now() : Date.now()) - syncStartedAt
+    );
+}
+
+export function getMapChunkPerfTraceSnapshot() {
+    return { ...mapChunkPerfTraceSnapshot };
 }
 
 export async function materializeAllMapChunksForSave() {
@@ -1252,16 +1303,7 @@ export function drawMap(
     const waterSurfaceThickness = Math.max(1, Math.round(SPRITE_SCALE));
     const waterBodyDrawWidth = Math.ceil(tileW) + 1;
     const waterBodyDrawHeight = Math.ceil(tileH) + 1;
-    const toWaterGridCoordinate = (value: number) => Math.round(value / MAP_BLOCK_TILE_SIZE);
-    const toWaterGridKey = (x: number, y: number) => `${toWaterGridCoordinate(x)}:${toWaterGridCoordinate(y)}`;
-    const waterCellKeys = new Set<string>();
-    for (const worldBlock of mapBlocks) {
-        if (worldBlock.water !== true) {
-            continue;
-        }
-        waterCellKeys.add(toWaterGridKey(worldBlock.x, worldBlock.y));
-    }
-    const hasWaterAbove = (block: MapBlock) => waterCellKeys.has(
+    const hasWaterAbove = (block: MapBlock) => mapWaterCellKeys.has(
         `${toWaterGridCoordinate(block.x)}:${toWaterGridCoordinate(block.y) - 1}`
     );
 

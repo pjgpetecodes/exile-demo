@@ -17,7 +17,6 @@ const STAR_COLORS = [
     '#00ff00', '#00aaff', '#ff9900', '#e0e0ff', '#ff00ff', '#00ffff', '#fffacd', '#f8f8ff'
 ];
 let stars: Star[] = [];
-let lastStarUpdateAt = 0;
 const STAR_DENSITY_DIVISOR = 30000;
 const MIN_STAR_COUNT = 200;
 const MAX_STAR_COUNT = 1000;
@@ -43,7 +42,6 @@ function randomStarMoveInterval() {
 
 export function initStars(worldWidth: number, starfieldHeight: number) {
     stars = [];
-    lastStarUpdateAt = 0;
     const starCount = getStarCount(worldWidth, starfieldHeight);
     for (let i = 0; i < starCount; i++) {
         const position = randomStarWorldPosition(worldWidth, starfieldHeight);
@@ -60,15 +58,18 @@ export function initStars(worldWidth: number, starfieldHeight: number) {
     }
 }
 
-function getStarElapsedMs(now: number) {
-    if (lastStarUpdateAt === 0) {
-        lastStarUpdateAt = now;
+type SharedAnimationClock = {
+    nowMs: number;
+    deltaMs: number;
+    frameIndex: number;
+};
+
+function getStarElapsedMs(animation: number | SharedAnimationClock) {
+    if (typeof animation === 'number') {
+        // Backward compatibility fallback for callers that only pass "now".
         return 1000 / 60;
     }
-
-    const elapsedMs = Math.min(250, Math.max(0, now - lastStarUpdateAt));
-    lastStarUpdateAt = now;
-    return elapsedMs;
+    return Math.min(250, Math.max(0, animation.deltaMs));
 }
 
 function maybeMoveStarsToNewLocations(elapsedMs: number, worldWidth: number, starfieldHeight: number) {
@@ -91,9 +92,12 @@ export function updateAndDrawStars(
     canvas: HTMLCanvasElement,
     worldWidth: number,
     starfieldHeight: number,
-    now: number = typeof performance !== 'undefined' ? performance.now() : Date.now()
+    animation: number | SharedAnimationClock =
+        typeof performance !== 'undefined'
+            ? { nowMs: performance.now(), deltaMs: 1000 / 60, frameIndex: 0 }
+            : { nowMs: Date.now(), deltaMs: 1000 / 60, frameIndex: 0 }
 ) {
-    const elapsedMs = getStarElapsedMs(now);
+    const elapsedMs = getStarElapsedMs(animation);
     maybeMoveStarsToNewLocations(elapsedMs, worldWidth, starfieldHeight);
     const baseAlpha = ctx.globalAlpha;
 

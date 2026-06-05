@@ -39,6 +39,7 @@ import {
     getMushroomBlocks,
     getRenderableMapBlocks,
     getChunkedWorldOverview,
+    getMapChunkPerfTraceSnapshot,
     getMapBlocksRevision,
     isWorldPositionChunkLoaded,
     rebuildMapBlockRenderCache,
@@ -1522,6 +1523,17 @@ if (debugRuntime) {
             hasLoopPopTeleport: typeof loopValues?.popLatestTeleportLocation === 'function'
         };
     };
+    debugRuntime.getPerformanceSpikeDebug = () => ({
+        spikeTracingEnabled: performanceTracker.getSpikeTracingEnabled(),
+        latestSpike: performanceTracker.getLastSpikeSnapshot(),
+        chunkTrace: getMapChunkPerfTraceSnapshot()
+    });
+    debugRuntime.setPerformanceSpikeTracingEnabled = (enabled: boolean) => {
+        performanceTracker.setSpikeTracingEnabled(enabled === true);
+        return {
+            spikeTracingEnabled: performanceTracker.getSpikeTracingEnabled()
+        };
+    };
     debugRuntime.getTeleporterPadDebug = (teleporterIdOrX?: string | number, yArg?: number) => {
         const candidateId = typeof teleporterIdOrX === 'string' ? teleporterIdOrX.trim() : '';
         const candidateX = typeof teleporterIdOrX === 'number' && Number.isFinite(teleporterIdOrX)
@@ -1826,6 +1838,7 @@ attachGameDebugRuntimeShortcuts({
     toggleDebugMode: () => { gameState.debugMode = !gameState.debugMode; },
     togglePerformanceHud: () => { performanceTracker.toggleHudEnabled(); },
     togglePerformanceConsoleSummary: () => { performanceTracker.toggleConsoleSummaryEnabled(); },
+    togglePerformanceSpikeTracing: () => { performanceTracker.toggleSpikeTracingEnabled(); },
     requestImmediateFrame
 });
 
@@ -1898,6 +1911,7 @@ const extraRuntimeContext = createExtraRuntimeContextFromState({
     getHorizontalTravelDirection,
     getMapBlocksBehindAstronaut,
     getMapBlocksMaskAstronaut,
+    getMapChunkPerfTraceSnapshot,
     getRenderableCollectables,
     getRenderableMapBlocks,
     getSpriteRectFromMap: spriteSheetRuntime.getSpriteRectFromMap,

@@ -5,6 +5,7 @@ import {
     drawMutedSoundIndicator,
     drawWorldEntityTightBoundingBoxes
 } from './game-loop-runtime-overlays.js';
+import { createOrAdvanceAnimationClock } from './game-animation-clock.js';
 
 export interface GameLoopRuntimeContext {
     [key: string]: any;
@@ -133,6 +134,7 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         getHorizontalTravelDirection,
         getMapBlocksBehindAstronaut,
         getMapBlocksMaskAstronaut,
+        getMapChunkPerfTraceSnapshot,
         getRenderableCollectables,
         getRenderableMapBlocks,
         getSolidBlockAtWorld,
@@ -251,6 +253,8 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         if (!gameState.isRunning || !mapLoaded) return;
 
         const frameNow = performance.now();
+        const animationClock = createOrAdvanceAnimationClock(context.animationClock, frameNow);
+        context.animationClock = animationClock;
         const frameTiming = performanceTracker.startFrame(frameNow);
         const performanceInstrumentationEnabled = frameTiming.enabled;
         const frameStartMs = frameTiming.frameStartMs;
@@ -258,6 +262,33 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         let updateWorkMs = 0;
         let mapDrawMs = 0;
         let drawPhaseMs = 0;
+        let chunkSyncMs = 0;
+
+        const buildFrameTracePhases = () => {
+            const phases: Record<string, number> = {
+                chunkSyncMs
+            };
+            if (typeof getMapChunkPerfTraceSnapshot === 'function') {
+                const chunkTrace = getMapChunkPerfTraceSnapshot();
+                if (chunkTrace && typeof chunkTrace === 'object') {
+                    const {
+                        lastRebuildMapBlockRenderCacheMs,
+                        lastEnsureChunksLoadedMs,
+                        lastEnsureChunksLoadedCount,
+                        lastEnsureChunksActivatedCount,
+                        lastViewportSyncCallMs,
+                        lastViewportPostLoadDeactivateMs
+                    } = chunkTrace as Record<string, number>;
+                    phases.chunkCacheRebuildMs = Number(lastRebuildMapBlockRenderCacheMs) || 0;
+                    phases.chunkEnsureLoadedMs = Number(lastEnsureChunksLoadedMs) || 0;
+                    phases.chunkEnsureLoadedCount = Number(lastEnsureChunksLoadedCount) || 0;
+                    phases.chunkActivatedCount = Number(lastEnsureChunksActivatedCount) || 0;
+                    phases.chunkViewportSyncCallMs = Number(lastViewportSyncCallMs) || 0;
+                    phases.chunkPostLoadDeactivateMs = Number(lastViewportPostLoadDeactivateMs) || 0;
+                }
+            }
+            return phases;
+        };
 
         ctx!.imageSmoothingEnabled = false;
         ctx!.clearRect(0, 0, canvas.width, canvas.height);
@@ -276,6 +307,7 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         const shouldSyncChunksThisFrame = designerChunkSyncRequired
             || (chunkSyncFrameCounter % CHUNK_SYNC_INTERVAL_FRAMES === 0);
         if (!saveSnapshotInProgress && shouldSyncChunksThisFrame) {
+            const chunkSyncStartMs = performanceInstrumentationEnabled ? performance.now() : 0;
             syncMapChunksForViewport(
                 camera,
                 effectiveViewport.width,
@@ -284,6 +316,9 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
                 effectiveViewport.zoom,
                 designerChunkSyncRequired
             );
+            if (performanceInstrumentationEnabled) {
+                chunkSyncMs = performance.now() - chunkSyncStartMs;
+            }
         }
         currentAstronautChunkActivity = getChunkActivityForWorldPosition(
             astronaut.position,
@@ -342,7 +377,7 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
             canvas,
             MAP_WIDTH,
             STARFIELD_HEIGHT,
-            frameNow
+            animationClock
         );
 
     // --- Draw map blocks ---
@@ -417,13 +452,13 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         // To hide, we need to patch drawMap to accept a blocks array, or temporarily monkey-patch global. For now, just draw overlays using mapBlocksToDraw.
         if (performanceInstrumentationEnabled) {
             const mapDrawStart = performance.now();
-            drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksBehindAstronaut, frameNow);
+            drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksBehindAstronaut, animationClock.nowMs);
             mapDrawMs += performance.now() - mapDrawStart;
         } else {
-            drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksBehindAstronaut, frameNow);
+            drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksBehindAstronaut, animationClock.nowMs);
         }
         if (layerVisibility.world && !designerActive) {
-            drawTeleporterPads(ctx!, camera, frameNow, {
+            drawTeleporterPads(ctx!, camera, animationClock.nowMs, {
                 ignoreKeyRequirement: designerActive
             });
         }
@@ -457,14 +492,14 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         if (mapBlocksMaskAstronaut.length > 0) {
             if (performanceInstrumentationEnabled) {
                 const mapDrawStart = performance.now();
-                drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
+                drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, animationClock.nowMs);
                 mapDrawMs += performance.now() - mapDrawStart;
             } else {
-                drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
+                drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, animationClock.nowMs);
             }
         }
         if (layerVisibility.world) {
-            drawTeleporterPads(ctx!, camera, frameNow, {
+            drawTeleporterPads(ctx!, camera, animationClock.nowMs, {
                 ignoreKeyRequirement: designerActive
             });
         }
@@ -499,7 +534,8 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
             frameTimeMs,
             updateWorkMs,
             mapDrawMs,
-            drawPhaseMs
+            drawPhaseMs,
+            buildFrameTracePhases()
         );
         prevKeys = { ...keys };
         return;
@@ -1009,10 +1045,10 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
             if (mapBlocksMaskAstronaut.length > 0) {
                 if (performanceInstrumentationEnabled) {
                     const mapDrawStart = performance.now();
-                    drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
+                    drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, animationClock.nowMs);
                     mapDrawMs += performance.now() - mapDrawStart;
                 } else {
-                    drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
+                    drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, animationClock.nowMs);
                 }
             }
             if (layerVisibility.creatures && creatureProjectileDrawables.length > 0) {
@@ -1071,7 +1107,8 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
                 frameTimeMs,
                 updateWorkMs,
                 mapDrawMs,
-                drawPhaseMs
+                drawPhaseMs,
+                buildFrameTracePhases()
             );
             prevKeys = { ...keys };
             return;
@@ -1081,7 +1118,7 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
     // --- Render astronaut at center of screen with correct animation ---
     if (astronautSpriteSource || hasRenderableSpriteSheets || (spriteSheet && spriteSheet.complete)) {
         updateAndDrawThrowGuide(ctx!, camera);
-        const renderNow = performance.now();
+        const renderNow = animationClock.nowMs;
         astronautRenderer.drawAstronautAtScreenCenter(
             ctx!,
             canvas.width,
@@ -1142,10 +1179,10 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         if (mapBlocksMaskAstronaut.length > 0) {
             if (performanceInstrumentationEnabled) {
                 const mapDrawStart = performance.now();
-                drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
+                drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, animationClock.nowMs);
                 mapDrawMs += performance.now() - mapDrawStart;
             } else {
-                drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, frameNow);
+                drawMap(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, mapBlocksMaskAstronaut, animationClock.nowMs);
             }
         }
         if (layerVisibility.creatures && creatureProjectileDrawables.length > 0) {
@@ -1204,7 +1241,8 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         frameTimeMs,
         updateWorkMs,
         mapDrawMs,
-        drawPhaseMs
+        drawPhaseMs,
+        buildFrameTracePhases()
     );
     prevKeys = { ...keys };
     } finally {
