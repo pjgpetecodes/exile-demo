@@ -10,6 +10,32 @@ export interface GameLoopRuntimeContext {
     [key: string]: any;
 }
 
+const FIRE_ARCHETYPE = 'fire';
+const FIRE_TOUCH_DAMAGE_INTERVAL_MS = 180;
+const FIRE_TOUCH_DAMAGE_PER_TICK = 5;
+
+type FireSamplePoint = { x: number; y: number };
+
+function normalizeArchetype(archetype: unknown): string {
+    return typeof archetype === 'string' ? archetype.trim().toLowerCase() : '';
+}
+
+export function isFireArchetypeBlock(block: { archetype?: unknown } | null | undefined): boolean {
+    return normalizeArchetype(block?.archetype) === FIRE_ARCHETYPE;
+}
+
+export function isTouchingFireAtSamplePoints(
+    samplePoints: FireSamplePoint[],
+    getBlockAtWorldPoint: (x: number, y: number) => ({ archetype?: unknown } | null | undefined)
+): boolean {
+    for (const sample of samplePoints) {
+        if (isFireArchetypeBlock(getBlockAtWorldPoint(sample.x, sample.y))) {
+            return true;
+        }
+    }
+    return false;
+}
+
 export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
     const swallowAutoplayRejection = () => {};
     const TELEPORT_PAD_REENTRY_COOLDOWN_MS = 3000;
@@ -204,6 +230,14 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
     const teleportAnimFrameCount = Number.isFinite(TELEPORT_ANIM_FRAMES) && TELEPORT_ANIM_FRAMES > 0
         ? TELEPORT_ANIM_FRAMES
         : 12;
+    const getLastFireTouchDamageAtMs = () => (
+        typeof context.__fireTouchDamageLastAtMs === 'number'
+            ? context.__fireTouchDamageLastAtMs
+            : Number.NEGATIVE_INFINITY
+    );
+    const setLastFireTouchDamageAtMs = (value: number) => {
+        context.__fireTouchDamageLastAtMs = value;
+    };
 
     try {
 
@@ -636,6 +670,35 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         && canFitProneProfile
         && horizontalSqueezeIntent
         && !upwardHeadBumpIntent;
+    if (!isDesignerOpen() && !teleporting && frameNow - getLastFireTouchDamageAtMs() >= FIRE_TOUCH_DAMAGE_INTERVAL_MS) {
+        const left = gameState.astronaut.position.x + astronautCollisionOffsets.left;
+        const right = gameState.astronaut.position.x + astronautCollisionOffsets.right;
+        const top = gameState.astronaut.position.y + astronautCollisionOffsets.top;
+        const bottom = gameState.astronaut.position.y + astronautCollisionOffsets.bottom;
+        const centerX = (left + right) / 2;
+        const centerY = (top + bottom) / 2;
+        const edgeInset = 2;
+        const getBlockAt = (x: number, y: number) => getAnyBlockAtWorld(
+            x,
+            y,
+            SPRITE_SCALE,
+            mapBlocks,
+            doorEntities,
+            buttonEntities,
+            creatureEntities
+        );
+        const touchingFire =
+            isFireArchetypeBlock(getBlockAt(left + edgeInset, top + edgeInset))
+            || isFireArchetypeBlock(getBlockAt(right - edgeInset, top + edgeInset))
+            || isFireArchetypeBlock(getBlockAt(left + edgeInset, bottom - edgeInset))
+            || isFireArchetypeBlock(getBlockAt(right - edgeInset, bottom - edgeInset))
+            || isFireArchetypeBlock(getBlockAt(centerX, centerY))
+            || isFireArchetypeBlock(getBlockAt(centerX, bottom - edgeInset));
+        if (touchingFire) {
+            applyAstronautDamage(FIRE_TOUCH_DAMAGE_PER_TICK, frameNow);
+            setLastFireTouchDamageAtMs(frameNow);
+        }
+    }
     if (!wasLanded && collisionState.isLanded) {
         const carriedHorizontalMotion = collisionState.nextX - movementStartX;
         const landingMomentumSource = Math.abs(carriedHorizontalMotion) > Math.abs(horizontalVelocityBeforeResolution)

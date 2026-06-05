@@ -1,5 +1,6 @@
 import type { DynamicObjectPhysicsSettings } from '../../physics/object-physics.js';
 import type { Collectable } from '../../entities/collectable.js';
+import type { MapBlock } from '../../world/map.js';
 import {
     isFlaskCollectable,
     isFlaskFull,
@@ -99,7 +100,56 @@ type CollectablePhysicsFactoryOptions = {
     projectileChunkCadence: any;
     collectableChunkCadence: any;
     emitFlaskSpillParticles: (x: number, y: number, count?: number) => void;
+    getMapBlocks: () => MapBlock[];
+    afterWorldDataMutated: () => void;
 };
+
+const FIRE_ARCHETYPE = 'fire';
+
+function normalizeArchetype(value: unknown) {
+    return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+type FireExtinguishRect = { left: number; right: number; top: number; bottom: number };
+
+export function extinguishFireBlocksNearSpill(options: {
+    mapBlocks: MapBlock[];
+    spillX: number;
+    spillY: number;
+    extinguishRadius: number;
+    getMapBlockRect: (block: MapBlock) => FireExtinguishRect;
+}) {
+    const {
+        mapBlocks,
+        spillX,
+        spillY,
+        extinguishRadius,
+        getMapBlockRect
+    } = options;
+    if (!Number.isFinite(spillX) || !Number.isFinite(spillY) || extinguishRadius <= 0) {
+        return 0;
+    }
+
+    const radiusSquared = extinguishRadius * extinguishRadius;
+    let removedCount = 0;
+    for (let index = mapBlocks.length - 1; index >= 0; index -= 1) {
+        const block = mapBlocks[index];
+        if (normalizeArchetype(block.archetype) !== FIRE_ARCHETYPE) {
+            continue;
+        }
+        const rect = getMapBlockRect(block);
+        const nearestX = Math.max(rect.left, Math.min(spillX, rect.right));
+        const nearestY = Math.max(rect.top, Math.min(spillY, rect.bottom));
+        const deltaX = spillX - nearestX;
+        const deltaY = spillY - nearestY;
+        if ((deltaX * deltaX + deltaY * deltaY) > radiusSquared) {
+            continue;
+        }
+        mapBlocks.splice(index, 1);
+        removedCount += 1;
+    }
+    return removedCount;
+}
 
 export function createGameCollectablePhysics(options: CollectablePhysicsFactoryOptions) {
     function isWaterAtWorldPoint(x: number, y: number) {
@@ -359,12 +409,28 @@ export function createGameCollectablePhysics(options: CollectablePhysicsFactoryO
             isFlaskFull(collectable) &&
             collisionImpactSpeed >= options.movementSettings.flaskImpactSpillMinSpeed
         ) {
+            const updatedCollectableRect = options.getEntityRect(collectable.x, collectable.y, collisionBounds);
+            const spillX = Math.round((updatedCollectableRect.left + updatedCollectableRect.right) / 2);
+            const spillY = updatedCollectableRect.top;
             triggerFlaskSpillFlash(collectable, now, options.movementSettings.flaskSpillFlashMs);
             options.emitFlaskSpillParticles(
-                Math.round((collectableRect.left + collectableRect.right) / 2),
-                collectableRect.top,
+                spillX,
+                spillY,
                 16
             );
+            const removedFireCount = extinguishFireBlocksNearSpill({
+                mapBlocks: options.getMapBlocks(),
+                spillX,
+                spillY,
+                extinguishRadius: Math.max(10, Math.round(options.spriteScale * 14)),
+                getMapBlockRect: (block) => {
+                    const bounds = options.getEntityCollisionBounds(block);
+                    return options.getEntityRect(block.x, block.y, bounds);
+                }
+            });
+            if (removedFireCount > 0) {
+                options.afterWorldDataMutated();
+            }
         }
 
         return { hitWorld, bounced, grounded };

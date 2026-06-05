@@ -166,7 +166,9 @@ export function initializeGameEntityRuntimes(options: RuntimeInitializerOptions)
         getChunkActivityForEntityPosition: options.getChunkActivityForEntityPosition,
         projectileChunkCadence: options.projectileChunkCadence,
         collectableChunkCadence: options.collectableChunkCadence,
-        emitFlaskSpillParticles: options.emitFlaskSpillParticles
+        emitFlaskSpillParticles: options.emitFlaskSpillParticles,
+        getMapBlocks: options.getMapBlocks,
+        afterWorldDataMutated: options.afterWorldDataMutated
     });
 
     creatureProjectileRuntime = createCreatureProjectileRuntime({

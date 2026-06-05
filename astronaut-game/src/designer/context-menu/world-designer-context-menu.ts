@@ -80,6 +80,10 @@ type WorldDesignerContextMenuApi = {
     openEmptyContextMenu: (event: MouseEvent, world: Position) => void;
 };
 
+function isFireConvertibleWorldType(type: unknown) {
+    return type === 'explosion' || type === 'explosion_half';
+}
+
 export function createWorldDesignerContextMenu(deps: WorldDesignerContextMenuDeps): WorldDesignerContextMenuApi {
     const {
         state,
@@ -445,6 +449,22 @@ export function createWorldDesignerContextMenu(deps: WorldDesignerContextMenuDep
         });
     }
 
+    function convertContextMenuWorldSelectionToFire() {
+        const selection = getContextMenuTargetSelection();
+        if (!selection || selection.category !== 'world') {
+            return;
+        }
+        const entity = selection.entity as MapBlock;
+        if (!isFireConvertibleWorldType(entity.type)) {
+            return;
+        }
+        runMutation('Converted world item to fire archetype.', () => {
+            entity.archetype = 'fire';
+            entity.collision = false;
+            entity.maskAstronaut = false;
+        });
+    }
+
     function pasteSelectionAtWorld(world: Position) {
         if (clipboardEntries.length === 0) {
             setStatus('Nothing copied yet.', 'neutral');
@@ -704,6 +724,9 @@ export function createWorldDesignerContextMenu(deps: WorldDesignerContextMenuDep
             addContextMenuSubmenu('Convert', (body) => {
                 if (selection.category === 'world') {
                     const teleporterPair = getContextMenuSelectedTeleporterPair();
+                    const isFireCandidate = isFireConvertibleWorldType(selection.entity.type);
+                    const alreadyFireArchetype = typeof selection.entity.archetype === 'string'
+                        && selection.entity.archetype.trim().toLowerCase() === 'fire';
                     addContextMenuActionToContainer(body, 'Convert selected base+pad to teleporter', () => {
                         if (!teleporterPair) {
                             return;
@@ -712,6 +735,12 @@ export function createWorldDesignerContextMenu(deps: WorldDesignerContextMenuDep
                             convertTeleporterWorldPair(teleporterPair.base, teleporterPair.pad);
                         });
                     }, !teleporterPair);
+                    addContextMenuActionToContainer(
+                        body,
+                        'Convert to fire',
+                        convertContextMenuWorldSelectionToFire,
+                        !isFireCandidate || alreadyFireArchetype
+                    );
                     addContextMenuActionToContainer(body, 'Convert to collectable', () => {
                         convertPrimarySelectionToCategory('collectables', 'Converted world item to collectable.');
                     });
