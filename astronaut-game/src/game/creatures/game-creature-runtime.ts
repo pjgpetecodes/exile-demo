@@ -2,6 +2,30 @@ import type { Creature } from '../../entities/creature.js';
 import type { Position } from '../../types/index.js';
 import type { AxisMovementResult } from '../collision/game-environment-collision.js';
 
+type MapBlockLike = {
+    x: number;
+    y: number;
+    type: string;
+    entityId?: number;
+};
+
+const WASP_NEST_TYPE = 'beehive';
+const WASP_MAX_ACTIVE_PER_NEST = 4;
+const WASP_NEST_ACTIVATION_RANGE = 300;
+const WASP_NEST_SPAWN_COOLDOWN_MS = 1250;
+const WASP_HOME_PROXIMITY = 20;
+const WASP_MAX_PATROL_DRIFT = 172;
+const WASP_ATTACK_ENGAGE_DISTANCE_RATIO = 0.55;
+const WASP_RETURN_TO_NEST_DISTANCE_RATIO = 0.82;
+const WASP_SWARM_TURN_INTERVAL_MIN_MS = 260;
+const WASP_SWARM_TURN_INTERVAL_MAX_MS = 900;
+const WASP_SWARM_STEP_MIN = 0.35;
+const WASP_SWARM_STEP_MAX = 1.25;
+const WASP_ATTACK_SWARM_WEIGHT = 0.72;
+const WASP_RETURN_SWARM_WEIGHT = 0.88;
+const WASP_ATTACK_SOUND = 'WaspBuzz';
+const WASP_RETURN_SOUND = 'WaspHome';
+
 type CreatureRuntimeFactoryOptions = {
     getCreatureEntities: () => Creature[];
     getAstronautPosition: () => Position;
@@ -34,8 +58,17 @@ type CreatureRuntimeFactoryOptions = {
     spawnCreatureProjectile: (creature: Creature, targetX: number, targetY: number, aimOriginOverride?: Position) => void;
     getNextCreatureFireAt: (frameNow: number, creature: Creature) => number;
     getAnimatedBirdSpriteType: (authoredType: string, frameNow: number, entityId?: number) => string;
+    getAnimatedWaspSpriteType?: (
+        authoredType: string,
+        frameNow: number,
+        behaviorState: 'attacking' | 'returning',
+        stateStartedAt: number,
+        entityId?: number
+    ) => string;
     getTurretFacingRotations: (authoredRotation: number) => { left: number; right: number; authoredFacing: number };
     createCreatureCarryProxy: (creature: Creature) => void;
+    getMapBlocks?: () => MapBlockLike[];
+    spawnWaspFromNest?: (nestX: number, nestY: number, nestKey: string) => Creature;
     gameAudio: {
         playManifestSound: (key: string, volume?: number) => void;
     };
@@ -96,6 +129,29 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
         return bestCreature;
     }
 
+    function isWaspType(type: string) {
+        return /^wasp/i.test(type);
+    }
+
+    function getNestKey(nest: MapBlockLike) {
+        if (typeof nest.entityId === 'number') {
+            return `entity:${nest.entityId}`;
+        }
+        return `${Math.round(nest.x)}:${Math.round(nest.y)}`;
+    }
+
+    function setWaspBehaviorState(
+        runtimeState: Record<string, unknown>,
+        nextState: 'attacking' | 'returning',
+        frameNow: number
+    ) {
+        if (runtimeState.waspBehaviorState !== nextState) {
+            runtimeState.waspBehaviorState = nextState;
+            runtimeState.waspBehaviorStateStartedAt = frameNow;
+            runtimeState.waspAnimationStateStartedAt = frameNow;
+        }
+    }
+
     function updateCreatures(frameNow: number, simulationFrame: number) {
         const creatureEntities = options.getCreatureEntities();
         const astronautRect = options.getAstronautRect();
@@ -104,6 +160,50 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
             y: (astronautRect.top + astronautRect.bottom) / 2
         };
         const astronautAimPoint = options.getAstronautAimPoint();
+
+        if (typeof options.getMapBlocks === 'function' && typeof options.spawnWaspFromNest === 'function') {
+            const nests = options.getMapBlocks().filter((block) => block.type === WASP_NEST_TYPE);
+            for (const nest of nests) {
+                const nestKey = getNestKey(nest);
+                const activeNestWasps = creatureEntities.filter((creature) => {
+                    const state = creature.state ?? {};
+                    const authoredType = options.getCreatureAuthoredType(creature.type, state);
+                    return isWaspType(authoredType) && state.waspNestKey === nestKey;
+                });
+                if (activeNestWasps.length >= WASP_MAX_ACTIVE_PER_NEST) {
+                    continue;
+                }
+                if (Math.hypot(astronautCenter.x - nest.x, astronautCenter.y - nest.y) > WASP_NEST_ACTIVATION_RANGE) {
+                    continue;
+                }
+                const nextSpawnAt = activeNestWasps.reduce((latest, creature) => {
+                    const value = Number((creature.state ?? {}).waspNestNextSpawnAt);
+                    return Number.isFinite(value) ? Math.max(latest, value) : latest;
+                }, 0);
+                if (frameNow < nextSpawnAt) {
+                    continue;
+                }
+                const nestToAstronautX = astronautCenter.x - nest.x;
+                const nestToAstronautY = astronautCenter.y - nest.y;
+                const nestToAstronautDistance = Math.max(1, Math.hypot(nestToAstronautX, nestToAstronautY));
+                const spawnDirectionX = nestToAstronautX / nestToAstronautDistance;
+                const spawnDirectionY = nestToAstronautY / nestToAstronautDistance;
+                const spawnX = nest.x + spawnDirectionX * 72 + (Math.random() * 2 - 1) * 10;
+                const spawnY = nest.y + spawnDirectionY * 52 + (Math.random() * 2 - 1) * 8;
+                const spawned = options.spawnWaspFromNest(
+                    spawnX,
+                    spawnY,
+                    nestKey
+                );
+                const spawnState = spawned.state ?? {};
+                spawnState.waspNestKey = nestKey;
+                spawnState.waspBehaviorState = 'attacking';
+                spawnState.waspBehaviorStateStartedAt = frameNow;
+                spawnState.waspAnimationStateStartedAt = frameNow;
+                spawnState.waspNestNextSpawnAt = frameNow + WASP_NEST_SPAWN_COOLDOWN_MS;
+                spawned.state = spawnState;
+            }
+        }
 
         for (const creature of creatureEntities) {
             creature.previousX = creature.x;
@@ -118,6 +218,7 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
             runtimeState.authoredType = authoredType;
             const robotLike = creature.archetype === 'robot' || /^robot/i.test(authoredType);
             const bird = options.isBirdCreature(creature, authoredType);
+            const wasp = isWaspType(authoredType);
             const authoredRotation = typeof runtimeState.authoredRotation === 'number'
                 ? Math.round(Number(runtimeState.authoredRotation))
                 : (runtimeState.authoredRotation = creature.rotation);
@@ -128,11 +229,11 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
             const dy = astronautCenter.y - creatureCenter.y;
             const distanceToAstronaut = Math.hypot(dx, dy);
             const trackRange = Math.max(creature.trackRange ?? 0, creature.followRange ?? 0);
-            const trackingDistance = creature.movementMode === 'hover'
+            const trackingDistance = creature.movementMode === 'hover' && !wasp
                 ? Math.abs(dx)
                 : distanceToAstronaut;
             const wasTrackingAstronaut = runtimeState.followingAstronaut === true;
-            const shouldTrackAstronaut = trackingDistance <= trackRange || (
+            const baseShouldTrackAstronaut = trackingDistance <= trackRange || (
                 bird &&
                 wasTrackingAstronaut &&
                 distanceToAstronaut <= Math.max(
@@ -140,6 +241,69 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
                     trackRange + options.birdTrackReleaseRangePadding
                 )
             );
+            let shouldTrackAstronaut = baseShouldTrackAstronaut;
+            if (wasp) {
+                const nestX = Number.isFinite(Number(runtimeState.waspNestX)) ? Number(runtimeState.waspNestX) : creature.homeX;
+                const nestY = Number.isFinite(Number(runtimeState.waspNestY)) ? Number(runtimeState.waspNestY) : creature.homeY;
+                runtimeState.waspNestX = nestX;
+                runtimeState.waspNestY = nestY;
+                creature.homeX = nestX;
+                creature.homeY = nestY;
+                creature.hostile = true;
+                creature.pickupEnabled = true;
+                creature.storable = true;
+                creature.collision = true;
+                creature.damageOnContact = Math.max(0.8, creature.damageOnContact ?? 0);
+                const stateStartedAt = Number.isFinite(Number(runtimeState.waspBehaviorStateStartedAt))
+                    ? Number(runtimeState.waspBehaviorStateStartedAt)
+                    : frameNow;
+                const behaviorState = runtimeState.waspBehaviorState === 'returning'
+                    ? 'returning'
+                    : 'attacking';
+                runtimeState.waspBehaviorState = behaviorState;
+                runtimeState.waspBehaviorStateStartedAt = stateStartedAt;
+                runtimeState.waspAnimationStateStartedAt = Number.isFinite(Number(runtimeState.waspAnimationStateStartedAt))
+                    ? Number(runtimeState.waspAnimationStateStartedAt)
+                    : stateStartedAt;
+                const homeDistance = Math.hypot(creature.x - nestX, creature.y - nestY);
+                const attackEngageDistance = Math.max(88, trackRange * WASP_ATTACK_ENGAGE_DISTANCE_RATIO);
+                const returnToNestDistance = Math.max(148, trackRange * WASP_RETURN_TO_NEST_DISTANCE_RATIO);
+                const nextSwarmTurnAt = Number.isFinite(Number(runtimeState.waspNextSwarmTurnAt))
+                    ? Number(runtimeState.waspNextSwarmTurnAt)
+                    : 0;
+                if (frameNow >= nextSwarmTurnAt) {
+                    const heading = Math.random() * Math.PI * 2;
+                    const stepMagnitude = WASP_SWARM_STEP_MIN + Math.random() * (WASP_SWARM_STEP_MAX - WASP_SWARM_STEP_MIN);
+                    runtimeState.waspSwarmVectorX = Math.cos(heading) * stepMagnitude;
+                    runtimeState.waspSwarmVectorY = Math.sin(heading) * stepMagnitude;
+                    runtimeState.waspNextSwarmTurnAt = frameNow + Math.round(
+                        WASP_SWARM_TURN_INTERVAL_MIN_MS +
+                        Math.random() * (WASP_SWARM_TURN_INTERVAL_MAX_MS - WASP_SWARM_TURN_INTERVAL_MIN_MS)
+                    );
+                }
+
+                if (behaviorState === 'returning') {
+                    if (distanceToAstronaut <= attackEngageDistance) {
+                        setWaspBehaviorState(runtimeState, 'attacking', frameNow);
+                        shouldTrackAstronaut = true;
+                        creature.followsAstronaut = true;
+                    } else {
+                        shouldTrackAstronaut = false;
+                        creature.followsAstronaut = false;
+                    }
+                } else {
+                    creature.followsAstronaut = true;
+                    if (distanceToAstronaut >= returnToNestDistance && homeDistance > WASP_HOME_PROXIMITY) {
+                        setWaspBehaviorState(runtimeState, 'returning', frameNow);
+                        shouldTrackAstronaut = false;
+                        creature.followsAstronaut = false;
+                    } else if (distanceToAstronaut > attackEngageDistance && Math.random() < 0.06) {
+                        setWaspBehaviorState(runtimeState, 'returning', frameNow);
+                        shouldTrackAstronaut = false;
+                        creature.followsAstronaut = false;
+                    }
+                }
+            }
             const isTurret = options.isTurretLikeCreature(creature);
             const hasSightToAstronaut = !creature.requiresLineOfSight || options.hasCreatureLineOfSight(turretAimCenter, astronautCenter);
             const homeDistance = Math.hypot(creature.x - creature.homeX, creature.y - creature.homeY);
@@ -248,7 +412,31 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
                     robotLike &&
                     creature.followsAstronaut &&
                     shouldTrackAstronaut;
-                if (creature.followsAstronaut && shouldTrackAstronaut) {
+                const waspSwarmVectorX = Number.isFinite(Number(runtimeState.waspSwarmVectorX))
+                    ? Number(runtimeState.waspSwarmVectorX)
+                    : 0;
+                const waspSwarmVectorY = Number.isFinite(Number(runtimeState.waspSwarmVectorY))
+                    ? Number(runtimeState.waspSwarmVectorY)
+                    : 0;
+                if (wasp && runtimeState.waspBehaviorState === 'returning') {
+                    const toHomeX = creature.homeX - creature.x;
+                    const toHomeY = creature.homeY - creature.y;
+                    const homeDistance = Math.max(1, Math.hypot(toHomeX, toHomeY));
+                    nextX = options.clampToRange(
+                        creature.x + (toHomeX / homeDistance) * Math.max(0.7, speed * 0.82) + waspSwarmVectorX * WASP_RETURN_SWARM_WEIGHT,
+                        creature.homeX - WASP_MAX_PATROL_DRIFT,
+                        creature.homeX + WASP_MAX_PATROL_DRIFT
+                    );
+                    nextY = options.clampToRange(
+                        creature.y + (toHomeY / homeDistance) * Math.max(0.7, speed * 0.82) + waspSwarmVectorY * WASP_RETURN_SWARM_WEIGHT,
+                        creature.homeY - WASP_MAX_PATROL_DRIFT,
+                        creature.homeY + WASP_MAX_PATROL_DRIFT
+                    );
+                } else if (wasp && creature.followsAstronaut && shouldTrackAstronaut) {
+                    const normalizedDistance = distanceToAstronaut > 0.001 ? distanceToAstronaut : 1;
+                    nextX = creature.x + (dx / normalizedDistance) * Math.max(0.9, speed) + waspSwarmVectorX * WASP_ATTACK_SWARM_WEIGHT;
+                    nextY = creature.y + (dy / normalizedDistance) * Math.max(0.8, speed) + waspSwarmVectorY * WASP_ATTACK_SWARM_WEIGHT;
+                } else if (creature.followsAstronaut && shouldTrackAstronaut) {
                     if (bird) {
                         const normalizedDistance = distanceToAstronaut > 0.001 ? distanceToAstronaut : 1;
                         nextX = creature.x + (dx / normalizedDistance) * Math.max(1, speed);
@@ -282,31 +470,45 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
                     );
                 }
 
-                const hoverPhase = typeof runtimeState.hoverPhase === 'number'
-                    ? Number(runtimeState.hoverPhase)
-                    : (frameNow / 180);
-                const nextHoverPhase = hoverPhase + Math.max(0.02, speed * 0.04);
-                runtimeState.hoverPhase = nextHoverPhase;
+                if (!wasp) {
+                    const hoverPhase = typeof runtimeState.hoverPhase === 'number'
+                        ? Number(runtimeState.hoverPhase)
+                        : (frameNow / 180);
+                    const nextHoverPhase = hoverPhase + Math.max(0.02, speed * 0.04);
+                    runtimeState.hoverPhase = nextHoverPhase;
 
-                if (creature.movementMode === 'hover' && !hoverRobotTracking) {
-                    nextY = options.clampToRange(
-                        creature.homeY + Math.sin(nextHoverPhase) * creature.hoverAmplitude,
-                        creature.patrolMinY,
-                        creature.patrolMaxY
-                    );
-                } else if (!creature.followsAstronaut || !shouldTrackAstronaut) {
-                    const midY = (creature.patrolMinY + creature.patrolMaxY) / 2;
-                    const amplitude = Math.max(2, (creature.patrolMaxY - creature.patrolMinY) / 2);
-                    nextY = options.clampToRange(
-                        midY + Math.sin(nextHoverPhase) * amplitude,
-                        creature.patrolMinY,
-                        creature.patrolMaxY
-                    );
+                    if (creature.movementMode === 'hover' && !hoverRobotTracking) {
+                        nextY = options.clampToRange(
+                            creature.homeY + Math.sin(nextHoverPhase) * creature.hoverAmplitude,
+                            creature.patrolMinY,
+                            creature.patrolMaxY
+                        );
+                    } else if (!creature.followsAstronaut || !shouldTrackAstronaut) {
+                        const midY = (creature.patrolMinY + creature.patrolMaxY) / 2;
+                        const amplitude = Math.max(2, (creature.patrolMaxY - creature.patrolMinY) / 2);
+                        nextY = options.clampToRange(
+                            midY + Math.sin(nextHoverPhase) * amplitude,
+                            creature.patrolMinY,
+                            creature.patrolMaxY
+                        );
+                    }
                 }
             }
 
             runtimeState.patrolDirection = horizontalDirection;
             runtimeState.followingAstronaut = creature.followsAstronaut && shouldTrackAstronaut;
+            if (wasp) {
+                const behaviorState = runtimeState.waspBehaviorState === 'returning' ? 'returning' : 'attacking';
+                creature.sound = {
+                    ...(creature.sound ?? {}),
+                    enabled: true,
+                    sound: behaviorState === 'returning' ? WASP_RETURN_SOUND : WASP_ATTACK_SOUND,
+                    intervalMs: behaviorState === 'returning' ? 980 : 420,
+                    randomVarianceMs: behaviorState === 'returning' ? 220 : 110,
+                    range: Math.max(220, creature.sound?.range ?? 0),
+                    volume: behaviorState === 'returning' ? 0.86 : 0.72
+                };
+            }
             if (creature.fireMode !== 'none' && hasFiringTarget) {
                 const nextFireAt = typeof runtimeState.nextFireAt === 'number'
                     ? Number(runtimeState.nextFireAt)
@@ -359,6 +561,19 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
             }
             if (bird) {
                 creature.type = options.getAnimatedBirdSpriteType(authoredType, frameNow, creature.entityId);
+            } else if (wasp && options.getAnimatedWaspSpriteType) {
+                const behaviorState = runtimeState.waspBehaviorState === 'returning' ? 'returning' : 'attacking';
+                const stateStartedAt = Number.isFinite(Number(runtimeState.waspAnimationStateStartedAt))
+                    ? Number(runtimeState.waspAnimationStateStartedAt)
+                    : frameNow;
+                runtimeState.waspAnimationStateStartedAt = stateStartedAt;
+                creature.type = options.getAnimatedWaspSpriteType(
+                    authoredType,
+                    frameNow,
+                    behaviorState,
+                    stateStartedAt,
+                    creature.entityId
+                );
             }
 
             const shouldUseTurretAutoAim = shouldAutoAim && (
@@ -385,6 +600,12 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
                     : facingRotations.right;
             } else if (
                 bird &&
+                (authoredRotation === 1 || authoredRotation === 5) &&
+                creature.x !== creature.previousX
+            ) {
+                creature.rotation = creature.x < creature.previousX ? 5 : 1;
+            } else if (
+                wasp &&
                 (authoredRotation === 1 || authoredRotation === 5) &&
                 creature.x !== creature.previousX
             ) {

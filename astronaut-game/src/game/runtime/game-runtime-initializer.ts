@@ -43,12 +43,15 @@ export function initializeGameEntityRuntimes(options: RuntimeInitializerOptions)
             creatureProjectileRuntime.spawnCreatureProjectile(creature, targetX, targetY, aimOriginOverride),
         getNextCreatureFireAt: options.getNextCreatureFireAt,
         getAnimatedBirdSpriteType: options.getAnimatedBirdSpriteType,
+        getAnimatedWaspSpriteType: options.getAnimatedWaspSpriteType,
         getTurretFacingRotations: options.getTurretFacingRotations,
         createCreatureCarryProxy: (creature: any) => {
             const proxy = options.spawnCreatureCarryProxy(creature);
             proxy.ttlFrames = undefined;
             proxy.ambientSoundKey = undefined;
         },
+        getMapBlocks: options.getMapBlocks,
+        spawnWaspFromNest: options.spawnWaspFromNest,
         gameAudio: options.gameAudio
     });
 

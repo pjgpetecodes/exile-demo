@@ -4,6 +4,9 @@ import type { Creature } from '../../entities/creature.js';
 export function createGameCreatureRenderTargetHelpers(options: {
     birdAnimationFrames: readonly string[];
     birdAnimationFrameDurationMs: number;
+    waspAnimationFrames: readonly string[];
+    waspAttackAnimationFrameDurationMs: number;
+    waspReturnAnimationFrameDurationMs: number;
     spriteScale: number;
     getCreatureAuthoredType: (type: string, state?: Record<string, unknown>) => string;
     findSpriteRectByType: (type: string) => { x: number; y: number; w: number; h: number } | null;
@@ -96,11 +99,41 @@ export function createGameCreatureRenderTargetHelpers(options: {
         return options.birdAnimationFrames[frameIndex];
     }
 
+    function getWaspSpriteFrameOffset(type: string) {
+        const match = /^wasp(\d+)$/i.exec(type);
+        if (!match) {
+            return 0;
+        }
+        return (Math.max(1, Number(match[1])) - 1) % options.waspAnimationFrames.length;
+    }
+
+    function getAnimatedWaspSpriteType(
+        authoredType: string,
+        frameNow: number,
+        behaviorState: 'attacking' | 'returning',
+        stateStartedAt: number,
+        entityId?: number
+    ) {
+        const frameOffset = getWaspSpriteFrameOffset(authoredType);
+        const entityOffset = typeof entityId === 'number'
+            ? Math.abs(entityId) % options.waspAnimationFrames.length
+            : 0;
+        const frameDurationMs = behaviorState === 'returning'
+            ? options.waspReturnAnimationFrameDurationMs
+            : options.waspAttackAnimationFrameDurationMs;
+        const elapsedMs = Math.max(0, frameNow - stateStartedAt);
+        const frameIndex = (
+            Math.floor(elapsedMs / Math.max(1, frameDurationMs)) + frameOffset + entityOffset
+        ) % options.waspAnimationFrames.length;
+        return options.waspAnimationFrames[frameIndex];
+    }
+
     return {
         getStableCreatureAimCenter,
         getTurretFacingRotations,
         isTurretLikeCreature,
         isBirdCreature,
-        getAnimatedBirdSpriteType
+        getAnimatedBirdSpriteType,
+        getAnimatedWaspSpriteType
     };
 }

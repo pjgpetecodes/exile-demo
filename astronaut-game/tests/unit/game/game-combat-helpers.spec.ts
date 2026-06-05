@@ -86,4 +86,54 @@ describe('creature combat collisions', () => {
         expect(gameState.astronaut.position.x).toBeGreaterThan(100);
         expect(astronaut.velocity.x).toBe(0);
     });
+
+    it('requires four consecutive wasp touches before applying teleport damage', () => {
+        const creature = createTestCreature({
+            archetype: 'bee',
+            type: 'wasp1',
+            damageOnContact: 1.2
+        });
+        const gameState = { astronaut: { position: { x: 100, y: 100 } } };
+        const astronaut = { velocity: { x: 2, y: 0 } };
+        const applyAstronautDamage = vi.fn();
+        const nowSpy = vi.spyOn(performance, 'now');
+
+        const helpers = createGameCombatHelpers({
+            getCreatureEntities: () => [creature],
+            getAstronautRect: () => ({ left: 100, right: 116, top: 100, bottom: 116 }),
+            getEntityCollisionBounds: () => ({ left: 0, right: 16, top: 0, bottom: 16 }),
+            getEntityRect: (x, y, bounds) => ({
+                left: x + bounds.left,
+                right: x + bounds.right,
+                top: y + bounds.top,
+                bottom: y + bounds.bottom
+            }),
+            getAstronautRenderedWorldSprite: () => null,
+            getRenderedEntityWorldSprite: () => null,
+            doRenderedSpritesOverlap: vi.fn(() => true),
+            gameState,
+            astronaut,
+            applyAstronautDamage,
+            ouchSounds: [],
+            getSoundEnabled: () => false,
+            creatureManifestSounds: {},
+            getEntityCenter: () => ({ x: 0, y: 0 }),
+            gameAudio: { playRuntimeSound: vi.fn() }
+        });
+
+        nowSpy.mockReturnValue(0);
+        helpers.resolveAstronautCreatureCollisions();
+        nowSpy.mockReturnValue(500);
+        helpers.resolveAstronautCreatureCollisions();
+        nowSpy.mockReturnValue(1000);
+        helpers.resolveAstronautCreatureCollisions();
+        expect(applyAstronautDamage).not.toHaveBeenCalled();
+
+        nowSpy.mockReturnValue(1500);
+        helpers.resolveAstronautCreatureCollisions();
+        expect(applyAstronautDamage).toHaveBeenCalledTimes(1);
+        expect(applyAstronautDamage).toHaveBeenCalledWith(999, 1500);
+
+        nowSpy.mockRestore();
+    });
 });
