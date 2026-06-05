@@ -141,7 +141,8 @@ export function createSharedRuntimeContextFromState(state: ValuePack) {
         getMapBlocks: state.getMapBlocks,
         getDoorEntities: state.getDoorEntities,
         getButtonEntities: state.getButtonEntities,
-        getTeleporterEntities: state.getTeleporterEntities
+        getTeleporterEntities: state.getTeleporterEntities,
+        afterWorldDataMutated: state.afterWorldDataMutated
     };
 }
 

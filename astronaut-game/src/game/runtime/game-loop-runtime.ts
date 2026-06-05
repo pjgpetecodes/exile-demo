@@ -6,6 +6,7 @@ import {
     drawWorldEntityTightBoundingBoxes
 } from './game-loop-runtime-overlays.js';
 import { createOrAdvanceAnimationClock } from './game-animation-clock.js';
+import { getMapBlocksNearWorldPoint } from '../../world/map.js';
 
 export interface GameLoopRuntimeContext {
     [key: string]: any;
@@ -13,7 +14,8 @@ export interface GameLoopRuntimeContext {
 
 const FIRE_ARCHETYPE = 'fire';
 const FIRE_TOUCH_DAMAGE_INTERVAL_MS = 180;
-const FIRE_TOUCH_DAMAGE_PER_TICK = 5;
+const FIRE_TOUCH_PROBE_INTERVAL_MS = 120;
+const FIRE_TOUCH_DAMAGE_PER_TICK = 3;
 
 type FireSamplePoint = { x: number; y: number };
 
@@ -239,6 +241,14 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
     );
     const setLastFireTouchDamageAtMs = (value: number) => {
         context.__fireTouchDamageLastAtMs = value;
+    };
+    const getLastFireTouchProbeAtMs = () => (
+        typeof context.__fireTouchProbeLastAtMs === 'number'
+            ? context.__fireTouchProbeLastAtMs
+            : Number.NEGATIVE_INFINITY
+    );
+    const setLastFireTouchProbeAtMs = (value: number) => {
+        context.__fireTouchProbeLastAtMs = value;
     };
 
     try {
@@ -706,32 +716,49 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         && canFitProneProfile
         && horizontalSqueezeIntent
         && !upwardHeadBumpIntent;
-    if (!isDesignerOpen() && !teleporting && frameNow - getLastFireTouchDamageAtMs() >= FIRE_TOUCH_DAMAGE_INTERVAL_MS) {
+    if (
+        !isDesignerOpen()
+        && !teleporting
+        && frameNow - getLastFireTouchDamageAtMs() >= FIRE_TOUCH_DAMAGE_INTERVAL_MS
+        && frameNow - getLastFireTouchProbeAtMs() >= FIRE_TOUCH_PROBE_INTERVAL_MS
+    ) {
+        setLastFireTouchProbeAtMs(frameNow);
         const left = gameState.astronaut.position.x + astronautCollisionOffsets.left;
         const right = gameState.astronaut.position.x + astronautCollisionOffsets.right;
         const top = gameState.astronaut.position.y + astronautCollisionOffsets.top;
         const bottom = gameState.astronaut.position.y + astronautCollisionOffsets.bottom;
         const centerX = (left + right) / 2;
-        const centerY = (top + bottom) / 2;
         const edgeInset = 2;
-        const getBlockAt = (x: number, y: number) => getAnyBlockAtWorld(
-            x,
-            y,
-            SPRITE_SCALE,
-            mapBlocks,
-            doorEntities,
-            buttonEntities,
-            creatureEntities
-        );
+        const isFireAtProbe = (sampleX: number, sampleY: number) => {
+            const nearbyBlocks = getMapBlocksNearWorldPoint(sampleX, sampleY, SPRITE_SCALE, mapBlocks);
+            for (const block of nearbyBlocks) {
+                if (!isFireArchetypeBlock(block)) {
+                    continue;
+                }
+                const bbox = blockInstanceRotatedBoundingBoxes.get(block) as
+                    | { minX: number; minY: number; maxX: number; maxY: number }
+                    | undefined;
+                if (!bbox) {
+                    continue;
+                }
+                const minX = block.x + bbox.minX * SPRITE_SCALE;
+                const minY = block.y + bbox.minY * SPRITE_SCALE;
+                const maxX = block.x + (bbox.maxX + 1) * SPRITE_SCALE;
+                const maxY = block.y + (bbox.maxY + 1) * SPRITE_SCALE;
+                if (sampleX >= minX && sampleX < maxX && sampleY >= minY && sampleY < maxY) {
+                    return true;
+                }
+            }
+            return false;
+        };
         const touchingFire =
-            isFireArchetypeBlock(getBlockAt(left + edgeInset, top + edgeInset))
-            || isFireArchetypeBlock(getBlockAt(right - edgeInset, top + edgeInset))
-            || isFireArchetypeBlock(getBlockAt(left + edgeInset, bottom - edgeInset))
-            || isFireArchetypeBlock(getBlockAt(right - edgeInset, bottom - edgeInset))
-            || isFireArchetypeBlock(getBlockAt(centerX, centerY))
-            || isFireArchetypeBlock(getBlockAt(centerX, bottom - edgeInset));
+            isFireAtProbe(centerX, bottom - edgeInset)
+            || isFireAtProbe(left + edgeInset, bottom - edgeInset)
+            || isFireAtProbe(right - edgeInset, bottom - edgeInset)
+            || isFireAtProbe(centerX, top + edgeInset);
         if (touchingFire) {
             applyAstronautDamage(FIRE_TOUCH_DAMAGE_PER_TICK, frameNow);
+            gameAudio.playAstronautImpactSound();
             setLastFireTouchDamageAtMs(frameNow);
         }
     }

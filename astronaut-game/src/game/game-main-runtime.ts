@@ -1457,7 +1457,8 @@ const sharedRuntimeContext = createSharedRuntimeContextFromState({
     getMapBlocks: () => mapBlocks,
     getDoorEntities: () => doorEntities,
     getButtonEntities: () => buttonEntities,
-    getTeleporterEntities: () => teleporterEntities
+    getTeleporterEntities: () => teleporterEntities,
+    afterWorldDataMutated
 });
 
 const runtimeBootstrap = createGameMainRuntimeBootstrapFromContext(sharedRuntimeContext);

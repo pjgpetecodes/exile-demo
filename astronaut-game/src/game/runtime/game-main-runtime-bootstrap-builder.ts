@@ -101,7 +101,9 @@ export function createGameMainRuntimeBootstrapFromContext(context: ValuePack) {
             mushroomAmbientBaseVolume: context.mushroomAmbientBaseVolume,
             mushroomAmbientMinDelayMs: context.mushroomAmbientMinDelayMs,
             mushroomAmbientMaxDelayMs: context.mushroomAmbientMaxDelayMs,
-            syncGrenadeFuseState: context.syncGrenadeFuseState
+            syncGrenadeFuseState: context.syncGrenadeFuseState,
+            getMapBlocks: context.getMapBlocks,
+            afterWorldDataMutated: context.afterWorldDataMutated
         },
         physics: {
             getDynamicObjectHeadBounceLaunchSpeed: context.getDynamicObjectHeadBounceLaunchSpeed,
