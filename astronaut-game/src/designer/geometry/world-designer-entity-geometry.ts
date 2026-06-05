@@ -24,6 +24,16 @@ type EntityGeometryDependencies = {
 
 // Geometry helpers are extracted so the world designer orchestration stays easier to follow.
 export function createDesignerEntityGeometryHelpers(dependencies: EntityGeometryDependencies) {
+    function normalizeTranslation(value: unknown) {
+        return value === 'top' || value === 'right' || value === 'bottom' || value === 'left'
+            ? value
+            : 'center';
+    }
+
+    function isFireWorldEntity(entity: any) {
+        return typeof entity?.archetype === 'string' && entity.archetype.trim().toLowerCase() === 'fire';
+    }
+
     function getButtonPartRect(part: {
         x: number;
         y: number;
@@ -172,6 +182,28 @@ export function createDesignerEntityGeometryHelpers(dependencies: EntityGeometry
                 width: right - left,
                 height: bottom - top
             };
+        }
+        if (category === 'world' && typeof entity.type === 'string' && isFireWorldEntity(entity)) {
+            const visibleRect = dependencies.getVisibleSpriteRect(
+                entity.type,
+                typeof entity.palette === 'number' ? entity.palette : 0,
+                dependencies.normalizeRotation(entity.rotation),
+                normalizeTranslation(entity.translation)
+            );
+            if (visibleRect) {
+                const left = entity.x + visibleRect.left;
+                const top = entity.y + visibleRect.top;
+                const right = left + visibleRect.width;
+                const bottom = top + visibleRect.height;
+                return {
+                    left,
+                    top,
+                    right,
+                    bottom,
+                    width: right - left,
+                    height: bottom - top
+                };
+            }
         }
         if (category === 'collectables' && typeof entity.type === 'string') {
             const visibleRect = dependencies.getVisibleSpriteRect(

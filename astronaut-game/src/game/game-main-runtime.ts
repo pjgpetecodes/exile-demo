@@ -39,6 +39,7 @@ import {
     getMushroomBlocks,
     getRenderableMapBlocks,
     getChunkedWorldOverview,
+    getMapChunkPerfTraceSnapshot,
     getMapBlocksRevision,
     isWorldPositionChunkLoaded,
     rebuildMapBlockRenderCache,
@@ -1456,7 +1457,8 @@ const sharedRuntimeContext = createSharedRuntimeContextFromState({
     getMapBlocks: () => mapBlocks,
     getDoorEntities: () => doorEntities,
     getButtonEntities: () => buttonEntities,
-    getTeleporterEntities: () => teleporterEntities
+    getTeleporterEntities: () => teleporterEntities,
+    afterWorldDataMutated
 });
 
 const runtimeBootstrap = createGameMainRuntimeBootstrapFromContext(sharedRuntimeContext);
@@ -1520,6 +1522,17 @@ if (debugRuntime) {
         return {
             hasLoopStartTeleport: typeof loopValues?.startTeleportToLocation === 'function',
             hasLoopPopTeleport: typeof loopValues?.popLatestTeleportLocation === 'function'
+        };
+    };
+    debugRuntime.getPerformanceSpikeDebug = () => ({
+        spikeTracingEnabled: performanceTracker.getSpikeTracingEnabled(),
+        latestSpike: performanceTracker.getLastSpikeSnapshot(),
+        chunkTrace: getMapChunkPerfTraceSnapshot()
+    });
+    debugRuntime.setPerformanceSpikeTracingEnabled = (enabled: boolean) => {
+        performanceTracker.setSpikeTracingEnabled(enabled === true);
+        return {
+            spikeTracingEnabled: performanceTracker.getSpikeTracingEnabled()
         };
     };
     debugRuntime.getTeleporterPadDebug = (teleporterIdOrX?: string | number, yArg?: number) => {
@@ -1826,6 +1839,7 @@ attachGameDebugRuntimeShortcuts({
     toggleDebugMode: () => { gameState.debugMode = !gameState.debugMode; },
     togglePerformanceHud: () => { performanceTracker.toggleHudEnabled(); },
     togglePerformanceConsoleSummary: () => { performanceTracker.toggleConsoleSummaryEnabled(); },
+    togglePerformanceSpikeTracing: () => { performanceTracker.toggleSpikeTracingEnabled(); },
     requestImmediateFrame
 });
 
@@ -1898,6 +1912,7 @@ const extraRuntimeContext = createExtraRuntimeContextFromState({
     getHorizontalTravelDirection,
     getMapBlocksBehindAstronaut,
     getMapBlocksMaskAstronaut,
+    getMapChunkPerfTraceSnapshot,
     getRenderableCollectables,
     getRenderableMapBlocks,
     getSpriteRectFromMap: spriteSheetRuntime.getSpriteRectFromMap,

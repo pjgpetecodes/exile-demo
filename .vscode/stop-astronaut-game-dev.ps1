@@ -1,24 +1,65 @@
 $ErrorActionPreference = "Stop"
 
-$patterns = @(
+$workspaceHint = "C:\repos\exile"
+$commandPatterns = @(
   "*npm run dev*",
+  "*npm run start:build*",
   "*designer-save-server.cjs*",
+  "*static-server.cjs*",
   "*lite-server --config bs-config.js --no-open*",
   "*tsc --watch*",
   "*concurrently*astronaut-game*",
   "*concurrently*designer-save-server.cjs*"
 )
 
-$targets = Get-CimInstance Win32_Process | Where-Object {
-  $cmd = $_.CommandLine
-  if (-not $cmd) { return $false }
-  foreach ($pattern in $patterns) {
-    if ($cmd -like $pattern) { return $true }
+$knownCommandFragments = @(
+  "designer-save-server.cjs",
+  "static-server.cjs",
+  "lite-server --config bs-config.js --no-open",
+  "npm run dev",
+  "npm run start:build",
+  "tsc --watch",
+  "astronaut-game"
+)
+
+$seen = [System.Collections.Generic.HashSet[int]]::new()
+$allProcesses = Get-CimInstance Win32_Process
+
+function Is-MatchingCommand {
+  param([string]$CommandLine, [string[]]$Patterns)
+
+  if (-not $CommandLine) {
+    return $false
   }
+
+  foreach ($pattern in $Patterns) {
+    if ($CommandLine -like $pattern) {
+      return $true
+    }
+  }
+
   return $false
 }
 
-$seen = [System.Collections.Generic.HashSet[int]]::new()
+function Is-WorkspaceServiceCommand {
+  param([string]$CommandLine)
+
+  if (-not $CommandLine) {
+    return $false
+  }
+
+  if (($CommandLine -notlike "*$workspaceHint*") -and ($CommandLine -notlike "*astronaut-game*")) {
+    return $false
+  }
+
+  foreach ($fragment in $knownCommandFragments) {
+    if ($CommandLine -like "*$fragment*") {
+      return $true
+    }
+  }
+
+  return $false
+}
 
 function Add-Descendants {
   param([int]$ProcessId)
@@ -31,7 +72,8 @@ function Add-Descendants {
   }
 }
 
-foreach ($target in $targets) {
+$patternTargets = $allProcesses | Where-Object { Is-MatchingCommand -CommandLine $_.CommandLine -Patterns $commandPatterns }
+foreach ($target in $patternTargets) {
   if ($seen.Add([int]$target.ProcessId)) {
     Add-Descendants -ProcessId ([int]$target.ProcessId)
   }
@@ -44,5 +86,35 @@ foreach ($processId in ($seen | Sort-Object -Descending)) {
     # Process already exited between discovery and termination.
   } catch [Microsoft.PowerShell.Commands.ProcessCommandException] {
     Write-Warning "Unable to stop process ${processId}: $($_.Exception.Message)"
+  }
+}
+
+# Fallback: clean up leftover workspace-owned listeners on local debug ports.
+$debugPorts = @(3000, 3001)
+foreach ($port in $debugPorts) {
+  $listeners = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+  foreach ($listener in $listeners) {
+    $pid = [int]$listener.OwningProcess
+    if ($seen.Contains($pid)) {
+      continue
+    }
+
+    $proc = $allProcesses | Where-Object { [int]$_.ProcessId -eq $pid } | Select-Object -First 1
+    if ($null -eq $proc) {
+      continue
+    }
+
+    if (-not (Is-WorkspaceServiceCommand -CommandLine $proc.CommandLine)) {
+      continue
+    }
+
+    try {
+      Stop-Process -Id $pid -ErrorAction Stop
+      $seen.Add($pid) | Out-Null
+    } catch [System.ArgumentException] {
+      # Process already exited.
+    } catch [Microsoft.PowerShell.Commands.ProcessCommandException] {
+      Write-Warning "Unable to stop debug-port process ${pid} on port ${port}: $($_.Exception.Message)"
+    }
   }
 }

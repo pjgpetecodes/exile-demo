@@ -8,7 +8,13 @@ import {
 import type { DestructionSourceRequirement } from '../entities/destructibles.js';
 import { resolveAnimatedPaletteIndex } from './palette-cycle.js';
 import { PaletteCycleSettings, Position, WindEmitterMode } from '../types/index.js';
-import { getSpriteTranslationOffset, getTransformedSpriteCanvas, normalizeSpriteTranslation, SpriteTranslation } from '../shared/utilities.js';
+import {
+    getSpriteTranslationOffset,
+    getSpriteVisibleBounds,
+    getTransformedSpriteCanvas,
+    normalizeSpriteTranslation,
+    SpriteTranslation
+} from '../shared/utilities.js';
 import { normalizeWaterBlock } from './water-blocks.js';
 import {
     getMushroomPatternKey,
@@ -49,6 +55,7 @@ export type MapBlock = {
     windShowParticles?: boolean;
     water?: boolean;
     waterOnly?: boolean;
+    archetype?: string;
 };
 
 export let mapBlocks: MapBlock[] = [];
@@ -65,6 +72,7 @@ let mapBlocksBehindAstronautWithoutBlackBackground: MapBlock[] = [];
 let mapBlocksMaskAstronaut: MapBlock[] = [];
 let blackBackgroundBlocks: MapBlock[] = [];
 let mushroomBlocks: MapBlock[] = [];
+let mapWaterCellKeys = new Set<string>();
 let allMapBlockBuckets: BlockBucketMap = new Map();
 let mapBlocksWithoutBlackBackgroundBuckets: BlockBucketMap = new Map();
 let mapBlocksBehindAstronautBuckets: BlockBucketMap = new Map();
@@ -84,6 +92,26 @@ const MUSHROOM_SPORES_PER_FRAME = 10;
 const MUSHROOM_SIDE_SPILL_PIXELS_PER_FRAME = 4;
 const WATER_FILL_COLOR_ALIAS = 'Blue';
 const WATER_SURFACE_COLOR_ALIAS = 'Cyan';
+const FIRE_ARCHETYPE = 'fire';
+const FIRE_PRIMARY_PALETTE = 38;
+const FIRE_SECONDARY_PALETTE = 39;
+const FIRE_MAX_EMBERS_PER_BLOCK = 6;
+const FIRE_BOB_X_PIXELS = 2.4;
+const FIRE_BOB_Y_PIXELS = 2.8;
+const FIRE_ROTATION_DEGREES = 6;
+const FIRE_MIN_ROTATION_BIAS_DEGREES = 1.2;
+const FIRE_EMBER_STEP_MS = 70;
+const FIRE_EMBER_LIFETIME_STEPS = 12;
+const FIRE_EMBER_ALPHA_FALLOFF = 1.2;
+const FIRE_GLOBAL_EMBER_BUDGET_PER_FRAME = 96;
+
+function toWaterGridCoordinate(value: number) {
+    return Math.round(value / MAP_BLOCK_TILE_SIZE);
+}
+
+function toWaterGridKey(x: number, y: number) {
+    return `${toWaterGridCoordinate(x)}:${toWaterGridCoordinate(y)}`;
+}
 
 type MushroomPixelPoint = {
     x: number;
@@ -91,6 +119,140 @@ type MushroomPixelPoint = {
 };
 
 type MushroomSpillSide = 'left' | 'right';
+type FireFrameStats = {
+    visibleFireBlocks: number;
+    renderedEmbers: number;
+    emberBudget: number;
+};
+let lastFireFrameStats: FireFrameStats = {
+    visibleFireBlocks: 0,
+    renderedEmbers: 0,
+    emberBudget: FIRE_GLOBAL_EMBER_BUDGET_PER_FRAME
+};
+
+function clamp(value: number, min: number, max: number) {
+    return Math.min(Math.max(value, min), max);
+}
+
+function normalizeArchetype(value: unknown) {
+    return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function isFireArchetype(block: Pick<MapBlock, 'archetype'>) {
+    return normalizeArchetype(block.archetype) === FIRE_ARCHETYPE;
+}
+
+function getBlockEffectSeed(block: Pick<MapBlock, 'x' | 'y' | 'type' | 'rotation'>, suffix: string) {
+    return hashStringToSeed(`${block.type}:${block.x}:${block.y}:${block.rotation ?? 1}:${suffix}`);
+}
+
+export function resolveFirePaletteIndex(
+    basePalette: number,
+    paletteCount: number,
+    now: number,
+    seed: number
+) {
+    const normalizedPaletteCount = Math.max(1, Math.floor(paletteCount));
+    const fallbackPalette = clamp(Math.round(basePalette), 0, normalizedPaletteCount - 1);
+    const preferredPalettes = [FIRE_PRIMARY_PALETTE, FIRE_SECONDARY_PALETTE]
+        .filter((palette) => palette >= 0 && palette < normalizedPaletteCount);
+    if (preferredPalettes.length === 0) {
+        return fallbackPalette;
+    }
+    if (preferredPalettes.length === 1) {
+        return preferredPalettes[0];
+    }
+
+    const phase = now / 93 + (seed % 1021) * 0.013;
+    const irregularSignal =
+        Math.sin(phase) +
+        0.42 * Math.sin(phase * 2.27 + 1.19) +
+        0.18 * Math.sin(phase * 5.11 + 2.41);
+    return irregularSignal > 0.1
+        ? preferredPalettes[1]
+        : preferredPalettes[0];
+}
+
+export function resolveFireMotion(now: number, seed: number) {
+    const phase = now / 215 + (seed % 7919) * 0.0008;
+    const offsetX =
+        (Math.sin(phase) + 0.35 * Math.sin(phase * 1.91 + 1.4)) * FIRE_BOB_X_PIXELS;
+    const offsetY =
+        (Math.sin(phase * 1.43 + 2.1) + 0.24 * Math.sin(phase * 3.17 + 0.35)) * FIRE_BOB_Y_PIXELS;
+    const rotationDegrees =
+        (Math.sin(phase * 1.21 + 0.8) + 0.28 * Math.sin(phase * 2.37 + 2.3)) * FIRE_ROTATION_DEGREES;
+    const minBias = FIRE_MIN_ROTATION_BIAS_DEGREES;
+    const biasedRotationDegrees = rotationDegrees >= 0
+        ? Math.max(minBias, rotationDegrees)
+        : Math.min(-minBias, rotationDegrees);
+    return {
+        offsetX,
+        offsetY,
+        rotationRadians: (biasedRotationDegrees * Math.PI) / 180
+    };
+}
+
+export function resolveFireGlobalEmberBudget() {
+    return FIRE_GLOBAL_EMBER_BUDGET_PER_FRAME;
+}
+
+export function getLastFireFrameStats() {
+    return { ...lastFireFrameStats };
+}
+
+function drawFireEmbers(
+    ctx: CanvasRenderingContext2D,
+    block: Pick<MapBlock, 'x' | 'y' | 'type' | 'rotation'>,
+    now: number,
+    tileW: number,
+    tileH: number,
+    drawLeft: number,
+    drawTop: number,
+    maxToDraw: number
+) {
+    if (maxToDraw <= 0) {
+        return 0;
+    }
+    const emberSeed = getBlockEffectSeed(block, 'embers');
+    const step = Math.floor(Math.max(0, now) / FIRE_EMBER_STEP_MS);
+    const worldPixelSize = Math.max(1, Math.round(Math.min(tileW, tileH) / 32));
+    const maxRise = tileH;
+    const startY = drawTop + tileH * 0.7;
+    let drawnCount = 0;
+
+    for (let index = 0; index < FIRE_MAX_EMBERS_PER_BLOCK; index += 1) {
+        if (drawnCount >= maxToDraw) {
+            break;
+        }
+        const slotSeed = hashStringToSeed(`${emberSeed}:${index}`);
+        const slotStep = step + (slotSeed % FIRE_EMBER_LIFETIME_STEPS);
+        const ageStep = slotStep % FIRE_EMBER_LIFETIME_STEPS;
+        const lifeRatio = ageStep / FIRE_EMBER_LIFETIME_STEPS;
+        const rise = lifeRatio * maxRise;
+        const y = startY - rise;
+        if (y < drawTop - 1) {
+            continue;
+        }
+
+        const swayPhase = slotStep * 0.38 + (slotSeed % 1000) * 0.006;
+        const x =
+            drawLeft + tileW * 0.5 +
+            Math.sin(swayPhase) * (tileW * 0.12) +
+            Math.sin(swayPhase * 1.7 + 1.2) * (tileW * 0.05);
+        const alpha = Math.max(0, 1 - Math.pow(lifeRatio, FIRE_EMBER_ALPHA_FALLOFF));
+        if (alpha <= 0.02) {
+            continue;
+        }
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = ageStep % 2 === 0 ? '#f8eb40' : '#ffffff';
+        ctx.fillRect(Math.round(x), Math.round(y), worldPixelSize, worldPixelSize);
+        ctx.restore();
+        drawnCount += 1;
+    }
+    return drawnCount;
+}
 
 function getTransparentMushroomPixels(sourceCanvas: HTMLCanvasElement, key: string) {
     const cached = mushroomTransparentPixelCache.get(key);
@@ -329,6 +491,7 @@ function addBlockToBucketMap(buckets: BlockBucketMap, bucketKey: string, block: 
 }
 
 export function rebuildMapBlockRenderCache() {
+    const rebuildStartedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
     mushroomSporeFrameCache.clear();
     mushroomTransparentPixelCache.clear();
     mushroomBlocks = [];
@@ -338,6 +501,7 @@ export function rebuildMapBlockRenderCache() {
     mapBlocksBehindAstronautWithoutBlackBackground = [];
     mapBlocksMaskAstronaut = [];
     blackBackgroundBlocks = [];
+    mapWaterCellKeys = new Set<string>();
 
     allMapBlockBuckets = new Map();
     mapBlocksWithoutBlackBackgroundBuckets = new Map();
@@ -350,6 +514,9 @@ export function rebuildMapBlockRenderCache() {
         mapBlockPositionLookup.set(getMapBlockPositionKey(block.x, block.y), block);
         if (isMushroomType(block.type)) {
             mushroomBlocks.push(block);
+        }
+        if (block.water === true) {
+            mapWaterCellKeys.add(toWaterGridKey(block.x, block.y));
         }
 
         const isBlackBackground = block.type === 'black_background';
@@ -525,6 +692,15 @@ type ChunkCacheEntry = {
     loadPromise: Promise<void> | null;
 };
 
+type MapChunkPerfTraceSnapshot = {
+    lastRebuildMapBlockRenderCacheMs: number;
+    lastEnsureChunksLoadedMs: number;
+    lastEnsureChunksLoadedCount: number;
+    lastEnsureChunksActivatedCount: number;
+    lastViewportSyncCallMs: number;
+    lastViewportPostLoadDeactivateMs: number;
+};
+
 function getTeleporterBlockPreferenceScore(block: MapBlock) {
     let score = 0;
     if (block.type === 'teleporter') {
@@ -590,6 +766,14 @@ let desiredActiveChunkKeys = new Set<string>();
 let chunkManifestEntriesByKey = new Map<string, WorldChunkManifestEntry>();
 let chunkCacheByKey = new Map<string, ChunkCacheEntry>();
 let lastViewportSyncedChunkKeys = new Set<string>();
+let mapChunkPerfTraceSnapshot: MapChunkPerfTraceSnapshot = {
+    lastRebuildMapBlockRenderCacheMs: 0,
+    lastEnsureChunksLoadedMs: 0,
+    lastEnsureChunksLoadedCount: 0,
+    lastEnsureChunksActivatedCount: 0,
+    lastViewportSyncCallMs: 0,
+    lastViewportPostLoadDeactivateMs: 0
+};
 
 function setMapBlocks(nextBlocks: MapBlock[]) {
     mapBlocks.splice(0, mapBlocks.length, ...nextBlocks);
@@ -756,7 +940,9 @@ async function ensureChunkLoaded(chunkKey: string): Promise<ChunkCacheEntry | nu
 }
 
 async function ensureChunksLoaded(chunkKeys: Set<string>, activateLoadedChunks: boolean) {
+    const ensureStartedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
     let mapChanged = false;
+    let activatedChunkCount = 0;
     const loadPromises = [...chunkKeys].map(async (chunkKey) => {
         const cacheEntry = await ensureChunkLoaded(chunkKey);
         if (!cacheEntry) {
@@ -766,6 +952,7 @@ async function ensureChunksLoaded(chunkKeys: Set<string>, activateLoadedChunks: 
         if (activateLoadedChunks && desiredActiveChunkKeys.has(chunkKey)) {
             if (activateChunk(chunkKey)) {
                 mapChanged = true;
+                activatedChunkCount += 1;
             }
         }
     });
@@ -774,6 +961,11 @@ async function ensureChunksLoaded(chunkKeys: Set<string>, activateLoadedChunks: 
     if (mapChanged) {
         rebuildMapBlockRenderCache();
     }
+    mapChunkPerfTraceSnapshot.lastEnsureChunksLoadedMs = (
+        (typeof performance !== 'undefined' ? performance.now() : Date.now()) - ensureStartedAt
+    );
+    mapChunkPerfTraceSnapshot.lastEnsureChunksLoadedCount = chunkKeys.size;
+    mapChunkPerfTraceSnapshot.lastEnsureChunksActivatedCount = activatedChunkCount;
 }
 
 function areSetsEqual(left: Set<string>, right: Set<string>) {
@@ -942,6 +1134,7 @@ export function syncMapChunksForViewport(
     zoom: number = 1,
     forceSync: boolean = false
 ) {
+    const syncStartedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
     if (!chunkedWorldMapEnabled) {
         return;
     }
@@ -960,6 +1153,7 @@ export function syncMapChunksForViewport(
     lastViewportSyncedChunkKeys = new Set(requiredChunkKeys);
     desiredActiveChunkKeys = requiredChunkKeys;
     void ensureChunksLoaded(requiredChunkKeys, true).then(() => {
+        const postLoadStartedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
         // Keep previously active chunks visible until required chunks finish loading
         // so designer camera movement does not render an empty world between loads.
         let mapChanged = false;
@@ -973,7 +1167,17 @@ export function syncMapChunksForViewport(
         if (mapChanged) {
             rebuildMapBlockRenderCache();
         }
+        mapChunkPerfTraceSnapshot.lastViewportPostLoadDeactivateMs = (
+            (typeof performance !== 'undefined' ? performance.now() : Date.now()) - postLoadStartedAt
+        );
     });
+    mapChunkPerfTraceSnapshot.lastViewportSyncCallMs = (
+        (typeof performance !== 'undefined' ? performance.now() : Date.now()) - syncStartedAt
+    );
+}
+
+export function getMapChunkPerfTraceSnapshot() {
+    return { ...mapChunkPerfTraceSnapshot };
 }
 
 export async function materializeAllMapChunksForSave() {
@@ -1090,19 +1294,16 @@ export function drawMap(
     const blocksToDraw = bucketMap
         ? getBucketedBlocksInViewport(bucketMap, camera, ctx.canvas.width, ctx.canvas.height, tileW, tileH)
         : (blocks || mapBlocks);
+    const visibleFireBlocks = blocksToDraw.reduce(
+        (count, block) => count + (isFireArchetype(block) ? 1 : 0),
+        0
+    );
+    let remainingFireEmbers = resolveFireGlobalEmberBudget();
+    let renderedFireEmbers = 0;
     const waterSurfaceThickness = Math.max(1, Math.round(SPRITE_SCALE));
     const waterBodyDrawWidth = Math.ceil(tileW) + 1;
     const waterBodyDrawHeight = Math.ceil(tileH) + 1;
-    const toWaterGridCoordinate = (value: number) => Math.round(value / MAP_BLOCK_TILE_SIZE);
-    const toWaterGridKey = (x: number, y: number) => `${toWaterGridCoordinate(x)}:${toWaterGridCoordinate(y)}`;
-    const waterCellKeys = new Set<string>();
-    for (const worldBlock of mapBlocks) {
-        if (worldBlock.water !== true) {
-            continue;
-        }
-        waterCellKeys.add(toWaterGridKey(worldBlock.x, worldBlock.y));
-    }
-    const hasWaterAbove = (block: MapBlock) => waterCellKeys.has(
+    const hasWaterAbove = (block: MapBlock) => mapWaterCellKeys.has(
         `${toWaterGridCoordinate(block.x)}:${toWaterGridCoordinate(block.y) - 1}`
     );
 
@@ -1144,13 +1345,17 @@ export function drawMap(
         if (!rect) continue;
 
         const basePalette = typeof block.palette === "number" ? block.palette : 0;
-        const paletteIdx = resolveAnimatedPaletteIndex(
-            block.type,
-            block.paletteCycle,
-            basePalette,
-            spriteSheets.length,
-            drawNow
-        );
+        const effectSeed = getBlockEffectSeed(block, 'motion');
+        const isFire = isFireArchetype(block);
+        const paletteIdx = isFire
+            ? resolveFirePaletteIndex(basePalette, spriteSheets.length, drawNow, effectSeed)
+            : resolveAnimatedPaletteIndex(
+                block.type,
+                block.paletteCycle,
+                basePalette,
+                spriteSheets.length,
+                drawNow
+            );
 
         ctx.save();
         ctx.translate(drawX + tileW / 2, drawY + tileH / 2);
@@ -1172,14 +1377,46 @@ export function drawMap(
             scaleX,
             scaleY
         );
+        const baseDrawLeft = -drawW / 2 + translationOffset.x;
+        const baseDrawTop = -drawH / 2 + translationOffset.y;
+        const fireMotion = isFire ? resolveFireMotion(drawNow, effectSeed) : null;
+        const drawLeft = baseDrawLeft + (fireMotion?.offsetX ?? 0);
+        const drawTop = baseDrawTop + (fireMotion?.offsetY ?? 0);
 
-        ctx.drawImage(
-            offCanvas,
-            -drawW / 2 + translationOffset.x,
-            -drawH / 2 + translationOffset.y,
-            drawW,
-            drawH
-        );
+        if (isFire) {
+            const visibleBounds = getSpriteVisibleBounds(offCanvas);
+            const pivotX = visibleBounds
+                ? drawLeft + ((visibleBounds.minX + visibleBounds.maxX + 1) / 2) * scaleX
+                : drawLeft + drawW / 2;
+            const pivotY = visibleBounds
+                ? drawTop + ((visibleBounds.minY + visibleBounds.maxY + 1) / 2) * scaleY
+                : drawTop + drawH / 2;
+            ctx.save();
+            ctx.translate(pivotX, pivotY);
+            ctx.rotate(fireMotion?.rotationRadians ?? 0);
+            ctx.drawImage(
+                offCanvas,
+                drawLeft - pivotX,
+                drawTop - pivotY,
+                drawW,
+                drawH
+            );
+            ctx.restore();
+            const blockEmberBudget = Math.min(FIRE_MAX_EMBERS_PER_BLOCK, remainingFireEmbers);
+            if (blockEmberBudget > 0) {
+                const drawn = drawFireEmbers(ctx, block, drawNow, tileW, tileH, drawLeft, drawTop, blockEmberBudget);
+                renderedFireEmbers += drawn;
+                remainingFireEmbers = Math.max(0, remainingFireEmbers - drawn);
+            }
+        } else {
+            ctx.drawImage(
+                offCanvas,
+                drawLeft,
+                drawTop,
+                drawW,
+                drawH
+            );
+        }
 
         if (isMushroomType(block.type) && offCanvas instanceof HTMLCanvasElement) {
             const pattern = getMushroomPatternCanvas(
@@ -1223,4 +1460,9 @@ export function drawMap(
         }
         ctx.restore();
     }
+    lastFireFrameStats = {
+        visibleFireBlocks,
+        renderedEmbers: renderedFireEmbers,
+        emberBudget: resolveFireGlobalEmberBudget()
+    };
 }

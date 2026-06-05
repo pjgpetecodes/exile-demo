@@ -12,7 +12,11 @@ type RuntimeSnapshot = {
 };
 
 async function getRuntimeSnapshot(page: Page): Promise<RuntimeSnapshot> {
-    return page.evaluate(() => (window as any).__exileDebug.getRuntimeSnapshot());
+    const handle = await page.waitForFunction(
+        () => (window as any).__exileDebug?.getRuntimeSnapshot?.() ?? null,
+        { timeout: 30_000 }
+    );
+    return handle.jsonValue() as Promise<RuntimeSnapshot>;
 }
 
 async function countPaintedPixelsForRole(page: Page, role: string): Promise<number> {

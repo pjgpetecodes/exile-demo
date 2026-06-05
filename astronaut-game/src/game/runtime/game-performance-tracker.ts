@@ -34,6 +34,21 @@ type PerformanceTrackerOptions = {
     consoleSummaryIntervalMs: number;
 };
 
+type FrameTracePhases = Record<string, number>;
+
+export type PerformanceSpikeSnapshot = {
+    frameNow: number;
+    frameTimeMs: number;
+    updateWorkMs: number;
+    mapDrawMs: number;
+    entityEffectsDrawMs: number;
+    totalFrameMs: number;
+    tracePhases: FrameTracePhases;
+};
+
+const PERF_SPIKE_LOG_THRESHOLD_MS = 80;
+const PERF_SPIKE_LOG_COOLDOWN_MS = 500;
+
 export function createGamePerformanceTracker(options: PerformanceTrackerOptions) {
     const perfFrameTimes = new Float32Array(options.windowSize);
     const perfUpdateTimes = new Float32Array(options.windowSize);
@@ -43,7 +58,10 @@ export function createGamePerformanceTracker(options: PerformanceTrackerOptions)
 
     let showPerformanceHud = false;
     let showPerformanceConsoleSummary = false;
+    let showPerformanceSpikeTracing = false;
     let lastPerformanceConsoleSummaryAt = 0;
+    let lastPerformanceSpikeLoggedAt = Number.NEGATIVE_INFINITY;
+    let lastPerformanceSpikeSnapshot: PerformanceSpikeSnapshot | null = null;
     let perfSampleCount = 0;
     let perfSampleIndex = 0;
     let lastFrameTimestamp: number | null = null;
@@ -63,7 +81,7 @@ export function createGamePerformanceTracker(options: PerformanceTrackerOptions)
     };
 
     function isEnabled() {
-        return showPerformanceHud || showPerformanceConsoleSummary;
+        return showPerformanceHud || showPerformanceConsoleSummary || showPerformanceSpikeTracing;
     }
 
     function recomputeWorstPerformanceSample(buffer: Float32Array) {
@@ -113,6 +131,25 @@ export function createGamePerformanceTracker(options: PerformanceTrackerOptions)
 
     function toggleConsoleSummaryEnabled() {
         setConsoleSummaryEnabled(!showPerformanceConsoleSummary);
+    }
+
+    function setSpikeTracingEnabled(enabled: boolean) {
+        showPerformanceSpikeTracing = enabled;
+    }
+
+    function toggleSpikeTracingEnabled() {
+        setSpikeTracingEnabled(!showPerformanceSpikeTracing);
+    }
+
+    function getSpikeTracingEnabled() {
+        return showPerformanceSpikeTracing;
+    }
+
+    function getLastSpikeSnapshot() {
+        return lastPerformanceSpikeSnapshot ? {
+            ...lastPerformanceSpikeSnapshot,
+            tracePhases: { ...lastPerformanceSpikeSnapshot.tracePhases }
+        } : null;
     }
 
     function startFrame(frameNow: number) {
@@ -219,7 +256,8 @@ export function createGamePerformanceTracker(options: PerformanceTrackerOptions)
         frameTimeMs: number,
         updateWorkMs: number,
         mapDrawMs: number,
-        drawPhaseMs: number
+        drawPhaseMs: number,
+        tracePhases?: FrameTracePhases
     ) {
         if (!isEnabled()) {
             return;
@@ -227,6 +265,39 @@ export function createGamePerformanceTracker(options: PerformanceTrackerOptions)
 
         const entityEffectsDrawMs = Math.max(0, drawPhaseMs - mapDrawMs);
         const totalFrameMs = performance.now() - frameStartMs;
+        const normalizedTracePhases: FrameTracePhases = {};
+        if (tracePhases) {
+            for (const [key, value] of Object.entries(tracePhases)) {
+                if (Number.isFinite(value) && value >= 0) {
+                    normalizedTracePhases[key] = value;
+                }
+            }
+        }
+        if (showPerformanceSpikeTracing && totalFrameMs >= PERF_SPIKE_LOG_THRESHOLD_MS) {
+            lastPerformanceSpikeSnapshot = {
+                frameNow,
+                frameTimeMs,
+                updateWorkMs,
+                mapDrawMs,
+                entityEffectsDrawMs,
+                totalFrameMs,
+                tracePhases: normalizedTracePhases
+            };
+            if (frameNow - lastPerformanceSpikeLoggedAt >= PERF_SPIKE_LOG_COOLDOWN_MS) {
+                const topTraceEntries = Object.entries(normalizedTracePhases)
+                    .sort((left, right) => right[1] - left[1])
+                    .slice(0, 5)
+                    .map(([name, value]) => `${name}=${value.toFixed(2)}ms`)
+                    .join(', ');
+                const traceSummary = topTraceEntries.length > 0 ? ` | trace: ${topTraceEntries}` : '';
+                console.warn(
+                    `[perf][spike] total=${totalFrameMs.toFixed(2)}ms frame=${frameTimeMs.toFixed(2)}ms `
+                    + `update=${updateWorkMs.toFixed(2)}ms map=${mapDrawMs.toFixed(2)}ms `
+                    + `entities=${entityEffectsDrawMs.toFixed(2)}ms${traceSummary}`
+                );
+                lastPerformanceSpikeLoggedAt = frameNow;
+            }
+        }
         recordSample(
             {
                 frameTimeMs,
@@ -254,6 +325,10 @@ export function createGamePerformanceTracker(options: PerformanceTrackerOptions)
         toggleHudEnabled,
         setConsoleSummaryEnabled,
         toggleConsoleSummaryEnabled,
+        setSpikeTracingEnabled,
+        toggleSpikeTracingEnabled,
+        getSpikeTracingEnabled,
+        getLastSpikeSnapshot,
         startFrame,
         finalizeFrame,
         getSnapshot,

@@ -37,6 +37,7 @@ export function createGameAudioRuntime({
 }: GameAudioRuntimeDependencies) {
     let grenadeArmedLoopActive = false;
     let nextMushroomAmbientAt = 0;
+    let lastAstronautImpactSoundIndex = -1;
     const swallowAutoplayRejection = () => {};
     const oneShotAudioPool = new WeakMap<HTMLAudioElement, HTMLAudioElement[]>();
 
@@ -84,7 +85,15 @@ export function createGameAudioRuntime({
     }
 
     function playAstronautImpactSound() {
-        playRuntimeSound(ouchSounds[Math.floor(Math.random() * ouchSounds.length)], 0.8);
+        if (ouchSounds.length === 0) {
+            return;
+        }
+        let nextIndex = Math.floor(Math.random() * ouchSounds.length);
+        if (ouchSounds.length > 1 && nextIndex === lastAstronautImpactSoundIndex) {
+            nextIndex = (nextIndex + 1 + Math.floor(Math.random() * (ouchSounds.length - 1))) % ouchSounds.length;
+        }
+        lastAstronautImpactSoundIndex = nextIndex;
+        playRuntimeSound(ouchSounds[nextIndex], 0.8);
     }
 
     function playPlasmaGrenadeImpactSound() {

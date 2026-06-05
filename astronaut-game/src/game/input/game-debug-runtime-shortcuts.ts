@@ -5,6 +5,7 @@ type GameDebugRuntimeShortcutsOptions = {
     toggleDebugMode: () => void;
     togglePerformanceHud: () => void;
     togglePerformanceConsoleSummary: () => void;
+    togglePerformanceSpikeTracing: () => void;
     requestImmediateFrame: () => void;
 };
 
@@ -30,6 +31,11 @@ export function attachGameDebugRuntimeShortcuts(options: GameDebugRuntimeShortcu
         if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'j') {
             event.preventDefault();
             options.togglePerformanceConsoleSummary();
+            options.requestImmediateFrame();
+        }
+        if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'k') {
+            event.preventDefault();
+            options.togglePerformanceSpikeTracing();
             options.requestImmediateFrame();
         }
     });

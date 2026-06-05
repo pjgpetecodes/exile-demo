@@ -90,6 +90,7 @@ function buildLoopSystems(context: ValuePack) {
         getHorizontalTravelDirection: context.getHorizontalTravelDirection,
         getMapBlocksBehindAstronaut: context.getMapBlocksBehindAstronaut,
         getMapBlocksMaskAstronaut: context.getMapBlocksMaskAstronaut,
+        getMapChunkPerfTraceSnapshot: context.getMapChunkPerfTraceSnapshot,
         getRenderableCollectables: context.getRenderableCollectables,
         getRenderableMapBlocks: context.getRenderableMapBlocks,
         getSolidBlockAtWorld: context.getSolidBlockAtWorld,

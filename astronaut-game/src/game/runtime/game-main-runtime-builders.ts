@@ -149,6 +149,7 @@ export const LOOP_RUNTIME_KEYS = [
     'getHorizontalTravelDirection',
     'getMapBlocksBehindAstronaut',
     'getMapBlocksMaskAstronaut',
+    'getMapChunkPerfTraceSnapshot',
     'getRenderableCollectables',
     'getRenderableMapBlocks',
     'getSolidBlockAtWorld',

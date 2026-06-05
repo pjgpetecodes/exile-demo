@@ -63,6 +63,9 @@ export function toMapBlockData(block: MapBlock): MapBlock {
         palette: typeof block.palette === 'number' ? block.palette : 0,
         rotation: normalizeRotation(block.rotation) as MapBlock['rotation'],
         translation: normalizeSpriteTranslation(block.translation),
+        ...(typeof block.archetype === 'string' && block.archetype.trim().length > 0
+            ? { archetype: block.archetype.trim() }
+            : {}),
         ...(typeof block.teleporterId === 'string' && block.teleporterId.trim().length > 0
             ? { teleporterId: block.teleporterId.trim() }
             : {}),
