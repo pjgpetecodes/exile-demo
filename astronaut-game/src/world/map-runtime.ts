@@ -79,6 +79,7 @@ let mapBlocksBehindAstronautBuckets: BlockBucketMap = new Map();
 let mapBlocksBehindAstronautWithoutBlackBackgroundBuckets: BlockBucketMap = new Map();
 let mapBlocksMaskAstronautBuckets: BlockBucketMap = new Map();
 let blackBackgroundBlockBuckets: BlockBucketMap = new Map();
+const bucketViewportScratch = new WeakMap<BlockBucketMap, MapBlock[]>();
 let mapBlockPositionLookup = new Map<string, MapBlock>();
 const spriteRectMapCache = new WeakMap<object, Record<string, any>>();
 const mushroomTransparentPixelCache = new Map<string, MushroomPixelPoint[]>();
@@ -604,7 +605,11 @@ function getBucketedBlocksInViewport(
     const maxColumn = Math.floor((camera.x + width + tileW) / MAP_BLOCK_TILE_SIZE);
     const minRow = Math.floor((camera.y - tileH) / MAP_BLOCK_TILE_SIZE);
     const maxRow = Math.floor((camera.y + height + tileH) / MAP_BLOCK_TILE_SIZE);
-    const visibleBlocks: MapBlock[] = [];
+    const visibleBlocks = bucketViewportScratch.get(buckets) ?? [];
+    visibleBlocks.length = 0;
+    if (!bucketViewportScratch.has(buckets)) {
+        bucketViewportScratch.set(buckets, visibleBlocks);
+    }
 
     for (let row = minRow; row <= maxRow; row += 1) {
         for (let column = minColumn; column <= maxColumn; column += 1) {
@@ -765,6 +770,7 @@ let chunkWorldSize = DEFAULT_CHUNK_WORLD_SIZE;
 let desiredActiveChunkKeys = new Set<string>();
 let chunkManifestEntriesByKey = new Map<string, WorldChunkManifestEntry>();
 let chunkCacheByKey = new Map<string, ChunkCacheEntry>();
+let activeChunkKeys = new Set<string>();
 let lastViewportSyncedChunkKeys = new Set<string>();
 let mapChunkPerfTraceSnapshot: MapChunkPerfTraceSnapshot = {
     lastRebuildMapBlockRenderCacheMs: 0,
@@ -815,6 +821,7 @@ function deactivateChunk(chunkKey: string) {
         return false;
     }
     cacheEntry.active = false;
+    activeChunkKeys.delete(chunkKey);
     return removeChunkBlocksFromMap(chunkKey);
 }
 
@@ -824,8 +831,34 @@ function activateChunk(chunkKey: string) {
         return false;
     }
     cacheEntry.active = true;
+    activeChunkKeys.add(chunkKey);
     cacheEntry.lastAccessedAt = Date.now();
     return addChunkBlocksToMap(cacheEntry.blocks);
+}
+
+function deactivateChunks(chunkKeys: Iterable<string>) {
+    const chunkKeysToRemove = new Set<string>();
+    for (const chunkKey of chunkKeys) {
+        const cacheEntry = chunkCacheByKey.get(chunkKey);
+        if (!cacheEntry || !cacheEntry.active) {
+            continue;
+        }
+        cacheEntry.active = false;
+        activeChunkKeys.delete(chunkKey);
+        chunkKeysToRemove.add(chunkKey);
+    }
+    if (chunkKeysToRemove.size === 0 || mapBlocks.length === 0) {
+        return false;
+    }
+    const retained = mapBlocks.filter((block) => {
+        const key = mapBlockChunkKeyLookup.get(block);
+        return !key || !chunkKeysToRemove.has(key);
+    });
+    if (retained.length === mapBlocks.length) {
+        return false;
+    }
+    setMapBlocks(retained);
+    return true;
 }
 
 function evictInactiveChunkCache(requiredChunkKeys?: Set<string>) {
@@ -1027,6 +1060,7 @@ async function loadChunkedWorldMapBlocks() {
         entry
     ]));
     chunkCacheByKey = new Map();
+    activeChunkKeys = new Set();
     desiredActiveChunkKeys = new Set();
     return chunkEntries;
 }
@@ -1097,14 +1131,8 @@ export async function ensureMapChunksAroundWorldPosition(
     if (activateLoadedChunks) {
         desiredActiveChunkKeys = requiredChunkKeys;
         lastViewportSyncedChunkKeys = new Set();
-        let mapChanged = false;
-        for (const activeChunkKey of [...chunkCacheByKey.keys()]) {
-            if (!requiredChunkKeys.has(activeChunkKey)) {
-                if (deactivateChunk(activeChunkKey)) {
-                    mapChanged = true;
-                }
-            }
-        }
+        const chunkKeysToDeactivate = [...activeChunkKeys].filter((activeChunkKey) => !requiredChunkKeys.has(activeChunkKey));
+        const mapChanged = deactivateChunks(chunkKeysToDeactivate);
         if (mapChanged) {
             rebuildMapBlockRenderCache();
         }
@@ -1156,14 +1184,8 @@ export function syncMapChunksForViewport(
         const postLoadStartedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
         // Keep previously active chunks visible until required chunks finish loading
         // so designer camera movement does not render an empty world between loads.
-        let mapChanged = false;
-        for (const activeChunkKey of [...chunkCacheByKey.keys()]) {
-            if (!desiredActiveChunkKeys.has(activeChunkKey)) {
-                if (deactivateChunk(activeChunkKey)) {
-                    mapChanged = true;
-                }
-            }
-        }
+        const chunkKeysToDeactivate = [...activeChunkKeys].filter((activeChunkKey) => !desiredActiveChunkKeys.has(activeChunkKey));
+        const mapChanged = deactivateChunks(chunkKeysToDeactivate);
         if (mapChanged) {
             rebuildMapBlockRenderCache();
         }

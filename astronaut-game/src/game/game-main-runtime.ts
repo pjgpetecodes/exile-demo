@@ -331,7 +331,9 @@ let gameState: GameState & { debugMode: boolean } = {
     debugMode: false
 };
 
-const IDLE_FRAME_DELAY_MS = 125;
+// Keep visible gameplay on requestAnimationFrame continuously.
+// Idle throttling introduced noticeable cadence hitches on some machines.
+const IDLE_FRAME_DELAY_MS = 0;
 const HIDDEN_FRAME_DELAY_MS = 500;
 const ACTIVE_MOTION_EPSILON = 0.05;
 

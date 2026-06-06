@@ -173,7 +173,7 @@ For **world items** and **doors**, the inspector now exposes destructible settin
 - **Damage required**
 - **Damage source**
 
-Doors default to destructible. Ordinary world items default to non-destructible unless you opt in.
+Doors default to destructible. Ordinary world items default to non-destructible unless you opt in. `beehive` world items are a special case: they now default to destructible and also act as runtime wasp nest sources.
 
 For **boulder** collectables, the inspector also exposes **Radioactive**. Regular boulders are the default. Turning **Radioactive** on seeds the BBC-style authored defaults for that hazard variant, including lighter weight and timed palette cycling.
 
@@ -235,8 +235,15 @@ Additional runtime creature behavior now includes:
 - pseudo-jump behavior for ground creatures with **Can jump**
 - hostile contact damage / shove behavior
 - wasp-eating predator behavior for creatures with **Can eat wasps**
-- live creature pickup for **Can be picked up** creatures; they can be carried and dropped, but not stored
+- live creature pickup for **Can be picked up** creatures, including preserving authored **Storable** behavior when converted into carry proxies
 - optional creature overlays and damage-flash feedback during play
+
+Wasp-specific runtime behavior is now mostly automatic from authored world/creature data:
+
+- placing `beehive` blocks creates wasp nest spawn points
+- nest spawning is proximity-gated and capped per nest
+- active wasps alternate between attack swarm and return-home states
+- returning wasps use the home sound profile while attackers use buzz
 
 A cannon-style object should usually be authored as:
 

@@ -273,11 +273,26 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         let mapDrawMs = 0;
         let drawPhaseMs = 0;
         let chunkSyncMs = 0;
+        const framePhaseDurations: Record<string, number> = {};
+        const measurePhase = <T>(name: string, operation: () => T): T => {
+            if (!performanceInstrumentationEnabled) {
+                return operation();
+            }
+            const startedAt = performance.now();
+            try {
+                return operation();
+            } finally {
+                framePhaseDurations[name] = (framePhaseDurations[name] ?? 0) + (performance.now() - startedAt);
+            }
+        };
 
         const buildFrameTracePhases = () => {
             const phases: Record<string, number> = {
                 chunkSyncMs
             };
+            for (const [name, durationMs] of Object.entries(framePhaseDurations)) {
+                phases[name] = durationMs;
+            }
             if (typeof getMapChunkPerfTraceSnapshot === 'function') {
                 const chunkTrace = getMapChunkPerfTraceSnapshot();
                 if (chunkTrace && typeof chunkTrace === 'object') {
@@ -305,27 +320,27 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
 
         const camera = getCameraOffset();
         const effectiveViewport = getEffectiveViewportState();
-        chunkActivityManager.updateFrame({
+        measurePhase('chunkActivityUpdateMs', () => chunkActivityManager.updateFrame({
             camera,
             viewportWidth: effectiveViewport.width,
             viewportHeight: effectiveViewport.height,
             zoom: effectiveViewport.zoom,
             now: frameNow
-        });
+        }));
         chunkSyncFrameCounter += 1;
         const designerChunkSyncRequired = worldDesigner?.isActive() === true;
         const shouldSyncChunksThisFrame = designerChunkSyncRequired
             || (chunkSyncFrameCounter % CHUNK_SYNC_INTERVAL_FRAMES === 0);
         if (!saveSnapshotInProgress && shouldSyncChunksThisFrame) {
             const chunkSyncStartMs = performanceInstrumentationEnabled ? performance.now() : 0;
-            syncMapChunksForViewport(
+            measurePhase('chunkSyncViewportMs', () => syncMapChunksForViewport(
                 camera,
                 effectiveViewport.width,
                 effectiveViewport.height,
                 effectiveViewport.prefetchRadiusChunks,
                 effectiveViewport.zoom,
                 designerChunkSyncRequired
-            );
+            ));
             if (performanceInstrumentationEnabled) {
                 chunkSyncMs = performance.now() - chunkSyncStartMs;
             }
@@ -442,7 +457,7 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
     const hasRenderableSpriteSheets = Array.isArray(remappedSpriteSheets) && remappedSpriteSheets.length > 0;
     if (hasRenderableSpriteSheets || (spriteSheet && spriteSheet.complete)) {
         if (layerVisibility.doors) {
-            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, doorEntities, frameNow);
+            measurePhase('drawDoorsMs', () => drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, doorEntities, frameNow));
         }
         // Draw map blocks (replace mapBlocks with mapBlocksToDraw in overlays below as well)
         // Patch: temporarily override mapBlocks for drawMap by monkey-patching global (not ideal, but drawMap uses global)
@@ -473,16 +488,16 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
             });
         }
         if (layerVisibility.buttons) {
-            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, buttonEntities, frameNow);
+            measurePhase('drawButtonsMs', () => drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, buttonEntities, frameNow));
         }
         if (layerVisibility.creatures) {
-            drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureEntities, frameNow);
+            measurePhase('drawCreaturesMs', () => drawEntities(ctx!, camera, spriteMap, remappedSpriteSheets, SPRITE_SCALE, creatureEntities, frameNow));
             if (showCreatureOverlays) {
-                drawCreatureOverlays(ctx!, camera);
+                measurePhase('drawCreatureOverlaysMs', () => drawCreatureOverlays(ctx!, camera));
             }
         }
         if (layerVisibility.collectables) {
-            drawEntities(
+            measurePhase('drawCollectablesMs', () => drawEntities(
                 ctx!,
                 camera,
                 spriteMap,
@@ -490,10 +505,10 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
                 SPRITE_SCALE,
                 collectablesToDraw,
                 frameNow
-            );
+            ));
         }
         if (layerVisibility.doors && doorDestructionEffects.length > 0) {
-            drawDoorDestructionEffects(ctx!, camera);
+            measurePhase('drawDoorDestructionEffectsMs', () => drawDoorDestructionEffects(ctx!, camera));
         }
     }
 
@@ -549,10 +564,6 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         );
         prevKeys = { ...keys };
         return;
-    }
-
-    if (worldDesigner) {
-        worldDesigner.render(ctx!);
     }
 
     // --- Controls: Upward and horizontal movement ---
@@ -833,20 +844,20 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
     }
 
     simulationFrameCounter++;
-    creatureRuntime.updateCreatures(frameNow, simulationFrameCounter);
-    updateCreatureSounds(frameNow);
-    updateProjectileImpactEffects();
-    updateDoorDestructionEffects();
-    resolveAstronautCreatureCollisions();
+    measurePhase('updateCreaturesMs', () => creatureRuntime.updateCreatures(frameNow, simulationFrameCounter));
+    measurePhase('updateCreatureSoundsMs', () => updateCreatureSounds(frameNow));
+    measurePhase('updateProjectileImpactEffectsMs', () => updateProjectileImpactEffects());
+    measurePhase('updateDoorDestructionEffectsMs', () => updateDoorDestructionEffects());
+    measurePhase('resolveAstronautCreatureCollisionsMs', () => resolveAstronautCreatureCollisions());
     updateThrowAngle();
-    handleCollectableInteractions();
+    measurePhase('handleCollectableInteractionsMs', () => handleCollectableInteractions());
     updateHeldCollectablePosition();
-    updateTeleporterPadTeleporting(frameNow, simulationFrameCounter);
-    resolveAstronautCollectableCollisions(
+    measurePhase('updateTeleporterPadsMs', () => updateTeleporterPadTeleporting(frameNow, simulationFrameCounter));
+    measurePhase('resolveAstronautCollectableCollisionsMs', () => resolveAstronautCollectableCollisions(
         gameState.astronaut.position.x - movementStartX,
         gameState.astronaut.position.y - movementStartY
-    );
-    updateCollectablePhysics(frameNow, simulationFrameCounter);
+    ));
+    measurePhase('updateCollectablePhysicsMs', () => updateCollectablePhysics(frameNow, simulationFrameCounter));
     // Emergency teleports can be triggered by damage during runtime updates.
     // Re-sync teleport state from shared context before render/update writes.
     teleporting = context.teleporting;
@@ -856,7 +867,7 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
     teleportSpriteCol = context.teleportSpriteCol;
     teleportFlipSprite = context.teleportFlipSprite;
     teleportFlipVertical = context.teleportFlipVertical;
-    spawnWindParticlesNearAstronaut(frameNow);
+    measurePhase('spawnWindParticlesMs', () => spawnWindParticlesNearAstronaut(frameNow));
     updateHeldCollectablePosition();
     if (performanceInstrumentationEnabled) {
         updateWorkMs = performance.now() - updatePhaseStartMs;

@@ -25,7 +25,7 @@ $knownCommandFragments = @(
 $seen = [System.Collections.Generic.HashSet[int]]::new()
 $allProcesses = Get-CimInstance Win32_Process
 
-function Is-MatchingCommand {
+function Test-MatchingCommand {
   param([string]$CommandLine, [string[]]$Patterns)
 
   if (-not $CommandLine) {
@@ -41,7 +41,7 @@ function Is-MatchingCommand {
   return $false
 }
 
-function Is-WorkspaceServiceCommand {
+function Test-WorkspaceServiceCommand {
   param([string]$CommandLine)
 
   if (-not $CommandLine) {
@@ -72,7 +72,7 @@ function Add-Descendants {
   }
 }
 
-$patternTargets = $allProcesses | Where-Object { Is-MatchingCommand -CommandLine $_.CommandLine -Patterns $commandPatterns }
+$patternTargets = $allProcesses | Where-Object { Test-MatchingCommand -CommandLine $_.CommandLine -Patterns $commandPatterns }
 foreach ($target in $patternTargets) {
   if ($seen.Add([int]$target.ProcessId)) {
     Add-Descendants -ProcessId ([int]$target.ProcessId)
@@ -94,27 +94,27 @@ $debugPorts = @(3000, 3001)
 foreach ($port in $debugPorts) {
   $listeners = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
   foreach ($listener in $listeners) {
-    $pid = [int]$listener.OwningProcess
-    if ($seen.Contains($pid)) {
+    $owningProcessId = [int]$listener.OwningProcess
+    if ($seen.Contains($owningProcessId)) {
       continue
     }
 
-    $proc = $allProcesses | Where-Object { [int]$_.ProcessId -eq $pid } | Select-Object -First 1
+    $proc = $allProcesses | Where-Object { [int]$_.ProcessId -eq $owningProcessId } | Select-Object -First 1
     if ($null -eq $proc) {
       continue
     }
 
-    if (-not (Is-WorkspaceServiceCommand -CommandLine $proc.CommandLine)) {
+    if (-not (Test-WorkspaceServiceCommand -CommandLine $proc.CommandLine)) {
       continue
     }
 
     try {
-      Stop-Process -Id $pid -ErrorAction Stop
-      $seen.Add($pid) | Out-Null
+      Stop-Process -Id $owningProcessId -ErrorAction Stop
+      $seen.Add($owningProcessId) | Out-Null
     } catch [System.ArgumentException] {
       # Process already exited.
     } catch [Microsoft.PowerShell.Commands.ProcessCommandException] {
-      Write-Warning "Unable to stop debug-port process ${pid} on port ${port}: $($_.Exception.Message)"
+      Write-Warning "Unable to stop debug-port process ${owningProcessId} on port ${port}: $($_.Exception.Message)"
     }
   }
 }
