@@ -2,6 +2,7 @@ import type { Button } from '../../entities/button.js';
 import type { Creature } from '../../entities/creature.js';
 import type { DestructionSourceRequirement } from '../../entities/destructibles.js';
 import type { SpriteTranslation } from '../../shared/utilities.js';
+import { WASP_SETTINGS } from '../../config/settings.js';
 import type {
     ButtonDefaultOverrides,
     ControlRefs,
@@ -739,6 +740,30 @@ export function createWorldDesignerInspectorPanel(context: WorldDesignerInspecto
         }
 
         if (category === 'world') {
+            if (entity.type === 'beehive') {
+                addNumberInspector(
+                    container,
+                    'Wasp activation distance',
+                    entity.waspNestActivationDistance ?? WASP_SETTINGS.nestActivationDistance,
+                    (value) => {
+                        runMutation('Updated wasp activation distance.', () => {
+                            entity.waspNestActivationDistance = Math.max(1, value);
+                        });
+                    },
+                    1
+                );
+                addNumberInspector(
+                    container,
+                    'Wasp return distance',
+                    entity.waspReturnDistance ?? WASP_SETTINGS.returnToNestDistance,
+                    (value) => {
+                        runMutation('Updated wasp return distance.', () => {
+                            entity.waspReturnDistance = Math.max(1, value);
+                        });
+                    },
+                    1
+                );
+            }
             const windEnabled = entity.windEnabled === true;
             addCheckboxInspector(container, 'Wind source', windEnabled, (checked) => {
                 runMutation('Updated wind source flag.', () => {

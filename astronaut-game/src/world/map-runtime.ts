@@ -43,6 +43,8 @@ export type MapBlock = {
     destructible?: boolean;
     destructionHealth?: number;
     destructionSource?: DestructionSourceRequirement;
+    waspNestActivationDistance?: number;
+    waspReturnDistance?: number;
     windEnabled?: boolean;
     windDirectionDegrees?: number;
     windStrength?: number;

@@ -242,6 +242,7 @@ Wasp-specific runtime behavior is now mostly automatic from authored world/creat
 
 - placing `beehive` blocks creates wasp nest spawn points
 - nest spawning is proximity-gated and capped per nest
+- selected beehives expose `Wasp activation distance` and `Wasp return distance` inspector fields for per-nest tuning
 - active wasps alternate between attack swarm and return-home states
 - returning wasps use the home sound profile while attackers use buzz
 

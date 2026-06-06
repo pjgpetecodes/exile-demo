@@ -131,6 +131,12 @@ export function toMapBlockData(block: MapBlock): MapBlock {
                 windShowParticles: block.windShowParticles !== false
             }
             : {}),
+        ...(typeof block.waspNestActivationDistance === 'number' && Number.isFinite(block.waspNestActivationDistance)
+            ? { waspNestActivationDistance: Math.max(1, Number(block.waspNestActivationDistance)) }
+            : {}),
+        ...(typeof block.waspReturnDistance === 'number' && Number.isFinite(block.waspReturnDistance)
+            ? { waspReturnDistance: Math.max(1, Number(block.waspReturnDistance)) }
+            : {}),
         ...(block.paletteCycle ? { paletteCycle: deepClone(block.paletteCycle) } : {}),
         ...(isWaterBlock(block) ? { water: true } : {}),
         ...(block.waterOnly === true ? { waterOnly: true } : {})

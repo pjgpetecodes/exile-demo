@@ -68,4 +68,35 @@ describe('world designer serialization', () => {
         expect(result.worldMap).toHaveLength(1);
         expect(result.worldMap[0].archetype).toBe('fire');
     });
+
+    it('preserves beehive wasp distance tuning when serializing', async () => {
+        (globalThis as any).Audio = class AudioMock { };
+        const { serializeWorldData } = await import('../../../src/designer/core/world-designer-serialization.js');
+        const result = serializeWorldData({
+            worldMap: [
+                {
+                    x: 96,
+                    y: 160,
+                    type: 'beehive',
+                    palette: 0,
+                    collision: true,
+                    maskAstronaut: false,
+                    waspNestActivationDistance: 480,
+                    waspReturnDistance: 640
+                }
+            ],
+            buttons: [],
+            doors: [],
+            creatures: [],
+            collectables: [],
+            teleporters: [],
+            windEmitters: [],
+            windSettings: {},
+            astronautStart: { x: 0, y: 0 }
+        } as any);
+
+        expect(result.worldMap).toHaveLength(1);
+        expect(result.worldMap[0].waspNestActivationDistance).toBe(480);
+        expect(result.worldMap[0].waspReturnDistance).toBe(640);
+    });
 });

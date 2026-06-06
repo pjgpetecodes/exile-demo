@@ -66,10 +66,13 @@ The repository includes VS Code launch/task settings.
 
 - `beehive` world blocks now act as active wasp nests.
 - Nests only spawn wasps when the astronaut is nearby.
+- Each beehive can override its own spawn activation distance in the designer (`Wasp activation distance`).
 - Each nest has a per-nest active cap of **4** wasps.
+- If the astronaut leaves a nest's deactivation/return range (including via teleport), that nest's active wasps are immediately despawned/reset until the astronaut returns.
 - Spawned wasps are hostile, collision-enabled flyers that chase the astronaut and can be killed by bullets.
 - Wasp movement is intentionally noisy/randomized (swarm drift) rather than a perfect straight-line chase.
 - When a wasp gets far enough from the astronaut, it switches to a return-home behavior and heads back toward its nest.
+- Each beehive can also override the return threshold (`Wasp return distance`) that forces its spawned wasps to head home.
 - Returning wasps use the **home** sound profile; attacking wasps use the **buzz** profile.
 - Wasps ignore `beehive` and `explosion_half` for collision blocking so they do not pin on those sprites, while still colliding with normal world geometry.
 - Wasp contact no longer triggers immediate rescue teleport; it now requires a short chain of repeated touches (currently 4) before the emergency teleport damage threshold is triggered.
