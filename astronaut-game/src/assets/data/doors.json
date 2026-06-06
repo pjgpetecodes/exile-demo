@@ -114,13 +114,13 @@
     "destructionSource": "any_explosion"
   },
   {
-    "x": 7444,
-    "y": 4225,
+    "x": 7392,
+    "y": 4224,
     "z": 0,
     "type": "door_vertical",
     "palette": 19,
     "rotation": 6,
-    "translation": "center",
+    "translation": "right",
     "name": "door_vertical_6",
     "doorID": 6,
     "locked": true,

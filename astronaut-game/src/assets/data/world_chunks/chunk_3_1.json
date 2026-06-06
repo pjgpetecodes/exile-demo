@@ -577,7 +577,8 @@
     "maskAstronaut": false,
     "palette": 3,
     "rotation": 1,
-    "translation": "left"
+    "translation": "left",
+    "waspReturnDistance": 1200
   },
   {
     "x": 7251,
@@ -2097,14 +2098,15 @@
     "maskAstronaut": false,
     "palette": 3,
     "rotation": 1,
-    "translation": "left"
+    "translation": "left",
+    "waspReturnDistance": 1200
   },
   {
     "x": 7039,
     "y": 2676,
     "type": "explosion_half",
-    "collision": true,
-    "maskAstronaut": false,
+    "collision": false,
+    "maskAstronaut": true,
     "palette": 22,
     "rotation": 6,
     "translation": "top"

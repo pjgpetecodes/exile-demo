@@ -18,7 +18,7 @@ export function createSpawnCreatureCarryProxy(options: GameCreatureCarryProxyOpt
             name: creature.type,
             weight: 0.3,
             pickupEnabled: true,
-            storable: false,
+            storable: creature.storable === true,
             affectsAstronaut: false,
             collision: false,
             velocity: { x: 0, y: 0 },

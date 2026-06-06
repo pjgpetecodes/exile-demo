@@ -179,10 +179,25 @@ export function createGameHeldItemRuntime(options: HeldItemRuntimeOptions) {
             return options.getEntityCenter(originPosition.x, originPosition.y, heldBounds);
         }
 
+        const renderedAstronaut = options.getAstronautRenderedWorldSprite();
+        const visibleBounds = renderedAstronaut
+            ? options.getSpriteVisibleBounds(renderedAstronaut.canvas)
+            : null;
+        if (renderedAstronaut && visibleBounds) {
+            const visibleLeft = renderedAstronaut.drawX + visibleBounds.minX * options.spriteScale;
+            const visibleRight = renderedAstronaut.drawX + (visibleBounds.maxX + 1) * options.spriteScale;
+            const visibleCenterY = renderedAstronaut.drawY
+                + (visibleBounds.minY + (visibleBounds.maxY - visibleBounds.minY + 1) / 2) * options.spriteScale;
+            return {
+                x: options.getFacingLeft() ? visibleLeft - 2 : visibleRight + 2,
+                y: visibleCenterY
+            };
+        }
+
         const astronautRect = options.getAstronautRect();
         return {
             x: options.getFacingLeft() ? astronautRect.left - 2 : astronautRect.right + 2,
-            y: options.astronaut.position.y + options.movementSettings.heldCollectableVerticalOffset
+            y: (astronautRect.top + astronautRect.bottom) / 2
         };
     }
 

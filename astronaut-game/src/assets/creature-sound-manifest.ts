@@ -7,6 +7,8 @@ export type CreatureSoundManifestEntry = {
 export const CREATURE_SOUND_MANIFEST: CreatureSoundManifestEntry[] = [
     { key: 'AlienDie', label: 'Alien die', path: './src/assets/audio/AlienDie.wav' },
     { key: 'Bee', label: 'Bee', path: './src/assets/audio/Bee.wav' },
+    { key: 'WaspBuzz', label: 'Wasp buzz', path: './src/assets/audio/wasp-buzz.wav' },
+    { key: 'WaspHome', label: 'Wasp home', path: './src/assets/audio/wasp-home.wav' },
     { key: 'BulletExplosion', label: 'Bullet explosion', path: './src/assets/audio/BulletExplosion.wav' },
     { key: 'BulletExplosion2', label: 'Bullet explosion 2', path: './src/assets/audio/BulletExplosion2.wav' },
     { key: 'button_off', label: 'Button off', path: './src/assets/audio/button_off.wav' },

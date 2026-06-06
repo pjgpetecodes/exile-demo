@@ -143,7 +143,8 @@ export type {
 const {
     getRectAtPosition,
     invertButtonOffset,
-    getEntityRect
+    getEntityRect,
+    getEntityVisibleRect
 } = createDesignerEntityGeometryHelpers({
     tileSize: TILE_SIZE,
     deepClone,
@@ -810,6 +811,7 @@ export function createWorldDesigner(host: WorldDesignerHost): WorldDesigner {
         getCustomSpriteInstances: () => state.customSpriteInstances,
         getLayerVisibility: () => state.layerVisibility,
         getEntityRect,
+        getEntityVisibleRect,
         findWorldBlockByExactPosition: (...args: [number, number, string]) => findWorldBlockByExactPosition(...args),
         findTeleporterForWorldBlock: (...args: [MapBlock]) => findTeleporterForWorldBlock(...args),
         getPrimarySelection: () => state.selection,

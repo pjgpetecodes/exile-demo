@@ -131,6 +131,21 @@ export function toMapBlockData(block: MapBlock): MapBlock {
                 windShowParticles: block.windShowParticles !== false
             }
             : {}),
+        ...(typeof block.waspNestActivationDistance === 'number' && Number.isFinite(block.waspNestActivationDistance)
+            ? { waspNestActivationDistance: Math.max(1, Number(block.waspNestActivationDistance)) }
+            : {}),
+        ...(typeof block.waspReturnDistance === 'number' && Number.isFinite(block.waspReturnDistance)
+            ? { waspReturnDistance: Math.max(1, Number(block.waspReturnDistance)) }
+            : {}),
+        ...(typeof block.waspMaxActive === 'number' && Number.isFinite(block.waspMaxActive)
+            ? { waspMaxActive: Math.max(1, Math.round(Number(block.waspMaxActive))) }
+            : {}),
+        ...(typeof block.waspAggression === 'number' && Number.isFinite(block.waspAggression)
+            ? { waspAggression: clamp(Number(block.waspAggression), 0, 1) }
+            : {}),
+        ...(typeof block.waspDamageOnContact === 'number' && Number.isFinite(block.waspDamageOnContact)
+            ? { waspDamageOnContact: Math.max(0.1, Number(block.waspDamageOnContact)) }
+            : {}),
         ...(block.paletteCycle ? { paletteCycle: deepClone(block.paletteCycle) } : {}),
         ...(isWaterBlock(block) ? { water: true } : {}),
         ...(block.waterOnly === true ? { waterOnly: true } : {})

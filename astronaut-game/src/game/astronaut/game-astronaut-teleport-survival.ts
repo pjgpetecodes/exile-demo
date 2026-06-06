@@ -6,6 +6,7 @@ type AstronautEnergyState = {
     energy: number;
     maxEnergy: number;
     nextEnergyRegenAtMs?: number;
+    energyBeforeEmergencyTeleport?: number;
 };
 
 type AstronautRenderState = {
@@ -134,6 +135,7 @@ export function createAstronautTeleportSurvivalHelpers(context: {
         }
 
         context.releaseHeldCollectable();
+        astronaut.energyBeforeEmergencyTeleport = astronaut.energy;
         astronaut.energy = Math.min(
             astronaut.maxEnergy,
             Math.max(1, context.movementSettings.astronautEmergencyTeleportEnergy)

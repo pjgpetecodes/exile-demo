@@ -73,8 +73,10 @@ export function createGameMainRuntimeBootstrapFromContext(context: ValuePack) {
             moveCreatureWithEnvironmentCollisions: context.moveCreatureWithEnvironmentCollisions,
             getNextCreatureFireAt: context.getNextCreatureFireAt,
             getAnimatedBirdSpriteType: context.getAnimatedBirdSpriteType,
+            getAnimatedWaspSpriteType: context.getAnimatedWaspSpriteType,
             getTurretFacingRotations: context.getTurretFacingRotations,
             spawnCreatureCarryProxy: context.spawnCreatureCarryProxy,
+            spawnWaspFromNest: context.spawnWaspFromNest,
             gameAudio: context.gameAudio
         },
         collectables: {

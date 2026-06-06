@@ -177,6 +177,18 @@ export const CHUNK_ACTIVITY_SETTINGS = {
     }
 } as const;
 
+export const WASP_SETTINGS = {
+    maxActivePerNest: 4,
+    aggression: 0.72,
+    damageOnContact: 1,
+    // Distance from nest at which wasps start spawning.
+    // Default raised by 50% from the previous 300px.
+    nestActivationDistance: 450,
+    // Distance from astronaut at which wasps force a return to nest.
+    // ~20 tiles at 32px per tile.
+    returnToNestDistance: 640
+} as const;
+
 export const BULLET_IMPACT_AUDIO_SETTINGS: BulletImpactAudioSettings = {
     primary: 'bulletExplosion',
     alternate: 'bulletExplosion2',

@@ -27,6 +27,14 @@ export function createGameCombatHelpers(options: GameCombatHelpersOptions) {
     const swallowAutoplayRejection = () => {};
     const isBirdCollision = (creature: Creature) =>
         creature.archetype === 'bird' || /^bird/i.test(creature.type);
+    const isWaspCollision = (creature: Creature) =>
+        /^wasp/i.test(creature.type);
+    const waspTouchThreshold = 4;
+    const waspTouchChainResetMs = 1400;
+    const waspTouchCooldownMs = 420;
+    let waspConsecutiveTouches = 0;
+    let lastWaspTouchAt = 0;
+    let nextWaspTouchAt = 0;
 
     function resolveAstronautCreatureCollisions() {
         for (const creature of options.getCreatureEntities()) {
@@ -83,7 +91,23 @@ export function createGameCombatHelpers(options: GameCombatHelpersOptions) {
                 : 0;
             const now = performance.now();
             if (now >= nextDamageAt) {
-                options.applyAstronautDamage(Math.max(4, creature.damageOnContact * 6), now);
+                if (isWaspCollision(creature)) {
+                    if (now >= nextWaspTouchAt) {
+                        if (now - lastWaspTouchAt > waspTouchChainResetMs) {
+                            waspConsecutiveTouches = 0;
+                        }
+                        waspConsecutiveTouches += 1;
+                        lastWaspTouchAt = now;
+                        nextWaspTouchAt = now + waspTouchCooldownMs;
+                        options.applyAstronautDamage(Math.max(0.1, creature.damageOnContact), now);
+                        if (waspConsecutiveTouches >= waspTouchThreshold) {
+                            options.applyAstronautDamage(999, now);
+                            waspConsecutiveTouches = 0;
+                        }
+                    }
+                } else {
+                    options.applyAstronautDamage(Math.max(4, creature.damageOnContact * 6), now);
+                }
                 runtimeState.nextContactDamageAt = now + 450;
             }
             if (now >= nextSoundAt) {

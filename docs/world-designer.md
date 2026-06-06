@@ -149,6 +149,7 @@ Selected items can be:
 - moved by dragging
 - edge-snapped against nearby objects while dragging when **Snap to nearby object edges** is enabled
 - temporarily docked/aligned with **Ctrl** / **Alt** even if the object-snap toggle is off
+- selected by visible sprite pixels with **Alt+click** (useful when objects overlap)
 - nudged with arrow keys
 - duplicated
 - deleted
@@ -173,7 +174,7 @@ For **world items** and **doors**, the inspector now exposes destructible settin
 - **Damage required**
 - **Damage source**
 
-Doors default to destructible. Ordinary world items default to non-destructible unless you opt in.
+Doors default to destructible. Ordinary world items default to non-destructible unless you opt in. `beehive` world items are a special case: they now default to destructible and also act as runtime wasp nest sources.
 
 For **boulder** collectables, the inspector also exposes **Radioactive**. Regular boulders are the default. Turning **Radioactive** on seeds the BBC-style authored defaults for that hazard variant, including lighter weight and timed palette cycling.
 
@@ -235,8 +236,16 @@ Additional runtime creature behavior now includes:
 - pseudo-jump behavior for ground creatures with **Can jump**
 - hostile contact damage / shove behavior
 - wasp-eating predator behavior for creatures with **Can eat wasps**
-- live creature pickup for **Can be picked up** creatures; they can be carried and dropped, but not stored
+- live creature pickup for **Can be picked up** creatures, including preserving authored **Storable** behavior when converted into carry proxies
 - optional creature overlays and damage-flash feedback during play
+
+Wasp-specific runtime behavior is now mostly automatic from authored world/creature data:
+
+- placing `beehive` blocks creates wasp nest spawn points
+- nest spawning is proximity-gated and capped per nest
+- selected beehives expose `Wasp activation distance` and `Wasp return distance` inspector fields for per-nest tuning
+- active wasps alternate between attack swarm and return-home states
+- returning wasps use the home sound profile while attackers use buzz
 
 A cannon-style object should usually be authored as:
 
@@ -724,6 +733,7 @@ This is especially useful for buttons, where the `button` cap and `button_box` b
 - **Ctrl+M** = toggle sound on/off
 - **Arrow keys** = nudge selection
 - **Shift+Arrow** = larger nudge
+- **Alt+click** = select by visible sprite pixels when items overlap
 - **G** = toggle grid snap
 - **F** = toggle sprite outlines
 - **X** = toggle magnifier

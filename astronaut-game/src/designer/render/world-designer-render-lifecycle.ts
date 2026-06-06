@@ -213,8 +213,8 @@ export function createWorldDesignerRenderLifecycle(deps: WorldDesignerRenderLife
     }
 
     function render(ctx: CanvasRenderingContext2D) {
-        drawOverview();
         if (!state.active) return;
+        drawOverview();
 
         if (state.dragging && state.lastPointerCanvas) {
             const autoPan = getAutoPanDelta(state.lastPointerCanvas);

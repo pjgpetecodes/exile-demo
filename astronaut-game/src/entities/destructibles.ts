@@ -17,13 +17,20 @@ export function isSpecialStoneDoorType(type: string) {
     return type === 'wall_left_quarter';
 }
 
+function isBeehiveType(type: string) {
+    return type === 'beehive';
+}
+
 export function getDefaultDestructibleEnabled(category: DestructibleCategory, type: string) {
-    return category === 'doors' || isSpecialStoneDoorType(type);
+    return category === 'doors' || isSpecialStoneDoorType(type) || (category === 'world' && isBeehiveType(type));
 }
 
 export function getDefaultDestructibleHealth(category: DestructibleCategory, type: string) {
     if (isSpecialStoneDoorType(type)) {
         return 64;
+    }
+    if (category === 'world' && isBeehiveType(type)) {
+        return 22;
     }
     if (category === 'doors') {
         return 24;

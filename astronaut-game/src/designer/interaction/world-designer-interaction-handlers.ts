@@ -27,7 +27,7 @@ type WorldDesignerInteractionHandlersDeps = {
     getTeleporterById: (id: any) => any;
     runMutation: (message: string, mutate: () => void) => void;
     setStatus: (status: string, tone?: StatusTone) => void;
-    getEntityAt: (x: number, y: number) => Selection | null;
+    getEntityAt: (x: number, y: number, preferVisiblePixels?: boolean) => Selection | null;
     isSelected: (selection: Selection) => boolean;
     getSelectedItems: () => Selection[];
     setSelections: (selections: Selection[], primary?: Selection | null) => void;
@@ -168,7 +168,7 @@ export function createWorldDesignerInteractionHandlers(deps: WorldDesignerIntera
         }
 
         if (event.button === 2) {
-            const hit = getEntityAt(world.x, world.y);
+            const hit = getEntityAt(world.x, world.y, event.altKey === true);
             if (hit) {
                 state.suppressContextMenuOnce = false;
                 const menuSelections = isSelected(hit) ? getSelectedItems() : [hit];
@@ -193,7 +193,7 @@ export function createWorldDesignerInteractionHandlers(deps: WorldDesignerIntera
             return;
         }
 
-        const hit = getEntityAt(world.x, world.y);
+        const hit = getEntityAt(world.x, world.y, event.altKey === true);
         if (!hit) {
             state.marqueeSelecting = true;
             state.marqueeStartWorld = world;

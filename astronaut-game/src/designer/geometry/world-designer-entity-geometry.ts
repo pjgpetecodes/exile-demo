@@ -230,9 +230,101 @@ export function createDesignerEntityGeometryHelpers(dependencies: EntityGeometry
         return getRectAtPosition(entity.x, entity.y, category);
     }
 
+    function getEntityVisibleRect(entity: any, category: DesignerCategory): {
+        left: number;
+        top: number;
+        right: number;
+        bottom: number;
+        width: number;
+        height: number;
+    } | null {
+        if (category === 'buttons' && entity instanceof Button) {
+            return getEntityRect(entity, category);
+        }
+        if (category === 'custom') {
+            const instance = entity as CustomSpriteInstance;
+            const definition = dependencies.resolveCustomSpriteDefinition(instance);
+            if (!definition || definition.members.length === 0) {
+                return null;
+            }
+            const partRects = definition.members
+                .map((member) => {
+                    const absoluteX = instance.x + member.offsetX;
+                    const absoluteY = instance.y + member.offsetY;
+                    if (member.category === 'buttons') {
+                        const button = new Button({
+                            ...(dependencies.deepClone(member.data) as ButtonSaveData),
+                            x: absoluteX,
+                            y: absoluteY
+                        });
+                        return getEntityVisibleRect(button, 'buttons');
+                    }
+                    const memberRect = getEntityVisibleRect({ ...(member.data as any), x: absoluteX, y: absoluteY }, member.category);
+                    if (memberRect) {
+                        return memberRect;
+                    }
+                    return getRectAtPosition(absoluteX, absoluteY, member.category);
+                })
+                .filter((rect): rect is {
+                    left: number;
+                    top: number;
+                    right: number;
+                    bottom: number;
+                    width: number;
+                    height: number;
+                } => !!rect);
+            if (partRects.length === 0) {
+                return null;
+            }
+            const left = Math.min(...partRects.map((rect) => rect.left));
+            const top = Math.min(...partRects.map((rect) => rect.top));
+            const right = Math.max(...partRects.map((rect) => rect.right));
+            const bottom = Math.max(...partRects.map((rect) => rect.bottom));
+            return {
+                left,
+                top,
+                right,
+                bottom,
+                width: right - left,
+                height: bottom - top
+            };
+        }
+        if (
+            (category === 'world' || category === 'doors' || category === 'creatures' || category === 'collectables')
+            && typeof entity.type === 'string'
+        ) {
+            const visibleRect = dependencies.getVisibleSpriteRect(
+                entity.type,
+                typeof entity.palette === 'number' ? entity.palette : 0,
+                dependencies.normalizeRotation(
+                    category === 'collectables' && 'defaultRotation' in entity
+                        ? (entity.defaultRotation ?? entity.rotation)
+                        : entity.rotation
+                ),
+                normalizeTranslation(entity.translation)
+            );
+            if (visibleRect) {
+                const left = entity.x + visibleRect.left;
+                const top = entity.y + visibleRect.top;
+                const right = left + visibleRect.width;
+                const bottom = top + visibleRect.height;
+                return {
+                    left,
+                    top,
+                    right,
+                    bottom,
+                    width: right - left,
+                    height: bottom - top
+                };
+            }
+        }
+        return null;
+    }
+
     return {
         getRectAtPosition,
         invertButtonOffset,
-        getEntityRect
+        getEntityRect,
+        getEntityVisibleRect
     };
 }

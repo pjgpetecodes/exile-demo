@@ -34,11 +34,16 @@ export function createWorldDesignerSelectionGeometry(context: any) {
         return candidates;
     };
 
-    const getEntityAt = (worldX: number, worldY: number) => {
+    const getEntityAt = (worldX: number, worldY: number, preferVisiblePixels = false) => {
         const visibleLayers = context.getLayerVisibility();
         for (const candidate of getHitCandidates()) {
             if (!visibleLayers[candidate.category]) continue;
-            const rect = context.getEntityRect(candidate.entity, candidate.category);
+            const rect = preferVisiblePixels
+                ? (
+                    context.getEntityVisibleRect?.(candidate.entity, candidate.category)
+                    ?? context.getEntityRect(candidate.entity, candidate.category)
+                )
+                : context.getEntityRect(candidate.entity, candidate.category);
             if (
                 worldX >= rect.left &&
                 worldX <= rect.right &&

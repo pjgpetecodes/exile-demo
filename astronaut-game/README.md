@@ -12,6 +12,8 @@ Documentation now lives in the repository `docs` folder:
 - [World Designer Guide](../docs/world-designer.md)
 - [Repository README](../README.md)
 
+Recent gameplay systems are documented in [Game Guide](../docs/game.md), including wasp nest spawning, swarm/return behavior, and destructible beehive nest handling.
+
 ## Testing workflow
 
 The project now uses two automated test layers:

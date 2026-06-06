@@ -256,6 +256,9 @@ const spritePreviewRuntime = createGameSpritePreviewRuntime({
 const WORLD_BOUNDS_PADDING = Math.ceil(32 * SPRITE_SCALE * 2);
 const BIRD_ANIMATION_FRAMES = ['bird1', 'bird2', 'bird3', 'bird4'] as const;
 const BIRD_ANIMATION_FRAME_DURATION_MS = 90;
+const WASP_ANIMATION_FRAMES = ['wasp1', 'wasp2', 'wasp3'] as const;
+const WASP_ATTACK_ANIMATION_FRAME_DURATION_MS = 68;
+const WASP_RETURN_ANIMATION_FRAME_DURATION_MS = 118;
 const BIRD_TRACK_RELEASE_RANGE_MULTIPLIER = 1.75;
 const BIRD_TRACK_RELEASE_RANGE_PADDING = 96;
 const BIRD_AVOIDANCE_VERTICAL_THRESHOLD = 12;
@@ -328,7 +331,9 @@ let gameState: GameState & { debugMode: boolean } = {
     debugMode: false
 };
 
-const IDLE_FRAME_DELAY_MS = 125;
+// Keep visible gameplay on requestAnimationFrame continuously.
+// Idle throttling introduced noticeable cadence hitches on some machines.
+const IDLE_FRAME_DELAY_MS = 0;
 const HIDDEN_FRAME_DELAY_MS = 500;
 const ACTIVE_MOTION_EPSILON = 0.05;
 
@@ -1117,10 +1122,14 @@ const {
     getTurretFacingRotations,
     isTurretLikeCreature,
     isBirdCreature,
-    getAnimatedBirdSpriteType
+    getAnimatedBirdSpriteType,
+    getAnimatedWaspSpriteType
 } = createGameCreatureRenderTargetHelpers({
     birdAnimationFrames: BIRD_ANIMATION_FRAMES,
     birdAnimationFrameDurationMs: BIRD_ANIMATION_FRAME_DURATION_MS,
+    waspAnimationFrames: WASP_ANIMATION_FRAMES,
+    waspAttackAnimationFrameDurationMs: WASP_ATTACK_ANIMATION_FRAME_DURATION_MS,
+    waspReturnAnimationFrameDurationMs: WASP_RETURN_ANIMATION_FRAME_DURATION_MS,
     spriteScale: SPRITE_SCALE,
     getCreatureAuthoredType,
     findSpriteRectByType,
@@ -1149,6 +1158,24 @@ const {
         doorEntities,
         buttonEntities
     ),
+    getSolidEntityAtWorld: (x, y) => getSolidBlockAtWorld(
+        x,
+        y,
+        spriteMap,
+        SPRITE_SCALE,
+        mapBlocks,
+        doorEntities,
+        buttonEntities
+    ),
+    shouldIgnoreSolidCollisionForCreature: (creature, solidEntity) => {
+        if (!/^wasp/i.test(creature.type)) {
+            return false;
+        }
+        if (!solidEntity) {
+            return true;
+        }
+        return solidEntity?.type === 'beehive' || solidEntity?.type === 'explosion_half';
+    },
     getRenderedEntityWorldSprite,
     getRenderedSpriteOpaqueSamples,
     spriteScale: SPRITE_SCALE,
@@ -1294,6 +1321,51 @@ const spawnCreatureCarryProxy = createSpawnCreatureCarryProxy({
     assignEntityId
 });
 
+function spawnWaspFromNest(nestX: number, nestY: number, nestKey: string) {
+    const wasp = assignEntityId(new Creature({
+        x: nestX,
+        y: nestY,
+        type: 'wasp1',
+        archetype: 'bee',
+        collision: true,
+        hostile: true,
+        damageOnContact: 1.2,
+        followsAstronaut: true,
+        followRange: 1600,
+        movementMode: 'hover',
+        fixed: false,
+        homeX: nestX,
+        homeY: nestY,
+        patrolMinX: nestX - 160,
+        patrolMaxX: nestX + 160,
+        patrolMinY: nestY - 110,
+        patrolMaxY: nestY + 70,
+        hoverAmplitude: 10,
+        trackRange: 2400,
+        fireMode: 'none',
+        speed: 1.9,
+        killForce: 2.2,
+        pickupEnabled: true,
+        storable: true,
+        sound: {
+            enabled: true,
+            sound: 'WaspBuzz',
+            intervalMs: 420,
+            randomVarianceMs: 100,
+            range: 320,
+            volume: 0.72
+        },
+        state: {
+            waspNestKey: nestKey,
+            waspBehaviorState: 'attacking',
+            waspBehaviorStateStartedAt: performance.now(),
+            waspAnimationStateStartedAt: performance.now()
+        }
+    }));
+    creatureEntities.push(wasp);
+    return wasp;
+}
+
 const {
     resolveAstronautCreatureCollisions,
     updateCreatureSounds
@@ -1388,8 +1460,10 @@ const sharedRuntimeContext = createSharedRuntimeContextFromState({
     moveCreatureWithEnvironmentCollisions,
     getNextCreatureFireAt,
     getAnimatedBirdSpriteType,
+    getAnimatedWaspSpriteType,
     getTurretFacingRotations,
     spawnCreatureCarryProxy,
+    spawnWaspFromNest,
     gameAudio,
     heldCollectableHandInset: HELD_COLLECTABLE_HAND_INSET,
     heldCollectableHandOverlap: HELD_COLLECTABLE_HAND_OVERLAP,
