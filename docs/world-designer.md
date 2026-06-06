@@ -149,6 +149,7 @@ Selected items can be:
 - moved by dragging
 - edge-snapped against nearby objects while dragging when **Snap to nearby object edges** is enabled
 - temporarily docked/aligned with **Ctrl** / **Alt** even if the object-snap toggle is off
+- selected by visible sprite pixels with **Alt+click** (useful when objects overlap)
 - nudged with arrow keys
 - duplicated
 - deleted
@@ -732,6 +733,7 @@ This is especially useful for buttons, where the `button` cap and `button_box` b
 - **Ctrl+M** = toggle sound on/off
 - **Arrow keys** = nudge selection
 - **Shift+Arrow** = larger nudge
+- **Alt+click** = select by visible sprite pixels when items overlap
 - **G** = toggle grid snap
 - **F** = toggle sprite outlines
 - **X** = toggle magnifier

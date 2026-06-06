@@ -187,12 +187,55 @@ export function createWorldDesignerInspectorPanel(context: WorldDesignerInspecto
             label: entry.label
         }))
     ];
+    const WASP_MAX_ACTIVE_OPTIONS: InspectorOption[] = [
+        { value: '1', label: '1 wasp' },
+        { value: '2', label: '2 wasps' },
+        { value: '3', label: '3 wasps' },
+        { value: '4', label: '4 wasps (default)' },
+        { value: '5', label: '5 wasps' },
+        { value: '6', label: '6 wasps' },
+        { value: '7', label: '7 wasps' },
+        { value: '8', label: '8 wasps' }
+    ];
+    const WASP_AGGRESSION_OPTIONS: InspectorOption[] = [
+        { value: '0.25', label: 'Very low' },
+        { value: '0.4', label: 'Low' },
+        { value: '0.55', label: 'Medium-low' },
+        { value: '0.72', label: 'Medium (default)' },
+        { value: '0.85', label: 'High' },
+        { value: '1', label: 'Extreme' }
+    ];
+    const WASP_DAMAGE_OPTIONS: InspectorOption[] = [
+        { value: '0.5', label: 'Very low (0.5)' },
+        { value: '1', label: 'Low (1.0 default)' },
+        { value: '1.5', label: 'Medium (1.5)' },
+        { value: '2', label: 'High (2.0)' },
+        { value: '3', label: 'Very high (3.0)' },
+        { value: '4', label: 'Extreme (4.0)' }
+    ];
     let creatureSoundOptions = defaultCreatureSoundOptions;
     let creatureSoundOptionsRequestInFlight: Promise<void> | null = null;
     let creatureSoundOptionsLoaded = false;
 
     function isCreatureSelectionActive() {
         return state.selection?.category === 'creatures' && getSelectedItems().length === 1;
+    }
+
+    function resolveClosestNumericOption(value: number, options: InspectorOption[]) {
+        let selected = options[0]?.value ?? String(value);
+        let bestDistance = Number.POSITIVE_INFINITY;
+        for (const option of options) {
+            const candidate = Number(option.value);
+            if (!Number.isFinite(candidate)) {
+                continue;
+            }
+            const distance = Math.abs(candidate - value);
+            if (distance < bestDistance) {
+                selected = option.value;
+                bestDistance = distance;
+            }
+        }
+        return selected;
     }
 
     function normalizeCreatureSoundOptions(
@@ -762,6 +805,42 @@ export function createWorldDesignerInspectorPanel(context: WorldDesignerInspecto
                         });
                     },
                     1
+                );
+                const waspMaxActive = Math.max(1, Math.round(Number(entity.waspMaxActive ?? WASP_SETTINGS.maxActivePerNest)));
+                addOptionSelectInspector(
+                    container,
+                    'Max active wasps',
+                    resolveClosestNumericOption(waspMaxActive, WASP_MAX_ACTIVE_OPTIONS),
+                    WASP_MAX_ACTIVE_OPTIONS,
+                    (value) => {
+                        runMutation('Updated max active wasps.', () => {
+                            entity.waspMaxActive = Math.max(1, Math.round(Number(value) || WASP_SETTINGS.maxActivePerNest));
+                        });
+                    }
+                );
+                const waspAggression = clamp(Number(entity.waspAggression ?? WASP_SETTINGS.aggression), 0, 1);
+                addOptionSelectInspector(
+                    container,
+                    'Wasp aggressiveness',
+                    resolveClosestNumericOption(waspAggression, WASP_AGGRESSION_OPTIONS),
+                    WASP_AGGRESSION_OPTIONS,
+                    (value) => {
+                        runMutation('Updated wasp aggressiveness.', () => {
+                            entity.waspAggression = clamp(Number(value) || WASP_SETTINGS.aggression, 0, 1);
+                        });
+                    }
+                );
+                const waspDamageOnContact = Math.max(0.1, Number(entity.waspDamageOnContact ?? WASP_SETTINGS.damageOnContact));
+                addOptionSelectInspector(
+                    container,
+                    'Wasp damage on touch',
+                    resolveClosestNumericOption(waspDamageOnContact, WASP_DAMAGE_OPTIONS),
+                    WASP_DAMAGE_OPTIONS,
+                    (value) => {
+                        runMutation('Updated wasp touch damage.', () => {
+                            entity.waspDamageOnContact = Math.max(0.1, Number(value) || WASP_SETTINGS.damageOnContact);
+                        });
+                    }
                 );
             }
             const windEnabled = entity.windEnabled === true;

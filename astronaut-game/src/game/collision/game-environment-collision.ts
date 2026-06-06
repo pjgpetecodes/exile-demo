@@ -170,6 +170,44 @@ export function createEnvironmentCollisionHelpers(options: EnvironmentCollisionO
         }));
     }
 
+    function getRenderedWaspCollisionBounds(
+        creature: Creature,
+        entityX: number,
+        entityY: number,
+        fallbackBounds: CollisionBounds
+    ) {
+        if (!/^wasp/i.test(creature.type)) {
+            return fallbackBounds;
+        }
+        const rendered = options.getRenderedEntityWorldSprite?.(creature) ?? null;
+        if (!rendered) {
+            return fallbackBounds;
+        }
+        const opaqueEdges = getOpaqueEdgeSamples(rendered.canvas);
+        if (!opaqueEdges || opaqueEdges.top.length === 0 || opaqueEdges.left.length === 0) {
+            return fallbackBounds;
+        }
+        const spriteScale = options.spriteScale ?? 1;
+        const minOpaqueX = opaqueEdges.top[0].x;
+        const maxOpaqueX = opaqueEdges.top[opaqueEdges.top.length - 1].x;
+        const minOpaqueY = opaqueEdges.left[0].y;
+        const maxOpaqueY = opaqueEdges.left[opaqueEdges.left.length - 1].y;
+        const deltaX = entityX - creature.x;
+        const deltaY = entityY - creature.y;
+        const worldMinX = rendered.drawX + deltaX + minOpaqueX * spriteScale;
+        const worldMinY = rendered.drawY + deltaY + minOpaqueY * spriteScale;
+        const worldMaxXExclusive = rendered.drawX + deltaX + (maxOpaqueX + 1) * spriteScale;
+        const worldMaxYExclusive = rendered.drawY + deltaY + (maxOpaqueY + 1) * spriteScale;
+        const left = Math.floor(worldMinX - entityX);
+        const right = Math.ceil(worldMaxXExclusive - entityX) - 1;
+        const top = Math.floor(worldMinY - entityY);
+        const bottom = Math.ceil(worldMaxYExclusive - entityY) - 1;
+        if (left > right || top > bottom) {
+            return fallbackBounds;
+        }
+        return { left, right, top, bottom };
+    }
+
     function collidesCollectableAtSide(
         collectable: Collectable,
         entityX: number,
@@ -192,7 +230,8 @@ export function createEnvironmentCollisionHelpers(options: EnvironmentCollisionO
         collisionBounds: CollisionBounds,
         side: 'left' | 'right' | 'top' | 'bottom'
     ) {
-        const samples = getCollectableEdgeSamples(entityX, entityY, collisionBounds, side);
+        const effectiveBounds = getRenderedWaspCollisionBounds(creature, entityX, entityY, collisionBounds);
+        const samples = getCollectableEdgeSamples(entityX, entityY, effectiveBounds, side);
         const probeOffset = side === 'right' || side === 'bottom' ? 1 : -1;
         const useEntityAwareSolids = !!options.getSolidEntityAtWorld
             && !!options.shouldIgnoreSolidCollisionForCreature

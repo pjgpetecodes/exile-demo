@@ -188,6 +188,64 @@ describe('held item runtime positioning', () => {
         expect(astronaut.position.y).toBe(120);
         expect(heldCollectable.x).toBeLessThan(113);
     });
+
+    it('starts aim origin from astronaut front midpoint when no item is held', () => {
+        let facingLeft = false;
+        const runtime = createGameHeldItemRuntime({
+            astronaut: { position: { x: 100, y: 120 }, velocity: { x: 0, y: 0 } },
+            movementSettings: {
+                heldCollectableVerticalOffset: -6,
+                droppedCollectableForwardOffset: 24,
+                heldCollectableForwardOffset: 28,
+                droppedCollectableMomentumTransfer: 0.75,
+                droppedCollectableAstronautIgnoreFrames: 18,
+                collectablePickupRange: 52,
+                collectableInventoryLimit: 5,
+                throwVelocity: 5.6
+            },
+            heldCollectableHandInset: 8,
+            heldCollectableHandOverlap: -12,
+            spriteScale: 2,
+            keys: {},
+            getPrevKeys: () => ({}),
+            getFacingLeft: () => facingLeft,
+            getFacingSign: () => (facingLeft ? -1 : 1),
+            getThrowAngleDegrees: () => 20,
+            getAstronautRect: () => ({ left: 80, right: 120, top: 90, bottom: 130 }),
+            getEntityCollisionBounds: () => ({ left: -8, right: 8, top: -8, bottom: 8 }),
+            getEntityRect: (x, y, bounds) => ({ left: x + bounds.left, right: x + bounds.right, top: y + bounds.top, bottom: y + bounds.bottom }),
+            getEntityCenter: (x, y, bounds) => ({ x: x + (bounds.left + bounds.right) / 2, y: y + (bounds.top + bounds.bottom) / 2 }),
+            getAstronautRenderedWorldSprite: () => null,
+            getRenderedEntityWorldSprite: () => null,
+            getSpriteVisibleBounds: () => null,
+            getCollectableEntities: () => [],
+            getHeldCollectable: () => null,
+            setHeldCollectable: () => {},
+            getStoredCollectables: () => [],
+            getInventoryCycleIndex: () => -1,
+            setInventoryCycleIndex: () => {},
+            creatureRuntime: {
+                getNearestPickupCreature: () => null,
+                removeCreatureEntity: () => {}
+            },
+            spawnCreatureCarryProxy: () => ({} as any),
+            markCollectableCollected: () => {},
+            isCollectableCollected: () => false,
+            isGrenadeCollectable: () => false,
+            setGrenadeCollectableArmedState: () => {},
+            removeCollectableEntity: () => {},
+            restoreCreatureFromPayload: () => {},
+            getSound: { currentTime: 0, play: vi.fn(() => Promise.resolve()) } as any,
+            saveSound: { currentTime: 0, play: vi.fn(() => Promise.resolve()) } as any
+        });
+
+        const rightOrigin = runtime.getAimOriginPosition();
+        expect(rightOrigin).toEqual({ x: 122, y: 110 });
+
+        facingLeft = true;
+        const leftOrigin = runtime.getAimOriginPosition();
+        expect(leftOrigin).toEqual({ x: 78, y: 110 });
+    });
 });
 
 describe('held flask fill and spill behavior', () => {

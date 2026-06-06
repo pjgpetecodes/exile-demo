@@ -91,9 +91,9 @@ describe('createCreatureRuntime', () => {
         const creatures: any[] = [];
         const runtime = createCreatureRuntime({
             ...createBaseRuntimeOptions(creatures),
-            getAstronautPosition: () => ({ x: 100, y: 100 }),
-            getAstronautRect: () => ({ left: 90, right: 110, top: 90, bottom: 110 }),
-            getAstronautAimPoint: () => ({ x: 100, y: 100 }),
+            getAstronautPosition: () => ({ x: 140, y: 100 }),
+            getAstronautRect: () => ({ left: 130, right: 150, top: 90, bottom: 110 }),
+            getAstronautAimPoint: () => ({ x: 140, y: 100 }),
             getMapBlocks: () => [{ x: 100, y: 100, type: 'beehive', entityId: 12 }],
             spawnWaspFromNest: (x: number, y: number, nestKey: string) => {
                 const wasp = {
@@ -150,6 +150,65 @@ describe('createCreatureRuntime', () => {
 
         const spawnedWasps = creatures.filter((creature) => /^wasp/i.test(creature.type));
         expect(spawnedWasps).toHaveLength(4);
+        expect(spawnedWasps.every((creature) => Math.hypot(creature.homeX - 100, creature.homeY - 100) <= 40)).toBe(true);
+    });
+
+    it('keeps nest activation isolated when distant nests share an entity id', () => {
+        const creatures: any[] = [];
+        const runtime = createCreatureRuntime({
+            ...createBaseRuntimeOptions(creatures),
+            getAstronautPosition: () => ({ x: 140, y: 100 }),
+            getAstronautRect: () => ({ left: 130, right: 150, top: 90, bottom: 110 }),
+            getAstronautAimPoint: () => ({ x: 140, y: 100 }),
+            getMapBlocks: () => [
+                { x: 100, y: 100, type: 'beehive', entityId: 7 },
+                { x: 1300, y: 1300, type: 'beehive', entityId: 7 }
+            ],
+            spawnWaspFromNest: (x: number, y: number, nestKey: string) => {
+                const wasp = {
+                    x,
+                    y,
+                    type: 'wasp1',
+                    archetype: 'bee',
+                    followsAstronaut: true,
+                    followRange: 176,
+                    trackRange: 176,
+                    movementMode: 'hover',
+                    speed: 1.5,
+                    patrolMinX: x - 120,
+                    patrolMaxX: x + 120,
+                    patrolMinY: y - 80,
+                    patrolMaxY: y + 80,
+                    hoverAmplitude: 8,
+                    homeX: x,
+                    homeY: y,
+                    collision: false,
+                    fixed: false,
+                    fireMode: 'none',
+                    requiresLineOfSight: false,
+                    targetRefreshMs: 0,
+                    state: {
+                        authoredType: 'wasp1',
+                        waspNestKey: nestKey
+                    },
+                    previousX: x,
+                    previousY: y,
+                    pickupEnabled: true,
+                    storable: true,
+                    killForce: 2,
+                    damageOnContact: 1
+                } as any;
+                creatures.push(wasp);
+                return wasp;
+            }
+        });
+
+        runtime.updateCreatures(0, 1);
+        runtime.updateCreatures(1300, 2);
+
+        const spawnedWasps = creatures.filter((creature) => /^wasp/i.test(creature.type));
+        expect(spawnedWasps.length).toBeGreaterThan(0);
+        expect(spawnedWasps.every((creature) => Math.hypot(creature.homeX - 100, creature.homeY - 100) < 250)).toBe(true);
     });
 
     it('uses beehive activation distance override for spawning', () => {
@@ -202,6 +261,133 @@ describe('createCreatureRuntime', () => {
         runtime.updateCreatures(0, 1);
         const spawnedWasps = creatures.filter((creature) => /^wasp/i.test(creature.type));
         expect(spawnedWasps).toHaveLength(0);
+    });
+
+    it('activates a nest only when line of sight is clear', () => {
+        const creatures: any[] = [];
+        let hasLineOfSight = false;
+        const sightTargets: Array<{ x: number; y: number }> = [];
+        const runtime = createCreatureRuntime({
+            ...createBaseRuntimeOptions(creatures),
+            getAstronautPosition: () => ({ x: 140, y: 100 }),
+            getAstronautRect: () => ({ left: 130, right: 150, top: 90, bottom: 110 }),
+            getAstronautAimPoint: () => ({ x: 140, y: 100 }),
+            hasCreatureLineOfSight: (_start, target) => {
+                sightTargets.push({ x: target.x, y: target.y });
+                return hasLineOfSight;
+            },
+            getMapBlocks: () => [{ x: 100, y: 100, type: 'beehive', entityId: 44 }],
+            spawnWaspFromNest: (x: number, y: number, nestKey: string) => {
+                const wasp = {
+                    x,
+                    y,
+                    type: 'wasp1',
+                    archetype: 'bee',
+                    followsAstronaut: true,
+                    followRange: 176,
+                    trackRange: 176,
+                    movementMode: 'hover',
+                    speed: 1.5,
+                    patrolMinX: x - 120,
+                    patrolMaxX: x + 120,
+                    patrolMinY: y - 80,
+                    patrolMaxY: y + 80,
+                    hoverAmplitude: 8,
+                    homeX: x,
+                    homeY: y,
+                    collision: false,
+                    fixed: false,
+                    fireMode: 'none',
+                    requiresLineOfSight: false,
+                    targetRefreshMs: 0,
+                    state: {
+                        authoredType: 'wasp1',
+                        waspNestKey: nestKey
+                    },
+                    previousX: x,
+                    previousY: y,
+                    pickupEnabled: true,
+                    storable: true,
+                    killForce: 2,
+                    damageOnContact: 1
+                } as any;
+                creatures.push(wasp);
+                return wasp;
+            }
+        });
+
+        runtime.updateCreatures(0, 1);
+        expect(creatures.filter((creature) => /^wasp/i.test(creature.type))).toHaveLength(0);
+
+        hasLineOfSight = true;
+        runtime.updateCreatures(1300, 2);
+        expect(creatures.filter((creature) => /^wasp/i.test(creature.type))).toHaveLength(1);
+        expect(sightTargets.some((target) => Math.hypot(target.x - 100, target.y - 100) > 0.5)).toBe(true);
+    });
+
+    it('uses beehive max active, aggression, and damage overrides for spawned wasps', () => {
+        const creatures: any[] = [];
+        const runtime = createCreatureRuntime({
+            ...createBaseRuntimeOptions(creatures),
+            getAstronautPosition: () => ({ x: 100, y: 100 }),
+            getAstronautRect: () => ({ left: 90, right: 110, top: 90, bottom: 110 }),
+            getAstronautAimPoint: () => ({ x: 100, y: 100 }),
+            getMapBlocks: () => [{
+                x: 100,
+                y: 100,
+                type: 'beehive',
+                entityId: 88,
+                waspMaxActive: 2,
+                waspAggression: 0.9,
+                waspDamageOnContact: 2.5
+            }],
+            spawnWaspFromNest: (x: number, y: number, nestKey: string) => {
+                const wasp = {
+                    x,
+                    y,
+                    type: 'wasp1',
+                    archetype: 'bee',
+                    followsAstronaut: true,
+                    followRange: 176,
+                    trackRange: 176,
+                    movementMode: 'hover',
+                    speed: 1.5,
+                    patrolMinX: x - 120,
+                    patrolMaxX: x + 120,
+                    patrolMinY: y - 80,
+                    patrolMaxY: y + 80,
+                    hoverAmplitude: 8,
+                    homeX: x,
+                    homeY: y,
+                    collision: false,
+                    fixed: false,
+                    fireMode: 'none',
+                    requiresLineOfSight: false,
+                    targetRefreshMs: 0,
+                    state: {
+                        authoredType: 'wasp1',
+                        waspNestKey: nestKey
+                    },
+                    previousX: x,
+                    previousY: y,
+                    pickupEnabled: true,
+                    storable: true,
+                    killForce: 2,
+                    damageOnContact: 1
+                } as any;
+                creatures.push(wasp);
+                return wasp;
+            }
+        });
+
+        runtime.updateCreatures(0, 1);
+        runtime.updateCreatures(1300, 2);
+        runtime.updateCreatures(2600, 3);
+
+        const spawnedWasps = creatures.filter((creature) => /^wasp/i.test(creature.type));
+        expect(spawnedWasps).toHaveLength(2);
+        expect(spawnedWasps.every((creature) => creature.damageOnContact === 2.5)).toBe(true);
+        expect(spawnedWasps.every((creature) => creature.state.waspAggression === 0.9)).toBe(true);
     });
 
     it('despawns active nest wasps when astronaut leaves nest deactivation range', () => {
@@ -353,10 +539,119 @@ describe('createCreatureRuntime', () => {
         expect(creatures.filter((creature) => /^wasp/i.test(creature.type))).toHaveLength(0);
     });
 
+    it('despawns nest wasps using home fallback when nest key changes', () => {
+        const wasp = {
+            x: 130,
+            y: 90,
+            type: 'wasp1',
+            archetype: 'bee',
+            followsAstronaut: true,
+            followRange: 260,
+            trackRange: 260,
+            movementMode: 'hover',
+            speed: 2,
+            patrolMinX: -400,
+            patrolMaxX: 400,
+            patrolMinY: -400,
+            patrolMaxY: 400,
+            hoverAmplitude: 8,
+            homeX: 100,
+            homeY: 100,
+            collision: true,
+            fixed: false,
+            fireMode: 'none',
+            requiresLineOfSight: false,
+            targetRefreshMs: 0,
+            state: {
+                authoredType: 'wasp1',
+                waspNestKey: 'entity:old',
+                waspReturnToNestDistance: 420
+            },
+            previousX: 130,
+            previousY: 90,
+            pickupEnabled: true,
+            storable: true,
+            killForce: 2,
+            damageOnContact: 1
+        } as any;
+        const creatures = [wasp];
+        const runtime = createCreatureRuntime({
+            ...createBaseRuntimeOptions(creatures),
+            getAstronautPosition: () => ({ x: 700, y: 700 }),
+            getAstronautRect: () => ({ left: 690, right: 710, top: 690, bottom: 710 }),
+            getAstronautAimPoint: () => ({ x: 700, y: 700 }),
+            getMapBlocks: () => [{ x: 100, y: 100, type: 'beehive', entityId: 99, waspReturnDistance: 420 }],
+            spawnWaspFromNest: () => {
+                throw new Error('spawnWaspFromNest should not be called in this test');
+            }
+        });
+
+        runtime.updateCreatures(300, 2);
+
+        expect(creatures.filter((creature) => /^wasp/i.test(creature.type))).toHaveLength(0);
+    });
+
+    it('despawns orphan wasps when nest registry is empty and source nest is unloaded', () => {
+        const wasp = {
+            x: 128,
+            y: 96,
+            type: 'wasp1',
+            archetype: 'bee',
+            followsAstronaut: true,
+            followRange: 200,
+            trackRange: 200,
+            movementMode: 'hover',
+            speed: 1.8,
+            patrolMinX: 0,
+            patrolMaxX: 256,
+            patrolMinY: 0,
+            patrolMaxY: 256,
+            hoverAmplitude: 8,
+            homeX: 128,
+            homeY: 96,
+            collision: true,
+            fixed: false,
+            fireMode: 'none',
+            requiresLineOfSight: false,
+            targetRefreshMs: 0,
+            state: {
+                authoredType: 'wasp1',
+                waspNestKey: 'entity:stale',
+                waspNestX: 128,
+                waspNestY: 96,
+                waspReturnToNestDistance: 200,
+                waspBehaviorState: 'attacking',
+                waspBehaviorStateStartedAt: 0,
+                waspAnimationStateStartedAt: 0
+            },
+            previousX: 128,
+            previousY: 96,
+            pickupEnabled: true,
+            storable: true,
+            killForce: 2,
+            damageOnContact: 1
+        } as any;
+        const creatures = [wasp];
+        const runtime = createCreatureRuntime({
+            ...createBaseRuntimeOptions(creatures),
+            getAstronautPosition: () => ({ x: 800, y: 800 }),
+            getAstronautRect: () => ({ left: 790, right: 810, top: 790, bottom: 810 }),
+            getAstronautAimPoint: () => ({ x: 800, y: 800 }),
+            getMapBlocks: () => [],
+            spawnWaspFromNest: () => {
+                throw new Error('spawnWaspFromNest should not be called in this test');
+            }
+        });
+
+        runtime.updateCreatures(0, 1);
+
+        expect(creatures.filter((creature) => /^wasp/i.test(creature.type))).toHaveLength(0);
+    });
+
     it('keeps returning animation phase while wasp is settling back at its nest', () => {
         const wasp = {
-            x: 50,
-            y: 50,
+            x: 70,
+            y: 70,
             type: 'wasp1',
             archetype: 'bee',
             followsAstronaut: false,
@@ -382,8 +677,8 @@ describe('createCreatureRuntime', () => {
                 waspBehaviorStateStartedAt: 0,
                 waspAnimationStateStartedAt: 0
             },
-            previousX: 50,
-            previousY: 50,
+            previousX: 70,
+            previousY: 70,
             pickupEnabled: true,
             storable: true,
             killForce: 2,
@@ -443,7 +738,8 @@ describe('createCreatureRuntime', () => {
                 authoredType: 'wasp1',
                 waspBehaviorState: 'attacking',
                 waspBehaviorStateStartedAt: 0,
-                waspAnimationStateStartedAt: 0
+                waspAnimationStateStartedAt: 0,
+                waspAggression: 1
             },
             previousX: 0,
             previousY: 0,
@@ -572,7 +868,8 @@ describe('createCreatureRuntime', () => {
                 authoredType: 'wasp1',
                 waspBehaviorState: 'attacking',
                 waspBehaviorStateStartedAt: 0,
-                waspAnimationStateStartedAt: 0
+                waspAnimationStateStartedAt: 0,
+                waspAggression: 1
             },
             previousX: 0,
             previousY: 0,
@@ -658,6 +955,130 @@ describe('createCreatureRuntime', () => {
 
         expect(wasp.state.waspBehaviorState).toBe('returning');
         expect(wasp.sound.sound).toBe('WaspHome');
+    });
+
+    it('despawns returning wasps at the nest and plays the home sound cue', () => {
+        const wasp = {
+            x: 101,
+            y: 100,
+            type: 'wasp1',
+            archetype: 'bee',
+            followsAstronaut: false,
+            followRange: 220,
+            trackRange: 220,
+            movementMode: 'hover',
+            speed: 2,
+            patrolMinX: -400,
+            patrolMaxX: 400,
+            patrolMinY: -400,
+            patrolMaxY: 400,
+            hoverAmplitude: 8,
+            homeX: 100,
+            homeY: 100,
+            collision: true,
+            fixed: false,
+            fireMode: 'none',
+            requiresLineOfSight: false,
+            targetRefreshMs: 0,
+            state: {
+                authoredType: 'wasp1',
+                waspBehaviorState: 'returning',
+                waspBehaviorStateStartedAt: 0,
+                waspAnimationStateStartedAt: 0
+            },
+            previousX: 101,
+            previousY: 100,
+            pickupEnabled: true,
+            storable: true,
+            killForce: 2,
+            damageOnContact: 1
+        } as any;
+        const creatures = [wasp];
+        const soundCalls: Array<{ key: string; volume?: number }> = [];
+        const runtime = createCreatureRuntime({
+            ...createBaseRuntimeOptions(creatures),
+            getAstronautPosition: () => ({ x: 520, y: 520 }),
+            getAstronautRect: () => ({ left: 510, right: 530, top: 510, bottom: 530 }),
+            getAstronautAimPoint: () => ({ x: 520, y: 520 }),
+            gameAudio: {
+                playManifestSound: (key, volume) => {
+                    soundCalls.push({ key, volume });
+                }
+            }
+        });
+
+        runtime.updateCreatures(1000, 1);
+
+        expect(creatures.filter((creature) => /^wasp/i.test(creature.type))).toHaveLength(0);
+        expect(soundCalls.some((call) => call.key === 'WaspHome')).toBe(true);
+    });
+
+    it('sends only farther low-commitment wasps into retreat while committed wasps keep chasing', () => {
+        const lowCommitWasp = {
+            x: 140,
+            y: 0,
+            type: 'wasp1',
+            archetype: 'bee',
+            followsAstronaut: true,
+            followRange: 260,
+            trackRange: 260,
+            movementMode: 'hover',
+            speed: 2,
+            patrolMinX: -400,
+            patrolMaxX: 400,
+            patrolMinY: -400,
+            patrolMaxY: 400,
+            hoverAmplitude: 8,
+            homeX: 0,
+            homeY: 0,
+            collision: true,
+            fixed: false,
+            fireMode: 'none',
+            requiresLineOfSight: false,
+            targetRefreshMs: 0,
+            state: {
+                authoredType: 'wasp1',
+                waspBehaviorState: 'attacking',
+                waspBehaviorStateStartedAt: 0,
+                waspAnimationStateStartedAt: 0,
+                waspBehaviorSeed: 0,
+                waspAggression: 0.2,
+                waspAttackPhaseMs: 0,
+                waspSwarmVectorX: 0,
+                waspSwarmVectorY: 0,
+                waspNextSwarmTurnAt: Number.MAX_SAFE_INTEGER,
+                waspReturnToNestDistance: 420
+            },
+            previousX: 140,
+            previousY: 0,
+            pickupEnabled: true,
+            storable: true,
+            killForce: 2,
+            damageOnContact: 1
+        } as any;
+        const committedWasp = {
+            ...lowCommitWasp,
+            state: {
+                ...lowCommitWasp.state,
+                waspBehaviorSeed: 1,
+                waspAggression: 1
+            },
+            previousX: 140,
+            previousY: 0
+        } as any;
+        const creatures = [lowCommitWasp, committedWasp];
+        const runtime = createCreatureRuntime({
+            ...createBaseRuntimeOptions(creatures),
+            getAstronautPosition: () => ({ x: 380, y: 0 }),
+            getAstronautRect: () => ({ left: 370, right: 390, top: -10, bottom: 10 }),
+            getAstronautAimPoint: () => ({ x: 380, y: 0 })
+        });
+
+        runtime.updateCreatures(1000, 1);
+
+        expect(lowCommitWasp.state.waspBehaviorState).toBe('returning');
+        expect(committedWasp.state.waspBehaviorState).toBe('attacking');
+        expect(committedWasp.state.followingAstronaut).toBe(true);
     });
 
     it('uses beehive return distance override for return behavior', () => {
@@ -746,6 +1167,7 @@ describe('createCreatureRuntime', () => {
                 waspBehaviorState: 'attacking',
                 waspBehaviorStateStartedAt: 0,
                 waspAnimationStateStartedAt: 0,
+                waspAggression: 1,
                 waspSwarmVectorX: 1.5,
                 waspSwarmVectorY: 0,
                 waspNextSwarmTurnAt: Number.MAX_SAFE_INTEGER
@@ -775,6 +1197,70 @@ describe('createCreatureRuntime', () => {
 
         runtime.updateCreatures(1000, 1);
 
+        expect(wasp.x).toBeGreaterThan(0);
+    });
+
+    it('lets low-aggression wasps buzz near the astronaut instead of always hard-chasing', () => {
+        const wasp = {
+            x: 0,
+            y: 0,
+            type: 'wasp1',
+            archetype: 'bee',
+            followsAstronaut: true,
+            followRange: 260,
+            trackRange: 260,
+            movementMode: 'hover',
+            speed: 2,
+            patrolMinX: -400,
+            patrolMaxX: 400,
+            patrolMinY: -400,
+            patrolMaxY: 400,
+            hoverAmplitude: 8,
+            homeX: 0,
+            homeY: 0,
+            collision: true,
+            fixed: false,
+            fireMode: 'none',
+            requiresLineOfSight: false,
+            targetRefreshMs: 0,
+            state: {
+                authoredType: 'wasp1',
+                waspBehaviorState: 'attacking',
+                waspBehaviorStateStartedAt: 0,
+                waspAnimationStateStartedAt: 0,
+                waspAggression: 0.35,
+                waspAttackPhaseMs: 1500,
+                waspSwarmVectorX: 1.1,
+                waspSwarmVectorY: 0.2,
+                waspNextSwarmTurnAt: Number.MAX_SAFE_INTEGER
+            },
+            previousX: 0,
+            previousY: 0,
+            pickupEnabled: true,
+            storable: true,
+            killForce: 2,
+            damageOnContact: 1,
+            sound: {
+                enabled: true,
+                sound: 'WaspBuzz',
+                intervalMs: 400,
+                randomVarianceMs: 0,
+                range: 320,
+                volume: 1
+            }
+        } as any;
+        const creatures = [wasp];
+        const runtime = createCreatureRuntime({
+            ...createBaseRuntimeOptions(creatures),
+            getAstronautPosition: () => ({ x: 140, y: 0 }),
+            getAstronautRect: () => ({ left: 130, right: 150, top: -10, bottom: 10 }),
+            getAstronautAimPoint: () => ({ x: 140, y: 0 })
+        });
+
+        runtime.updateCreatures(1000, 1);
+
+        expect(wasp.state.followingAstronaut).toBe(false);
+        expect(wasp.state.waspBehaviorState).toBe('attacking');
         expect(wasp.x).toBeGreaterThan(0);
     });
 });

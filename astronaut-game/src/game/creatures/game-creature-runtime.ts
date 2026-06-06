@@ -10,11 +10,18 @@ type MapBlockLike = {
     entityId?: number;
     waspNestActivationDistance?: number;
     waspReturnDistance?: number;
+    waspMaxActive?: number;
+    waspAggression?: number;
+    waspDamageOnContact?: number;
 };
 
 const WASP_NEST_TYPE = 'beehive';
-const WASP_MAX_ACTIVE_PER_NEST = 4;
 const WASP_NEST_SPAWN_COOLDOWN_MS = 1250;
+const WASP_NEST_SPAWN_FORWARD_OFFSET_X = 28;
+const WASP_NEST_SPAWN_FORWARD_OFFSET_Y = 20;
+const WASP_NEST_SPAWN_JITTER_X = 4;
+const WASP_NEST_SPAWN_JITTER_Y = 3;
+const WASP_NEST_DEACTIVATION_CHECK_INTERVAL_MS = 300;
 const WASP_HOME_PROXIMITY = 20;
 const WASP_MAX_PATROL_DRIFT = 172;
 const WASP_ATTACK_ENGAGE_DISTANCE_RATIO = 0.55;
@@ -24,6 +31,13 @@ const WASP_SWARM_STEP_MIN = 0.35;
 const WASP_SWARM_STEP_MAX = 1.25;
 const WASP_ATTACK_SWARM_WEIGHT = 0.72;
 const WASP_RETURN_SWARM_WEIGHT = 0.88;
+const WASP_BUZZ_SWARM_WEIGHT = 1.08;
+const WASP_BUZZ_ANCHOR_MIN_BLEND = 0.42;
+const WASP_BUZZ_ANCHOR_MAX_BLEND = 0.7;
+const WASP_BUZZ_PATROL_DRIFT_MULTIPLIER = 1.35;
+const WASP_CHASE_LEASH_MIN_RATIO = 0.44;
+const WASP_CHASE_LEASH_MAX_RATIO = 0.86;
+const WASP_CHASE_REENGAGE_PADDING = 22;
 const WASP_ATTACK_SOUND = 'WaspBuzz';
 const WASP_RETURN_SOUND = 'WaspHome';
 
@@ -33,6 +47,31 @@ function getPositiveFiniteOrNull(value: unknown) {
         return null;
     }
     return numberValue;
+}
+
+function getFiniteOrNull(value: unknown) {
+    const numberValue = Number(value);
+    if (!Number.isFinite(numberValue)) {
+        return null;
+    }
+    return numberValue;
+}
+
+function getDeterministicWaspSeed(runtimeState: Record<string, unknown>, creature: Creature) {
+    const existingSeed = Number(runtimeState.waspBehaviorSeed);
+    if (Number.isFinite(existingSeed) && existingSeed >= 0 && existingSeed <= 1) {
+        return existingSeed;
+    }
+    const nestKey = typeof runtimeState.waspNestKey === 'string' ? runtimeState.waspNestKey : '';
+    const base = `${nestKey}|${creature.entityId ?? ''}|${Math.round(creature.homeX)}|${Math.round(creature.homeY)}`;
+    let hash = 2166136261;
+    for (let index = 0; index < base.length; index += 1) {
+        hash ^= base.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
+    }
+    const seed = (hash >>> 0) / 0xffffffff;
+    runtimeState.waspBehaviorSeed = seed;
+    return seed;
 }
 
 type CreatureRuntimeFactoryOptions = {
@@ -63,6 +102,7 @@ type CreatureRuntimeFactoryOptions = {
         creatureProjectileGravity: number;
         collectablePickupRange: number;
     };
+
     moveCreatureWithEnvironmentCollisions: (creature: Creature, targetX: number, targetY: number) => AxisMovementResult;
     spawnCreatureProjectile: (creature: Creature, targetX: number, targetY: number, aimOriginOverride?: Position) => void;
     getNextCreatureFireAt: (frameNow: number, creature: Creature) => number;
@@ -81,6 +121,17 @@ type CreatureRuntimeFactoryOptions = {
     gameAudio: {
         playManifestSound: (key: string, volume?: number) => void;
     };
+};
+
+type ActiveWaspNestState = {
+    nestX: number;
+    nestY: number;
+    activationDistance: number;
+    deactivationDistance: number;
+    maxActive: number;
+    aggression: number;
+    damageOnContact: number;
+    nextSpawnAt: number;
 };
 
 export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
@@ -142,12 +193,16 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
         return /^wasp/i.test(type);
     }
 
-    function getNestKey(nest: MapBlockLike) {
-        if (typeof nest.entityId === 'number') {
-            return `entity:${nest.entityId}`;
-        }
-        return `${Math.round(nest.x)}:${Math.round(nest.y)}`;
+    function getNestKeyFromPosition(x: number, y: number) {
+        return `nest:${Math.round(x)}:${Math.round(y)}`;
     }
+
+    function getNestKey(nest: MapBlockLike) {
+        return getNestKeyFromPosition(nest.x, nest.y);
+    }
+
+    const activeWaspNestsByKey = new Map<string, ActiveWaspNestState>();
+    let nextWaspNestDeactivationCheckAt = 0;
 
     function setWaspBehaviorState(
         runtimeState: Record<string, unknown>,
@@ -161,60 +216,212 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
         }
     }
 
+    function removeActiveWaspsForNestKey(creatures: Creature[], nestKey: string) {
+        for (let index = creatures.length - 1; index >= 0; index -= 1) {
+            const creature = creatures[index];
+            const runtimeState = creature.state ?? {};
+            const authoredType = options.getCreatureAuthoredType(creature.type, runtimeState);
+            if (!isWaspType(authoredType)) {
+                continue;
+            }
+            if (runtimeState.waspNestKey === nestKey) {
+                creatures.splice(index, 1);
+            }
+        }
+    }
+
+    function removeWaspsAnchoredToNestPosition(creatures: Creature[], nestX: number, nestY: number) {
+        for (let index = creatures.length - 1; index >= 0; index -= 1) {
+            const creature = creatures[index];
+            const runtimeState = creature.state ?? {};
+            const authoredType = options.getCreatureAuthoredType(creature.type, runtimeState);
+            if (!isWaspType(authoredType)) {
+                continue;
+            }
+            const waspNestX = Number.isFinite(Number(runtimeState.waspNestX))
+                ? Number(runtimeState.waspNestX)
+                : Number(creature.homeX);
+            const waspNestY = Number.isFinite(Number(runtimeState.waspNestY))
+                ? Number(runtimeState.waspNestY)
+                : Number(creature.homeY);
+            if (!Number.isFinite(waspNestX) || !Number.isFinite(waspNestY)) {
+                continue;
+            }
+            if (Math.abs(waspNestX - nestX) <= 1 && Math.abs(waspNestY - nestY) <= 1) {
+                creatures.splice(index, 1);
+            }
+        }
+    }
+
+    function runActiveNestDeactivationSweep(
+        frameNow: number,
+        astronautCenter: Position,
+        creatures: Creature[]
+    ) {
+        if (activeWaspNestsByKey.size === 0) {
+            let hasAnyWasp = false;
+            for (const creature of creatures) {
+                const runtimeState = creature.state ?? {};
+                const authoredType = options.getCreatureAuthoredType(creature.type, runtimeState);
+                if (isWaspType(authoredType)) {
+                    hasAnyWasp = true;
+                    break;
+                }
+            }
+            if (!hasAnyWasp) {
+                return;
+            }
+        }
+        if (frameNow < nextWaspNestDeactivationCheckAt) {
+            return;
+        }
+        nextWaspNestDeactivationCheckAt = frameNow + WASP_NEST_DEACTIVATION_CHECK_INTERVAL_MS;
+
+        for (const creature of creatures) {
+            const runtimeState = creature.state ?? {};
+            const authoredType = options.getCreatureAuthoredType(creature.type, runtimeState);
+            if (!isWaspType(authoredType)) {
+                continue;
+            }
+            const nestX = Number.isFinite(Number(runtimeState.waspNestX))
+                ? Number(runtimeState.waspNestX)
+                : Number(creature.homeX);
+            const nestY = Number.isFinite(Number(runtimeState.waspNestY))
+                ? Number(runtimeState.waspNestY)
+                : Number(creature.homeY);
+            if (!Number.isFinite(nestX) || !Number.isFinite(nestY)) {
+                continue;
+            }
+            const nestKey = getNestKeyFromPosition(nestX, nestY);
+            if (runtimeState.waspNestKey !== nestKey) {
+                runtimeState.waspNestKey = nestKey;
+                creature.state = runtimeState;
+            }
+            if (activeWaspNestsByKey.has(nestKey)) {
+                continue;
+            }
+            activeWaspNestsByKey.set(nestKey, {
+                nestX,
+                nestY,
+                activationDistance: WASP_SETTINGS.nestActivationDistance,
+                deactivationDistance: getPositiveFiniteOrNull(runtimeState.waspReturnToNestDistance)
+                    ?? WASP_SETTINGS.returnToNestDistance,
+                maxActive: Math.max(
+                    1,
+                    Math.round(getPositiveFiniteOrNull(runtimeState.waspNestMaxActive) ?? WASP_SETTINGS.maxActivePerNest)
+                ),
+                aggression: Math.max(
+                    0,
+                    Math.min(1, getFiniteOrNull(runtimeState.waspAggression) ?? WASP_SETTINGS.aggression)
+                ),
+                damageOnContact: Math.max(
+                    0.1,
+                    getPositiveFiniteOrNull(runtimeState.waspDamageOnContact) ?? WASP_SETTINGS.damageOnContact
+                ),
+                nextSpawnAt: Number.isFinite(Number(runtimeState.waspNestNextSpawnAt))
+                    ? Number(runtimeState.waspNestNextSpawnAt)
+                    : 0
+            });
+        }
+
+        for (const [nestKey, nestState] of [...activeWaspNestsByKey.entries()]) {
+            if (Math.hypot(astronautCenter.x - nestState.nestX, astronautCenter.y - nestState.nestY) <= nestState.deactivationDistance) {
+                continue;
+            }
+            removeActiveWaspsForNestKey(creatures, nestKey);
+            activeWaspNestsByKey.delete(nestKey);
+        }
+    }
+
     function updateCreatures(frameNow: number, simulationFrame: number) {
         const creatureEntities = options.getCreatureEntities();
+        const waspsToDespawnAtNest: Creature[] = [];
         const astronautRect = options.getAstronautRect();
         const astronautCenter = {
             x: (astronautRect.left + astronautRect.right) / 2,
             y: (astronautRect.top + astronautRect.bottom) / 2
         };
         const astronautAimPoint = options.getAstronautAimPoint();
+        runActiveNestDeactivationSweep(frameNow, astronautCenter, creatureEntities);
 
         if (typeof options.getMapBlocks === 'function' && typeof options.spawnWaspFromNest === 'function') {
             const nests = options.getMapBlocks().filter((block) => block.type === WASP_NEST_TYPE);
-            const loadedNestKeys = new Set<string>();
             for (const nest of nests) {
                 const nestKey = getNestKey(nest);
-                loadedNestKeys.add(nestKey);
+                const nestState = activeWaspNestsByKey.get(nestKey) ?? {
+                    nestX: nest.x,
+                    nestY: nest.y,
+                    activationDistance: WASP_SETTINGS.nestActivationDistance,
+                    deactivationDistance: WASP_SETTINGS.returnToNestDistance,
+                    maxActive: WASP_SETTINGS.maxActivePerNest,
+                    aggression: WASP_SETTINGS.aggression,
+                    damageOnContact: WASP_SETTINGS.damageOnContact,
+                    nextSpawnAt: 0
+                };
                 const activeNestWasps = creatureEntities.filter((creature) => {
                     const state = creature.state ?? {};
                     const authoredType = options.getCreatureAuthoredType(creature.type, state);
                     return isWaspType(authoredType) && state.waspNestKey === nestKey;
                 });
-                const nestActivationDistance = getPositiveFiniteOrNull(nest.waspNestActivationDistance)
+                nestState.nestX = nest.x;
+                nestState.nestY = nest.y;
+                nestState.activationDistance = getPositiveFiniteOrNull(nest.waspNestActivationDistance)
                     ?? WASP_SETTINGS.nestActivationDistance;
-                const nestDeactivationDistance = getPositiveFiniteOrNull(nest.waspReturnDistance)
+                nestState.deactivationDistance = getPositiveFiniteOrNull(nest.waspReturnDistance)
                     ?? WASP_SETTINGS.returnToNestDistance;
+                nestState.maxActive = Math.max(
+                    1,
+                    Math.round(getPositiveFiniteOrNull(nest.waspMaxActive) ?? WASP_SETTINGS.maxActivePerNest)
+                );
+                nestState.aggression = Math.max(
+                    0,
+                    Math.min(1, getFiniteOrNull(nest.waspAggression) ?? WASP_SETTINGS.aggression)
+                );
+                nestState.damageOnContact = Math.max(
+                    0.1,
+                    getPositiveFiniteOrNull(nest.waspDamageOnContact) ?? WASP_SETTINGS.damageOnContact
+                );
                 const astronautDistanceFromNest = Math.hypot(
                     astronautCenter.x - nest.x,
                     astronautCenter.y - nest.y
                 );
-                if (astronautDistanceFromNest > nestDeactivationDistance) {
-                    for (const activeWasp of activeNestWasps) {
-                        removeCreatureEntity(activeWasp);
-                    }
-                    continue;
-                }
-                if (astronautDistanceFromNest > nestActivationDistance) {
-                    continue;
-                }
-                if (activeNestWasps.length >= WASP_MAX_ACTIVE_PER_NEST) {
-                    continue;
-                }
-                const nextSpawnAt = activeNestWasps.reduce((latest, creature) => {
-                    const value = Number((creature.state ?? {}).waspNestNextSpawnAt);
-                    return Number.isFinite(value) ? Math.max(latest, value) : latest;
-                }, 0);
-                if (frameNow < nextSpawnAt) {
-                    continue;
-                }
                 const nestToAstronautX = astronautCenter.x - nest.x;
                 const nestToAstronautY = astronautCenter.y - nest.y;
-                const nestToAstronautDistance = Math.max(1, Math.hypot(nestToAstronautX, nestToAstronautY));
+                const nestToAstronautDistance = Math.max(1, astronautDistanceFromNest);
                 const spawnDirectionX = nestToAstronautX / nestToAstronautDistance;
                 const spawnDirectionY = nestToAstronautY / nestToAstronautDistance;
-                const spawnX = nest.x + spawnDirectionX * 72 + (Math.random() * 2 - 1) * 10;
-                const spawnY = nest.y + spawnDirectionY * 52 + (Math.random() * 2 - 1) * 8;
+                if (astronautDistanceFromNest > nestState.deactivationDistance) {
+                    removeActiveWaspsForNestKey(creatureEntities, nestKey);
+                    removeWaspsAnchoredToNestPosition(creatureEntities, nest.x, nest.y);
+                    activeWaspNestsByKey.delete(nestKey);
+                    continue;
+                }
+                if (astronautDistanceFromNest > nestState.activationDistance) {
+                    continue;
+                }
+                if (!activeWaspNestsByKey.has(nestKey)) {
+                    const nestSightTarget = {
+                        x: nest.x + spawnDirectionX * 16,
+                        y: nest.y + spawnDirectionY * 16
+                    };
+                    const hasSightToNest = options.hasCreatureLineOfSight(astronautCenter, nestSightTarget);
+                    if (!hasSightToNest) {
+                        continue;
+                    }
+                    activeWaspNestsByKey.set(nestKey, nestState);
+                }
+                if (activeNestWasps.length >= nestState.maxActive) {
+                    continue;
+                }
+                if (frameNow < nestState.nextSpawnAt) {
+                    continue;
+                }
+                const spawnX = nest.x
+                    + spawnDirectionX * WASP_NEST_SPAWN_FORWARD_OFFSET_X
+                    + (Math.random() * 2 - 1) * WASP_NEST_SPAWN_JITTER_X;
+                const spawnY = nest.y
+                    + spawnDirectionY * WASP_NEST_SPAWN_FORWARD_OFFSET_Y
+                    + (Math.random() * 2 - 1) * WASP_NEST_SPAWN_JITTER_Y;
                 const spawned = options.spawnWaspFromNest(
                     spawnX,
                     spawnY,
@@ -225,34 +432,16 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
                 spawnState.waspBehaviorState = 'attacking';
                 spawnState.waspBehaviorStateStartedAt = frameNow;
                 spawnState.waspAnimationStateStartedAt = frameNow;
-                spawnState.waspNestNextSpawnAt = frameNow + WASP_NEST_SPAWN_COOLDOWN_MS;
+                nestState.nextSpawnAt = frameNow + WASP_NEST_SPAWN_COOLDOWN_MS;
+                spawnState.waspNestNextSpawnAt = nestState.nextSpawnAt;
                 spawnState.waspNestX = nest.x;
                 spawnState.waspNestY = nest.y;
-                spawnState.waspReturnToNestDistance = getPositiveFiniteOrNull(nest.waspReturnDistance)
-                    ?? WASP_SETTINGS.returnToNestDistance;
+                spawnState.waspReturnToNestDistance = nestState.deactivationDistance;
+                spawnState.waspNestMaxActive = nestState.maxActive;
+                spawnState.waspAggression = nestState.aggression;
+                spawnState.waspDamageOnContact = nestState.damageOnContact;
+                spawned.damageOnContact = nestState.damageOnContact;
                 spawned.state = spawnState;
-            }
-            for (const creature of [...creatureEntities]) {
-                const state = creature.state ?? {};
-                const authoredType = options.getCreatureAuthoredType(creature.type, state);
-                if (!isWaspType(authoredType)) {
-                    continue;
-                }
-                const nestKey = typeof state.waspNestKey === 'string' ? state.waspNestKey : null;
-                if (!nestKey || loadedNestKeys.has(nestKey)) {
-                    continue;
-                }
-                const nestX = Number(state.waspNestX);
-                const nestY = Number(state.waspNestY);
-                const deactivationDistance = getPositiveFiniteOrNull(state.waspReturnToNestDistance)
-                    ?? WASP_SETTINGS.returnToNestDistance;
-                if (!Number.isFinite(nestX) || !Number.isFinite(nestY)) {
-                    removeCreatureEntity(creature);
-                    continue;
-                }
-                if (Math.hypot(astronautCenter.x - nestX, astronautCenter.y - nestY) > deactivationDistance) {
-                    removeCreatureEntity(creature);
-                }
             }
         }
 
@@ -304,7 +493,10 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
                 creature.pickupEnabled = true;
                 creature.storable = true;
                 creature.collision = true;
-                creature.damageOnContact = Math.max(0.8, creature.damageOnContact ?? 0);
+                const configuredDamageOnContact = getPositiveFiniteOrNull(runtimeState.waspDamageOnContact)
+                    ?? getPositiveFiniteOrNull(creature.damageOnContact)
+                    ?? WASP_SETTINGS.damageOnContact;
+                creature.damageOnContact = Math.max(0.1, configuredDamageOnContact);
                 const stateStartedAt = Number.isFinite(Number(runtimeState.waspBehaviorStateStartedAt))
                     ? Number(runtimeState.waspBehaviorStateStartedAt)
                     : frameNow;
@@ -313,6 +505,16 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
                     : 'attacking';
                 runtimeState.waspBehaviorState = behaviorState;
                 runtimeState.waspBehaviorStateStartedAt = stateStartedAt;
+                const behaviorSeed = getDeterministicWaspSeed(runtimeState, creature);
+                const waspAggression = Math.max(
+                    0,
+                    Math.min(1, getFiniteOrNull(runtimeState.waspAggression) ?? (0.35 + behaviorSeed * 0.65))
+                );
+                runtimeState.waspAggression = waspAggression;
+                const waspAttackPhaseMs = Number.isFinite(Number(runtimeState.waspAttackPhaseMs))
+                    ? Number(runtimeState.waspAttackPhaseMs)
+                    : Math.round(420 + behaviorSeed * 1320);
+                runtimeState.waspAttackPhaseMs = waspAttackPhaseMs;
                 runtimeState.waspAnimationStateStartedAt = Number.isFinite(Number(runtimeState.waspAnimationStateStartedAt))
                     ? Number(runtimeState.waspAnimationStateStartedAt)
                     : stateStartedAt;
@@ -321,6 +523,15 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
                 const configuredReturnToNestDistance = getPositiveFiniteOrNull(runtimeState.waspReturnToNestDistance)
                     ?? WASP_SETTINGS.returnToNestDistance;
                 const returnToNestDistance = Math.max(148, configuredReturnToNestDistance);
+                const chaseLeashRatio = Math.min(
+                    0.96,
+                    (WASP_CHASE_LEASH_MIN_RATIO + (behaviorSeed * (WASP_CHASE_LEASH_MAX_RATIO - WASP_CHASE_LEASH_MIN_RATIO)))
+                    + (waspAggression * 0.16)
+                );
+                const chaseLeashDistance = Math.max(
+                    attackEngageDistance + WASP_CHASE_REENGAGE_PADDING,
+                    returnToNestDistance * chaseLeashRatio
+                );
                 const nextSwarmTurnAt = Number.isFinite(Number(runtimeState.waspNextSwarmTurnAt))
                     ? Number(runtimeState.waspNextSwarmTurnAt)
                     : 0;
@@ -336,6 +547,12 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
                 }
 
                 if (behaviorState === 'returning') {
+                    if (homeDistance <= WASP_HOME_PROXIMITY) {
+                        options.gameAudio.playManifestSound(WASP_RETURN_SOUND, 0.72);
+                        waspsToDespawnAtNest.push(creature);
+                        creature.state = runtimeState;
+                        continue;
+                    }
                     if (distanceToAstronaut <= attackEngageDistance) {
                         setWaspBehaviorState(runtimeState, 'attacking', frameNow);
                         shouldTrackAstronaut = true;
@@ -345,12 +562,38 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
                         creature.followsAstronaut = false;
                     }
                 } else {
-                    creature.followsAstronaut = true;
+                    const closeThreatDistance = Math.max(64, attackEngageDistance * 0.72);
+                    const persistentChaser = waspAggression >= 0.78;
+                    const proximityPressure = Math.max(
+                        0,
+                        1 - (distanceToAstronaut / Math.max(closeThreatDistance + 1, returnToNestDistance))
+                    );
+                    const attackPressureWave = (Math.sin((frameNow + waspAttackPhaseMs) / 640) + 1) * 0.5;
+                    const pressureScore = (waspAggression * 0.68) + (attackPressureWave * 0.6) + (proximityPressure * 0.34);
+                    const pursuingAstronaut = distanceToAstronaut <= closeThreatDistance
+                        || (
+                            distanceToAstronaut <= Math.max(
+                                closeThreatDistance * 1.8,
+                                Math.min(trackRange * 1.15, chaseLeashDistance + 48)
+                            )
+                            && pressureScore >= (persistentChaser ? 0.58 : 0.9)
+                        );
+                    creature.followsAstronaut = pursuingAstronaut;
+                    shouldTrackAstronaut = pursuingAstronaut;
                     if (distanceToAstronaut >= returnToNestDistance && homeDistance > WASP_HOME_PROXIMITY) {
                         setWaspBehaviorState(runtimeState, 'returning', frameNow);
                         shouldTrackAstronaut = false;
                         creature.followsAstronaut = false;
-                    } else if (distanceToAstronaut > attackEngageDistance && Math.random() < 0.06) {
+                    } else if (distanceToAstronaut >= chaseLeashDistance && homeDistance > WASP_HOME_PROXIMITY) {
+                        setWaspBehaviorState(runtimeState, 'returning', frameNow);
+                        shouldTrackAstronaut = false;
+                        creature.followsAstronaut = false;
+                    } else if (
+                        !pursuingAstronaut
+                        && distanceToAstronaut > attackEngageDistance
+                        && attackPressureWave < 0.18
+                        && homeDistance > WASP_HOME_PROXIMITY
+                    ) {
                         setWaspBehaviorState(runtimeState, 'returning', frameNow);
                         shouldTrackAstronaut = false;
                         creature.followsAstronaut = false;
@@ -489,6 +732,26 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
                     const normalizedDistance = distanceToAstronaut > 0.001 ? distanceToAstronaut : 1;
                     nextX = creature.x + (dx / normalizedDistance) * Math.max(0.9, speed) + waspSwarmVectorX * WASP_ATTACK_SWARM_WEIGHT;
                     nextY = creature.y + (dy / normalizedDistance) * Math.max(0.8, speed) + waspSwarmVectorY * WASP_ATTACK_SWARM_WEIGHT;
+                } else if (wasp && runtimeState.waspBehaviorState === 'attacking') {
+                    const aggression = Math.max(0, Math.min(1, getFiniteOrNull(runtimeState.waspAggression) ?? 0.5));
+                    const anchorBlend = WASP_BUZZ_ANCHOR_MIN_BLEND
+                        + aggression * (WASP_BUZZ_ANCHOR_MAX_BLEND - WASP_BUZZ_ANCHOR_MIN_BLEND);
+                    const buzzAnchorX = (astronautCenter.x * anchorBlend) + (creature.homeX * (1 - anchorBlend));
+                    const buzzAnchorY = (astronautCenter.y * anchorBlend) + (creature.homeY * (1 - anchorBlend));
+                    const toAnchorX = buzzAnchorX - creature.x;
+                    const toAnchorY = buzzAnchorY - creature.y;
+                    const anchorDistance = Math.max(1, Math.hypot(toAnchorX, toAnchorY));
+                    const driftRange = WASP_MAX_PATROL_DRIFT * WASP_BUZZ_PATROL_DRIFT_MULTIPLIER;
+                    nextX = options.clampToRange(
+                        creature.x + (toAnchorX / anchorDistance) * Math.max(0.45, speed * 0.52) + waspSwarmVectorX * WASP_BUZZ_SWARM_WEIGHT,
+                        creature.homeX - driftRange,
+                        creature.homeX + driftRange
+                    );
+                    nextY = options.clampToRange(
+                        creature.y + (toAnchorY / anchorDistance) * Math.max(0.45, speed * 0.52) + waspSwarmVectorY * WASP_BUZZ_SWARM_WEIGHT,
+                        creature.homeY - driftRange,
+                        creature.homeY + driftRange
+                    );
                 } else if (creature.followsAstronaut && shouldTrackAstronaut) {
                     if (bird) {
                         const normalizedDistance = distanceToAstronaut > 0.001 ? distanceToAstronaut : 1;
@@ -666,6 +929,10 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
             } else {
                 creature.rotation = authoredRotation;
             }
+        }
+
+        for (const wasp of waspsToDespawnAtNest) {
+            removeCreatureEntity(wasp);
         }
 
         for (const predator of [...creatureEntities]) {

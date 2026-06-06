@@ -106,7 +106,16 @@ function getWorldBoundsForRotatedBoundingBox(options: {
 
 export function drawGameLoopDebugHud(options: {
     ctx: CanvasRenderingContext2D;
-    gameState: { debugMode: boolean; astronaut: { position: { x: number; y: number }; isLanded: boolean } };
+    gameState: {
+        debugMode: boolean;
+        astronaut: {
+            position: { x: number; y: number };
+            isLanded: boolean;
+            energy: number;
+            maxEnergy: number;
+            energyBeforeEmergencyTeleport?: number;
+        };
+    };
     controlState: {
         leftPressed: boolean;
         rightPressed: boolean;
@@ -178,6 +187,15 @@ export function drawGameLoopDebugHud(options: {
     let debugY = 16;
     ctx.fillText(
         `Astronaut position: (${gameState.astronaut.position.x.toFixed(2)}, ${gameState.astronaut.position.y.toFixed(2)})`,
+        10,
+        debugY
+    );
+    debugY += 16;
+    const energyBeforeTeleport = typeof gameState.astronaut.energyBeforeEmergencyTeleport === 'number'
+        ? gameState.astronaut.energyBeforeEmergencyTeleport.toFixed(2)
+        : 'n/a';
+    ctx.fillText(
+        `Energy: ${gameState.astronaut.energy.toFixed(2)} / ${gameState.astronaut.maxEnergy.toFixed(2)} | energy before teleport: ${energyBeforeTeleport}`,
         10,
         debugY
     );

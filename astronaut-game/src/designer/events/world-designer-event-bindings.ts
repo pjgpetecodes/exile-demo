@@ -435,7 +435,7 @@ export function bindWorldDesignerEventHandlers(context: any) {
             }
             const point = getCanvasPoint(event);
             const world = screenToWorld(point.x, point.y);
-            const hit = getEntityAt(world.x, world.y);
+            const hit = getEntityAt(world.x, world.y, event.altKey === true);
             if (hit) {
                 openContextMenu(hit, event);
             } else {

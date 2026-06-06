@@ -99,6 +99,7 @@ export function createGameCombatHelpers(options: GameCombatHelpersOptions) {
                         waspConsecutiveTouches += 1;
                         lastWaspTouchAt = now;
                         nextWaspTouchAt = now + waspTouchCooldownMs;
+                        options.applyAstronautDamage(Math.max(0.1, creature.damageOnContact), now);
                         if (waspConsecutiveTouches >= waspTouchThreshold) {
                             options.applyAstronautDamage(999, now);
                             waspConsecutiveTouches = 0;

@@ -45,6 +45,9 @@ export type MapBlock = {
     destructionSource?: DestructionSourceRequirement;
     waspNestActivationDistance?: number;
     waspReturnDistance?: number;
+    waspMaxActive?: number;
+    waspAggression?: number;
+    waspDamageOnContact?: number;
     windEnabled?: boolean;
     windDirectionDegrees?: number;
     windStrength?: number;
@@ -788,6 +791,27 @@ function setMapBlocks(nextBlocks: MapBlock[]) {
     mapBlocksRevision += 1;
 }
 
+function getMapBlockDedupKey(block: MapBlock) {
+    return [
+        Math.round(Number(block.x) || 0),
+        Math.round(Number(block.y) || 0),
+        block.type ?? '',
+        Number(block.palette ?? 0),
+        Number(block.rotation ?? 1),
+        block.translation ?? 'none',
+        block.archetype ?? '',
+        block.teleporterId ?? '',
+        block.teleporterEnabled === false ? 0 : 1,
+        block.teleporterRequiresKey === true ? 1 : 0,
+        block.collision === false ? 0 : 1,
+        block.maskAstronaut === false ? 0 : 1,
+        block.destructible === true ? 1 : 0,
+        Number(block.destructionHealth ?? 0),
+        block.destructionSource ?? '',
+        block.windEnabled === true ? 1 : 0
+    ].join('|');
+}
+
 function removeChunkBlocksFromMap(chunkKey: string) {
     if (mapBlocks.length === 0) {
         return false;
@@ -804,7 +828,19 @@ function addChunkBlocksToMap(blocks: MapBlock[]) {
     if (blocks.length === 0) {
         return false;
     }
-    const additions = blocks.filter((block) => !mapBlocks.includes(block));
+    const existingKeys = new Set(mapBlocks.map((block) => getMapBlockDedupKey(block)));
+    const additions: MapBlock[] = [];
+    for (const block of blocks) {
+        if (mapBlocks.includes(block)) {
+            continue;
+        }
+        const key = getMapBlockDedupKey(block);
+        if (existingKeys.has(key)) {
+            continue;
+        }
+        additions.push(block);
+        existingKeys.add(key);
+    }
     if (additions.length === 0) {
         return false;
     }

@@ -87,7 +87,7 @@ describe('creature combat collisions', () => {
         expect(astronaut.velocity.x).toBe(0);
     });
 
-    it('requires four consecutive wasp touches before applying teleport damage', () => {
+    it('requires four consecutive wasp touches before applying teleport damage and applies touch damage each time', () => {
         const creature = createTestCreature({
             archetype: 'bee',
             type: 'wasp1',
@@ -127,12 +127,16 @@ describe('creature combat collisions', () => {
         helpers.resolveAstronautCreatureCollisions();
         nowSpy.mockReturnValue(1000);
         helpers.resolveAstronautCreatureCollisions();
-        expect(applyAstronautDamage).not.toHaveBeenCalled();
+        expect(applyAstronautDamage).toHaveBeenCalledTimes(3);
+        expect(applyAstronautDamage).toHaveBeenNthCalledWith(1, 1.2, 0);
+        expect(applyAstronautDamage).toHaveBeenNthCalledWith(2, 1.2, 500);
+        expect(applyAstronautDamage).toHaveBeenNthCalledWith(3, 1.2, 1000);
 
         nowSpy.mockReturnValue(1500);
         helpers.resolveAstronautCreatureCollisions();
-        expect(applyAstronautDamage).toHaveBeenCalledTimes(1);
-        expect(applyAstronautDamage).toHaveBeenCalledWith(999, 1500);
+        expect(applyAstronautDamage).toHaveBeenCalledTimes(5);
+        expect(applyAstronautDamage).toHaveBeenNthCalledWith(4, 1.2, 1500);
+        expect(applyAstronautDamage).toHaveBeenNthCalledWith(5, 999, 1500);
 
         nowSpy.mockRestore();
     });

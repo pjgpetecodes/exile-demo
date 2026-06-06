@@ -577,7 +577,8 @@
     "maskAstronaut": false,
     "palette": 3,
     "rotation": 1,
-    "translation": "left"
+    "translation": "left",
+    "waspReturnDistance": 1200
   },
   {
     "x": 7251,
@@ -2098,7 +2099,7 @@
     "palette": 3,
     "rotation": 1,
     "translation": "left",
-    "waspReturnDistance": 800
+    "waspReturnDistance": 1200
   },
   {
     "x": 7039,
