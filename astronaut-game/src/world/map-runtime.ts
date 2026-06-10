@@ -23,6 +23,11 @@ import {
     MUSHROOM_PATTERN_COLORS,
     nextSeed
 } from './map/mushroom-pattern.js';
+import {
+    resolveThreadedFireMotion,
+    resolveThreadedFirePaletteIndex
+} from '../game/runtime/threading/game-threading-helpers.js';
+import { getGameThreadingService } from '../game/runtime/threading/game-threading-service.js';
 
 export type MapBlock = {
     x: number; // tile x
@@ -110,6 +115,7 @@ const FIRE_EMBER_STEP_MS = 70;
 const FIRE_EMBER_LIFETIME_STEPS = 12;
 const FIRE_EMBER_ALPHA_FALLOFF = 1.2;
 const FIRE_GLOBAL_EMBER_BUDGET_PER_FRAME = 96;
+const threadingService = getGameThreadingService();
 
 function toWaterGridCoordinate(value: number) {
     return Math.round(value / MAP_BLOCK_TILE_SIZE);
@@ -152,50 +158,24 @@ function getBlockEffectSeed(block: Pick<MapBlock, 'x' | 'y' | 'type' | 'rotation
     return hashStringToSeed(`${block.type}:${block.x}:${block.y}:${block.rotation ?? 1}:${suffix}`);
 }
 
+function getFireThreadingKey(
+    block: Pick<MapBlock, 'x' | 'y' | 'type' | 'rotation'>,
+    effectSeed: number
+) {
+    return `${block.type}:${block.x}:${block.y}:${block.rotation ?? 1}:${effectSeed}`;
+}
+
 export function resolveFirePaletteIndex(
     basePalette: number,
     paletteCount: number,
     now: number,
     seed: number
 ) {
-    const normalizedPaletteCount = Math.max(1, Math.floor(paletteCount));
-    const fallbackPalette = clamp(Math.round(basePalette), 0, normalizedPaletteCount - 1);
-    const preferredPalettes = [FIRE_PRIMARY_PALETTE, FIRE_SECONDARY_PALETTE]
-        .filter((palette) => palette >= 0 && palette < normalizedPaletteCount);
-    if (preferredPalettes.length === 0) {
-        return fallbackPalette;
-    }
-    if (preferredPalettes.length === 1) {
-        return preferredPalettes[0];
-    }
-
-    const phase = now / 93 + (seed % 1021) * 0.013;
-    const irregularSignal =
-        Math.sin(phase) +
-        0.42 * Math.sin(phase * 2.27 + 1.19) +
-        0.18 * Math.sin(phase * 5.11 + 2.41);
-    return irregularSignal > 0.1
-        ? preferredPalettes[1]
-        : preferredPalettes[0];
+    return resolveThreadedFirePaletteIndex(basePalette, paletteCount, now, seed);
 }
 
 export function resolveFireMotion(now: number, seed: number) {
-    const phase = now / 215 + (seed % 7919) * 0.0008;
-    const offsetX =
-        (Math.sin(phase) + 0.35 * Math.sin(phase * 1.91 + 1.4)) * FIRE_BOB_X_PIXELS;
-    const offsetY =
-        (Math.sin(phase * 1.43 + 2.1) + 0.24 * Math.sin(phase * 3.17 + 0.35)) * FIRE_BOB_Y_PIXELS;
-    const rotationDegrees =
-        (Math.sin(phase * 1.21 + 0.8) + 0.28 * Math.sin(phase * 2.37 + 2.3)) * FIRE_ROTATION_DEGREES;
-    const minBias = FIRE_MIN_ROTATION_BIAS_DEGREES;
-    const biasedRotationDegrees = rotationDegrees >= 0
-        ? Math.max(minBias, rotationDegrees)
-        : Math.min(-minBias, rotationDegrees);
-    return {
-        offsetX,
-        offsetY,
-        rotationRadians: (biasedRotationDegrees * Math.PI) / 180
-    };
+    return resolveThreadedFireMotion(now, seed);
 }
 
 export function resolveFireGlobalEmberBudget() {
@@ -711,61 +691,6 @@ type MapChunkPerfTraceSnapshot = {
     lastViewportPostLoadDeactivateMs: number;
 };
 
-function getTeleporterBlockPreferenceScore(block: MapBlock) {
-    let score = 0;
-    if (block.type === 'teleporter') {
-        if (block.collision !== false) {
-            score += 2;
-        }
-        if (block.maskAstronaut === false) {
-            score += 1;
-        }
-        if (block.translation === 'center') {
-            score += 1;
-        }
-        return score;
-    }
-    if (block.type === 'teleporter_pad') {
-        if (block.maskAstronaut === false) {
-            score += 2;
-        }
-        if (block.translation === 'center') {
-            score += 1;
-        }
-    }
-    return score;
-}
-
-function normalizeChunkTeleporterBlocks(blocks: MapBlock[]) {
-    if (blocks.length === 0) {
-        return blocks;
-    }
-    const preferredByTypeAndPosition = new Map<string, MapBlock>();
-    for (const block of blocks) {
-        if (block.type !== 'teleporter' && block.type !== 'teleporter_pad') {
-            continue;
-        }
-        const key = `${block.type}:${block.x},${block.y}`;
-        const existing = preferredByTypeAndPosition.get(key);
-        if (!existing) {
-            preferredByTypeAndPosition.set(key, block);
-            continue;
-        }
-        const existingScore = getTeleporterBlockPreferenceScore(existing);
-        const candidateScore = getTeleporterBlockPreferenceScore(block);
-        if (candidateScore > existingScore) {
-            preferredByTypeAndPosition.set(key, block);
-        }
-    }
-    return blocks.filter((block) => {
-        if (block.type !== 'teleporter' && block.type !== 'teleporter_pad') {
-            return true;
-        }
-        const key = `${block.type}:${block.x},${block.y}`;
-        return preferredByTypeAndPosition.get(key) === block;
-    });
-}
-
 function getChunkCacheKey(chunkX: number, chunkY: number) {
     return `${chunkX},${chunkY}`;
 }
@@ -992,9 +917,9 @@ async function ensureChunkLoaded(chunkKey: string): Promise<ChunkCacheEntry | nu
             if (!Array.isArray(chunkPayload)) {
                 throw new Error('Invalid world chunk payload. Each chunk file must contain an array of map blocks.');
             }
-            const normalizedBlocks = normalizeChunkTeleporterBlocks(
-                chunkPayload.map((block: any) => normalizeWaterBlock(block as MapBlock))
-            );
+            const normalizedBlocks = (
+                await threadingService.normalizeChunkPayload(chunkPayload)
+            ) as MapBlock[];
             cacheEntry!.blocks = normalizedBlocks.map((block: MapBlock) => {
                 const assignedBlock = assignEntityId(block) as MapBlock;
                 mapBlockChunkKeyLookup.set(assignedBlock, chunkKey);
@@ -1354,6 +1279,20 @@ export function drawMap(
     const blocksToDraw = bucketMap
         ? getBucketedBlocksInViewport(bucketMap, camera, ctx.canvas.width, ctx.canvas.height, tileW, tileH)
         : (blocks || mapBlocks);
+    const fireThreadEntries = blocksToDraw
+        .filter((block) => isFireArchetype(block))
+        .map((block) => {
+            const basePalette = typeof block.palette === 'number' ? block.palette : 0;
+            const effectSeed = getBlockEffectSeed(block, 'motion');
+            return {
+                key: getFireThreadingKey(block, effectSeed),
+                basePalette,
+                paletteCount: spriteSheets.length,
+                now: drawNow,
+                seed: effectSeed
+            };
+        });
+    threadingService.queueFireFrame(drawNow, fireThreadEntries);
     const visibleFireBlocks = blocksToDraw.reduce(
         (count, block) => count + (isFireArchetype(block) ? 1 : 0),
         0
@@ -1406,9 +1345,12 @@ export function drawMap(
 
         const basePalette = typeof block.palette === "number" ? block.palette : 0;
         const effectSeed = getBlockEffectSeed(block, 'motion');
+        const fireKey = getFireThreadingKey(block, effectSeed);
+        const threadedFire = threadingService.getFireEntry(fireKey);
         const isFire = isFireArchetype(block);
         const paletteIdx = isFire
-            ? resolveFirePaletteIndex(basePalette, spriteSheets.length, drawNow, effectSeed)
+            ? (threadedFire?.paletteIdx
+                ?? resolveFirePaletteIndex(basePalette, spriteSheets.length, drawNow, effectSeed))
             : resolveAnimatedPaletteIndex(
                 block.type,
                 block.paletteCycle,
@@ -1439,7 +1381,16 @@ export function drawMap(
         );
         const baseDrawLeft = -drawW / 2 + translationOffset.x;
         const baseDrawTop = -drawH / 2 + translationOffset.y;
-        const fireMotion = isFire ? resolveFireMotion(drawNow, effectSeed) : null;
+        const fallbackFireMotion = isFire && !threadedFire
+            ? resolveFireMotion(drawNow, effectSeed)
+            : null;
+        const fireMotion = isFire
+            ? {
+                offsetX: threadedFire?.offsetX ?? fallbackFireMotion?.offsetX ?? 0,
+                offsetY: threadedFire?.offsetY ?? fallbackFireMotion?.offsetY ?? 0,
+                rotationRadians: threadedFire?.rotationRadians ?? fallbackFireMotion?.rotationRadians ?? 0
+            }
+            : null;
         const drawLeft = baseDrawLeft + (fireMotion?.offsetX ?? 0);
         const drawTop = baseDrawTop + (fireMotion?.offsetY ?? 0);
 

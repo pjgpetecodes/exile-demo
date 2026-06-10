@@ -512,6 +512,10 @@ export async function runGameLoopRuntime(context: GameLoopRuntimeContext) {
         }
     }
 
+    if (worldDesigner?.isActive() !== true) {
+        worldDesigner?.render(ctx!);
+    }
+
     if (worldDesigner?.isActive()) {
         astronautRenderer.drawAstronautInWorld(ctx!, camera, { spriteCol, flipSprite, flipVertical });
         if (mapBlocksMaskAstronaut.length > 0) {

@@ -14,6 +14,15 @@ Documentation now lives in the repository `docs` folder:
 
 Recent gameplay systems are documented in [Game Guide](../docs/game.md), including wasp nest spawning, swarm/return behavior, and destructible beehive nest handling.
 
+## What is working now
+
+- **Collision and movement:** grounded movement, flight transitions, collision handling, and object interaction are stable.
+- **Water systems:** water blocks, buoyancy/drag gameplay effects, flask fill/spill runtime, and designer water authoring flows.
+- **Wasp systems:** beehive-driven spawning, per-nest tuning, swarm drift, attack/return states, and despawn/reset behavior when out of range.
+- **Progression interactions:** doors/buttons, teleport memory stack, emergency rescue teleport flow.
+- **Combat/destruction:** grenade/explosion handling and authored destructible object rules.
+- **Performance/runtime:** chunk activity bands and cadence tuning, performance HUD/summaries/spike tracing, plus worker-threaded fire/effect prep and creature animation/swarm calculations with fallback.
+
 ## Testing workflow
 
 The project now uses two automated test layers:

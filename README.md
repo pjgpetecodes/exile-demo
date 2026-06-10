@@ -33,12 +33,16 @@ Chunk activity tuning (devtools):
 
 ## Notes
 
-- Collision logic is almost useless - Please help!
-- Don't try to fly in the ship at the moment
-- Doors Unlock, Open and close
-- Buttons Unlock Doors
-- Sprites laid out in world_map.json, buttons.json, creatures.json, doors.json
-- Palettes defined in palettes.json
+Current working systems:
+
+- Collision and movement are stable (grounded movement, flight transitions, object interaction, and environment collision handling).
+- Water gameplay is active (water blocks, submersion-aware drag/buoyancy, flask filling/spilling, and designer water tools).
+- Wasp/beehive systems are active (nest activation/deactivation, swarm drift, attack/return behavior, despawn/reset, and authored per-nest tuning).
+- Door/button and teleporter flows are active (button-linked doors, teleport memory stack, rescue teleport behavior).
+- Destructibles and grenade/explosion gameplay are active (authored damage sources, beehive destruction support).
+- Chunk-activity streaming and cadence controls are active (near/mid/far gating, teleport keep-alive, runtime tuning APIs).
+- Runtime performance instrumentation is active (HUD + console summaries + spike tracing), and worker-based threading paths now cover fire/effect prep plus creature animation/swarm calculations with safe fallback.
+- World data remains JSON-authored (`world_map.json`, `buttons.json`, `creatures.json`, `doors.json`, `collectables.json`, `astronaut_start.json`, palettes).
 
 ### Performance baseline capture (Edge + Firefox)
 

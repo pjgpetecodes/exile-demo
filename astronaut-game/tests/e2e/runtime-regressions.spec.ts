@@ -50,6 +50,44 @@ async function countPaintedPixelsForRole(page: Page, role: string): Promise<numb
     }, role);
 }
 
+async function waitForPaintedPixelsForRole(
+    page: Page,
+    role: string,
+    minPixels: number,
+    timeout = 15_000
+): Promise<number> {
+    await page.waitForFunction(([targetRole, targetPixels]) => {
+        const OVERVIEW_BG = { r: 0x02, g: 0x06, b: 0x17 };
+        const MIN_COLOR_DELTA = 24;
+        const canvas = document.querySelector(`canvas[data-role="${targetRole}"]`) as HTMLCanvasElement | null;
+        if (!canvas) {
+            return false;
+        }
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            return false;
+        }
+        const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        let visible = 0;
+        for (let i = 0; i < data.length; i += 4) {
+            const alpha = data[i + 3];
+            if (alpha === 0) {
+                continue;
+            }
+            const delta =
+                Math.abs(data[i] - OVERVIEW_BG.r) +
+                Math.abs(data[i + 1] - OVERVIEW_BG.g) +
+                Math.abs(data[i + 2] - OVERVIEW_BG.b);
+            if (delta >= MIN_COLOR_DELTA) {
+                visible += 1;
+            }
+        }
+        return visible > Number(targetPixels);
+    }, [role, minPixels], { timeout });
+
+    return countPaintedPixelsForRole(page, role);
+}
+
 test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
         window.localStorage.removeItem('exile.world-designer-state.v1');
@@ -158,9 +196,7 @@ test('designer overview paints while hidden by default', async ({ page }) => {
             && snapshot.worldDesignerExists === true
             && snapshot.worldDesignerActive === false;
     }, { timeout: 20_000 });
-    await page.waitForTimeout(500);
-
-    const overviewPixels = await countPaintedPixelsForRole(page, 'overview');
+    const overviewPixels = await waitForPaintedPixelsForRole(page, 'overview', 150, 20_000);
     expect(overviewPixels).toBeGreaterThan(150);
 });
 

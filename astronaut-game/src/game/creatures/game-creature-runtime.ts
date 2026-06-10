@@ -2,6 +2,7 @@ import type { Creature } from '../../entities/creature.js';
 import { WASP_SETTINGS } from '../../config/settings.js';
 import type { Position } from '../../types/index.js';
 import type { AxisMovementResult } from '../collision/game-environment-collision.js';
+import { getGameThreadingService } from '../runtime/threading/game-threading-service.js';
 
 type MapBlockLike = {
     x: number;
@@ -40,6 +41,7 @@ const WASP_CHASE_LEASH_MAX_RATIO = 0.86;
 const WASP_CHASE_REENGAGE_PADDING = 22;
 const WASP_ATTACK_SOUND = 'WaspBuzz';
 const WASP_RETURN_SOUND = 'WaspHome';
+const threadingService = getGameThreadingService();
 
 function getPositiveFiniteOrNull(value: unknown) {
     const numberValue = Number(value);
@@ -72,6 +74,13 @@ function getDeterministicWaspSeed(runtimeState: Record<string, unknown>, creatur
     const seed = (hash >>> 0) / 0xffffffff;
     runtimeState.waspBehaviorSeed = seed;
     return seed;
+}
+
+function getThreadingCreatureKey(creature: Creature, index: number) {
+    if (typeof creature.entityId === 'number') {
+        return `entity:${creature.entityId}`;
+    }
+    return `index:${index}`;
 }
 
 type CreatureRuntimeFactoryOptions = {
@@ -343,6 +352,20 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
         };
         const astronautAimPoint = options.getAstronautAimPoint();
         runActiveNestDeactivationSweep(frameNow, astronautCenter, creatureEntities);
+        const threadedAnimationRequests: Array<{
+            key: string;
+            kind: 'bird' | 'wasp';
+            authoredType: string;
+            frameNow: number;
+            entityId?: number;
+            behaviorState?: 'attacking' | 'returning';
+            stateStartedAt?: number;
+        }> = [];
+        const threadedWaspSwarmRequests: Array<{
+            key: string;
+            frameNow: number;
+            behaviorSeed: number;
+        }> = [];
 
         if (typeof options.getMapBlocks === 'function' && typeof options.spawnWaspFromNest === 'function') {
             const nests = options.getMapBlocks().filter((block) => block.type === WASP_NEST_TYPE);
@@ -445,7 +468,42 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
             }
         }
 
-        for (const creature of creatureEntities) {
+        for (let index = 0; index < creatureEntities.length; index += 1) {
+            const creature = creatureEntities[index];
+            const runtimeState = creature.state ?? {};
+            const authoredType = options.getCreatureAuthoredType(creature.type, runtimeState);
+            const bird = options.isBirdCreature(creature, authoredType);
+            const wasp = isWaspType(authoredType);
+            if (bird || wasp) {
+                const key = getThreadingCreatureKey(creature, index);
+                threadedAnimationRequests.push({
+                    key,
+                    kind: bird ? 'bird' : 'wasp',
+                    authoredType,
+                    frameNow,
+                    entityId: creature.entityId,
+                    behaviorState: runtimeState.waspBehaviorState === 'returning' ? 'returning' : 'attacking',
+                    stateStartedAt: Number(runtimeState.waspAnimationStateStartedAt)
+                });
+            }
+            if (wasp) {
+                const nextSwarmTurnAt = Number.isFinite(Number(runtimeState.waspNextSwarmTurnAt))
+                    ? Number(runtimeState.waspNextSwarmTurnAt)
+                    : 0;
+                if (frameNow >= nextSwarmTurnAt) {
+                    threadedWaspSwarmRequests.push({
+                        key: getThreadingCreatureKey(creature, index),
+                        frameNow,
+                        behaviorSeed: getDeterministicWaspSeed(runtimeState, creature)
+                    });
+                }
+            }
+        }
+        threadingService.queueCreatureAnimationFrame(frameNow, threadedAnimationRequests);
+        threadingService.queueWaspSwarmFrame(frameNow, threadedWaspSwarmRequests);
+
+        for (let creatureIndex = 0; creatureIndex < creatureEntities.length; creatureIndex += 1) {
+            const creature = creatureEntities[creatureIndex];
             creature.previousX = creature.x;
             creature.previousY = creature.y;
             const creatureChunkActivity = options.getChunkActivityForEntityPosition(creature, frameNow);
@@ -536,14 +594,22 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
                     ? Number(runtimeState.waspNextSwarmTurnAt)
                     : 0;
                 if (frameNow >= nextSwarmTurnAt) {
-                    const heading = Math.random() * Math.PI * 2;
-                    const stepMagnitude = WASP_SWARM_STEP_MIN + Math.random() * (WASP_SWARM_STEP_MAX - WASP_SWARM_STEP_MIN);
-                    runtimeState.waspSwarmVectorX = Math.cos(heading) * stepMagnitude;
-                    runtimeState.waspSwarmVectorY = Math.sin(heading) * stepMagnitude;
-                    runtimeState.waspNextSwarmTurnAt = frameNow + Math.round(
-                        WASP_SWARM_TURN_INTERVAL_MIN_MS +
-                        Math.random() * (WASP_SWARM_TURN_INTERVAL_MAX_MS - WASP_SWARM_TURN_INTERVAL_MIN_MS)
-                    );
+                    const swarmKey = getThreadingCreatureKey(creature, creatureIndex);
+                    const threadedWaspSwarm = threadingService.getWaspSwarm(swarmKey);
+                    if (threadedWaspSwarm && threadedWaspSwarm.frameNow <= frameNow) {
+                        runtimeState.waspSwarmVectorX = threadedWaspSwarm.swarmVectorX;
+                        runtimeState.waspSwarmVectorY = threadedWaspSwarm.swarmVectorY;
+                        runtimeState.waspNextSwarmTurnAt = threadedWaspSwarm.nextSwarmTurnAt;
+                    } else {
+                        const heading = Math.random() * Math.PI * 2;
+                        const stepMagnitude = WASP_SWARM_STEP_MIN + Math.random() * (WASP_SWARM_STEP_MAX - WASP_SWARM_STEP_MIN);
+                        runtimeState.waspSwarmVectorX = Math.cos(heading) * stepMagnitude;
+                        runtimeState.waspSwarmVectorY = Math.sin(heading) * stepMagnitude;
+                        runtimeState.waspNextSwarmTurnAt = frameNow + Math.round(
+                            WASP_SWARM_TURN_INTERVAL_MIN_MS +
+                            Math.random() * (WASP_SWARM_TURN_INTERVAL_MAX_MS - WASP_SWARM_TURN_INTERVAL_MIN_MS)
+                        );
+                    }
                 }
 
                 if (behaviorState === 'returning') {
@@ -876,20 +942,32 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
                 creature.y = Math.round(nextY);
             }
             if (bird) {
-                creature.type = options.getAnimatedBirdSpriteType(authoredType, frameNow, creature.entityId);
+                const animationKey = getThreadingCreatureKey(creature, creatureIndex);
+                const threadedAnimation = threadingService.getCreatureAnimation(animationKey);
+                if (threadedAnimation && threadedAnimation.frameNow <= frameNow) {
+                    creature.type = threadedAnimation.spriteType;
+                } else {
+                    creature.type = options.getAnimatedBirdSpriteType(authoredType, frameNow, creature.entityId);
+                }
             } else if (wasp && options.getAnimatedWaspSpriteType) {
                 const behaviorState = runtimeState.waspBehaviorState === 'returning' ? 'returning' : 'attacking';
                 const stateStartedAt = Number.isFinite(Number(runtimeState.waspAnimationStateStartedAt))
                     ? Number(runtimeState.waspAnimationStateStartedAt)
                     : frameNow;
                 runtimeState.waspAnimationStateStartedAt = stateStartedAt;
-                creature.type = options.getAnimatedWaspSpriteType(
-                    authoredType,
-                    frameNow,
-                    behaviorState,
-                    stateStartedAt,
-                    creature.entityId
-                );
+                const animationKey = getThreadingCreatureKey(creature, creatureIndex);
+                const threadedAnimation = threadingService.getCreatureAnimation(animationKey);
+                if (threadedAnimation && threadedAnimation.frameNow <= frameNow) {
+                    creature.type = threadedAnimation.spriteType;
+                } else {
+                    creature.type = options.getAnimatedWaspSpriteType(
+                        authoredType,
+                        frameNow,
+                        behaviorState,
+                        stateStartedAt,
+                        creature.entityId
+                    );
+                }
             }
 
             const shouldUseTurretAutoAim = shouldAutoAim && (

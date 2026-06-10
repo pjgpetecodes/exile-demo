@@ -177,6 +177,10 @@ export const CHUNK_ACTIVITY_SETTINGS = {
     }
 } as const;
 
+export const THREADING_SETTINGS = {
+    enabled: true
+} as const;
+
 export const WASP_SETTINGS = {
     maxActivePerNest: 4,
     aggression: 0.72,
