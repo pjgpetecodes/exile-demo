@@ -87,6 +87,109 @@ describe('createCreatureRuntime', () => {
         expect(creature.y).toBeGreaterThan(0);
     });
 
+    it('makes birds pursue and eat wasps', () => {
+        const bird = {
+            x: 0,
+            y: 0,
+            type: 'bird2',
+            archetype: 'bird',
+            followsAstronaut: false,
+            movementMode: 'fly',
+            speed: 2,
+            patrolMinX: -128,
+            patrolMaxX: 128,
+            patrolMinY: -48,
+            patrolMaxY: 48,
+            homeX: 0,
+            homeY: 0,
+            collision: false,
+            fixed: false,
+            fireMode: 'none',
+            state: {},
+            previousX: 0,
+            previousY: 0
+        } as any;
+        const wasp = {
+            ...bird,
+            x: 30,
+            type: 'wasp1',
+            archetype: 'bee',
+            homeX: 30,
+            previousX: 30,
+            state: {}
+        } as any;
+        const creatures = [bird, wasp];
+        const runtime = createCreatureRuntime({
+            ...createBaseRuntimeOptions(creatures),
+            isBirdCreature: (creature: any) => creature.archetype === 'bird',
+            moveCreatureWithEnvironmentCollisions: (_creature: any, targetX: number, targetY: number) => ({
+                x: Math.round(targetX),
+                y: Math.round(targetY),
+                movedX: Math.round(targetX),
+                movedY: Math.round(targetY),
+                blockedX: false,
+                blockedY: false
+            })
+        });
+
+        for (let frame = 1; frame <= 20; frame += 1) {
+            runtime.updateCreatures(frame * 16, frame);
+        }
+
+        expect(bird.x).toBeGreaterThan(0);
+        expect(bird.collision).toBe(true);
+        expect(bird.pushAstronaut).toBe(true);
+        expect(creatures).not.toContain(wasp);
+    });
+
+    it('makes birds steer away from nearby plasma fireballs', () => {
+        const bird = {
+            x: 0,
+            y: 0,
+            type: 'bird2',
+            archetype: 'bird',
+            followsAstronaut: false,
+            movementMode: 'fly',
+            speed: 2,
+            patrolMinX: -128,
+            patrolMaxX: 128,
+            patrolMinY: -48,
+            patrolMaxY: 48,
+            homeX: 0,
+            homeY: 0,
+            collision: false,
+            fixed: false,
+            fireMode: 'none',
+            state: {},
+            previousX: 0,
+            previousY: 0
+        } as any;
+        const runtime = createCreatureRuntime({
+            ...createBaseRuntimeOptions([bird]),
+            isBirdCreature: (creature: any) => creature.archetype === 'bird',
+            moveCreatureWithEnvironmentCollisions: (_creature: any, targetX: number, targetY: number) => ({
+                x: Math.round(targetX),
+                y: Math.round(targetY),
+                movedX: Math.round(targetX),
+                movedY: Math.round(targetY),
+                blockedX: false,
+                blockedY: false
+            }),
+            getCollectableEntities: () => [{
+                x: 24,
+                y: 0,
+                type: 'plasma_grenade',
+                creatureProjectile: { kind: 'plasma_grenade' }
+            } as any]
+        });
+
+        for (let frame = 1; frame <= 20; frame += 1) {
+            runtime.updateCreatures(frame * 16, frame);
+        }
+
+        expect(bird.x).toBeLessThan(0);
+    });
+
     it('spawns up to four wasps per nearby nest', () => {
         const creatures: any[] = [];
         const runtime = createCreatureRuntime({

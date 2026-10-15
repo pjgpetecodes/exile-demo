@@ -1,7 +1,13 @@
 import type { Creature } from '../../entities/creature.js';
+import type { Collectable } from '../../entities/collectable.js';
 import { WASP_SETTINGS } from '../../config/settings.js';
 import type { Position } from '../../types/index.js';
 import type { AxisMovementResult } from '../collision/game-environment-collision.js';
+
+const BIRD_FIREBALL_AVOIDANCE_RANGE = 96;
+const BIRD_WASP_EATING_RANGE = 42;
+const BIRD_MAX_FLIGHT_SPEED = 4;
+const BIRD_MAX_ACCELERATION = 0.5;
 
 type MapBlockLike = {
     x: number;
@@ -96,7 +102,6 @@ type CreatureRuntimeFactoryOptions = {
     getCreatureTargetPoint: (creature: Creature, origin: Position, target: Position) => Position;
     birdTrackReleaseRangeMultiplier: number;
     birdTrackReleaseRangePadding: number;
-    birdAvoidanceVerticalThreshold: number;
     clampToRange: (value: number, minimum: number, maximum: number) => number;
     movementSettings: {
         creatureProjectileGravity: number;
@@ -117,6 +122,7 @@ type CreatureRuntimeFactoryOptions = {
     getTurretFacingRotations: (authoredRotation: number) => { left: number; right: number; authoredFacing: number };
     createCreatureCarryProxy: (creature: Creature) => void;
     getMapBlocks?: () => MapBlockLike[];
+    getCollectableEntities?: () => Collectable[];
     spawnWaspFromNest?: (nestX: number, nestY: number, nestKey: string) => Creature;
     gameAudio: {
         playManifestSound: (key: string, volume?: number) => void;
@@ -459,6 +465,11 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
             const robotLike = creature.archetype === 'robot' || /^robot/i.test(authoredType);
             const bird = options.isBirdCreature(creature, authoredType);
             const wasp = isWaspType(authoredType);
+            if (bird) {
+                creature.collision = true;
+                creature.pushAstronaut = true;
+                creature.canEatWasps = true;
+            }
             const authoredRotation = typeof runtimeState.authoredRotation === 'number'
                 ? Math.round(Number(runtimeState.authoredRotation))
                 : (runtimeState.authoredRotation = creature.rotation);
@@ -468,6 +479,50 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
             const dx = astronautCenter.x - creatureCenter.x;
             const dy = astronautCenter.y - creatureCenter.y;
             const distanceToAstronaut = Math.hypot(dx, dy);
+            let birdPrey: Creature | undefined;
+            let birdPreyCenter: Position | undefined;
+            if (bird) {
+                let closestWaspDistance = Number.POSITIVE_INFINITY;
+                for (const candidate of creatureEntities) {
+                    if (candidate === creature || !/^wasp/i.test(candidate.type)) {
+                        continue;
+                    }
+                    const candidateBounds = options.getEntityCollisionBounds(candidate);
+                    const candidateCenter = options.getEntityCenter(candidate.x, candidate.y, candidateBounds);
+                    const candidateDistance = Math.hypot(
+                        candidateCenter.x - creatureCenter.x,
+                        candidateCenter.y - creatureCenter.y
+                    );
+                    if (candidateDistance < closestWaspDistance) {
+                        closestWaspDistance = candidateDistance;
+                        birdPrey = candidate;
+                        birdPreyCenter = candidateCenter;
+                    }
+                }
+            }
+            let nearbyFireball: Position | undefined;
+            if (bird && options.getCollectableEntities) {
+                let closestFireballDistance = BIRD_FIREBALL_AVOIDANCE_RANGE;
+                for (const collectable of options.getCollectableEntities()) {
+                    if (
+                        collectable.collected ||
+                        collectable.held ||
+                        collectable.stored ||
+                        collectable.creatureProjectile?.impacted === true ||
+                        (collectable.type !== 'fireball' && collectable.creatureProjectile?.kind !== 'plasma_grenade')
+                    ) {
+                        continue;
+                    }
+                    const fireballDistance = Math.hypot(
+                        collectable.x - creatureCenter.x,
+                        collectable.y - creatureCenter.y
+                    );
+                    if (fireballDistance < closestFireballDistance) {
+                        closestFireballDistance = fireballDistance;
+                        nearbyFireball = { x: collectable.x, y: collectable.y };
+                    }
+                }
+            }
             const trackRange = Math.max(creature.trackRange ?? 0, creature.followRange ?? 0);
             const trackingDistance = creature.movementMode === 'hover' && !wasp
                 ? Math.abs(dx)
@@ -752,6 +807,18 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
                         creature.homeY - driftRange,
                         creature.homeY + driftRange
                     );
+                } else if (bird && nearbyFireball) {
+                    const awayX = creature.x - nearbyFireball.x;
+                    const awayY = creature.y - nearbyFireball.y;
+                    const awayDistance = Math.max(1, Math.hypot(awayX, awayY));
+                    nextX = creature.x + (awayX / awayDistance) * Math.max(1, speed);
+                    nextY = creature.y + (awayY / awayDistance) * Math.max(0.9, speed);
+                } else if (bird && birdPrey && birdPreyCenter) {
+                    const toWaspX = birdPreyCenter.x - creatureCenter.x;
+                    const toWaspY = birdPreyCenter.y - creatureCenter.y;
+                    const waspDistance = Math.max(1, Math.hypot(toWaspX, toWaspY));
+                    nextX = creature.x + (toWaspX / waspDistance) * Math.max(1, speed);
+                    nextY = creature.y + (toWaspY / waspDistance) * Math.max(0.9, speed);
                 } else if (creature.followsAstronaut && shouldTrackAstronaut) {
                     if (bird) {
                         const normalizedDistance = distanceToAstronaut > 0.001 ? distanceToAstronaut : 1;
@@ -812,7 +879,7 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
             }
 
             runtimeState.patrolDirection = horizontalDirection;
-            runtimeState.followingAstronaut = creature.followsAstronaut && shouldTrackAstronaut;
+            runtimeState.followingAstronaut = !birdPrey && !nearbyFireball && creature.followsAstronaut && shouldTrackAstronaut;
             if (wasp) {
                 const behaviorState = runtimeState.waspBehaviorState === 'returning' ? 'returning' : 'attacking';
                 creature.sound = {
@@ -835,20 +902,43 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
                 }
             }
 
-            let birdChasingAstronaut = false;
             if (bird && creature.movementMode === 'fly') {
-                birdChasingAstronaut = runtimeState.followingAstronaut === true;
-                if (birdChasingAstronaut && Math.abs(dy) < options.birdAvoidanceVerticalThreshold) {
-                    const avoidanceDirection = typeof runtimeState.birdAvoidanceDirection === 'number'
-                        ? Math.sign(Number(runtimeState.birdAvoidanceDirection)) || 1
-                        : (Math.sign(dx) || 1);
-                    runtimeState.birdAvoidanceDirection = avoidanceDirection;
-                    nextY += avoidanceDirection * Math.max(1, speed * 0.8);
-                } else if (!birdChasingAstronaut) {
-                    delete runtimeState.birdAvoidanceDirection;
-                }
+                const targetDeltaX = nextX - creature.x;
+                const targetDeltaY = nextY - creature.y;
+                const targetDistance = Math.max(1, Math.hypot(targetDeltaX, targetDeltaY));
+                const targetSpeed = Math.min(BIRD_MAX_FLIGHT_SPEED, Math.max(2.5, speed * 2));
+                const targetVelocityX = (targetDeltaX / targetDistance) * targetSpeed;
+                const targetVelocityY = (targetDeltaY / targetDistance) * targetSpeed;
+                let velocityX = Number.isFinite(Number(runtimeState.birdVelocityX))
+                    ? Number(runtimeState.birdVelocityX)
+                    : 0;
+                let velocityY = Number.isFinite(Number(runtimeState.birdVelocityY))
+                    ? Number(runtimeState.birdVelocityY)
+                    : 0;
+                const positionRemainderX = Number.isFinite(Number(runtimeState.birdPositionRemainderX))
+                    ? Number(runtimeState.birdPositionRemainderX)
+                    : 0;
+                const positionRemainderY = Number.isFinite(Number(runtimeState.birdPositionRemainderY))
+                    ? Number(runtimeState.birdPositionRemainderY)
+                    : 0;
+                velocityX += options.clampToRange(
+                    targetVelocityX - velocityX,
+                    -BIRD_MAX_ACCELERATION,
+                    BIRD_MAX_ACCELERATION
+                ) * 0.25;
+                velocityY += options.clampToRange(
+                    targetVelocityY - velocityY,
+                    -BIRD_MAX_ACCELERATION,
+                    BIRD_MAX_ACCELERATION
+                ) * 0.25;
+                runtimeState.birdVelocityX = velocityX;
+                runtimeState.birdVelocityY = velocityY;
+                nextX = creature.x + velocityX + positionRemainderX;
+                nextY = creature.y + velocityY + positionRemainderY;
             }
 
+            const birdDesiredX = nextX;
+            const birdDesiredY = nextY;
             let movementResult: AxisMovementResult | null = null;
             if (creature.collision && !creature.fixed && creature.movementMode !== 'turret') {
                 movementResult = options.moveCreatureWithEnvironmentCollisions(creature, nextX, nextY);
@@ -857,24 +947,27 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
             }
 
             if (bird && creature.movementMode === 'fly' && movementResult) {
-                if (birdChasingAstronaut) {
-                    if (movementResult.movedY !== 0) {
-                        runtimeState.birdAvoidanceDirection = Math.sign(movementResult.movedY) || runtimeState.birdAvoidanceDirection;
-                    }
-                    if (movementResult.blockedX && movementResult.blockedY) {
-                        const currentAvoidance = typeof runtimeState.birdAvoidanceDirection === 'number'
-                            ? Math.sign(Number(runtimeState.birdAvoidanceDirection)) || 1
-                            : 1;
-                        runtimeState.birdAvoidanceDirection = -currentAvoidance;
-                    }
+                if (movementResult.blockedX) {
+                    runtimeState.birdVelocityX = 0;
+                    runtimeState.birdPositionRemainderX = 0;
+                } else {
+                    runtimeState.birdPositionRemainderX = movementResult.x === Math.round(birdDesiredX)
+                        ? birdDesiredX - Math.round(birdDesiredX)
+                        : 0;
+                }
+                if (movementResult.blockedY) {
+                    runtimeState.birdVelocityY = 0;
+                    runtimeState.birdPositionRemainderY = 0;
+                } else {
+                    runtimeState.birdPositionRemainderY = movementResult.y === Math.round(birdDesiredY)
+                        ? birdDesiredY - Math.round(birdDesiredY)
+                        : 0;
                 }
             }
 
             creature.state = runtimeState;
-            if (!bird || creature.movementMode !== 'fly') {
-                creature.x = Math.round(nextX);
-                creature.y = Math.round(nextY);
-            }
+            creature.x = Math.round(nextX);
+            creature.y = Math.round(nextY);
             if (bird) {
                 creature.type = options.getAnimatedBirdSpriteType(authoredType, frameNow, creature.entityId);
             } else if (wasp && options.getAnimatedWaspSpriteType) {
@@ -951,7 +1044,7 @@ export function createCreatureRuntime(options: CreatureRuntimeFactoryOptions) {
                 Math.hypot(
                     options.getEntityCenter(candidate.x, candidate.y, options.getEntityCollisionBounds(candidate)).x - predatorCenter.x,
                     options.getEntityCenter(candidate.x, candidate.y, options.getEntityCollisionBounds(candidate)).y - predatorCenter.y
-                ) <= 42
+                ) <= BIRD_WASP_EATING_RANGE
             );
             if (!prey) {
                 continue;

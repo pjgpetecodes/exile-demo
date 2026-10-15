@@ -53,6 +53,124 @@ describe('creature combat collisions', () => {
         expect(astronaut.velocity.x).toBe(2);
     });
 
+    it('pushes the astronaut out of a bird on their current side, not the bird movement direction', () => {
+        const creature = createTestCreature({
+            x: 100,
+            y: 100,
+            previousX: 101,
+            previousY: 100
+        });
+        const gameState = { astronaut: { position: { x: 112, y: 100 } } };
+        const astronaut = { velocity: { x: 2, y: 0 } };
+        const applyAstronautStumble = vi.fn();
+
+        const helpers = createGameCombatHelpers({
+            getCreatureEntities: () => [creature],
+            getAstronautRect: () => ({ left: 112, right: 128, top: 100, bottom: 116 }),
+            getEntityCollisionBounds: () => ({ left: 0, right: 16, top: 0, bottom: 16 }),
+            getEntityRect: (x, y, bounds) => ({
+                left: x + bounds.left,
+                right: x + bounds.right,
+                top: y + bounds.top,
+                bottom: y + bounds.bottom
+            }),
+            getAstronautRenderedWorldSprite: () => null,
+            getRenderedEntityWorldSprite: () => null,
+            doRenderedSpritesOverlap: vi.fn(() => true),
+            gameState,
+            astronaut,
+            applyAstronautDamage: vi.fn(),
+            ouchSounds: [],
+            getSoundEnabled: () => false,
+            creatureManifestSounds: {},
+            getEntityCenter: () => ({ x: 0, y: 0 }),
+            applyAstronautStumble,
+            gameAudio: { playRuntimeSound: vi.fn() }
+        });
+
+        helpers.resolveAstronautCreatureCollisions();
+
+        expect(gameState.astronaut.position.x).toBeGreaterThan(112);
+        expect(astronaut.velocity.x).toBeGreaterThan(0);
+        expect(applyAstronautStumble).toHaveBeenCalledWith(1, expect.any(Number));
+    });
+
+    it('does not push the astronaut into solid geometry', () => {
+        const creature = createTestCreature({ x: 100, y: 100, previousX: 100, previousY: 100 });
+        const gameState = { astronaut: { position: { x: 112, y: 100 } } };
+        const astronaut = { velocity: { x: 0, y: 0 } };
+        const applyAstronautStumble = vi.fn();
+        const helpers = createGameCombatHelpers({
+            getCreatureEntities: () => [creature],
+            getAstronautRect: () => ({ left: 112, right: 128, top: 100, bottom: 116 }),
+            getEntityCollisionBounds: () => ({ left: 0, right: 16, top: 0, bottom: 16 }),
+            getEntityRect: (x, y, bounds) => ({
+                left: x + bounds.left,
+                right: x + bounds.right,
+                top: y + bounds.top,
+                bottom: y + bounds.bottom
+            }),
+            getAstronautRenderedWorldSprite: () => null,
+            getRenderedEntityWorldSprite: () => null,
+            doRenderedSpritesOverlap: vi.fn(() => true),
+            gameState,
+            astronaut,
+            applyAstronautDamage: vi.fn(),
+            ouchSounds: [],
+            getSoundEnabled: () => false,
+            creatureManifestSounds: {},
+            getEntityCenter: () => ({ x: 0, y: 0 }),
+            applyAstronautStumble,
+            canAstronautOccupy: () => false,
+            gameAudio: { playRuntimeSound: vi.fn() }
+        });
+
+        helpers.resolveAstronautCreatureCollisions();
+
+        expect(gameState.astronaut.position).toEqual({ x: 112, y: 100 });
+        expect(astronaut.velocity.x).toBe(0);
+        expect(applyAstronautStumble).not.toHaveBeenCalled();
+    });
+
+    it('nudges the astronaut down when a bird touches the top of their head', () => {
+        const creature = createTestCreature({
+            x: 108,
+            y: 80,
+            previousX: 108,
+            previousY: 79
+        });
+        const gameState = { astronaut: { position: { x: 100, y: 100 } } };
+        const astronaut = { velocity: { x: 0, y: 0 } };
+
+        const helpers = createGameCombatHelpers({
+            getCreatureEntities: () => [creature],
+            getAstronautRect: () => ({ left: 100, right: 116, top: 100, bottom: 116 }),
+            getEntityCollisionBounds: () => ({ left: 0, right: 8, top: 0, bottom: 8 }),
+            getEntityRect: (x, y, bounds) => ({
+                left: x + bounds.left,
+                right: x + bounds.right,
+                top: y + bounds.top,
+                bottom: y + bounds.bottom
+            }),
+            getAstronautRenderedWorldSprite: () => null,
+            getRenderedEntityWorldSprite: () => null,
+            doRenderedSpritesOverlap: vi.fn(() => false),
+            gameState,
+            astronaut,
+            applyAstronautDamage: vi.fn(),
+            ouchSounds: [],
+            getSoundEnabled: () => false,
+            creatureManifestSounds: {},
+            getEntityCenter: () => ({ x: 0, y: 0 }),
+            gameAudio: { playRuntimeSound: vi.fn() }
+        });
+
+        helpers.resolveAstronautCreatureCollisions();
+
+        expect(gameState.astronaut.position.y).toBe(113);
+        expect(astronaut.velocity.y).toBeGreaterThan(0);
+    });
+
     it('keeps non-bird collision behavior unchanged', () => {
         const creature = createTestCreature({ archetype: 'monkey', type: 'monkey1' });
         const gameState = { astronaut: { position: { x: 100, y: 100 } } };

@@ -5,6 +5,9 @@ type EntityRect = { left: number; right: number; top: number; bottom: number };
 type CollisionBounds = EntityRect;
 type RenderedEntitySprite = { canvas: HTMLCanvasElement; drawX: number; drawY: number } | null;
 
+const BIRD_CONTACT_KNOCKBACK_SPEED = 2.4;
+const BIRD_HEAD_CONTACT_DISTANCE = 12;
+
 type GameCombatHelpersOptions = {
     getCreatureEntities: () => Creature[];
     getAstronautRect: () => EntityRect;
@@ -20,6 +23,8 @@ type GameCombatHelpersOptions = {
     getSoundEnabled: () => boolean;
     creatureManifestSounds: Record<string, HTMLAudioElement>;
     getEntityCenter: (x: number, y: number, bounds: CollisionBounds) => Position;
+    applyAstronautStumble?: (direction: number, speed: number) => void;
+    canAstronautOccupy?: (x: number, y: number) => boolean;
     gameAudio: { playRuntimeSound: (audio: HTMLAudioElement, volume?: number) => void };
 };
 
@@ -36,6 +41,22 @@ export function createGameCombatHelpers(options: GameCombatHelpersOptions) {
     let lastWaspTouchAt = 0;
     let nextWaspTouchAt = 0;
 
+    // Shoves the astronaut pixel by pixel, stopping at solid geometry.
+    function pushAstronaut(axis: 'x' | 'y', amount: number) {
+        const position = options.gameState.astronaut.position;
+        const step = Math.sign(amount);
+        for (let moved = 0; moved < Math.abs(amount); moved++) {
+            const nextX = axis === 'x' ? position.x + step : position.x;
+            const nextY = axis === 'y' ? position.y + step : position.y;
+            if (options.canAstronautOccupy && !options.canAstronautOccupy(nextX, nextY)) {
+                return false;
+            }
+            position.x = nextX;
+            position.y = nextY;
+        }
+        return true;
+    }
+
     function resolveAstronautCreatureCollisions() {
         for (const creature of options.getCreatureEntities()) {
             const astronautRect = options.getAstronautRect();
@@ -43,10 +64,15 @@ export function createGameCombatHelpers(options: GameCombatHelpersOptions) {
             const creatureRect = options.getEntityRect(creature.x, creature.y, bounds);
             const overlapX = Math.min(astronautRect.right, creatureRect.right) - Math.max(astronautRect.left, creatureRect.left) + 1;
             const overlapY = Math.min(astronautRect.bottom, creatureRect.bottom) - Math.max(astronautRect.top, creatureRect.top) + 1;
-            if (overlapX <= 0 || overlapY <= 0) {
+            const birdHeadGap = astronautRect.top - creatureRect.bottom;
+            const birdHeadTouch = isBirdCollision(creature) &&
+                overlapX > 0 &&
+                birdHeadGap >= 0 &&
+                birdHeadGap <= BIRD_HEAD_CONTACT_DISTANCE;
+            if (overlapX <= 0 || (overlapY <= 0 && !birdHeadTouch)) {
                 continue;
             }
-            if (isBirdCollision(creature)) {
+            if (isBirdCollision(creature) && !birdHeadTouch) {
                 const astronautRendered = options.getAstronautRenderedWorldSprite();
                 const creatureRendered = options.getRenderedEntityWorldSprite(creature);
                 if (!options.doRenderedSpritesOverlap(astronautRendered, creatureRendered)) {
@@ -62,19 +88,38 @@ export function createGameCombatHelpers(options: GameCombatHelpersOptions) {
             const creatureCenterY = (creatureRect.top + creatureRect.bottom) / 2;
 
             if (creature.pushAstronaut && creature.collision) {
-                const resolveHorizontally = Math.abs(creatureDeltaX) >= Math.abs(creatureDeltaY) || overlapX <= overlapY;
-                if (resolveHorizontally) {
-                    const horizontalDirection = creatureDeltaX !== 0
-                        ? Math.sign(creatureDeltaX)
-                        : astronautCenterX < creatureCenterX ? -1 : 1;
-                    options.gameState.astronaut.position.x += horizontalDirection * Math.ceil(overlapX);
-                    options.astronaut.velocity.x = 0;
+                if (birdHeadTouch) {
+                    const pushedFully = pushAstronaut('y', birdHeadGap + 1);
+                    options.astronaut.velocity.y = pushedFully
+                        ? Math.max(BIRD_CONTACT_KNOCKBACK_SPEED, options.astronaut.velocity.y)
+                        : 0;
+                } else if (
+                    isBirdCollision(creature)
+                        ? overlapX <= overlapY
+                        : Math.abs(creatureDeltaX) >= Math.abs(creatureDeltaY) || overlapX <= overlapY
+                ) {
+                    const horizontalDirection = isBirdCollision(creature)
+                        ? Math.sign(astronautCenterX - creatureCenterX) || -Math.sign(options.astronaut.velocity.x) || 1
+                        : creatureDeltaX !== 0
+                            ? Math.sign(creatureDeltaX)
+                            : astronautCenterX < creatureCenterX ? -1 : 1;
+                    const pushedFully = pushAstronaut('x', horizontalDirection * Math.ceil(overlapX));
+                    options.astronaut.velocity.x = isBirdCollision(creature) && pushedFully
+                        ? horizontalDirection * Math.max(BIRD_CONTACT_KNOCKBACK_SPEED, Math.abs(options.astronaut.velocity.x))
+                        : 0;
+                    if (isBirdCollision(creature) && pushedFully) {
+                        options.applyAstronautStumble?.(horizontalDirection, BIRD_CONTACT_KNOCKBACK_SPEED);
+                    }
                 } else {
-                    const verticalDirection = creatureDeltaY !== 0
-                        ? Math.sign(creatureDeltaY)
-                        : astronautCenterY < creatureCenterY ? -1 : 1;
-                    options.gameState.astronaut.position.y += verticalDirection * Math.ceil(overlapY);
-                    options.astronaut.velocity.y = 0;
+                    const verticalDirection = isBirdCollision(creature)
+                        ? Math.sign(astronautCenterY - creatureCenterY) || -Math.sign(options.astronaut.velocity.y) || 1
+                        : creatureDeltaY !== 0
+                            ? Math.sign(creatureDeltaY)
+                            : astronautCenterY < creatureCenterY ? -1 : 1;
+                    const pushedFully = pushAstronaut('y', verticalDirection * Math.ceil(overlapY));
+                    options.astronaut.velocity.y = isBirdCollision(creature) && pushedFully
+                        ? verticalDirection * Math.max(BIRD_CONTACT_KNOCKBACK_SPEED, Math.abs(options.astronaut.velocity.y))
+                        : 0;
                 }
             }
 

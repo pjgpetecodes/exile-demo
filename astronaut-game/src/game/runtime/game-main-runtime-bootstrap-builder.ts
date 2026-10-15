@@ -57,6 +57,7 @@ export function createGameMainRuntimeBootstrapFromContext(context: ValuePack) {
             getRenderedEntityWorldSprite: context.getRenderedEntityWorldSprite
         },
         creatures: {
+            getCollectableEntities: context.getCollectableEntities,
             getChunkActivityForEntityPosition: context.getChunkActivityForEntityPosition,
             shouldRunChunkBandUpdate: context.shouldRunChunkBandUpdate,
             creatureChunkCadence: context.creatureChunkCadence,
@@ -68,7 +69,6 @@ export function createGameMainRuntimeBootstrapFromContext(context: ValuePack) {
             getCreatureTargetPoint: context.getCreatureTargetPoint,
             birdTrackReleaseRangeMultiplier: context.birdTrackReleaseRangeMultiplier,
             birdTrackReleaseRangePadding: context.birdTrackReleaseRangePadding,
-            birdAvoidanceVerticalThreshold: context.birdAvoidanceVerticalThreshold,
             clampToRange: context.clampToRange,
             moveCreatureWithEnvironmentCollisions: context.moveCreatureWithEnvironmentCollisions,
             getNextCreatureFireAt: context.getNextCreatureFireAt,

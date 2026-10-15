@@ -9,7 +9,7 @@ import {
     WindGlobalSettings
 } from '../types/index.js';
 import {
-    astronaut, resetAstronaut, resetAstronautToPosition, flipAstronaut, handleAstronautMovement, applyLandingMomentum, getAstronautCollisionOffsets, setAstronautCollisionProfile, canAstronautFitCollisionProfile,
+    astronaut, resetAstronaut, resetAstronautToPosition, flipAstronaut, handleAstronautMovement, applyLandingMomentum, applyAstronautStumble, getAstronautCollisionOffsets, setAstronautCollisionProfile, canAstronautFitCollisionProfile,
     getAstronautStartPosition, setAstronautStartPosition,
     walkSpeed, facingLeft, upPressed, downPressed, leftPressed, rightPressed,
     checkAstronautCollisions
@@ -261,7 +261,6 @@ const WASP_ATTACK_ANIMATION_FRAME_DURATION_MS = 68;
 const WASP_RETURN_ANIMATION_FRAME_DURATION_MS = 118;
 const BIRD_TRACK_RELEASE_RANGE_MULTIPLIER = 1.75;
 const BIRD_TRACK_RELEASE_RANGE_PADDING = 96;
-const BIRD_AVOIDANCE_VERTICAL_THRESHOLD = 12;
 const HELD_COLLECTABLE_HAND_INSET = 4 * SPRITE_SCALE;
 const HELD_COLLECTABLE_HAND_OVERLAP = -12;
 const MUSHROOM_AMBIENT_RANGE = 360;
@@ -1384,6 +1383,17 @@ const {
     getSoundEnabled,
     creatureManifestSounds,
     getEntityCenter,
+    applyAstronautStumble,
+    canAstronautOccupy: (x, y) => canAstronautFitCollisionProfile(
+        activeAstronautCollisionProfile,
+        x,
+        y,
+        spriteMap,
+        SPRITE_SCALE,
+        mapBlocks,
+        doorEntities,
+        buttonEntities
+    ),
     gameAudio
 });
 
@@ -1455,7 +1465,6 @@ const sharedRuntimeContext = createSharedRuntimeContextFromState({
     getCreatureTargetPoint,
     birdTrackReleaseRangeMultiplier: BIRD_TRACK_RELEASE_RANGE_MULTIPLIER,
     birdTrackReleaseRangePadding: BIRD_TRACK_RELEASE_RANGE_PADDING,
-    birdAvoidanceVerticalThreshold: BIRD_AVOIDANCE_VERTICAL_THRESHOLD,
     clampToRange,
     moveCreatureWithEnvironmentCollisions,
     getNextCreatureFireAt,

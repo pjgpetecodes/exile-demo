@@ -67,7 +67,6 @@ export function createSharedRuntimeContextFromState(state: ValuePack) {
         getCreatureTargetPoint: state.getCreatureTargetPoint,
         birdTrackReleaseRangeMultiplier: state.birdTrackReleaseRangeMultiplier,
         birdTrackReleaseRangePadding: state.birdTrackReleaseRangePadding,
-        birdAvoidanceVerticalThreshold: state.birdAvoidanceVerticalThreshold,
         clampToRange: state.clampToRange,
         moveCreatureWithEnvironmentCollisions: state.moveCreatureWithEnvironmentCollisions,
         getNextCreatureFireAt: state.getNextCreatureFireAt,

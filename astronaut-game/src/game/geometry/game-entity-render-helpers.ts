@@ -97,7 +97,7 @@ export function createGameEntityRenderHelpers(options: RenderHelperOptions) {
         const previewSheet = options.getEntityPreviewSheet(entity as { palette?: number });
 
         if (
-            Number.isFinite(entity.angleDegrees) &&
+            (Number.isFinite(entity.angleDegrees) || /^bird/i.test(entity.type)) &&
             spriteRect &&
             previewSheet &&
             entity.creatureProjectile?.kind !== 'bullet'

@@ -35,7 +35,6 @@ export function initializeGameEntityRuntimes(options: RuntimeInitializerOptions)
         getCreatureTargetPoint: options.getCreatureTargetPoint,
         birdTrackReleaseRangeMultiplier: options.birdTrackReleaseRangeMultiplier,
         birdTrackReleaseRangePadding: options.birdTrackReleaseRangePadding,
-        birdAvoidanceVerticalThreshold: options.birdAvoidanceVerticalThreshold,
         clampToRange: options.clampToRange,
         movementSettings: options.creatureRuntimeMovementSettings,
         moveCreatureWithEnvironmentCollisions: options.moveCreatureWithEnvironmentCollisions,
@@ -51,6 +50,7 @@ export function initializeGameEntityRuntimes(options: RuntimeInitializerOptions)
             proxy.ambientSoundKey = undefined;
         },
         getMapBlocks: options.getMapBlocks,
+        getCollectableEntities: options.getCollectableEntities,
         spawnWaspFromNest: options.spawnWaspFromNest,
         gameAudio: options.gameAudio
     });

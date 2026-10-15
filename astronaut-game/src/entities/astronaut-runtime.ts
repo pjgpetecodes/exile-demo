@@ -101,6 +101,15 @@ export function applyLandingMomentum(horizontalVelocity: number) {
     facingLeft = horizontalVelocity < 0;
 }
 
+// A grounded astronaut shoved sideways stumbles using the normal walk momentum (and walk animation).
+export function applyAstronautStumble(direction: number, speed: number) {
+    if (!astronaut.isLanded || direction === 0) {
+        return;
+    }
+    walkSpeed = Math.min(Math.max(walkSpeed, speed), MOVEMENT_SETTINGS.walkMaxSpeed);
+    facingLeft = direction < 0;
+}
+
 // --- Input-driven movement integration ---
 // Main movement handler (call this from game.ts)
 export function handleAstronautMovement(
